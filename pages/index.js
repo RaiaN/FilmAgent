@@ -394,7 +394,7 @@ export default function Home() {
                                 <img src={msg.image} alt="Uploaded" style={{ maxWidth: '100%', borderRadius: 4, maxHeight: 200 }} />
                             </div>
                         )}
-                        <div style={{ whiteSpace: 'pre-wrap' }}>
+                        <div style={{ whiteSpace: msg.role === 'user' ? 'pre-wrap' : 'normal' }}>
                             {msg.role === 'user' ? (
                                 msg.content
                             ) : (

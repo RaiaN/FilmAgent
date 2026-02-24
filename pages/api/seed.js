@@ -4,7 +4,7 @@ async function seedHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl } = req.body;
+  const { prompt, apiKey, modelId, baseUrl, systemPrompt } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -28,7 +28,7 @@ async function seedHandler(req, res) {
       body: JSON.stringify({
         model: resolvedModelId,
         messages: [
-          { role: 'system', content: 'You are a helpful assistant.' },
+          { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
           { role: 'user', content: prompt },
         ],
       }),

@@ -4,7 +4,7 @@ async function seedreamHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl } = req.body;
+  const { prompt, apiKey, modelId, baseUrl, size, watermark, responseFormat, image, sequential_image_generation } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -19,19 +19,28 @@ async function seedreamHandler(req, res) {
   const resolvedModelId = modelId || process.env.SEEDREAM_MODEL_ID || 'seedream-4-5-251128';
 
   try {
+    const payload = {
+      model: resolvedModelId,
+      prompt,
+      size: size || '2K',
+      watermark: watermark ?? false,
+      response_format: responseFormat || 'url',
+    };
+
+    if (image) {
+      payload.image = image;
+    }
+    if (sequential_image_generation) {
+      payload.sequential_image_generation = sequential_image_generation;
+    }
+
     const response = await fetch(`${endpoint}/images/generations`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: resolvedModelId,
-        prompt,
-        size: '2K',
-        watermark: false,
-        response_format: 'url',
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -39,12 +48,15 @@ async function seedreamHandler(req, res) {
       return res.status(response.status).json({ error: 'Seedream request failed', details: data });
     }
 
-    const imageUrl = data?.data?.[0]?.url;
-    if (!imageUrl) {
+    if (!data?.data || data.data.length === 0) {
       return res.status(500).json({ error: 'No image returned', details: data });
     }
 
-    return res.status(200).json({ imageUrl });
+    // Return all images
+    return res.status(200).json({ 
+      images: data.data, 
+      imageUrl: data.data[0].url || null 
+    });
   } catch (error) {
     return res.status(500).json({ error: 'Request failed', details: error.message });
   }

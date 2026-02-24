@@ -1,35 +1,126 @@
 import Head from 'next/head';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-const tabs = [
-  { id: 'seedream', label: 'Seedream Image' },
-  { id: 'seedance', label: 'Seedance Video' },
-  { id: 'seed', label: 'Seed Text' },
-];
+const baseSchemas = {
+  seedream: {
+    id: 'seedream',
+    name: 'Seedream Image',
+    description: 'Seedream images/generations request schema (API 1:1).',
+    fields: [
+      {
+        key: 'model',
+        label: 'Model',
+        type: 'enum',
+        options: ['seedream-4-5-251128', 'seedream-4-0-250828', 'seedream-5-0-260128'],
+        defaultValue: 'seedream-4-5-251128',
+        description: 'Seedream model id used for generation.',
+      },
+      {
+        key: 'prompt',
+        label: 'Prompt',
+        type: 'text',
+        required: true,
+        description: 'Primary text prompt for image generation. Max ~600 words.',
+      },
+      {
+        key: 'image',
+        label: 'Reference Images',
+        type: 'image-list',
+        description: 'Optional reference images (URL or Base64). Up to 14 images for multi-image blending.',
+      },
+      {
+        key: 'size',
+        label: 'Size',
+        type: 'enum',
+        options: ['2K', '4K', 'Custom'],
+        defaultValue: '2K',
+        description: 'Output resolution. 2K=2048x2048 approx. Custom allows specific WxH.',
+      },
+      {
+        key: 'width',
+        label: 'Width (px)',
+        type: 'number',
+        hidden: true, // Only show if size is Custom
+        description: 'Custom width in pixels.',
+      },
+      {
+        key: 'height',
+        label: 'Height (px)',
+        type: 'number',
+        hidden: true, // Only show if size is Custom
+        description: 'Custom height in pixels.',
+      },
+      {
+        key: 'watermark',
+        label: 'Watermark',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Whether to apply a watermark to the output.',
+      },
+      {
+        key: 'sequential_image_generation',
+        label: 'Sequential Generation',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Generate multiple related images in sequence (auto).',
+      },
+      {
+        key: 'response_format',
+        label: 'Response Format',
+        type: 'enum',
+        options: ['url', 'b64_json'],
+        defaultValue: 'url',
+        description: 'Output format for the generated image.',
+      },
+    ],
+    defaults: {
+      model: 'seedream-4-5-251128',
+      prompt: 'A hero product shot of a premium skincare bottle on a minimal studio set.',
+      size: '2K',
+      width: 2048,
+      height: 2048,
+      image: [],
+      watermark: false,
+      sequential_image_generation: false,
+      response_format: 'url',
+    },
+  },
+};
 
 const apiKeyStorageKey = 'modelark_api_key';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState(tabs[0].id);
   const [apiKey, setApiKey] = useState('');
   const [apiKeyStatus, setApiKeyStatus] = useState('');
   const [apiKeyStatusType, setApiKeyStatusType] = useState('');
 
-  const [seedreamPrompt, setSeedreamPrompt] = useState('A cozy reading nook with warm sunlight');
+  const [activeModelId] = useState('seedream');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+
+  const baseSchema = baseSchemas[activeModelId];
+  // uiSchema is now static/default matching baseSchema
+  const [uiSchema, setUiSchema] = useState({
+    title: 'ModelArk StarterKit',
+    description: '',
+    fields: baseSchema.fields,
+    defaults: baseSchema.defaults,
+  });
+  const [formValues, setFormValues] = useState(baseSchema.defaults);
+  
+  // Removed dynamic builder states
+  
+  const [showRequestOutput, setShowRequestOutput] = useState(false);
+  const [lastRequestPayload, setLastRequestPayload] = useState(null);
+  const [lastResponsePayload, setLastResponsePayload] = useState(null);
+
   const [seedreamLoading, setSeedreamLoading] = useState(false);
   const [seedreamResult, setSeedreamResult] = useState(null);
-
-  const [seedancePrompt, setSeedancePrompt] = useState('A cinematic shot of a city skyline at night');
-  const [seedanceLoading, setSeedanceLoading] = useState(false);
-  const [seedanceTaskId, setSeedanceTaskId] = useState('');
-  const [seedanceStatus, setSeedanceStatus] = useState(null);
-  const [seedanceVideoUrl, setSeedanceVideoUrl] = useState('');
-  const [seedancePolling, setSeedancePolling] = useState(false);
-  const seedancePollRef = useRef(null);
-
-  const [seedPrompt, setSeedPrompt] = useState('Write a friendly welcome message for new users.');
-  const [seedLoading, setSeedLoading] = useState(false);
-  const [seedResult, setSeedResult] = useState(null);
+  
+  const chatEndRef = useRef(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -40,12 +131,32 @@ export default function Home() {
       setApiKeyStatusType('success');
     }
   }, []);
-
-  useEffect(() => () => {
-    if (seedancePollRef.current) clearInterval(seedancePollRef.current);
-  }, []);
+  
+  useEffect(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory]);
 
   const canRun = useMemo(() => apiKey.trim().length > 0, [apiKey]);
+
+  useEffect(() => {
+    // Reactive visibility logic
+    if (activeModelId === 'seedream') {
+      const isCustomSize = formValues.size === 'Custom';
+      setUiSchema((prev) => {
+        const nextFields = prev.fields.map((f) => {
+          if (f.key === 'width' || f.key === 'height') {
+            return { ...f, hidden: !isCustomSize };
+          }
+          return f;
+        });
+        // Check if actually changed to avoid loop
+        if (JSON.stringify(nextFields) !== JSON.stringify(prev.fields)) {
+          return { ...prev, fields: nextFields };
+        }
+        return prev;
+      });
+    }
+  }, [formValues.size, activeModelId]);
 
   const handleSaveApiKey = () => {
     if (!apiKey.trim()) {
@@ -58,32 +169,73 @@ export default function Home() {
     setApiKeyStatusType('success');
   };
 
-  const extractVideoUrl = (data) => {
-    const candidates = [
-      data?.output?.video?.url,
-      data?.output?.url,
-      data?.video?.url,
-      data?.result?.url,
-      data?.outputs?.[0]?.url,
-      data?.data?.[0]?.url,
-      data?.content?.[0]?.url,
-      data?.content?.[0]?.video_url,
-      data?.content?.[0]?.video?.url,
-    ];
-    return candidates.find(Boolean) || '';
+  // Removed buildUiFromPrompt, extractJsonText, applyOverrideObject
+
+  const handleChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !canRun) return;
+
+    const userMessage = { role: 'user', content: chatInput };
+    setChatHistory((prev) => [...prev, userMessage]);
+    setChatInput('');
+    setChatLoading(true);
+
+    try {
+      const systemPrompt = `You are a helpful assistant for the ModelArk API. 
+      You have knowledge of the following API schema: ${JSON.stringify(baseSchema, null, 2)}.
+      Answer user questions about the API capabilities, parameters, and usage.`;
+
+      const response = await fetch('/api/seed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: chatInput,
+          apiKey: apiKey.trim(),
+          systemPrompt,
+        }),
+      });
+      const data = await response.json();
+      if (data.content) {
+        setChatHistory((prev) => [...prev, { role: 'assistant', content: data.content }]);
+      }
+    } catch (error) {
+      setChatHistory((prev) => [...prev, { role: 'assistant', content: 'Error: ' + error.message }]);
+    } finally {
+      setChatLoading(false);
+    }
   };
 
-  const normalizeStatus = (data) => {
-    const raw = data?.status || data?.state || data?.task_status;
-    return raw ? String(raw).toLowerCase() : '';
+  // Removed saveUiSchema, loadUiSchema, exportUiSchema, handleImportSchema
+
+  const handleImageUpload = async (e, fieldKey) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+
+    const promises = files.map((file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    });
+
+    try {
+      const base64s = await Promise.all(promises);
+      setFormValues((prev) => {
+        const currentImages = prev[fieldKey] || [];
+        return { ...prev, [fieldKey]: [...currentImages, ...base64s] };
+      });
+    } catch (error) {
+      console.error('Image upload failed', error);
+    }
   };
 
-  const isCompletedStatus = (data) => {
-    const status = normalizeStatus(data);
-    if (!status) return false;
-    return ['succeeded', 'success', 'failed', 'error', 'completed', 'complete'].some((value) =>
-      status.includes(value)
-    );
+  const removeImage = (fieldKey, index) => {
+    setFormValues((prev) => {
+      const currentImages = prev[fieldKey] || [];
+      return { ...prev, [fieldKey]: currentImages.filter((_, i) => i !== index) };
+    });
   };
 
   const handleSeedreamSubmit = async (event) => {
@@ -95,98 +247,68 @@ export default function Home() {
     setSeedreamLoading(true);
     setSeedreamResult(null);
     try {
+      const composedPrompt = formValues.prompt;
+      
+      // Construct payload based on strict schema
+      const requestBody = {
+        model: formValues.model,
+        prompt: composedPrompt,
+        watermark: formValues.watermark,
+        response_format: formValues.response_format,
+      };
+
+      // Handle Size
+      if (formValues.size === 'Custom') {
+        // Size must be WxH string e.g. "2048x2048"
+        if (formValues.width && formValues.height) {
+           requestBody.size = `${formValues.width}x${formValues.height}`;
+        } else {
+           // Fallback or error? defaulting to 2K if missing
+           requestBody.size = '2K'; 
+        }
+      } else {
+        requestBody.size = formValues.size;
+      }
+
+      // Handle Images
+      if (formValues.image && formValues.image.length > 0) {
+        // API expects "image" as string or array
+        // If single image, can be string. If multiple, array.
+        // We will always send array if > 1, or string if == 1? 
+        // Docs say: "image string/array".
+        if (formValues.image.length === 1) {
+            requestBody.image = formValues.image[0];
+        } else {
+            requestBody.image = formValues.image;
+        }
+      }
+
+      if (formValues.sequential_image_generation) {
+        requestBody.sequential_image_generation = 'auto';
+      }
+
       const response = await fetch('/api/seedream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: seedreamPrompt, apiKey: apiKey.trim() }),
+        body: JSON.stringify({
+          ...requestBody,
+          apiKey: apiKey.trim(),
+        }),
       });
       const data = await response.json();
       setSeedreamResult(data);
+      if (showRequestOutput) {
+        const debugBody = { ...requestBody, apiKey: 'REDACTED' };
+        setLastRequestPayload({
+          endpoint: '/api/seedream',
+          body: debugBody,
+        });
+        setLastResponsePayload(data);
+      }
     } catch (error) {
       setSeedreamResult({ error: 'Request failed', details: error.message });
     } finally {
       setSeedreamLoading(false);
-    }
-  };
-
-  const pollSeedanceStatus = async (taskId) => {
-    if (!taskId || !apiKey.trim()) return;
-    try {
-      const response = await fetch(
-        `/api/seedance-status?taskId=${encodeURIComponent(taskId)}&apiKey=${encodeURIComponent(apiKey.trim())}`
-      );
-      const data = await response.json();
-      setSeedanceStatus(data);
-      const video = extractVideoUrl(data);
-      if (video) setSeedanceVideoUrl(video);
-      if (isCompletedStatus(data)) {
-        setSeedancePolling(false);
-        if (seedancePollRef.current) clearInterval(seedancePollRef.current);
-      }
-    } catch (error) {
-      setSeedanceStatus({ error: 'Status check failed', details: error.message });
-      setSeedancePolling(false);
-      if (seedancePollRef.current) clearInterval(seedancePollRef.current);
-    }
-  };
-
-  const startSeedancePolling = (taskId) => {
-    if (seedancePollRef.current) clearInterval(seedancePollRef.current);
-    setSeedancePolling(true);
-    seedancePollRef.current = setInterval(() => pollSeedanceStatus(taskId), 6000);
-    pollSeedanceStatus(taskId);
-  };
-
-  const handleSeedanceSubmit = async (event) => {
-    event.preventDefault();
-    if (!canRun) {
-      setSeedanceStatus({ error: 'Please add your API key first.' });
-      return;
-    }
-    setSeedanceLoading(true);
-    setSeedanceStatus(null);
-    setSeedanceTaskId('');
-    setSeedanceVideoUrl('');
-    try {
-      const response = await fetch('/api/seedance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: seedancePrompt, apiKey: apiKey.trim() }),
-      });
-      const data = await response.json();
-      if (data.taskId) {
-        setSeedanceTaskId(data.taskId);
-        startSeedancePolling(data.taskId);
-      } else {
-        setSeedanceStatus(data);
-      }
-    } catch (error) {
-      setSeedanceStatus({ error: 'Request failed', details: error.message });
-    } finally {
-      setSeedanceLoading(false);
-    }
-  };
-
-  const handleSeedSubmit = async (event) => {
-    event.preventDefault();
-    if (!canRun) {
-      setSeedResult({ error: 'Please add your API key first.' });
-      return;
-    }
-    setSeedLoading(true);
-    setSeedResult(null);
-    try {
-      const response = await fetch('/api/seed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: seedPrompt, apiKey: apiKey.trim() }),
-      });
-      const data = await response.json();
-      setSeedResult(data);
-    } catch (error) {
-      setSeedResult({ error: 'Request failed', details: error.message });
-    } finally {
-      setSeedLoading(false);
     }
   };
 
@@ -195,177 +317,293 @@ export default function Home() {
       <Head>
         <title>ModelArk Starter Kit</title>
       </Head>
-      <main className="page">
-        <header className="header">
-          <h1>ModelArk Starter Kit</h1>
-          <p className="subtitle">Paste an API key and run Seedream, Seedance, or Seed in seconds.</p>
-        </header>
-
-        <section className="card">
-          <h2>1. Add your API key</h2>
-          <p className="helper">This key is saved only in your browser.</p>
-          <div className="row">
-            <div className="field">
-              <label htmlFor="api-key">ModelArk API Key</label>
-              <input
-                id="api-key"
-                type="password"
-                value={apiKey}
-                onChange={(event) => {
-                  setApiKey(event.target.value);
-                  setApiKeyStatus('');
-                  setApiKeyStatusType('');
-                }}
-                placeholder="Paste your API key"
-              />
+      <div className="app-container">
+        {/* LEFT TOOLBAR */}
+        <aside className="toolbar">
+            <div className="toolbar-top">
+                <div className="toolbar-icon" title="Settings" onClick={() => setIsSettingsOpen(!isSettingsOpen)}>
+                    <span style={{ fontSize: '1.5rem' }}>⚙️</span>
+                </div>
             </div>
-            <div className="actions" style={{ alignItems: 'flex-end' }}>
-              <button type="button" onClick={handleSaveApiKey}>
-                Save key
-              </button>
+        </aside>
+
+        {/* SETTINGS PANEL (Pop-out) */}
+        {isSettingsOpen && (
+            <div className="settings-panel">
+                <div className="settings-header">
+                    <h3>Settings</h3>
+                    <button className="close-btn" onClick={() => setIsSettingsOpen(false)}>×</button>
+                </div>
+                <div className="settings-content">
+                    <div className="field">
+                        <label htmlFor="api-key">API Key</label>
+                        <input
+                            id="api-key"
+                            type="password"
+                            value={apiKey}
+                            onChange={(event) => {
+                                setApiKey(event.target.value);
+                                setApiKeyStatus('');
+                                setApiKeyStatusType('');
+                            }}
+                            placeholder="Paste key..."
+                        />
+                    </div>
+                    <div className="actions" style={{ marginTop: '0.5rem' }}>
+                        <button type="button" onClick={handleSaveApiKey} className="small-btn">
+                            Save
+                        </button>
+                    </div>
+                    {apiKeyStatus && <div className={`status ${apiKeyStatusType}`}>{apiKeyStatus}</div>}
+
+                    <hr className="divider" />
+
+                    <div className="toggle-row">
+                        <label className="toggle">
+                        <input
+                            type="checkbox"
+                            checked={showRequestOutput}
+                            onChange={(event) => setShowRequestOutput(event.target.checked)}
+                        />
+                        <span>Show request output</span>
+                        </label>
+                    </div>
+                </div>
             </div>
-          </div>
-          {apiKeyStatus && <div className={`status ${apiKeyStatusType}`}>{apiKeyStatus}</div>}
-        </section>
+        )}
 
-        <section className="card">
-          <div className="tabs">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={`tab ${activeTab === tab.id ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        {/* MAIN CONTENT AREA */}
+        <main className="main-content">
+            <header className="main-header">
+                <h1>{uiSchema.title}</h1>
+                <p className="subtitle">{uiSchema.description}</p>
+            </header>
 
-          {activeTab === 'seedream' && (
-            <form onSubmit={handleSeedreamSubmit}>
-              <div className="field">
-                <label htmlFor="seedream-prompt">Describe the image</label>
-                <textarea
-                  id="seedream-prompt"
-                  value={seedreamPrompt}
-                  onChange={(event) => setSeedreamPrompt(event.target.value)}
-                />
-              </div>
-              <div className="actions">
-                <button type="submit" disabled={seedreamLoading}>
-                  {seedreamLoading ? 'Generating...' : 'Generate image'}
-                </button>
-                <button type="button" className="secondary" onClick={() => setSeedreamPrompt('')}>
-                  Clear
-                </button>
-              </div>
-              {seedreamResult?.imageUrl && (
-                <>
-                  <img src={seedreamResult.imageUrl} alt="Seedream result" className="media" />
-                  <div className="actions">
-                    <a
-                      className="link-button secondary"
-                      href={seedreamResult.imageUrl}
-                      download="seedream-image.png"
-                    >
-                      Download image
-                    </a>
-                  </div>
-                </>
-              )}
-              {seedreamResult && !seedreamResult.imageUrl && (
-                <div className="result">{JSON.stringify(seedreamResult, null, 2)}</div>
-              )}
-            </form>
-          )}
+            <div className="card">
+                <form onSubmit={handleSeedreamSubmit}>
+                    <div className="field-grid">
+                    {uiSchema.fields.filter((field) => !field.hidden).map((field) => {
+                        const value = formValues[field.key] ?? '';
+                        
+                        if (field.type === 'enum') {
+                            return (
+                                <div className="field" key={field.key}>
+                                <label htmlFor={`field-${field.key}`}>{field.label}</label>
+                                <select
+                                    id={`field-${field.key}`}
+                                    value={value}
+                                    disabled={field.readOnly}
+                                    onChange={(event) =>
+                                    setFormValues((prev) => ({ ...prev, [field.key]: event.target.value }))
+                                    }
+                                >
+                                    {field.options.map((option) => (
+                                    <option key={option} value={option}>
+                                        {option}
+                                    </option>
+                                    ))}
+                                </select>
+                                </div>
+                            );
+                        }
+                        if (field.type === 'image-list') {
+                            return (
+                                <div className="field full-width" key={field.key}>
+                                <label>{field.label}</label>
+                                <div className="image-drop-area">
+                                    <div className="image-preview-row">
+                                        {(value || []).map((img, idx) => (
+                                        <div key={idx} className="image-preview-item">
+                                            <img src={img} alt={`ref-${idx}`} />
+                                            <button
+                                            type="button"
+                                            className="remove-btn"
+                                            onClick={() => removeImage(field.key, idx)}
+                                            >
+                                            ×
+                                            </button>
+                                        </div>
+                                        ))}
+                                    </div>
+                                    <div className="file-input-wrapper">
+                                        <span>Click to upload images (or drag here)</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            multiple
+                                            onChange={(e) => handleImageUpload(e, field.key)}
+                                        />
+                                    </div>
+                                </div>
+                                <p className="helper">{field.description}</p>
+                                </div>
+                            );
+                        }
+                        if (field.type === 'number') {
+                        return (
+                            <div className="field" key={field.key}>
+                            <label htmlFor={`field-${field.key}`}>{field.label}</label>
+                            <input
+                                id={`field-${field.key}`}
+                                type="number"
+                                value={value}
+                                disabled={field.readOnly}
+                                onChange={(event) =>
+                                setFormValues((prev) => ({
+                                    ...prev,
+                                    [field.key]: Number(event.target.value),
+                                }))
+                                }
+                            />
+                            <p className="helper">{field.description}</p>
+                            </div>
+                        );
+                        }
+                        if (field.type === 'boolean') {
+                        return (
+                            <div className="field" key={field.key}>
+                            <label htmlFor={`field-${field.key}`}>{field.label}</label>
+                            <input
+                                id={`field-${field.key}`}
+                                type="checkbox"
+                                checked={Boolean(value)}
+                                disabled={field.readOnly}
+                                onChange={(event) =>
+                                setFormValues((prev) => ({ ...prev, [field.key]: event.target.checked }))
+                                }
+                            />
+                            </div>
+                        );
+                        }
+                        if (field.key === 'prompt') {
+                        return (
+                            <div className="field full-width" key={field.key}>
+                            <label htmlFor={`field-${field.key}`}>{field.label}</label>
+                            <textarea
+                                id={`field-${field.key}`}
+                                value={value}
+                                onChange={(event) =>
+                                setFormValues((prev) => ({ ...prev, [field.key]: event.target.value }))
+                                }
+                            />
+                            </div>
+                        );
+                        }
+                        return (
+                        <div className="field" key={field.key}>
+                            <label htmlFor={`field-${field.key}`}>{field.label}</label>
+                            <input
+                            id={`field-${field.key}`}
+                            value={value}
+                            disabled={field.readOnly}
+                            onChange={(event) =>
+                                setFormValues((prev) => ({ ...prev, [field.key]: event.target.value }))
+                            }
+                            />
+                        </div>
+                        );
+                    })}
+                    </div>
+                    
+                    <div className="actions" style={{ marginTop: '2rem' }}>
+                        <button type="submit" disabled={seedreamLoading} className="primary-btn-lg">
+                            {seedreamLoading ? 'Generating...' : 'Generate Media'}
+                        </button>
+                    </div>
 
-          {activeTab === 'seedance' && (
-            <form onSubmit={handleSeedanceSubmit}>
-              <div className="field">
-                <label htmlFor="seedance-prompt">Describe the video</label>
-                <textarea
-                  id="seedance-prompt"
-                  value={seedancePrompt}
-                  onChange={(event) => setSeedancePrompt(event.target.value)}
-                />
-              </div>
-              <div className="actions">
-                <button type="submit" disabled={seedanceLoading}>
-                  {seedanceLoading ? 'Creating task...' : 'Generate video'}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => seedanceTaskId && pollSeedanceStatus(seedanceTaskId)}
-                  disabled={!seedanceTaskId || seedancePolling}
-                >
-                  Check status
-                </button>
-              </div>
-              {seedanceTaskId && (
-                <p className="helper">Task ID: {seedanceTaskId}</p>
-              )}
-              {seedancePolling && <p className="helper">Checking status every few seconds…</p>}
-              {seedanceVideoUrl && (
-                <>
-                  <video className="media" controls src={seedanceVideoUrl} />
-                  <div className="actions">
-                    <a
-                      className="link-button secondary"
-                      href={seedanceVideoUrl}
-                      download="seedance-video.mp4"
-                    >
-                      Download video
-                    </a>
-                  </div>
-                </>
-              )}
-              {seedanceStatus && (
-                <div className="result">{JSON.stringify(seedanceStatus, null, 2)}</div>
-              )}
-            </form>
-          )}
+                    {seedreamResult?.images ? (
+                        <div className="result-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem', marginTop: '2rem' }}>
+                            {seedreamResult.images.map((img, idx) => {
+                            const src = img.url || `data:image/png;base64,${img.b64_json}`;
+                            return (
+                                <div key={idx} className="result-item">
+                                <img src={src} alt={`Result ${idx + 1}`} className="media" />
+                                <div className="actions" style={{ marginTop: '0.5rem' }}>
+                                    <a className="link-button secondary small" href={src} download={`result-${idx + 1}.png`}>
+                                    Download
+                                    </a>
+                                </div>
+                                </div>
+                            );
+                            })}
+                        </div>
+                    ) : seedreamResult?.imageUrl ? (
+                    <>
+                        <img src={seedreamResult.imageUrl} alt="Result" className="media" />
+                        <div className="actions" style={{ marginTop: '0.5rem' }}>
+                        <a
+                            className="link-button secondary"
+                            href={seedreamResult.imageUrl}
+                            download="result.png"
+                        >
+                            Download
+                        </a>
+                        </div>
+                    </>
+                    ) : null}
+                    
+                    {seedreamResult && !seedreamResult.imageUrl && !seedreamResult.images && (
+                        <div className="result">{JSON.stringify(seedreamResult, null, 2)}</div>
+                    )}
+                </form>
+                
+                {showRequestOutput && (lastRequestPayload || lastResponsePayload) && (
+                    <div className="debug-panel">
+                    {lastRequestPayload && (
+                        <div className="result">
+                        <strong>Request:</strong>
+                        {JSON.stringify(lastRequestPayload, null, 2)}
+                        </div>
+                    )}
+                    {lastResponsePayload && (
+                        <div className="result">
+                        <strong>Response:</strong>
+                        {JSON.stringify(lastResponsePayload, null, 2)}
+                        </div>
+                    )}
+                    </div>
+                )}
+            </div>
+        </main>
 
-          {activeTab === 'seed' && (
-            <form onSubmit={handleSeedSubmit}>
-              <div className="field">
-                <label htmlFor="seed-prompt">Ask Seed</label>
-                <textarea
-                  id="seed-prompt"
-                  value={seedPrompt}
-                  onChange={(event) => setSeedPrompt(event.target.value)}
-                />
-              </div>
-              <div className="actions">
-                <button type="submit" disabled={seedLoading}>
-                  {seedLoading ? 'Generating...' : 'Generate text'}
-                </button>
-                <button type="button" className="secondary" onClick={() => setSeedPrompt('')}>
-                  Clear
-                </button>
-              </div>
-              {seedResult?.content && (
-                <>
-                  <div className="result">{seedResult.content}</div>
-                  <div className="actions">
-                    <a
-                      className="link-button secondary"
-                      href={`data:text/plain;charset=utf-8,${encodeURIComponent(seedResult.content)}`}
-                      download="seed-result.txt"
-                    >
-                      Download text
-                    </a>
-                  </div>
-                </>
-              )}
-              {seedResult && !seedResult.content && (
-                <div className="result">{JSON.stringify(seedResult, null, 2)}</div>
-              )}
-            </form>
-          )}
-        </section>
-      </main>
+        {/* RIGHT SIDEBAR (AI Assistant) */}
+        <aside className={`right-sidebar ${isAssistantOpen ? 'open' : 'closed'}`}>
+            <div className="right-sidebar-toggle" onClick={() => setIsAssistantOpen(!isAssistantOpen)}>
+                <span style={{ fontSize: '1.2rem' }}>{isAssistantOpen ? '→' : '←'}</span>
+                {!isAssistantOpen && <span className="vertical-text">AI Assistant</span>}
+            </div>
+            
+            {isAssistantOpen && (
+                <div className="right-sidebar-content">
+                    <div className="sidebar-header">
+                        <h3>AI Assistant</h3>
+                    </div>
+                    <div className="chat-container">
+                        <div className="chat-history">
+                            {chatHistory.map((msg, index) => (
+                            <div
+                                key={index}
+                                className={`chat-message ${msg.role}`}
+                            >
+                                <strong>{msg.role === 'user' ? 'You' : 'AI'}:</strong> {msg.content}
+                            </div>
+                            ))}
+                            <div ref={chatEndRef} />
+                        </div>
+                        <form onSubmit={handleChatSubmit} className="chat-input-form">
+                            <input
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                placeholder="Ask about API..."
+                                disabled={chatLoading}
+                            />
+                            <button type="submit" disabled={chatLoading}>Send</button>
+                        </form>
+                    </div>
+                </div>
+            )}
+        </aside>
+      </div>
     </>
   );
 }

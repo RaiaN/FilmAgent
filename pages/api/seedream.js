@@ -4,7 +4,11 @@ async function seedreamHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl, size, watermark, responseFormat, image, sequential_image_generation } = req.body;
+  const { 
+    prompt, apiKey, modelId, baseUrl, size, watermark, responseFormat, image, 
+    sequential_image_generation, sequential_image_generation_options,
+    optimize_prompt_options, output_format, guidance_scale, seed
+  } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -27,11 +31,34 @@ async function seedreamHandler(req, res) {
       response_format: responseFormat || 'url',
     };
 
-    if (image) {
-      payload.image = image;
-    }
+    if (image) payload.image = image;
+    
+    // Sequential Generation
     if (sequential_image_generation) {
       payload.sequential_image_generation = sequential_image_generation;
+      if (sequential_image_generation === 'auto' && sequential_image_generation_options) {
+        payload.sequential_image_generation_options = sequential_image_generation_options;
+      }
+    }
+
+    // Optimize Prompt (5.0/4.5/4.0)
+    if (optimize_prompt_options) {
+      payload.optimize_prompt_options = optimize_prompt_options;
+    }
+
+    // Output Format (5.0-lite only)
+    if (output_format) {
+      payload.output_format = output_format;
+    }
+
+    // Guidance Scale (3.0 only)
+    if (guidance_scale !== undefined && guidance_scale !== null) {
+      payload.guidance_scale = guidance_scale;
+    }
+
+    // Seed (3.0 only)
+    if (seed !== undefined && seed !== null) {
+      payload.seed = seed;
     }
 
     const response = await fetch(`${endpoint}/images/generations`, {

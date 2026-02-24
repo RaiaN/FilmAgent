@@ -1,100 +1,16 @@
 import Head from 'next/head';
 import { useEffect, useMemo, useRef, useState } from 'react';
-
-const baseSchemas = {
-  seedream: {
-    id: 'seedream',
-    name: 'Seedream Image',
-    description: 'Seedream images/generations request schema (API 1:1).',
-    fields: [
-      {
-        key: 'model',
-        label: 'Model',
-        type: 'enum',
-        options: ['seedream-4-5-251128', 'seedream-4-0-250828', 'seedream-5-0-260128'],
-        defaultValue: 'seedream-4-5-251128',
-        description: 'Seedream model id used for generation.',
-      },
-      {
-        key: 'prompt',
-        label: 'Prompt',
-        type: 'text',
-        required: true,
-        description: 'Primary text prompt for image generation. Max ~600 words.',
-      },
-      {
-        key: 'image',
-        label: 'Reference Images',
-        type: 'image-list',
-        description: 'Optional reference images (URL or Base64). Up to 14 images for multi-image blending.',
-      },
-      {
-        key: 'size',
-        label: 'Size',
-        type: 'enum',
-        options: ['2K', '4K', 'Custom'],
-        defaultValue: '2K',
-        description: 'Output resolution. 2K=2048x2048 approx. Custom allows specific WxH.',
-      },
-      {
-        key: 'width',
-        label: 'Width (px)',
-        type: 'number',
-        hidden: true, // Only show if size is Custom
-        description: 'Custom width in pixels.',
-      },
-      {
-        key: 'height',
-        label: 'Height (px)',
-        type: 'number',
-        hidden: true, // Only show if size is Custom
-        description: 'Custom height in pixels.',
-      },
-      {
-        key: 'watermark',
-        label: 'Watermark',
-        type: 'boolean',
-        defaultValue: false,
-        description: 'Whether to apply a watermark to the output.',
-      },
-      {
-        key: 'sequential_image_generation',
-        label: 'Sequential Generation',
-        type: 'boolean',
-        defaultValue: false,
-        description: 'Generate multiple related images in sequence (auto).',
-      },
-      {
-        key: 'response_format',
-        label: 'Response Format',
-        type: 'enum',
-        options: ['url', 'b64_json'],
-        defaultValue: 'url',
-        description: 'Output format for the generated image.',
-      },
-    ],
-    defaults: {
-      model: 'seedream-4-5-251128',
-      prompt: 'A hero product shot of a premium skincare bottle on a minimal studio set.',
-      size: '2K',
-      width: 2048,
-      height: 2048,
-      image: [],
-      watermark: false,
-      sequential_image_generation: false,
-      response_format: 'url',
-    },
-  },
-};
-
-const apiKeyStorageKey = 'modelark_api_key';
+import { baseSchemas, apiKeyStorageKey } from '../utils/schemas';
+import { constructSeedreamPayload, constructSeedancePayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import ModelForm from '../components/ModelForm';
+import ResultViewer from '../components/ResultViewer';
 
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
   const [apiKeyStatus, setApiKeyStatus] = useState('');
   const [apiKeyStatusType, setApiKeyStatusType] = useState('');
 
-  const [activeModelId] = useState('seedream');
+  const [activeModelId, setActiveModelId] = useState('seedream');
   const [chatHistory, setChatHistory] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
@@ -140,23 +56,38 @@ export default function Home() {
 
   useEffect(() => {
     // Reactive visibility logic
-    if (activeModelId === 'seedream') {
-      const isCustomSize = formValues.size === 'Custom';
-      setUiSchema((prev) => {
-        const nextFields = prev.fields.map((f) => {
-          if (f.key === 'width' || f.key === 'height') {
-            return { ...f, hidden: !isCustomSize };
-          }
-          return f;
-        });
-        // Check if actually changed to avoid loop
-        if (JSON.stringify(nextFields) !== JSON.stringify(prev.fields)) {
-          return { ...prev, fields: nextFields };
-        }
-        return prev;
-      });
+    setUiSchema((prev) => updateUiSchemaVisibility(prev, formValues, activeModelId));
+  }, [formValues.size, formValues.sequential_image_generation, formValues.model, formValues.generate_audio, activeModelId]);
+
+  const handleModelChange = (e) => {
+    const newModelId = e.target.value;
+    let schemaKey = 'seedream';
+    
+    if (newModelId.includes('seedance')) {
+        schemaKey = 'seedance';
+    } else if (newModelId.includes('seedream')) {
+        schemaKey = 'seedream';
     }
-  }, [formValues.size, activeModelId]);
+
+    setActiveModelId(schemaKey);
+    const newBaseSchema = baseSchemas[schemaKey];
+    
+    setUiSchema({
+      title: newBaseSchema.name,
+      description: newBaseSchema.description,
+      fields: newBaseSchema.fields,
+      defaults: newBaseSchema.defaults,
+    });
+    
+    // Update form values with new model default but keep prompt if possible
+    setFormValues((prev) => ({
+        ...newBaseSchema.defaults,
+        model: newModelId,
+        prompt: prev.prompt || newBaseSchema.defaults.prompt
+    }));
+    
+    setSeedreamResult(null);
+  };
 
   const handleSaveApiKey = () => {
     if (!apiKey.trim()) {
@@ -246,48 +177,19 @@ export default function Home() {
     }
     setSeedreamLoading(true);
     setSeedreamResult(null);
+    
     try {
-      const composedPrompt = formValues.prompt;
-      
-      // Construct payload based on strict schema
-      const requestBody = {
-        model: formValues.model,
-        prompt: composedPrompt,
-        watermark: formValues.watermark,
-        response_format: formValues.response_format,
-      };
+      let endpoint = '/api/seedream';
+      let requestBody;
 
-      // Handle Size
-      if (formValues.size === 'Custom') {
-        // Size must be WxH string e.g. "2048x2048"
-        if (formValues.width && formValues.height) {
-           requestBody.size = `${formValues.width}x${formValues.height}`;
-        } else {
-           // Fallback or error? defaulting to 2K if missing
-           requestBody.size = '2K'; 
-        }
+      if (activeModelId === 'seedance') {
+          endpoint = '/api/seedance';
+          requestBody = constructSeedancePayload(formValues);
       } else {
-        requestBody.size = formValues.size;
+          requestBody = constructSeedreamPayload(formValues);
       }
 
-      // Handle Images
-      if (formValues.image && formValues.image.length > 0) {
-        // API expects "image" as string or array
-        // If single image, can be string. If multiple, array.
-        // We will always send array if > 1, or string if == 1? 
-        // Docs say: "image string/array".
-        if (formValues.image.length === 1) {
-            requestBody.image = formValues.image[0];
-        } else {
-            requestBody.image = formValues.image;
-        }
-      }
-
-      if (formValues.sequential_image_generation) {
-        requestBody.sequential_image_generation = 'auto';
-      }
-
-      const response = await fetch('/api/seedream', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -300,7 +202,7 @@ export default function Home() {
       if (showRequestOutput) {
         const debugBody = { ...requestBody, apiKey: 'REDACTED' };
         setLastRequestPayload({
-          endpoint: '/api/seedream',
+          endpoint,
           body: debugBody,
         });
         setLastResponsePayload(data);
@@ -380,172 +282,19 @@ export default function Home() {
             </header>
 
             <div className="card">
-                <form onSubmit={handleSeedreamSubmit}>
-                    <div className="field-grid">
-                    {uiSchema.fields.filter((field) => !field.hidden).map((field) => {
-                        const value = formValues[field.key] ?? '';
-                        
-                        if (field.type === 'enum') {
-                            return (
-                                <div className="field" key={field.key}>
-                                <label htmlFor={`field-${field.key}`}>{field.label}</label>
-                                <select
-                                    id={`field-${field.key}`}
-                                    value={value}
-                                    disabled={field.readOnly}
-                                    onChange={(event) =>
-                                    setFormValues((prev) => ({ ...prev, [field.key]: event.target.value }))
-                                    }
-                                >
-                                    {field.options.map((option) => (
-                                    <option key={option} value={option}>
-                                        {option}
-                                    </option>
-                                    ))}
-                                </select>
-                                </div>
-                            );
-                        }
-                        if (field.type === 'image-list') {
-                            return (
-                                <div className="field full-width" key={field.key}>
-                                <label>{field.label}</label>
-                                <div className="image-drop-area">
-                                    <div className="image-preview-row">
-                                        {(value || []).map((img, idx) => (
-                                        <div key={idx} className="image-preview-item">
-                                            <img src={img} alt={`ref-${idx}`} />
-                                            <button
-                                            type="button"
-                                            className="remove-btn"
-                                            onClick={() => removeImage(field.key, idx)}
-                                            >
-                                            ×
-                                            </button>
-                                        </div>
-                                        ))}
-                                    </div>
-                                    <div className="file-input-wrapper">
-                                        <span>Click to upload images (or drag here)</span>
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            multiple
-                                            onChange={(e) => handleImageUpload(e, field.key)}
-                                        />
-                                    </div>
-                                </div>
-                                <p className="helper">{field.description}</p>
-                                </div>
-                            );
-                        }
-                        if (field.type === 'number') {
-                        return (
-                            <div className="field" key={field.key}>
-                            <label htmlFor={`field-${field.key}`}>{field.label}</label>
-                            <input
-                                id={`field-${field.key}`}
-                                type="number"
-                                value={value}
-                                disabled={field.readOnly}
-                                onChange={(event) =>
-                                setFormValues((prev) => ({
-                                    ...prev,
-                                    [field.key]: Number(event.target.value),
-                                }))
-                                }
-                            />
-                            <p className="helper">{field.description}</p>
-                            </div>
-                        );
-                        }
-                        if (field.type === 'boolean') {
-                        return (
-                            <div className="field" key={field.key}>
-                            <label htmlFor={`field-${field.key}`}>{field.label}</label>
-                            <input
-                                id={`field-${field.key}`}
-                                type="checkbox"
-                                checked={Boolean(value)}
-                                disabled={field.readOnly}
-                                onChange={(event) =>
-                                setFormValues((prev) => ({ ...prev, [field.key]: event.target.checked }))
-                                }
-                            />
-                            </div>
-                        );
-                        }
-                        if (field.key === 'prompt') {
-                        return (
-                            <div className="field full-width" key={field.key}>
-                            <label htmlFor={`field-${field.key}`}>{field.label}</label>
-                            <textarea
-                                id={`field-${field.key}`}
-                                value={value}
-                                onChange={(event) =>
-                                setFormValues((prev) => ({ ...prev, [field.key]: event.target.value }))
-                                }
-                            />
-                            </div>
-                        );
-                        }
-                        return (
-                        <div className="field" key={field.key}>
-                            <label htmlFor={`field-${field.key}`}>{field.label}</label>
-                            <input
-                            id={`field-${field.key}`}
-                            value={value}
-                            disabled={field.readOnly}
-                            onChange={(event) =>
-                                setFormValues((prev) => ({ ...prev, [field.key]: event.target.value }))
-                            }
-                            />
-                        </div>
-                        );
-                    })}
-                    </div>
-                    
-                    <div className="actions" style={{ marginTop: '2rem' }}>
-                        <button type="submit" disabled={seedreamLoading} className="primary-btn-lg">
-                            {seedreamLoading ? 'Generating...' : 'Generate Media'}
-                        </button>
-                    </div>
-
-                    {seedreamResult?.images ? (
-                        <div className="result-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem', marginTop: '2rem' }}>
-                            {seedreamResult.images.map((img, idx) => {
-                            const src = img.url || `data:image/png;base64,${img.b64_json}`;
-                            return (
-                                <div key={idx} className="result-item">
-                                <img src={src} alt={`Result ${idx + 1}`} className="media" />
-                                <div className="actions" style={{ marginTop: '0.5rem' }}>
-                                    <a className="link-button secondary small" href={src} download={`result-${idx + 1}.png`}>
-                                    Download
-                                    </a>
-                                </div>
-                                </div>
-                            );
-                            })}
-                        </div>
-                    ) : seedreamResult?.imageUrl ? (
-                    <>
-                        <img src={seedreamResult.imageUrl} alt="Result" className="media" />
-                        <div className="actions" style={{ marginTop: '0.5rem' }}>
-                        <a
-                            className="link-button secondary"
-                            href={seedreamResult.imageUrl}
-                            download="result.png"
-                        >
-                            Download
-                        </a>
-                        </div>
-                    </>
-                    ) : null}
-                    
-                    {seedreamResult && !seedreamResult.imageUrl && !seedreamResult.images && (
-                        <div className="result">{JSON.stringify(seedreamResult, null, 2)}</div>
-                    )}
-                </form>
+                <ModelForm
+                    uiSchema={uiSchema}
+                    formValues={formValues}
+                    setFormValues={setFormValues}
+                    onSubmit={handleSeedreamSubmit}
+                    loading={seedreamLoading}
+                    handleImageUpload={handleImageUpload}
+                    removeImage={removeImage}
+                    activeModelId={activeModelId}
+                    onModelChange={handleModelChange}
+                />
+                
+                <ResultViewer result={seedreamResult} modelType={activeModelId} />
                 
                 {showRequestOutput && (lastRequestPayload || lastResponsePayload) && (
                     <div className="debug-panel">

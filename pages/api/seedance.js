@@ -4,11 +4,7 @@ async function seedanceHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl } = req.body;
-
-  if (!prompt) {
-    return res.status(400).json({ error: 'Prompt is required' });
-  }
+  const { apiKey, baseUrl, ...payload } = req.body;
 
   const token = apiKey || process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
   if (!token) {
@@ -16,7 +12,6 @@ async function seedanceHandler(req, res) {
   }
 
   const endpoint = baseUrl || process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3';
-  const resolvedModelId = modelId || process.env.SEEDANCE_MODEL_ID || 'seedance-1-5-pro-251215';
 
   try {
     const response = await fetch(`${endpoint}/contents/generations/tasks`, {
@@ -25,14 +20,7 @@ async function seedanceHandler(req, res) {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: resolvedModelId,
-        content: [{ type: 'text', text: prompt }],
-        ratio: '16:9',
-        duration: 5,
-        generate_audio: false,
-        watermark: false,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -40,12 +28,7 @@ async function seedanceHandler(req, res) {
       return res.status(response.status).json({ error: 'Seedance request failed', details: data });
     }
 
-    const taskId = data?.id;
-    if (!taskId) {
-      return res.status(500).json({ error: 'No task ID returned', details: data });
-    }
-
-    return res.status(200).json({ taskId });
+    return res.status(200).json(data);
   } catch (error) {
     return res.status(500).json({ error: 'Request failed', details: error.message });
   }

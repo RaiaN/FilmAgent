@@ -1,9 +1,10 @@
 export const constructSeedreamPayload = (formValues) => {
     const composedPrompt = formValues.prompt;
+    const model = formValues.model;
     
     // Construct payload based on strict schema
     const requestBody = {
-      model: formValues.model,
+      model: model,
       prompt: composedPrompt,
       watermark: formValues.watermark,
       response_format: formValues.response_format,
@@ -24,10 +25,6 @@ export const constructSeedreamPayload = (formValues) => {
 
     // Handle Images
     if (formValues.image && formValues.image.length > 0) {
-      // API expects "image" as string or array
-      // If single image, can be string. If multiple, array.
-      // We will always send array if > 1, or string if == 1? 
-      // Docs say: "image string/array".
       if (formValues.image.length === 1) {
           requestBody.image = formValues.image[0];
       } else {
@@ -35,28 +32,35 @@ export const constructSeedreamPayload = (formValues) => {
       }
     }
 
-    if (formValues.sequential_image_generation) {
+    // Conditional Fields based on Model
+    const is30Model = model && (model.includes('3-0') || model.includes('3.0'));
+    const is50Lite = model === 'seedream-5-0-lite';
+    const isSeqSupported = !is30Model; // 5.0, 4.5, 4.0 support sequential
+    const isOptimizePromptSupported = !is30Model; // 5.0, 4.5, 4.0 support optimize prompt
+
+    if (isSeqSupported && formValues.sequential_image_generation) {
       requestBody.sequential_image_generation = 'auto';
       requestBody.sequential_image_generation_options = {
         max_images: Number(formValues.sequential_max_images) || 5
       };
     }
 
-    if (formValues.optimize_prompt_mode) {
+    if (isOptimizePromptSupported && formValues.optimize_prompt_mode) {
       requestBody.optimize_prompt_options = {
         mode: formValues.optimize_prompt_mode
       };
     }
 
-    if (formValues.output_format) {
+    // ONLY add output_format for 5.0-lite
+    if (is50Lite && formValues.output_format) {
       requestBody.output_format = formValues.output_format;
     }
 
-    if (formValues.guidance_scale) {
+    if (is30Model && formValues.guidance_scale) {
       requestBody.guidance_scale = Number(formValues.guidance_scale);
     }
 
-    if (formValues.seed !== undefined && formValues.seed !== -1) {
+    if (is30Model && formValues.seed !== undefined && formValues.seed !== -1) {
       requestBody.seed = Number(formValues.seed);
     }
 

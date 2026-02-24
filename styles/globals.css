@@ -24,6 +24,24 @@ body {
   overflow: hidden;
 }
 
+.workflow-toolbox {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.35) transparent;
+}
+
+.workflow-toolbox::-webkit-scrollbar {
+  width: 8px;
+}
+
+.workflow-toolbox::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workflow-toolbox::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+}
+
 .app-container {
   display: flex;
   height: 100vh;
@@ -99,4 +117,3 @@ body {
 }
 
 .link-button.secondary:hover { background-color: #e0e7ff; }
-

@@ -1,13 +1,14 @@
 import Head from 'next/head';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layout, Menu, Button, Drawer, Input, Message, Card, Typography, Tooltip, Upload } from '@arco-design/web-react';
-import { IconSettings, IconRobot, IconImage, IconVideoCamera, IconPlus, IconClose } from '@arco-design/web-react/icon';
+import { IconSettings, IconRobot, IconImage, IconVideoCamera, IconPlus, IconClose, IconMindMapping } from '@arco-design/web-react/icon';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { baseSchemas, apiKeyStorageKey } from '../utils/schemas';
 import { constructSeedreamPayload, constructSeedancePayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
+import WorkflowEditor from '../components/workflow/WorkflowEditor';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
@@ -24,15 +25,15 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
-  const baseSchema = baseSchemas[activeModelId];
+  const baseSchema = baseSchemas[activeModelId] || {}; // Fallback for workflow
   // uiSchema is now static/default matching baseSchema
   const [uiSchema, setUiSchema] = useState({
-    title: baseSchema.name,
-    description: baseSchema.description,
-    fields: baseSchema.fields,
-    defaults: baseSchema.defaults,
+    title: baseSchema.name || 'Workflow',
+    description: baseSchema.description || '',
+    fields: baseSchema.fields || [],
+    defaults: baseSchema.defaults || {},
   });
-  const [formValues, setFormValues] = useState(baseSchema.defaults);
+  const [formValues, setFormValues] = useState(baseSchema.defaults || {});
   
   const [showRequestOutput, setShowRequestOutput] = useState(false);
   const [lastRequestPayload, setLastRequestPayload] = useState(null);
@@ -58,14 +59,19 @@ export default function Home() {
   const canRun = useMemo(() => apiKey.trim().length > 0, [apiKey]);
 
   useEffect(() => {
+    if (activeModelId === 'workflow') return;
     // Reactive visibility logic
     setUiSchema((prev) => updateUiSchemaVisibility(prev, formValues, activeModelId));
   }, [formValues.size, formValues.sequential_image_generation, formValues.model, formValues.generate_audio, activeModelId]);
 
   const handleModelFamilyChange = (newFamily) => {
       setActiveModelId(newFamily);
+      if (newFamily === 'workflow') {
+          setUiSchema({ title: 'Workflow Editor', description: 'Visual pipeline for complex generation tasks' });
+          return;
+      }
+
       const newBaseSchema = baseSchemas[newFamily];
-      
       setUiSchema({
         title: newBaseSchema.name,
         description: newBaseSchema.description,
@@ -279,11 +285,21 @@ export default function Home() {
                             >
                                 Video (Seedance)
                             </Button>
+                            <Button 
+                                type={activeModelId === 'workflow' ? 'primary' : 'secondary'}
+                                onClick={() => handleModelFamilyChange('workflow')}
+                            >
+                                Workflow (Beta)
+                            </Button>
                         </Button.Group>
                     </div>
                 </header>
 
-                {activeModelId === 'seedance' ? (
+                {activeModelId === 'workflow' ? (
+                    <div style={{ height: '70vh', border: '1px solid #e5e6eb', borderRadius: 8 }}>
+                        <WorkflowEditor />
+                    </div>
+                ) : activeModelId === 'seedance' ? (
                     <SeedancePlayground
                         schema={uiSchema}
                         formValues={formValues}

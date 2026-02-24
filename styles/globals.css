@@ -2,7 +2,7 @@
   --primary-color: #2f5bff;
   --secondary-color: #101828;
   --background-color: #e5e7eb;
-  --card-background-color: #ffffff;
+  --card-background-color: #f8fafc;
   --border-color: #eaecf0;
   --text-color: #111827;
   --subtle-text-color: #667085;
@@ -79,6 +79,15 @@ select {
   font-size: 1rem;
   border-radius: 10px;
   border: 1px solid var(--border-color);
+  background-color: #f9fafb;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  background-color: #ffffff;
+  outline: 2px solid var(--primary-color);
+  outline-offset: -1px;
 }
 
 textarea {

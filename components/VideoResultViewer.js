@@ -131,3 +131,5 @@ const VideoResultViewer = ({ result }) => {
     <div className="result">{JSON.stringify(result, null, 2)}</div>
   );
 };
+
+export default VideoResultViewer;

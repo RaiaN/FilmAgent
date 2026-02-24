@@ -1,9 +1,12 @@
-import React, { useRef } from 'react';
-import { Select, Input, InputNumber, Button, Upload, Checkbox, Slider, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
-import { IconCopy, IconCode } from '@arco-design/web-react/icon';
+import React, { useRef, useState } from 'react';
+import { Select, Input, InputNumber, Button, Upload, Checkbox, Slider, Dropdown, Menu, Message, Tooltip, Collapse, Grid } from '@arco-design/web-react';
+import { IconCopy, IconCode, IconDown, IconRight, IconStar } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedancePayload } from '../utils/apiHelpers';
+import { apiKeyStorageKey } from '../utils/schemas';
+
+const { Row, Col } = Grid;
 
 const SeedancePlayground = ({ 
   formValues, 
@@ -16,9 +19,51 @@ const SeedancePlayground = ({
   onModelChange 
 }) => {
   const promptRef = useRef(null);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
 
   const handleInputChange = (key, value) => {
     setFormValues(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleEnhancePrompt = async () => {
+      const currentPrompt = formValues.prompt;
+      if (!currentPrompt || !currentPrompt.trim()) {
+          Message.warning('Please enter a prompt to enhance');
+          return;
+      }
+
+      const apiKey = window.localStorage.getItem(apiKeyStorageKey);
+      if (!apiKey) {
+          Message.error('API key not found. Please set it in Settings.');
+          return;
+      }
+
+      setEnhancing(true);
+      try {
+          const response = await fetch('/api/seed', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  prompt: currentPrompt,
+                  apiKey: apiKey,
+                  systemPrompt: "Refine and enhance this video generation prompt. Focus on describing motion, camera angles, and temporal consistency. Keep the core intent. Return ONLY the enhanced prompt text.",
+                  modelId: 'seed-2-0-mini-260215' 
+              })
+          });
+          const data = await response.json();
+          if (data.content) {
+              handleInputChange('prompt', data.content);
+              Message.success('Prompt enhanced!');
+          } else {
+              Message.error('Failed to enhance prompt');
+          }
+      } catch (error) {
+          console.error(error);
+          Message.error('Error enhancing prompt');
+      } finally {
+          setEnhancing(false);
+      }
   };
 
   const handleCopyCode = (type) => {
@@ -146,14 +191,26 @@ const SeedancePlayground = ({
 
           {/* Right: Prompt */}
           <div className={styles.promptArea}>
-            <Input.TextArea
-              ref={promptRef}
-              className={styles.promptInput}
-              placeholder="Describe the video you want to generate..."
-              value={formValues.prompt}
-              onChange={(val) => handleInputChange('prompt', val)}
-              style={{ minHeight: 140, height: '100%', resize: 'none', border: 'none', background: 'transparent', padding: 0, fontSize: '1rem' }}
-            />
+            <div style={{ position: 'relative', height: '100%' }}>
+                <Input.TextArea
+                ref={promptRef}
+                className={styles.promptInput}
+                placeholder="Describe the video you want to generate..."
+                value={formValues.prompt}
+                onChange={(val) => handleInputChange('prompt', val)}
+                style={{ minHeight: 140, height: '100%', resize: 'none', border: 'none', background: 'transparent', padding: 0, fontSize: '1rem', paddingRight: 30 }}
+                />
+                <Tooltip content="Enhance prompt with AI">
+                    <Button 
+                        icon={<IconStar style={{ color: enhancing ? '#165dff' : '#86909c' }} spin={enhancing} />} 
+                        shape="circle" 
+                        size="small"
+                        style={{ position: 'absolute', bottom: 0, right: 0, background: 'transparent' }}
+                        onClick={handleEnhancePrompt}
+                        loading={enhancing}
+                    />
+                </Tooltip>
+            </div>
           </div>
         </div>
 
@@ -258,6 +315,47 @@ const SeedancePlayground = ({
           >
             {loading ? 'Generating...' : 'Generate ➔'}
           </Button>
+        </div>
+
+        {/* Advanced Settings */}
+        <div style={{ marginTop: 16, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+            <Button 
+                type="text" 
+                size="small" 
+                onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+                style={{ color: '#64748b', paddingLeft: 0 }}
+            >
+                {isAdvancedOpen ? <IconDown /> : <IconRight />} Advanced Settings
+            </Button>
+            
+            {isAdvancedOpen && (
+                <div style={{ marginTop: 12, padding: '12px', background: '#f8fafc', borderRadius: 8 }}>
+                    <Row gutter={[24, 12]}>
+                        {!isFieldHidden('seed') && (
+                            <Col span={12}>
+                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Seed</div>
+                                <InputNumber 
+                                    value={formValues.seed} 
+                                    onChange={(val) => handleInputChange('seed', val)}
+                                    placeholder="Random (-1)"
+                                    style={{ width: '100%' }}
+                                />
+                            </Col>
+                        )}
+                        {!isFieldHidden('watermark') && (
+                            <Col span={12}>
+                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Options</div>
+                                <Checkbox 
+                                    checked={formValues.watermark}
+                                    onChange={(checked) => handleInputChange('watermark', checked)}
+                                >
+                                    Add Watermark
+                                </Checkbox>
+                            </Col>
+                        )}
+                    </Row>
+                </div>
+            )}
         </div>
       </form>
     </div>

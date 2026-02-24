@@ -1,9 +1,12 @@
-import React, { useRef } from 'react';
-import { Select, Input, InputNumber, Button, Upload, Checkbox, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
-import { IconCopy, IconCode } from '@arco-design/web-react/icon';
+import React, { useRef, useState } from 'react';
+import { Select, Input, InputNumber, Button, Upload, Checkbox, Dropdown, Menu, Message, Tooltip, Collapse, Grid } from '@arco-design/web-react';
+import { IconCopy, IconCode, IconDown, IconRight, IconStar } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedreamPayload } from '../utils/apiHelpers';
+import { apiKeyStorageKey } from '../utils/schemas';
+
+const { Row, Col } = Grid;
 
 const SeedreamPlayground = ({ 
   formValues, 
@@ -16,9 +19,51 @@ const SeedreamPlayground = ({
   onModelChange 
 }) => {
   const promptRef = useRef(null);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
 
   const handleInputChange = (key, value) => {
     setFormValues(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleEnhancePrompt = async () => {
+      const currentPrompt = formValues.prompt;
+      if (!currentPrompt || !currentPrompt.trim()) {
+          Message.warning('Please enter a prompt to enhance');
+          return;
+      }
+
+      const apiKey = window.localStorage.getItem(apiKeyStorageKey);
+      if (!apiKey) {
+          Message.error('API key not found. Please set it in Settings.');
+          return;
+      }
+
+      setEnhancing(true);
+      try {
+          const response = await fetch('/api/seed', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  prompt: currentPrompt,
+                  apiKey: apiKey,
+                  systemPrompt: "Refine and enhance this image generation prompt to be more descriptive and artistic. Keep the core intent but add details about lighting, texture, and style. Return ONLY the enhanced prompt text.",
+                  modelId: 'seed-2-0-mini-260215' 
+              })
+          });
+          const data = await response.json();
+          if (data.content) {
+              handleInputChange('prompt', data.content);
+              Message.success('Prompt enhanced!');
+          } else {
+              Message.error('Failed to enhance prompt');
+          }
+      } catch (error) {
+          console.error(error);
+          Message.error('Error enhancing prompt');
+      } finally {
+          setEnhancing(false);
+      }
   };
 
   const handleCopyCode = (type) => {
@@ -134,14 +179,26 @@ const SeedreamPlayground = ({
 
           {/* Right: Prompt */}
           <div className={styles.promptArea}>
-            <Input.TextArea
-              ref={promptRef}
-              className={styles.promptInput}
-              placeholder="Describe the image you want to generate..."
-              value={formValues.prompt}
-              onChange={(val) => handleInputChange('prompt', val)}
-              style={{ minHeight: 140, height: '100%', resize: 'none', border: 'none', background: 'transparent', padding: 0, fontSize: '1rem' }}
-            />
+            <div style={{ position: 'relative', height: '100%' }}>
+                <Input.TextArea
+                ref={promptRef}
+                className={styles.promptInput}
+                placeholder="Describe the image you want to generate..."
+                value={formValues.prompt}
+                onChange={(val) => handleInputChange('prompt', val)}
+                style={{ minHeight: 140, height: '100%', resize: 'none', border: 'none', background: 'transparent', padding: 0, fontSize: '1rem', paddingRight: 30 }}
+                />
+                <Tooltip content="Enhance prompt with AI">
+                    <Button 
+                        icon={<IconStar style={{ color: enhancing ? '#165dff' : '#86909c' }} spin={enhancing} />} 
+                        shape="circle" 
+                        size="small"
+                        style={{ position: 'absolute', bottom: 0, right: 0, background: 'transparent' }}
+                        onClick={handleEnhancePrompt}
+                        loading={enhancing}
+                    />
+                </Tooltip>
+            </div>
           </div>
         </div>
 
@@ -195,50 +252,6 @@ const SeedreamPlayground = ({
             </div>
           )}
 
-          {/* Sequential Count */}
-          {!isFieldHidden('sequential_max_images') && (
-            <div className={styles.toolChip}>
-                <span style={{ marginRight: 8 }}>Max:</span>
-                <InputNumber 
-                    value={formValues.sequential_max_images}
-                    onChange={(val) => handleInputChange('sequential_max_images', val)}
-                    style={{ width: 60 }}
-                    min={1} max={15}
-                    size="small"
-                />
-            </div>
-          )}
-
-          {/* Optimize Prompt */}
-          {!isFieldHidden('optimize_prompt_mode') && (
-             <div className={styles.toolChip}>
-                <span style={{ marginRight: 8 }}>✨ Mode:</span>
-                <Select 
-                    value={formValues.optimize_prompt_mode} 
-                    onChange={(val) => handleInputChange('optimize_prompt_mode', val)}
-                    style={{ width: 110 }}
-                    size="small"
-                >
-                    {optimizePromptOptions.map(opt => <Select.Option key={opt} value={opt}>{opt}</Select.Option>)}
-                </Select>
-            </div>
-          )}
-
-          {/* Output Format (5.0 lite only) */}
-          {!isFieldHidden('output_format') && (
-             <div className={styles.toolChip}>
-                <span style={{ marginRight: 8 }}>💾</span>
-                <Select 
-                    value={formValues.output_format} 
-                    onChange={(val) => handleInputChange('output_format', val)}
-                    style={{ width: 90 }}
-                    size="small"
-                >
-                    {outputFormatOptions.map(opt => <Select.Option key={opt} value={opt}>{opt}</Select.Option>)}
-                </Select>
-            </div>
-          )}
-
           {/* Submit */}
           <Dropdown droplist={codeMenu} trigger="click" position="bl">
               <Tooltip content="Copy code snippet (API Key not included)">
@@ -256,6 +269,71 @@ const SeedreamPlayground = ({
           >
             {loading ? 'Generating...' : 'Generate ➔'}
           </Button>
+        </div>
+
+        {/* Advanced Settings */}
+        <div style={{ marginTop: 16, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
+            <Button 
+                type="text" 
+                size="small" 
+                onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+                style={{ color: '#64748b', paddingLeft: 0 }}
+            >
+                {isAdvancedOpen ? <IconDown /> : <IconRight />} Advanced Settings
+            </Button>
+            
+            {isAdvancedOpen && (
+                <div style={{ marginTop: 12, padding: '12px', background: '#f8fafc', borderRadius: 8 }}>
+                    <Row gutter={[24, 12]}>
+                        {!isFieldHidden('seed') && (
+                            <Col span={12}>
+                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Seed</div>
+                                <InputNumber 
+                                    value={formValues.seed} 
+                                    onChange={(val) => handleInputChange('seed', val)}
+                                    placeholder="Random (-1)"
+                                    style={{ width: '100%' }}
+                                />
+                            </Col>
+                        )}
+                        {!isFieldHidden('sequential_max_images') && (
+                            <Col span={12}>
+                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Max Images (Sequential)</div>
+                                <InputNumber 
+                                    value={formValues.sequential_max_images}
+                                    onChange={(val) => handleInputChange('sequential_max_images', val)}
+                                    min={1} max={15}
+                                    style={{ width: '100%' }}
+                                />
+                            </Col>
+                        )}
+                        {!isFieldHidden('optimize_prompt_mode') && (
+                            <Col span={12}>
+                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Prompt Optimization</div>
+                                <Select 
+                                    value={formValues.optimize_prompt_mode} 
+                                    onChange={(val) => handleInputChange('optimize_prompt_mode', val)}
+                                    style={{ width: '100%' }}
+                                >
+                                    {optimizePromptOptions.map(opt => <Select.Option key={opt} value={opt}>{opt}</Select.Option>)}
+                                </Select>
+                            </Col>
+                        )}
+                        {!isFieldHidden('output_format') && (
+                            <Col span={12}>
+                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Output Format</div>
+                                <Select 
+                                    value={formValues.output_format} 
+                                    onChange={(val) => handleInputChange('output_format', val)}
+                                    style={{ width: '100%' }}
+                                >
+                                    {outputFormatOptions.map(opt => <Select.Option key={opt} value={opt}>{opt}</Select.Option>)}
+                                </Select>
+                            </Col>
+                        )}
+                    </Row>
+                </div>
+            )}
         </div>
       </form>
     </div>

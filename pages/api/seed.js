@@ -4,7 +4,7 @@ async function seedHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl, systemPrompt } = req.body;
+  const { prompt, apiKey, modelId, baseUrl, systemPrompt, image } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -16,9 +16,25 @@ async function seedHandler(req, res) {
   }
 
   const endpoint = baseUrl || process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3';
-  const resolvedModelId = modelId || process.env.SEED_MODEL_ID || 'seed-1-8-251228';
+  const resolvedModelId = modelId || process.env.SEED_MODEL_ID || 'seed-2-0-mini-260215';
 
   try {
+    const messages = [
+      { role: 'system', content: systemPrompt || 'You are a helpful assistant.' }
+    ];
+
+    if (image) {
+      messages.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: image } }
+        ]
+      });
+    } else {
+      messages.push({ role: 'user', content: prompt });
+    }
+
     const response = await fetch(`${endpoint}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -27,10 +43,7 @@ async function seedHandler(req, res) {
       },
       body: JSON.stringify({
         model: resolvedModelId,
-        messages: [
-          { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
-          { role: 'user', content: prompt },
-        ],
+        messages: messages,
       }),
     });
 

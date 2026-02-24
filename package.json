@@ -16,6 +16,7 @@
     "build:desktop": "npm run build && electron-builder -m -w"
   },
   "dependencies": {
+    "@arco-design/web-react": "^2.66.10",
     "next": "15.5.12",
     "react": "18.3.1",
     "react-dom": "18.3.1"

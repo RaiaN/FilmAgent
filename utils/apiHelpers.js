@@ -101,6 +101,13 @@ export const constructSeedancePayload = (formValues) => {
 
     if (formValues.model.includes('1-5-pro')) {
         payload.generate_audio = formValues.generate_audio;
+        if (formValues.draft) {
+            payload.draft = true;
+        }
+    }
+
+    if (formValues.return_last_frame) {
+        payload.return_last_frame = true;
     }
 
     // Handle Image Inputs based on Model & Role
@@ -197,6 +204,9 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
         const nextFields = prevSchema.fields.map((f) => {
             // Specific logic for Seedance fields
             if (f.key === 'generate_audio') {
+                return { ...f, hidden: !is15Pro };
+            }
+            if (f.key === 'draft') {
                 return { ...f, hidden: !is15Pro };
             }
             if (f.key === 'reference_images') {

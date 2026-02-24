@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { Tag, Typography, Button, Space, Spin } from '@arco-design/web-react';
+import { IconCheckCircleFill, IconCloseCircleFill, IconClockCircle, IconSync } from '@arco-design/web-react/icon';
 import CopyButton from './CopyButton';
 import { apiKeyStorageKey } from '../utils/schemas';
 
@@ -65,29 +67,38 @@ const VideoResultViewer = ({ result }) => {
       return <div className="result">{JSON.stringify(result, null, 2)}</div>;
   }
 
+  const getStatusIcon = (status) => {
+      switch (status) {
+          case 'succeeded': return <IconCheckCircleFill style={{ color: '#00b42a' }} />;
+          case 'failed': return <IconCloseCircleFill style={{ color: '#f53f3f' }} />;
+          case 'running': return <IconSync spin style={{ color: '#165dff' }} />;
+          default: return <IconClockCircle style={{ color: '#ff7d00' }} />;
+      }
+  };
+
+  const getStatusColor = (status) => {
+      switch (status) {
+          case 'succeeded': return 'green';
+          case 'failed': return 'red';
+          case 'running': return 'arcoblue';
+          default: return 'orange';
+      }
+  };
+
   // Handle Video Results (Seedance)
   if (result.id) {
       return (
           <div className="result-container" style={{ marginTop: '2rem' }}>
-              <div className="status-panel" style={{ background: '#262626', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong>Task ID: {result.id}</strong>
+              <div className="status-panel" style={{ background: '#fff', padding: '1rem', borderRadius: '12px', marginBottom: '1rem', border: '1px solid #e5e7eb', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#111827', marginBottom: 12 }}>
+                      <Typography.Text bold>Task ID: {result.id}</Typography.Text>
                       <CopyButton text={result.id} />
                   </div>
-                  <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span>Status: </span>
-                      <span className={`status-badge ${videoStatus || 'pending'}`} style={{ 
-                          padding: '0.2rem 0.5rem', 
-                          borderRadius: '4px', 
-                          background: videoStatus === 'succeeded' ? '#059669' : 
-                                      videoStatus === 'failed' ? '#dc2626' : 
-                                      '#d97706',
-                          color: 'white',
-                          fontWeight: 'bold',
-                          fontSize: '0.9rem'
-                      }}>
-                          {videoStatus ? videoStatus.toUpperCase() : 'INITIALIZING...'}
-                      </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Typography.Text type="secondary">Status:</Typography.Text>
+                      <Tag icon={getStatusIcon(videoStatus)} color={getStatusColor(videoStatus)}>
+                          {(videoStatus || 'INITIALIZING').toUpperCase()}
+                      </Tag>
                   </div>
               </div>
 
@@ -97,18 +108,18 @@ const VideoResultViewer = ({ result }) => {
                         src={videoResult.video_url} 
                         controls 
                         className="media" 
-                        style={{ width: '100%', maxHeight: '500px', background: '#000' }} 
+                        style={{ width: '100%', maxHeight: '500px', background: '#000', borderRadius: 8 }} 
                       />
-                      <div className="actions" style={{ marginTop: '1rem' }}>
-                          <a className="link-button secondary" href={videoResult.video_url} download={`video-${result.id}.mp4`}>
+                      <div className="actions" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+                          <Button type="secondary" href={videoResult.video_url} download={`video-${result.id}.mp4`} as="a">
                               Download Video
-                          </a>
+                          </Button>
                       </div>
                   </div>
               )}
               
               {videoResult?.error && (
-                   <div className="error-panel" style={{ color: '#ef4444', marginTop: '1rem' }}>
+                   <div className="error-panel" style={{ color: '#f53f3f', marginTop: '1rem', padding: '1rem', background: '#fff0f0', borderRadius: 8 }}>
                        Error: {JSON.stringify(videoResult.error)}
                    </div>
               )}
@@ -120,5 +131,3 @@ const VideoResultViewer = ({ result }) => {
     <div className="result">{JSON.stringify(result, null, 2)}</div>
   );
 };
-
-export default VideoResultViewer;

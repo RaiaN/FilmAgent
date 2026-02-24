@@ -229,6 +229,20 @@ export const baseSchemas = {
         defaultValue: false,
         description: 'Add watermark to output video.',
       },
+      {
+        key: 'draft',
+        label: 'Draft Mode',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Enable Draft sample mode (1.5 pro only) for cheaper/faster preview.',
+      },
+      {
+        key: 'return_last_frame',
+        label: 'Return Last Frame',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Return the last frame image (useful for continuous generation).',
+      },
     ],
     defaults: {
       model: 'seedance-1-5-pro-251215',
@@ -243,6 +257,8 @@ export const baseSchemas = {
       generate_audio: true,
       camera_fixed: false,
       watermark: false,
+      draft: false,
+      return_last_frame: false,
     },
   },
 };

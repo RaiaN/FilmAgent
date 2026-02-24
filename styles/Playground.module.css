@@ -1,0 +1,187 @@
+.playgroundContainer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1000px;
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+  border: 1px solid #f1f5f9;
+  padding: 1.5rem;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.modelSelector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #111827;
+}
+
+.modelSelect {
+  border: none;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #111827;
+  cursor: pointer;
+  background: transparent;
+  padding-right: 1.5rem;
+  outline: none;
+}
+
+.mainInputArea {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.imageInputs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.imageUploadBox {
+  width: 90px;
+  height: 90px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  background: #f8fafc;
+  transition: all 0.2s;
+}
+
+.imageUploadBox:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.imageUploadBox img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.uploadLabel {
+  font-size: 0.7rem;
+  color: #64748b;
+  text-align: center;
+  margin-top: 0.25rem;
+  font-weight: 500;
+}
+
+.removeBtn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+}
+
+.promptArea {
+  flex: 1;
+  position: relative;
+}
+
+.promptInput {
+  width: 100%;
+  height: 100%;
+  min-height: 140px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 1.25rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  resize: none;
+  background: #fff;
+  transition: all 0.2s;
+  color: #334155;
+  font-family: inherit;
+}
+
+.promptInput:focus {
+  background: #fff;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
+  outline: none;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding-top: 1.5rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+.toolChip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Removed bulky padding/border/background styles */
+  font-size: 0.9rem;
+  color: #475569;
+  font-weight: 500;
+  min-height: 32px; /* Slimmer height */
+}
+
+/* Removed hover/active styles for .toolChip as we will use Arco components directly */
+.toolChip:hover {}
+.toolChip.active {}
+
+.toolSelect {
+  /* Removed custom styles, rely on Arco */
+}
+
+.submitBtn {
+  margin-left: auto;
+  /* Arco Button will handle styles, but we keep positioning */
+}
+
+.submitBtn:hover {
+  background: #4338ca;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(79, 70, 229, 0.3);
+}
+
+.submitBtn:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+}
+
+.hiddenInput {
+  display: none;
+}

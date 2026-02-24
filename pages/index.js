@@ -1,16 +1,19 @@
 import Head from 'next/head';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Layout, Menu, Button, Drawer, Input, Message, Card, Typography } from '@arco-design/web-react';
+import { IconSettings, IconRobot, IconImage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { baseSchemas, apiKeyStorageKey } from '../utils/schemas';
 import { constructSeedreamPayload, constructSeedancePayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
-import ModelForm from '../components/ModelForm';
+import SeedancePlayground from '../components/SeedancePlayground';
+import SeedreamPlayground from '../components/SeedreamPlayground';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
+const { Sider, Content } = Layout;
+const { Title, Text } = Typography;
+
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
-  const [apiKeyStatus, setApiKeyStatus] = useState('');
-  const [apiKeyStatusType, setApiKeyStatusType] = useState('');
-
   const [activeModelId, setActiveModelId] = useState('seedream');
   const [chatHistory, setChatHistory] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -28,8 +31,6 @@ export default function Home() {
   });
   const [formValues, setFormValues] = useState(baseSchema.defaults);
   
-  // Removed dynamic builder states
-  
   const [showRequestOutput, setShowRequestOutput] = useState(false);
   const [lastRequestPayload, setLastRequestPayload] = useState(null);
   const [lastResponsePayload, setLastResponsePayload] = useState(null);
@@ -44,8 +45,6 @@ export default function Home() {
     const savedKey = window.localStorage.getItem(apiKeyStorageKey);
     if (savedKey) {
       setApiKey(savedKey);
-      setApiKeyStatus('API key loaded');
-      setApiKeyStatusType('success');
     }
   }, []);
   
@@ -78,10 +77,6 @@ export default function Home() {
 
   const handleModelChange = (e) => {
     const newModelId = e.target.value;
-    // We don't need to switch schema here anymore, as schemas are now per-family
-    // and the family is selected via a separate switcher or determined by the current activeModelId.
-    // However, if we want to be safe, we can ensure we stay in the same family.
-    
     setFormValues((prev) => ({
         ...prev,
         model: newModelId,
@@ -90,19 +85,15 @@ export default function Home() {
 
   const handleSaveApiKey = () => {
     if (!apiKey.trim()) {
-      setApiKeyStatus('Please enter an API key');
-      setApiKeyStatusType('error');
+      Message.error('Please enter an API key');
       return;
     }
     window.localStorage.setItem(apiKeyStorageKey, apiKey.trim());
-    setApiKeyStatus('API key saved');
-    setApiKeyStatusType('success');
+    Message.success('API key saved');
   };
 
-  // Removed buildUiFromPrompt, extractJsonText, applyOverrideObject
-
   const handleChatSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (!chatInput.trim() || !canRun) return;
 
     const userMessage = { role: 'user', content: chatInput };
@@ -134,8 +125,6 @@ export default function Home() {
       setChatLoading(false);
     }
   };
-
-  // Removed saveUiSchema, loadUiSchema, exportUiSchema, handleImportSchema
 
   const handleImageUpload = async (e, fieldKey) => {
     const files = Array.from(e.target.files);
@@ -172,6 +161,7 @@ export default function Home() {
     event.preventDefault();
     if (!canRun) {
       setSeedreamResult({ error: 'Please add your API key first.' });
+      setIsSettingsOpen(true);
       return;
     }
     setSeedreamLoading(true);
@@ -218,109 +208,104 @@ export default function Home() {
       <Head>
         <title>ModelArk Starter Kit</title>
       </Head>
-      <div className="app-container">
-        {/* LEFT TOOLBAR */}
-        <aside className="toolbar">
-            <div className="toolbar-top">
-                <div className="toolbar-icon" title="Settings" onClick={() => setIsSettingsOpen(!isSettingsOpen)}>
-                    <span style={{ fontSize: '1.5rem' }}>⚙️</span>
+      <Layout className="layout-container" style={{ height: '100vh' }}>
+        <Sider collapsed={true} style={{ width: 60 }}>
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 20 }}>
+                <Menu
+                    style={{ width: '100%' }}
+                    selectedKeys={[activeModelId]}
+                    onClickMenuItem={(key) => {
+                        if (key === 'settings') setIsSettingsOpen(true);
+                        else handleModelFamilyChange(key);
+                    }}
+                >
+                    <Menu.Item key="seedream">
+                        <IconImage style={{ fontSize: 20 }} />
+                    </Menu.Item>
+                    <Menu.Item key="seedance">
+                        <IconVideoCamera style={{ fontSize: 20 }} />
+                    </Menu.Item>
+                    {/* Settings Tab - explicitly added back */}
+                    <Menu.Item key="settings">
+                        <IconSettings style={{ fontSize: 20 }} />
+                    </Menu.Item>
+                </Menu>
+                {/* Removed duplicate settings button at bottom */}
+                <div style={{ marginTop: 'auto', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
                 </div>
             </div>
-        </aside>
-
-        {/* SETTINGS PANEL (Pop-out) */}
-        {isSettingsOpen && (
-            <div className="settings-panel">
-                <div className="settings-header">
-                    <h3>Settings</h3>
-                    <button className="close-btn" onClick={() => setIsSettingsOpen(false)}>×</button>
-                </div>
-                <div className="settings-content">
-                    <div className="field">
-                        <label htmlFor="api-key">API Key</label>
-                        <input
-                            id="api-key"
-                            type="password"
-                            value={apiKey}
-                            onChange={(event) => {
-                                setApiKey(event.target.value);
-                                setApiKeyStatus('');
-                                setApiKeyStatusType('');
-                            }}
-                            placeholder="Paste key..."
-                        />
-                    </div>
-                    <div className="actions" style={{ marginTop: '0.5rem' }}>
-                        <button type="button" onClick={handleSaveApiKey} className="small-btn">
-                            Save
-                        </button>
-                    </div>
-                    {apiKeyStatus && <div className={`status ${apiKeyStatusType}`}>{apiKeyStatus}</div>}
-
-                    <hr className="divider" />
-
-                    <div className="toggle-row">
-                        <label className="toggle">
-                        <input
-                            type="checkbox"
-                            checked={showRequestOutput}
-                            onChange={(event) => setShowRequestOutput(event.target.checked)}
-                        />
-                        <span>Show request output</span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* MAIN CONTENT AREA */}
-        <main className="main-content">
-            <header className="main-header">
-                <h1>{uiSchema.title}</h1>
-                <p className="subtitle">{uiSchema.description}</p>
-                
-                <div className="family-switcher" style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                    <button 
-                        onClick={() => handleModelFamilyChange('seedream')}
-                        className={activeModelId === 'seedream' ? '' : 'secondary'}
-                        style={{ opacity: activeModelId === 'seedream' ? 1 : 0.7 }}
-                    >
-                        Image (Seedream)
-                    </button>
-                    <button 
-                        onClick={() => handleModelFamilyChange('seedance')}
-                        className={activeModelId === 'seedance' ? '' : 'secondary'}
-                        style={{ opacity: activeModelId === 'seedance' ? 1 : 0.7 }}
-                    >
-                        Video (Seedance)
-                    </button>
-                </div>
-            </header>
-
-            <div className="card">
-                <ModelForm
-                    uiSchema={uiSchema}
-                    formValues={formValues}
-                    setFormValues={setFormValues}
-                    onSubmit={handleSeedreamSubmit}
-                    loading={seedreamLoading}
-                    handleImageUpload={handleImageUpload}
-                    removeImage={removeImage}
-                    activeModelId={activeModelId}
-                    onModelChange={handleModelChange}
+        </Sider>
+        
+        <Content style={{ padding: '24px', background: '#f6f7f9', overflowY: 'auto' }}>
+            <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative' }}>
+                {/* Robot Icon moved to top right */}
+                <Button 
+                    icon={<IconRobot style={{ fontSize: 20 }} />} 
+                    shape="circle" 
+                    type="primary" 
+                    style={{ position: 'absolute', top: 0, right: 0, zIndex: 10 }}
+                    onClick={() => setIsAssistantOpen(true)} 
                 />
+
+                <header style={{ marginBottom: 24, textAlign: 'center' }}>
+                    <Title heading={2} style={{ margin: 0 }}>{uiSchema.title}</Title>
+                    <Text type="secondary">{uiSchema.description}</Text>
+                    
+                    <div style={{ marginTop: 16 }}>
+                        <Button.Group>
+                            <Button 
+                                type={activeModelId === 'seedream' ? 'primary' : 'secondary'}
+                                onClick={() => handleModelFamilyChange('seedream')}
+                            >
+                                Image (Seedream)
+                            </Button>
+                            <Button 
+                                type={activeModelId === 'seedance' ? 'primary' : 'secondary'}
+                                onClick={() => handleModelFamilyChange('seedance')}
+                            >
+                                Video (Seedance)
+                            </Button>
+                        </Button.Group>
+                    </div>
+                </header>
+
+                {activeModelId === 'seedance' ? (
+                    <SeedancePlayground
+                        schema={uiSchema}
+                        formValues={formValues}
+                        setFormValues={setFormValues}
+                        onSubmit={handleSeedreamSubmit}
+                        loading={seedreamLoading}
+                        handleImageUpload={handleImageUpload}
+                        removeImage={removeImage}
+                        onModelChange={handleModelChange}
+                    />
+                ) : (
+                    <SeedreamPlayground
+                        schema={uiSchema}
+                        formValues={formValues}
+                        setFormValues={setFormValues}
+                        onSubmit={handleSeedreamSubmit}
+                        loading={seedreamLoading}
+                        handleImageUpload={handleImageUpload}
+                        removeImage={removeImage}
+                        onModelChange={handleModelChange}
+                    />
+                )}
                 
-                <ResultViewer result={seedreamResult} modelType={activeModelId} />
+                <div style={{ marginTop: 24 }}>
+                     <ResultViewer result={seedreamResult} modelType={activeModelId} />
+                </div>
                 
                 {showRequestOutput && (lastRequestPayload || lastResponsePayload) && (
-                    <div className="debug-panel">
+                    <Card style={{ marginTop: 24 }} title="Debug Output">
                     {lastRequestPayload && (
                         <div className="result">
                             <div className="result-header">
                                 <strong>Request</strong>
                                 <CopyButton text={JSON.stringify(lastRequestPayload, null, 2)} />
                             </div>
-                            {JSON.stringify(lastRequestPayload, null, 2)}
+                            <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 200 }}>{JSON.stringify(lastRequestPayload, null, 2)}</pre>
                         </div>
                     )}
                     {lastResponsePayload && (
@@ -329,52 +314,83 @@ export default function Home() {
                                 <strong>Response</strong>
                                 <CopyButton text={JSON.stringify(lastResponsePayload, null, 2)} />
                             </div>
-                            {JSON.stringify(lastResponsePayload, null, 2)}
+                            <pre style={{ fontSize: 12, overflow: 'auto', maxHeight: 200 }}>{JSON.stringify(lastResponsePayload, null, 2)}</pre>
                         </div>
                     )}
-                    </div>
+                    </Card>
                 )}
             </div>
-        </main>
+        </Content>
 
-        {/* RIGHT SIDEBAR (AI Assistant) */}
-        <aside className={`right-sidebar ${isAssistantOpen ? 'open' : 'closed'}`}>
-            <div className="right-sidebar-toggle" onClick={() => setIsAssistantOpen(!isAssistantOpen)}>
-                <span style={{ fontSize: '1.2rem' }}>{isAssistantOpen ? '→' : '←'}</span>
-                {!isAssistantOpen && <span className="vertical-text">AI Assistant</span>}
+        <Drawer
+            title="Settings"
+            visible={isSettingsOpen}
+            onOk={() => setIsSettingsOpen(false)}
+            onCancel={() => setIsSettingsOpen(false)}
+            width={400}
+            footer={null}
+        >
+             <div className="field" style={{ marginBottom: 20 }}>
+                <label style={{ display: 'block', marginBottom: 8 }}>API Key</label>
+                <Input.Password
+                    value={apiKey}
+                    onChange={(val) => setApiKey(val)}
+                    placeholder="Paste key..."
+                    style={{ marginBottom: 10 }}
+                />
+                <Button type="primary" onClick={handleSaveApiKey}>Save</Button>
             </div>
-            
-            {isAssistantOpen && (
-                <div className="right-sidebar-content">
-                    <div className="sidebar-header">
-                        <h3>AI Assistant</h3>
+            <div className="toggle-row">
+                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                        type="checkbox"
+                        checked={showRequestOutput}
+                        onChange={(event) => setShowRequestOutput(event.target.checked)}
+                    />
+                    <span>Show request output</span>
+                </label>
+            </div>
+        </Drawer>
+
+        <Drawer
+            title="AI Assistant"
+            visible={isAssistantOpen}
+            onOk={() => setIsAssistantOpen(false)}
+            onCancel={() => setIsAssistantOpen(false)}
+            width={400}
+            footer={null}
+        >
+             <div className="chat-container" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)' }}>
+                <div className="chat-history" style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
+                    {chatHistory.map((msg, index) => (
+                    <div
+                        key={index}
+                        style={{ 
+                            marginBottom: 12, 
+                            padding: 12, 
+                            borderRadius: 8, 
+                            background: msg.role === 'user' ? '#e6f7ff' : '#f6f7f9',
+                            alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                        }}
+                    >
+                        <strong>{msg.role === 'user' ? 'You' : 'AI'}:</strong> {msg.content}
                     </div>
-                    <div className="chat-container">
-                        <div className="chat-history">
-                            {chatHistory.map((msg, index) => (
-                            <div
-                                key={index}
-                                className={`chat-message ${msg.role}`}
-                            >
-                                <strong>{msg.role === 'user' ? 'You' : 'AI'}:</strong> {msg.content}
-                            </div>
-                            ))}
-                            <div ref={chatEndRef} />
-                        </div>
-                        <form onSubmit={handleChatSubmit} className="chat-input-form">
-                            <input
-                                value={chatInput}
-                                onChange={(e) => setChatInput(e.target.value)}
-                                placeholder="Ask about API..."
-                                disabled={chatLoading}
-                            />
-                            <button type="submit" disabled={chatLoading}>Send</button>
-                        </form>
-                    </div>
+                    ))}
+                    <div ref={chatEndRef} />
                 </div>
-            )}
-        </aside>
-      </div>
+                <div className="chat-input-form" style={{ display: 'flex', gap: 8 }}>
+                    <Input
+                        value={chatInput}
+                        onChange={(val) => setChatInput(val)}
+                        placeholder="Ask about API..."
+                        disabled={chatLoading}
+                        onPressEnter={handleChatSubmit}
+                    />
+                    <Button type="primary" onClick={handleChatSubmit} loading={chatLoading}>Send</Button>
+                </div>
+            </div>
+        </Drawer>
+      </Layout>
     </>
   );
 }

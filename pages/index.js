@@ -4,6 +4,7 @@ import { baseSchemas, apiKeyStorageKey } from '../utils/schemas';
 import { constructSeedreamPayload, constructSeedancePayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import ModelForm from '../components/ModelForm';
 import ResultViewer from '../components/ResultViewer';
+import CopyButton from '../components/CopyButton';
 
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
@@ -59,34 +60,32 @@ export default function Home() {
     setUiSchema((prev) => updateUiSchemaVisibility(prev, formValues, activeModelId));
   }, [formValues.size, formValues.sequential_image_generation, formValues.model, formValues.generate_audio, activeModelId]);
 
+  const handleModelFamilyChange = (newFamily) => {
+      setActiveModelId(newFamily);
+      const newBaseSchema = baseSchemas[newFamily];
+      
+      setUiSchema({
+        title: newBaseSchema.name,
+        description: newBaseSchema.description,
+        fields: newBaseSchema.fields,
+        defaults: newBaseSchema.defaults,
+      });
+      
+      // Reset form values to new family defaults
+      setFormValues(newBaseSchema.defaults);
+      setSeedreamResult(null);
+  };
+
   const handleModelChange = (e) => {
     const newModelId = e.target.value;
-    let schemaKey = 'seedream';
+    // We don't need to switch schema here anymore, as schemas are now per-family
+    // and the family is selected via a separate switcher or determined by the current activeModelId.
+    // However, if we want to be safe, we can ensure we stay in the same family.
     
-    if (newModelId.includes('seedance')) {
-        schemaKey = 'seedance';
-    } else if (newModelId.includes('seedream')) {
-        schemaKey = 'seedream';
-    }
-
-    setActiveModelId(schemaKey);
-    const newBaseSchema = baseSchemas[schemaKey];
-    
-    setUiSchema({
-      title: newBaseSchema.name,
-      description: newBaseSchema.description,
-      fields: newBaseSchema.fields,
-      defaults: newBaseSchema.defaults,
-    });
-    
-    // Update form values with new model default but keep prompt if possible
     setFormValues((prev) => ({
-        ...newBaseSchema.defaults,
+        ...prev,
         model: newModelId,
-        prompt: prev.prompt || newBaseSchema.defaults.prompt
     }));
-    
-    setSeedreamResult(null);
   };
 
   const handleSaveApiKey = () => {
@@ -279,6 +278,23 @@ export default function Home() {
             <header className="main-header">
                 <h1>{uiSchema.title}</h1>
                 <p className="subtitle">{uiSchema.description}</p>
+                
+                <div className="family-switcher" style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                    <button 
+                        onClick={() => handleModelFamilyChange('seedream')}
+                        className={activeModelId === 'seedream' ? '' : 'secondary'}
+                        style={{ opacity: activeModelId === 'seedream' ? 1 : 0.7 }}
+                    >
+                        Image (Seedream)
+                    </button>
+                    <button 
+                        onClick={() => handleModelFamilyChange('seedance')}
+                        className={activeModelId === 'seedance' ? '' : 'secondary'}
+                        style={{ opacity: activeModelId === 'seedance' ? 1 : 0.7 }}
+                    >
+                        Video (Seedance)
+                    </button>
+                </div>
             </header>
 
             <div className="card">
@@ -300,14 +316,20 @@ export default function Home() {
                     <div className="debug-panel">
                     {lastRequestPayload && (
                         <div className="result">
-                        <strong>Request:</strong>
-                        {JSON.stringify(lastRequestPayload, null, 2)}
+                            <div className="result-header">
+                                <strong>Request</strong>
+                                <CopyButton text={JSON.stringify(lastRequestPayload, null, 2)} />
+                            </div>
+                            {JSON.stringify(lastRequestPayload, null, 2)}
                         </div>
                     )}
                     {lastResponsePayload && (
                         <div className="result">
-                        <strong>Response:</strong>
-                        {JSON.stringify(lastResponsePayload, null, 2)}
+                            <div className="result-header">
+                                <strong>Response</strong>
+                                <CopyButton text={JSON.stringify(lastResponsePayload, null, 2)} />
+                            </div>
+                            {JSON.stringify(lastResponsePayload, null, 2)}
                         </div>
                     )}
                     </div>

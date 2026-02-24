@@ -9,22 +9,16 @@ export const baseSchemas = {
         label: 'Model',
         type: 'enum',
         options: [
-            // Seedream Models
+            // Seedream Models Only
             'seedream-5-0-lite',
             'seedream-4-5-251128', 
             'seedream-4-0-250828', 
             'seedream-5-0-260128',
             'seedream-3-0-t2i',
-            'seededit-3-0-i2i',
-            // Seedance Models (Added for unified dropdown)
-            'seedance-1-5-pro-251215',
-            'seedance-1-0-pro',
-            'seedance-pro-fast',
-            'seedance-1-0-lite-t2v',
-            'seedance-1-0-lite-i2v'
+            'seededit-3-0-i2i'
         ],
         defaultValue: 'seedream-5-0-lite',
-        description: 'Select a model (Image or Video).',
+        description: 'Seedream model id used for generation.',
       },
       {
         key: 'prompt',
@@ -33,16 +27,15 @@ export const baseSchemas = {
         required: true,
         description: 'Primary text prompt. Max ~600 words.',
       },
-      // ... (rest of fields will be dynamically hidden/shown)
       {
         key: 'image',
-        label: 'Reference Images (Seedream)',
+        label: 'Reference Images',
         type: 'image-list',
         description: 'Optional reference images (URL or Base64). Up to 14 images for multi-image blending.',
       },
       {
         key: 'size',
-        label: 'Size (Image)',
+        label: 'Size',
         type: 'enum',
         options: ['2K', '4K', 'Custom'],
         defaultValue: '2K',
@@ -71,7 +64,7 @@ export const baseSchemas = {
       },
       {
         key: 'sequential_image_generation',
-        label: 'Sequential Generation (Image)',
+        label: 'Sequential Generation',
         type: 'boolean',
         defaultValue: false,
         description: 'Generate multiple related images in sequence (auto).',
@@ -86,7 +79,7 @@ export const baseSchemas = {
       },
       {
         key: 'optimize_prompt_mode',
-        label: 'Optimize Prompt Mode (Image)',
+        label: 'Optimize Prompt Mode',
         type: 'enum',
         options: ['standard', 'fast'],
         defaultValue: 'standard',
@@ -94,7 +87,7 @@ export const baseSchemas = {
       },
       {
         key: 'output_format',
-        label: 'Output Format (Image)',
+        label: 'Output Format',
         type: 'enum',
         options: ['jpeg', 'png'],
         defaultValue: 'jpeg',
@@ -102,7 +95,7 @@ export const baseSchemas = {
       },
       {
         key: 'guidance_scale',
-        label: 'Guidance Scale (3.0)',
+        label: 'Guidance Scale',
         type: 'number',
         defaultValue: 2.5,
         description: 'Controls prompt adherence (1-10). Only for 3.0 models.',
@@ -116,67 +109,11 @@ export const baseSchemas = {
       },
       {
         key: 'response_format',
-        label: 'Response Format (Image)',
+        label: 'Response Format',
         type: 'enum',
         options: ['url', 'b64_json'],
         defaultValue: 'url',
         description: 'Output format for the generated image.',
-      },
-      // Seedance specific fields
-      {
-        key: 'first_frame',
-        label: 'First Frame Image (Video)',
-        type: 'image-list',
-        description: 'First frame image for Image-to-Video generation (Single image).',
-      },
-      {
-        key: 'last_frame',
-        label: 'Last Frame Image (Video)',
-        type: 'image-list',
-        description: 'Last frame image for First-and-Last-Frame generation (Single image).',
-      },
-      {
-        key: 'reference_images',
-        label: 'Reference Images (Video)',
-        type: 'image-list',
-        description: 'Reference images (1-4) for Seedance 1.0 Lite I2V.',
-      },
-      {
-        key: 'resolution',
-        label: 'Resolution (Video)',
-        type: 'enum',
-        options: ['480p', '720p', '1080p'],
-        defaultValue: '720p',
-        description: 'Resolution of the output video.',
-      },
-      {
-        key: 'ratio',
-        label: 'Aspect Ratio (Video)',
-        type: 'enum',
-        options: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
-        defaultValue: '16:9',
-        description: 'Aspect ratio of the output video.',
-      },
-      {
-        key: 'duration',
-        label: 'Duration (Video)',
-        type: 'number',
-        defaultValue: 5,
-        description: 'Video duration in seconds (2-12s). -1 for auto (1.5 pro only).',
-      },
-      {
-        key: 'generate_audio',
-        label: 'Generate Audio (Video)',
-        type: 'boolean',
-        defaultValue: true,
-        description: 'Generate synchronized audio (1.5 pro only).',
-      },
-      {
-        key: 'camera_fixed',
-        label: 'Fix Camera (Video)',
-        type: 'boolean',
-        defaultValue: false,
-        description: 'Attempt to keep camera fixed.',
       },
     ],
     defaults: {
@@ -194,18 +131,120 @@ export const baseSchemas = {
       guidance_scale: 2.5,
       seed: -1,
       response_format: 'url',
-      // Seedance defaults
+    },
+  },
+  seedance: {
+    id: 'seedance',
+    name: 'Seedance Video',
+    description: 'Seedance video generation request schema (API 1:1).',
+    fields: [
+      {
+        key: 'model',
+        label: 'Model',
+        type: 'enum',
+        options: [
+            // Seedance Models Only
+            'seedance-1-5-pro-251215',
+            'seedance-1-0-pro',
+            'seedance-pro-fast',
+            'seedance-1-0-lite-t2v',
+            'seedance-1-0-lite-i2v'
+        ],
+        defaultValue: 'seedance-1-5-pro-251215',
+        description: 'Seedance model id used for video generation.',
+      },
+      {
+        key: 'prompt',
+        label: 'Prompt',
+        type: 'text',
+        required: true,
+        description: 'Text prompt describing the video content.',
+      },
+      {
+        key: 'first_frame',
+        label: 'First Frame Image',
+        type: 'image-list',
+        description: 'First frame image for Image-to-Video generation (Single image).',
+      },
+      {
+        key: 'last_frame',
+        label: 'Last Frame Image',
+        type: 'image-list',
+        description: 'Last frame image for First-and-Last-Frame generation (Single image).',
+      },
+      {
+        key: 'reference_images',
+        label: 'Reference Images',
+        type: 'image-list',
+        description: 'Reference images (1-4) for Seedance 1.0 Lite I2V.',
+      },
+      {
+        key: 'resolution',
+        label: 'Resolution',
+        type: 'enum',
+        options: ['480p', '720p', '1080p'],
+        defaultValue: '720p',
+        description: 'Resolution of the output video.',
+      },
+      {
+        key: 'ratio',
+        label: 'Aspect Ratio',
+        type: 'enum',
+        options: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
+        defaultValue: '16:9',
+        description: 'Aspect ratio of the output video.',
+      },
+      {
+        key: 'duration',
+        label: 'Duration (seconds)',
+        type: 'number',
+        defaultValue: 5,
+        description: 'Video duration in seconds (2-12s). -1 for auto (1.5 pro only).',
+      },
+      {
+        key: 'seed',
+        label: 'Seed',
+        type: 'number',
+        defaultValue: -1,
+        description: 'Random seed (-1 for random).',
+      },
+      {
+        key: 'generate_audio',
+        label: 'Generate Audio',
+        type: 'boolean',
+        defaultValue: true,
+        description: 'Generate synchronized audio (1.5 pro only).',
+      },
+      {
+        key: 'camera_fixed',
+        label: 'Fix Camera',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Attempt to keep camera fixed.',
+      },
+      {
+        key: 'watermark',
+        label: 'Watermark',
+        type: 'boolean',
+        defaultValue: false,
+        description: 'Add watermark to output video.',
+      },
+    ],
+    defaults: {
+      model: 'seedance-1-5-pro-251215',
+      prompt: 'A cinematic shot of a futuristic city with flying cars.',
       first_frame: [],
       last_frame: [],
       reference_images: [],
       resolution: '720p',
       ratio: '16:9',
       duration: 5,
+      seed: -1,
       generate_audio: true,
       camera_fixed: false,
+      watermark: false,
     },
   },
-  // Removed separate 'seedance' key since we are unifying into one main UI
 };
 
 export const apiKeyStorageKey = 'modelark_api_key';

@@ -1,40 +1,67 @@
 async function seedanceStatusHandler(req, res) {
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', ['GET']);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
-  }
-
-  const { taskId, apiKey, baseUrl } = req.query;
-
-  if (!taskId) {
-    return res.status(400).json({ error: 'Task ID is required' });
-  }
-
-  const token = apiKey || process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
-  if (!token) {
-    return res.status(500).json({ error: 'API key not configured' });
-  }
-
-  const endpoint = baseUrl || process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3';
-
-  try {
-    const response = await fetch(`${endpoint}/contents/generations/tasks/${taskId}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      return res.status(response.status).json({ error: 'Seedance status failed', details: data });
+    if (req.method !== 'GET') {
+      res.setHeader('Allow', ['GET']);
+      return res.status(405).end(`Method ${req.method} Not Allowed`);
+    }
+  
+    const { taskId, apiKey, baseUrl } = req.query;
+  
+    if (!taskId) {
+        return res.status(400).json({ error: 'Missing taskId' });
     }
 
-    return res.status(200).json(data);
-  } catch (error) {
-    return res.status(500).json({ error: 'Request failed', details: error.message });
-  }
-}
+    // In a real app, apiKey should probably come from a secure session or similar, 
+    // but for this starter kit, we'll use the env var or the one passed (though passing sensitive info in query is not ideal).
+    // Better: Rely on server-side env var for API key if possible, or pass via header if client stores it.
+    // Here we'll default to env var.
+    const token = process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
+    
+    // NOTE: If the user is using a custom API key entered in the UI, we need to pass it securely.
+    // For now, let's assume the user has set the env var or we can't poll easily without passing it back.
+    // Since the original design stores key in localStorage, the client should pass it.
+    // Let's check headers first.
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader ? authHeader.replace('Bearer ', '') : token;
 
-export default seedanceStatusHandler;
+    if (!bearerToken) {
+      return res.status(500).json({ error: 'API key not configured' });
+    }
+  
+    const endpoint = baseUrl || process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3';
+  
+    try {
+      const response = await fetch(`${endpoint}/contents/generations/tasks/${taskId}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${bearerToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+  
+      const data = await response.json();
+      if (!response.ok) {
+        return res.status(response.status).json({ error: 'Status check failed', details: data });
+      }
+
+      // Transform response to simplified format
+      // API returns: { id, status: "succeeded", content: { video_url: "..." }, ... }
+      const result = {
+          id: data.id,
+          status: data.status,
+      };
+
+      if (data.status === 'succeeded' && data.content) {
+          result.video_url = data.content.video_url;
+      }
+      
+      if (data.error) {
+          result.error = data.error;
+      }
+  
+      return res.status(200).json(result);
+    } catch (error) {
+      return res.status(500).json({ error: 'Request failed', details: error.message });
+    }
+  }
+  
+  export default seedanceStatusHandler;

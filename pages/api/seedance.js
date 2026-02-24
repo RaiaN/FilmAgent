@@ -1,3 +1,11 @@
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+};
+
 async function seedanceHandler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);

@@ -34,9 +34,13 @@ export const constructSeedreamPayload = (formValues) => {
 
     // Conditional Fields based on Model
     const is30Model = model && (model.includes('3-0') || model.includes('3.0'));
+    // Re-enabled as requested by user - only for 5.0-lite
     const is50Lite = model === 'seedream-5-0-lite';
+    
     const isSeqSupported = !is30Model; // 5.0, 4.5, 4.0 support sequential
     const isOptimizePromptSupported = !is30Model; // 5.0, 4.5, 4.0 support optimize prompt
+    // 4.5 and 5.0-lite only support 'standard' mode. 4.0 supports both.
+    const isStandardOnly = model.includes('4-5') || model.includes('5-0-lite');
 
     if (isSeqSupported && formValues.sequential_image_generation) {
       requestBody.sequential_image_generation = 'auto';
@@ -46,15 +50,23 @@ export const constructSeedreamPayload = (formValues) => {
     }
 
     if (isOptimizePromptSupported && formValues.optimize_prompt_mode) {
-      requestBody.optimize_prompt_options = {
-        mode: formValues.optimize_prompt_mode
-      };
+      // If model is standard-only and user selected 'fast', force 'standard'
+      if (isStandardOnly && formValues.optimize_prompt_mode === 'fast') {
+          requestBody.optimize_prompt_options = { mode: 'standard' };
+      } else {
+          requestBody.optimize_prompt_options = {
+            mode: formValues.optimize_prompt_mode
+          };
+      }
     }
 
-    // ONLY add output_format for 5.0-lite
+    // Re-enabled as requested by user - only for 5.0-lite
+    // DISABLED: User requested to comment off output_format
+    /*
     if (is50Lite && formValues.output_format) {
       requestBody.output_format = formValues.output_format;
-    }
+    } 
+    */ 
 
     if (is30Model && formValues.guidance_scale) {
       requestBody.guidance_scale = Number(formValues.guidance_scale);
@@ -131,53 +143,59 @@ export const constructSeedancePayload = (formValues) => {
 };
 
 export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) => {
+    // Determine mode based on activeModelId (schema key) directly
+    // Since we separated schemas, we don't need complex cross-hiding logic.
+    // We only need to handle intra-schema visibility (e.g. within Seedream fields).
+
+    const model = formValues.model || '';
+
+    // --- SEEDREAM (IMAGE) VISIBILITY LOGIC ---
     if (activeModelId === 'seedream') {
-        const model = formValues.model;
         const isCustomSize = formValues.size === 'Custom';
         const isSequential = formValues.sequential_image_generation;
-        
         const is30Model = model && (model.includes('3-0') || model.includes('3.0'));
         const is50Lite = model === 'seedream-5-0-lite';
-        const isSeqSupported = !is30Model; // 5.0, 4.5, 4.0 support sequential
-        const isOptimizePromptSupported = !is30Model; // 5.0, 4.5, 4.0 support optimize prompt
+        const isSeqSupported = !is30Model;
+        const isOptimizePromptSupported = !is30Model;
 
         const nextFields = prevSchema.fields.map((f) => {
-          if (f.key === 'width' || f.key === 'height') {
-            return { ...f, hidden: !isCustomSize };
-          }
-          if (f.key === 'sequential_image_generation') {
-            return { ...f, hidden: !isSeqSupported };
-          }
-          if (f.key === 'sequential_max_images') {
-            return { ...f, hidden: !isSequential || !isSeqSupported };
-          }
-          if (f.key === 'optimize_prompt_mode') {
-            return { ...f, hidden: !isOptimizePromptSupported };
-          }
-          if (f.key === 'output_format') {
-            return { ...f, hidden: !is50Lite };
-          }
-          if (f.key === 'guidance_scale' || f.key === 'seed') {
-            return { ...f, hidden: !is30Model };
-          }
-          return f;
+            // Specific logic for Seedream fields
+            if (f.key === 'width' || f.key === 'height') {
+                return { ...f, hidden: !isCustomSize };
+            }
+            if (f.key === 'sequential_image_generation') {
+                return { ...f, hidden: !isSeqSupported };
+            }
+            if (f.key === 'sequential_max_images') {
+                return { ...f, hidden: !isSequential || !isSeqSupported };
+            }
+            if (f.key === 'optimize_prompt_mode') {
+                return { ...f, hidden: !isOptimizePromptSupported };
+            }
+            if (f.key === 'output_format') {
+                return { ...f, hidden: !is50Lite };
+            }
+            if (f.key === 'guidance_scale' || f.key === 'seed') {
+                return { ...f, hidden: !is30Model };
+            }
+            return f;
         });
 
-        // Check if actually changed to avoid loop
         if (JSON.stringify(nextFields) !== JSON.stringify(prevSchema.fields)) {
-          return { ...prevSchema, fields: nextFields };
+            return { ...prevSchema, fields: nextFields };
         }
         return prevSchema;
     }
     
+    // --- SEEDANCE (VIDEO) VISIBILITY LOGIC ---
     if (activeModelId === 'seedance') {
-        const model = formValues.model || '';
         const is15Pro = model.includes('1-5-pro');
         const is10LiteI2V = model.includes('1-0-lite-i2v');
         const isT2VOnly = model.includes('t2v') || model === 'seedance-1-0-lite-t2v';
         const isProFast = model === 'seedance-pro-fast';
 
         const nextFields = prevSchema.fields.map((f) => {
+            // Specific logic for Seedance fields
             if (f.key === 'generate_audio') {
                 return { ...f, hidden: !is15Pro };
             }
@@ -185,7 +203,6 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
                 return { ...f, hidden: !is10LiteI2V };
             }
             if (f.key === 'last_frame') {
-                 // Not supported by pro-fast or T2V
                 return { ...f, hidden: isProFast || isT2VOnly };
             }
             if (f.key === 'first_frame') {

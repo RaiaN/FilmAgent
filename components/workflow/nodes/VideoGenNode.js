@@ -170,6 +170,28 @@ const VideoGenNode = ({ data }) => {
           </div>
       </div>
 
+      <div style={{ marginBottom: 8 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Duration (s)</Typography.Text>
+          <Select
+            size="small"
+            value={Number(data.duration) || 5}
+            onChange={(val) => data.onChange('duration', val)}
+          >
+              <Select.Option value={3}>3</Select.Option>
+              <Select.Option value={5}>5</Select.Option>
+              <Select.Option value={10}>10</Select.Option>
+              <Select.Option value={15}>15</Select.Option>
+          </Select>
+      </div>
+
+      <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Generate Audio</Typography.Text>
+          <Checkbox
+            checked={!!data.generate_audio}
+            onChange={(checked) => data.onChange('generate_audio', checked)}
+          />
+      </div>
+
       <div style={{ textAlign: 'right' }}>
           <Button type="primary" status="warning" size="small" onClick={data.onRun} loading={data.loading} disabled={!data.inputImage && !data.uploadedImage && !data.lastFrame}>
               Animate

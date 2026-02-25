@@ -4,7 +4,7 @@ import { IconCopy, IconCode, IconDown, IconRight, IconStar } from '@arco-design/
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedancePayload } from '../utils/apiHelpers';
-import { apiKeyStorageKey } from '../utils/schemas';
+import { getApiKey } from '../utils/apiKeyStore';
 
 const { Row, Col } = Grid;
 
@@ -33,7 +33,7 @@ const SeedancePlayground = ({
           return;
       }
 
-      const apiKey = window.localStorage.getItem(apiKeyStorageKey);
+      const apiKey = getApiKey();
       if (!apiKey) {
           Message.error('API key not found. Please set it in Settings.');
           return;

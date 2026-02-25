@@ -24,22 +24,14 @@ body {
   overflow: hidden;
 }
 
-.workflow-toolbox {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.35) transparent;
+.workflow-toolbox-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.workflow-toolbox::-webkit-scrollbar {
-  width: 8px;
-}
-
-.workflow-toolbox::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.workflow-toolbox::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.35);
-  border-radius: 8px;
+.workflow-toolbox-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .app-container {

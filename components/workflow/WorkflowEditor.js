@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Button, Message, Card, Typography, Collapse, Tooltip } from '@arco-design/web-react';
-import { IconPlus, IconImage, IconVideoCamera, IconStar, IconLeft, IconRight, IconBulb, IconPalette, IconSwap, IconCamera, IconEdit, IconDoubleRight, IconFullscreen, IconPlayCircle, IconMinus, IconRobot } from '@arco-design/web-react/icon';
+import { IconPlus, IconImage, IconVideoCamera, IconStar, IconLeft, IconRight, IconBulb, IconPalette, IconSwap, IconCamera, IconEdit, IconDoubleRight, IconFullscreen, IconPlayCircle, IconMinus, IconRobot, IconDownload, IconUpload } from '@arco-design/web-react/icon';
 import ImageGenNode from './nodes/ImageGenNode';
 import VideoGenNode from './nodes/VideoGenNode';
 import PromptEnhancerNode from './nodes/PromptEnhancerNode';
@@ -13,7 +13,7 @@ import MergeVideosNode from './nodes/MergeVideosNode';
 import MultimodalVideoNode from './nodes/MultimodalVideoNode';
 import AgenticNode from './nodes/AgenticNode';
 import { constructSeedreamPayload, constructSeedancePayload } from '../../utils/apiHelpers';
-import { apiKeyStorageKey } from '../../utils/schemas';
+import { getApiKey } from '../../utils/apiKeyStore';
 
 const nodeTypes = {
   imageGen: ImageGenNode,
@@ -46,6 +46,9 @@ const initialNodes = [
     data: { 
         model: 'seedance-1-5-pro-251215',
         prompt: 'Slow camera pan right, flying cars moving',
+        resolution: '720p',
+        duration: 5,
+        generate_audio: true,
         inputImage: null,
         output: null,
         loading: false
@@ -63,6 +66,10 @@ const WorkflowEditor = () => {
   const [isToolboxOpen, setIsToolboxOpen] = useState(true);
   const [activeKeys, setActiveKeys] = useState(['1', '2', '3', '4']);
   const allCategoryKeys = ['1', '2', '3', '4'];
+  const toolboxHeaderRef = useRef(null);
+  const toolboxScrollRef = useRef(null);
+  const workflowImportInputRef = useRef(null);
+  const [toolboxScrollbar, setToolboxScrollbar] = useState({ visible: false, trackTop: 0, thumbTop: 0, thumbHeight: 0 });
 
   const normalizeCollapseKeys = (key) => {
       if (Array.isArray(key)) return [...key];
@@ -97,6 +104,87 @@ const WorkflowEditor = () => {
       const nextKeys = activeKeys.length > 0 ? [] : allCategoryKeys;
       setActiveKeys(nextKeys);
   };
+
+  const exportWorkflow = () => {
+      const payload = {
+          version: 1,
+          nodes,
+          edges
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `workflow-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+  };
+
+  const importWorkflow = async (file) => {
+      try {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
+              throw new Error('Invalid workflow file');
+          }
+          setNodes(parsed.nodes);
+          setEdges(parsed.edges);
+          Message.success('Workflow imported');
+      } catch (err) {
+          Message.error(err?.message || 'Failed to import workflow');
+      }
+  };
+
+  const updateToolboxScrollbar = useCallback(() => {
+      const scrollEl = toolboxScrollRef.current;
+      const headerEl = toolboxHeaderRef.current;
+
+      if (!isToolboxOpen || !scrollEl || !headerEl) {
+          setToolboxScrollbar((prev) => (prev.visible ? { visible: false, trackTop: 0, thumbTop: 0, thumbHeight: 0 } : prev));
+          return;
+      }
+
+      const clientHeight = scrollEl.clientHeight;
+      const scrollHeight = scrollEl.scrollHeight;
+      const scrollTop = scrollEl.scrollTop;
+      const trackTop = headerEl.offsetTop + headerEl.offsetHeight + 8;
+
+      if (scrollHeight <= clientHeight + 1) {
+          setToolboxScrollbar((prev) => (prev.visible ? { visible: false, trackTop, thumbTop: 0, thumbHeight: 0 } : prev));
+          return;
+      }
+
+      const minThumbHeight = 28;
+      const thumbHeight = Math.max(minThumbHeight, Math.round((clientHeight / scrollHeight) * clientHeight));
+      const maxThumbTop = clientHeight - thumbHeight;
+      const maxScrollTop = scrollHeight - clientHeight;
+      const thumbTop = maxScrollTop > 0 ? Math.round((scrollTop / maxScrollTop) * maxThumbTop) : 0;
+
+      setToolboxScrollbar({ visible: true, trackTop, thumbTop, thumbHeight });
+  }, [isToolboxOpen]);
+
+  useEffect(() => {
+      updateToolboxScrollbar();
+  }, [activeKeys, isToolboxOpen, updateToolboxScrollbar]);
+
+  useEffect(() => {
+      const scrollEl = toolboxScrollRef.current;
+      if (!scrollEl) return;
+
+      const handleScroll = () => updateToolboxScrollbar();
+      scrollEl.addEventListener('scroll', handleScroll, { passive: true });
+
+      const ro = new ResizeObserver(() => updateToolboxScrollbar());
+      ro.observe(scrollEl);
+      if (toolboxHeaderRef.current) ro.observe(toolboxHeaderRef.current);
+
+      return () => {
+          scrollEl.removeEventListener('scroll', handleScroll);
+          ro.disconnect();
+      };
+  }, [updateToolboxScrollbar]);
 
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
@@ -203,7 +291,7 @@ const WorkflowEditor = () => {
             prompt: '', 
             // Defaults based on type
             ...(nodeType === 'imageGen' ? { model: 'seedream-5-0-lite', size: '2K' } : {}),
-            ...(nodeType === 'videoGen' ? { model: 'seedance-1-5-pro-251215', resolution: '720p' } : {}),
+            ...(nodeType === 'videoGen' ? { model: 'seedance-1-5-pro-251215', resolution: '720p', duration: 5, generate_audio: true } : {}),
             ...(nodeType === 'promptEnhancer' ? { inputPrompt: '', outputPrompt: '' } : {}),
             ...(nodeType === 'videoEdit' ? { inputVideo: null, prompt: '' } : {}),
             ...(nodeType === 'videoExtend' ? { inputVideo: null } : {}),
@@ -263,7 +351,7 @@ const WorkflowEditor = () => {
   const runImageGen = async (nodeId, data) => {
       updateNodeData(nodeId, { loading: true });
       try {
-          const apiKey = window.localStorage.getItem(apiKeyStorageKey);
+          const apiKey = getApiKey();
           if (!apiKey) throw new Error("API Key missing");
 
           // Collect upstream prompts
@@ -339,7 +427,7 @@ const WorkflowEditor = () => {
       }
       updateNodeData(nodeId, { loading: true });
       try {
-          const apiKey = window.localStorage.getItem(apiKeyStorageKey);
+          const apiKey = getApiKey();
           if (!apiKey) throw new Error("API Key missing");
 
           const upstreamPrompts = getUpstreamPrompts(nodeId, nodes, edges);
@@ -351,7 +439,8 @@ const WorkflowEditor = () => {
               prompt: combinedPrompt,
               first_frame: [firstFrame],
               resolution: data.resolution || '720p',
-              duration: 5,
+              duration: Number(data.duration) || 5,
+              generate_audio: !!data.generate_audio,
               ...(lastFrame ? { last_frame: [lastFrame] } : {})
           });
 
@@ -399,7 +488,7 @@ const WorkflowEditor = () => {
       }
       updateNodeData(nodeId, { loading: true });
       try {
-          const apiKey = window.localStorage.getItem(apiKeyStorageKey);
+          const apiKey = getApiKey();
           if (!apiKey) throw new Error("API Key missing");
 
           const res = await fetch('/api/seed', {
@@ -462,175 +551,247 @@ const WorkflowEditor = () => {
 
   return (
     <div style={{ height: '100%', width: '100%', display: 'flex', position: 'relative', minHeight: 0 }}>
-        {/* Toolbox Toggle Button */}
-        <Button 
-            shape="circle" 
-            type="secondary"
-            icon={isToolboxOpen ? <IconLeft /> : <IconRight />} 
-            style={{ 
-                position: 'absolute', 
-                top: 16, 
-                left: isToolboxOpen ? 200 + 16 : 16, 
-                zIndex: 10,
-                transition: 'left 0.3s ease'
-            }}
-            onClick={() => setIsToolboxOpen(!isToolboxOpen)}
-        />
-
         {/* Toolbox Sidebar */}
         <div
           className="workflow-toolbox"
           style={{ 
-            width: isToolboxOpen ? 170 : 0, 
+            width: isToolboxOpen ? 180 : 40, 
             height: '100%',
             minHeight: 0,
-            padding: isToolboxOpen ? 12 : 0, 
+            padding: isToolboxOpen ? 10 : 6, 
             background: '#fff', 
-            borderRight: isToolboxOpen ? '1px solid #e5e6eb' : 'none', 
+            borderRight: '1px solid #e5e6eb', 
             display: 'flex', 
             flexDirection: 'column', 
             gap: 8,
             transition: 'width 0.3s ease, padding 0.3s ease',
-            overflowY: 'scroll',
-            overflowX: 'hidden',
-            scrollbarGutter: 'stable'
+            position: 'relative',
+            overflow: 'hidden'
         }}
         >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: isToolboxOpen ? 1 : 0, transition: 'opacity 0.3s', minHeight: 28 }}>
-                <Typography.Title heading={6} style={{ margin: 0, fontSize: 14 }}>Toolbox</Typography.Title>
-                <Tooltip content={activeKeys.length === 0 ? "Expand All" : "Collapse All"}>
+            <div ref={toolboxHeaderRef} style={{ display: 'flex', justifyContent: isToolboxOpen ? 'space-between' : 'center', alignItems: 'center', minHeight: 28 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Button 
-                        icon={activeKeys.length === 0 ? <IconPlus /> : <IconMinus />} 
-                        size="mini" 
-                        type="text"
+                        shape="circle" 
+                        type="secondary"
+                        size="mini"
+                        icon={isToolboxOpen ? <IconLeft /> : <IconRight />} 
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                             e.stopPropagation();
-                            toggleAllCategories();
+                            setIsToolboxOpen(!isToolboxOpen);
                         }}
-                        style={{ padding: '0 4px' }}
                     />
-                </Tooltip>
+                    {isToolboxOpen && (
+                        <Typography.Title heading={6} style={{ margin: 0, fontSize: 14 }}>Toolbox</Typography.Title>
+                    )}
+                </div>
+                {isToolboxOpen && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Tooltip content="Export workflow">
+                            <Button
+                              icon={<IconDownload />}
+                              size="mini"
+                              type="text"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                  e.stopPropagation();
+                                  exportWorkflow();
+                              }}
+                              style={{ padding: '0 4px' }}
+                            />
+                        </Tooltip>
+                        <Tooltip content="Import workflow">
+                            <Button
+                              icon={<IconUpload />}
+                              size="mini"
+                              type="text"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                  e.stopPropagation();
+                                  workflowImportInputRef.current?.click();
+                              }}
+                              style={{ padding: '0 4px' }}
+                            />
+                        </Tooltip>
+                        <Tooltip content={activeKeys.length === 0 ? "Expand All" : "Collapse All"}>
+                            <Button 
+                                icon={activeKeys.length === 0 ? <IconPlus /> : <IconMinus />} 
+                                size="mini" 
+                                type="text"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleAllCategories();
+                                }}
+                                style={{ padding: '0 4px' }}
+                            />
+                        </Tooltip>
+                    </div>
+                )}
             </div>
-            
-            <Collapse 
-                activeKey={activeKeys} 
-                onChange={(key) => setActiveKeys(normalizeCollapseKeys(key))}
-                style={{ border: 'none' }}
-                accordion={false}
-            >
-                <Collapse.Item header={renderCategoryHeader('1', 'Generative AI')} name="1" contentStyle={{ padding: '8px 0' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'imageGen')}
-                            style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
-                        >
-                            <IconImage style={{ color: '#165dff' }} /> Image Gen
+            {isToolboxOpen && (
+                <input
+                  ref={workflowImportInputRef}
+                  type="file"
+                  accept="application/json"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) importWorkflow(file);
+                      e.target.value = '';
+                  }}
+                />
+            )}
+            {isToolboxOpen && (
+            <div ref={toolboxScrollRef} className="workflow-toolbox-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingRight: 10 }}>
+                <Collapse 
+                    activeKey={activeKeys} 
+                    onChange={(key) => setActiveKeys(normalizeCollapseKeys(key))}
+                    style={{ border: 'none' }}
+                    accordion={false}
+                >
+                    <Collapse.Item header={renderCategoryHeader('1', 'Generative AI')} name="1" contentStyle={{ padding: '8px 0' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'imageGen')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
+                            >
+                                <IconImage style={{ color: '#165dff' }} /> Image Gen
+                            </div>
+                            
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'videoGen')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
+                            >
+                                <IconVideoCamera style={{ color: '#ff7d00' }} /> Video Gen
+                            </div>
+                            
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'promptEnhancer')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
+                            >
+                                <IconStar style={{ color: '#ffb400' }} /> Enhancer
+                            </div>
                         </div>
-                        
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'videoGen')}
-                            style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
-                        >
-                            <IconVideoCamera style={{ color: '#ff7d00' }} /> Video Gen
-                        </div>
-                        
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'promptEnhancer')}
-                            style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
-                        >
-                            <IconStar style={{ color: '#ffb400' }} /> Enhancer
-                        </div>
-                    </div>
-                </Collapse.Item>
+                    </Collapse.Item>
 
-                <Collapse.Item header={renderCategoryHeader('3', 'Video Tools (2.0)')} name="3" contentStyle={{ padding: '8px 0' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'videoEdit')}
-                            style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
-                        >
-                            <IconEdit style={{ color: '#722ed1' }} /> Video Edit
-                        </div>
+                    <Collapse.Item header={renderCategoryHeader('3', 'Video Tools (2.0)')} name="3" contentStyle={{ padding: '8px 0' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'videoEdit')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
+                            >
+                                <IconEdit style={{ color: '#722ed1' }} /> Video Edit
+                            </div>
 
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'videoExtend')}
-                            style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
-                        >
-                            <IconDoubleRight style={{ color: '#00b42a' }} /> Video Extend
-                        </div>
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'videoExtend')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
+                            >
+                                <IconDoubleRight style={{ color: '#00b42a' }} /> Video Extend
+                            </div>
 
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'mergeVideos')}
-                            style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
-                        >
-                            <IconFullscreen style={{ color: '#ff7d00' }} /> Merge Videos
-                        </div>
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'mergeVideos')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
+                            >
+                                <IconFullscreen style={{ color: '#ff7d00' }} /> Merge Videos
+                            </div>
 
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'multimodalVideo')}
-                            style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
-                        >
-                            <IconPlayCircle style={{ color: '#f5319d' }} /> Multimodal Video
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'multimodalVideo')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
+                            >
+                                <IconPlayCircle style={{ color: '#f5319d' }} /> Multimodal Video
+                            </div>
                         </div>
-                    </div>
-                </Collapse.Item>
+                    </Collapse.Item>
 
-                <Collapse.Item header={renderCategoryHeader('4', 'Agentic AI')} name="4" contentStyle={{ padding: '8px 0' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'agentic')}
-                            style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f0f5ff' }}
-                        >
-                            <IconRobot style={{ color: '#165dff' }} /> Agentic Director
+                    <Collapse.Item header={renderCategoryHeader('4', 'Agentic AI')} name="4" contentStyle={{ padding: '8px 0' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'agentic')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f0f5ff' }}
+                            >
+                                <IconRobot style={{ color: '#165dff' }} /> Agentic Director
+                            </div>
                         </div>
-                    </div>
-                </Collapse.Item>
+                    </Collapse.Item>
 
-                <Collapse.Item header={renderCategoryHeader('2', 'Presets')} name="2" contentStyle={{ padding: '8px 0' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'preset:camera')}
-                            style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
-                        >
-                            <IconCamera style={{ color: '#165dff' }} /> Camera
-                        </div>
+                    <Collapse.Item header={renderCategoryHeader('2', 'Presets')} name="2" contentStyle={{ padding: '8px 0' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'preset:camera')}
+                                style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
+                            >
+                                <IconCamera style={{ color: '#165dff' }} /> Camera
+                            </div>
 
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'preset:lighting')}
-                            style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
-                        >
-                            <IconBulb style={{ color: '#ff7d00' }} /> Lighting
-                        </div>
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'preset:lighting')}
+                                style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
+                            >
+                                <IconBulb style={{ color: '#ff7d00' }} /> Lighting
+                            </div>
 
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'preset:style')}
-                            style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
-                        >
-                            <IconPalette style={{ color: '#722ed1' }} /> Style
-                        </div>
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'preset:style')}
+                                style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
+                            >
+                                <IconPalette style={{ color: '#722ed1' }} /> Style
+                            </div>
 
-                        <div 
-                            draggable 
-                            onDragStart={(event) => onDragStart(event, 'preset:movement')}
-                            style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
-                        >
-                            <IconSwap style={{ color: '#00b42a' }} /> Movement
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'preset:movement')}
+                                style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
+                            >
+                                <IconSwap style={{ color: '#00b42a' }} /> Movement
+                            </div>
                         </div>
-                    </div>
-                </Collapse.Item>
-            </Collapse>
+                    </Collapse.Item>
+                </Collapse>
+            </div>
+            )}
+
+            {isToolboxOpen && toolboxScrollbar.visible && (
+                <div
+                  aria-hidden
+                  style={{
+                      position: 'absolute',
+                      right: 3,
+                      top: toolboxScrollbar.trackTop,
+                      bottom: 12,
+                      width: 6,
+                      borderRadius: 999,
+                      background: 'rgba(0,0,0,0.04)'
+                  }}
+                >
+                    <div
+                      style={{
+                          position: 'absolute',
+                          left: 0,
+                          right: 0,
+                          top: toolboxScrollbar.thumbTop,
+                          height: toolboxScrollbar.thumbHeight,
+                          borderRadius: 999,
+                          background: 'rgba(0,0,0,0.35)'
+                      }}
+                    />
+                </div>
+            )}
         </div>
 
         {/* Main Canvas */}

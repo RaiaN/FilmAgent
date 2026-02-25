@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Tag, Typography, Button, Space, Spin } from '@arco-design/web-react';
 import { IconCheckCircleFill, IconCloseCircleFill, IconClockCircle, IconSync } from '@arco-design/web-react/icon';
 import CopyButton from './CopyButton';
-import { apiKeyStorageKey } from '../utils/schemas';
+import { getApiKey } from '../utils/apiKeyStore';
 
 const VideoResultViewer = ({ result }) => {
   const [videoStatus, setVideoStatus] = useState(null);
@@ -16,7 +16,7 @@ const VideoResultViewer = ({ result }) => {
       
       const poll = async () => {
         try {
-          const storedKey = window.localStorage.getItem(apiKeyStorageKey);
+          const storedKey = getApiKey();
           const headers = {};
           if (storedKey) {
               headers['Authorization'] = `Bearer ${storedKey}`;

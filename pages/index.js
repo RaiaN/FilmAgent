@@ -4,8 +4,9 @@ import { Layout, Menu, Button, Drawer, Input, Message, Card, Typography, Tooltip
 import { IconSettings, IconRobot, IconImage, IconVideoCamera, IconPlus, IconClose, IconMindMapping } from '@arco-design/web-react/icon';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { baseSchemas, apiKeyStorageKey } from '../utils/schemas';
+import { baseSchemas } from '../utils/schemas';
 import { constructSeedreamPayload, constructSeedancePayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
 import WorkflowEditor from '../components/workflow/WorkflowEditor';
@@ -46,10 +47,12 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const savedKey = window.localStorage.getItem(apiKeyStorageKey);
-    if (savedKey) {
-      setApiKey(savedKey);
+    if (isBundledDesktopApp()) {
+      clearPersistedApiKey();
+      return;
     }
+    const savedKey = getApiKey();
+    if (savedKey) setApiKey(savedKey);
   }, []);
   
   useEffect(() => {
@@ -97,8 +100,12 @@ export default function Home() {
       Message.error('Please enter an API key');
       return;
     }
-    window.localStorage.setItem(apiKeyStorageKey, apiKey.trim());
-    Message.success('API key saved');
+    const result = setApiKeyInStore(apiKey);
+    if (result.bundled) {
+      Message.success('API key set for this session');
+    } else {
+      Message.success('API key saved');
+    }
   };
 
   const handleChatSubmit = async (e) => {
@@ -254,8 +261,8 @@ export default function Home() {
             </div>
         </Sider>
         
-        <Content style={{ padding: '24px', background: '#f6f7f9', overflowY: 'auto' }}>
-            <div style={{ maxWidth: 1000, margin: '0 auto', position: 'relative' }}>
+        <Content style={{ padding: activeModelId === 'workflow' ? '12px' : '24px', background: '#f6f7f9', overflowY: 'auto' }}>
+            <div style={{ maxWidth: activeModelId === 'workflow' ? '100%' : 1000, margin: activeModelId === 'workflow' ? 0 : '0 auto', position: 'relative' }}>
                 {/* Robot Icon moved to top right */}
                 <Tooltip content="AI Assistant">
                     <Button 
@@ -295,11 +302,10 @@ export default function Home() {
                     </div>
                 </header>
 
-                {activeModelId === 'workflow' ? (
-                    <div style={{ height: '70vh', border: '1px solid #e5e6eb', borderRadius: 8 }}>
-                        <WorkflowEditor />
-                    </div>
-                ) : activeModelId === 'seedance' ? (
+                <div style={{ display: activeModelId === 'workflow' ? 'block' : 'none', height: '75vh', border: '1px solid #e5e6eb', borderRadius: 8 }}>
+                    <WorkflowEditor />
+                </div>
+                <div style={{ display: activeModelId === 'seedance' ? 'block' : 'none' }}>
                     <SeedancePlayground
                         schema={uiSchema}
                         formValues={formValues}
@@ -310,7 +316,8 @@ export default function Home() {
                         removeImage={removeImage}
                         onModelChange={handleModelChange}
                     />
-                ) : (
+                </div>
+                <div style={{ display: activeModelId === 'seedream' ? 'block' : 'none' }}>
                     <SeedreamPlayground
                         schema={uiSchema}
                         formValues={formValues}
@@ -321,7 +328,7 @@ export default function Home() {
                         removeImage={removeImage}
                         onModelChange={handleModelChange}
                     />
-                )}
+                </div>
                 
                 <div style={{ marginTop: 24 }}>
                      <ResultViewer result={seedreamResult} modelType={activeModelId} />

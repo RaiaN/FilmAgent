@@ -303,7 +303,7 @@ export default function Home() {
                 </header>
 
                 <div style={{ display: activeModelId === 'workflow' ? 'block' : 'none', height: '75vh', border: '1px solid #e5e6eb', borderRadius: 8 }}>
-                    <WorkflowEditor />
+                    <WorkflowEditor active={activeModelId === 'workflow'} />
                 </div>
                 <div style={{ display: activeModelId === 'seedance' ? 'block' : 'none' }}>
                     <SeedancePlayground

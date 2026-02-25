@@ -58,14 +58,14 @@ const initialNodes = [
 
 const initialEdges = [{ id: 'e1-2', source: '1', target: '2', animated: true }];
 
-const WorkflowEditor = () => {
+const WorkflowEditor = ({ active }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [isToolboxOpen, setIsToolboxOpen] = useState(true);
-  const [activeKeys, setActiveKeys] = useState(['1', '2', '3', '4']);
-  const allCategoryKeys = ['1', '2', '3', '4'];
+  const [activeKeys, setActiveKeys] = useState(['1', '2', '3']);
+  const allCategoryKeys = ['1', '2', '3'];
   const toolboxHeaderRef = useRef(null);
   const toolboxScrollRef = useRef(null);
   const workflowImportInputRef = useRef(null);
@@ -168,6 +168,21 @@ const WorkflowEditor = () => {
   useEffect(() => {
       updateToolboxScrollbar();
   }, [activeKeys, isToolboxOpen, updateToolboxScrollbar]);
+
+  useEffect(() => {
+      if (!active) return;
+      if (!reactFlowInstance) return;
+
+      const applyFit = () => {
+          try {
+              reactFlowInstance.fitView({ padding: 0.2, includeHiddenNodes: true });
+          } catch {}
+      };
+
+      applyFit();
+      requestAnimationFrame(applyFit);
+      setTimeout(applyFit, 50);
+  }, [active, reactFlowInstance]);
 
   useEffect(() => {
       const scrollEl = toolboxScrollRef.current;
@@ -555,7 +570,7 @@ const WorkflowEditor = () => {
         <div
           className="workflow-toolbox"
           style={{ 
-            width: isToolboxOpen ? 180 : 40, 
+            width: isToolboxOpen ? 210 : 44, 
             height: '100%',
             minHeight: 0,
             padding: isToolboxOpen ? 10 : 6, 
@@ -679,7 +694,7 @@ const WorkflowEditor = () => {
                         </div>
                     </Collapse.Item>
 
-                    <Collapse.Item header={renderCategoryHeader('3', 'Video Tools (2.0)')} name="3" contentStyle={{ padding: '8px 0' }}>
+                    <Collapse.Item header={renderCategoryHeader('3', 'Preview')} name="3" contentStyle={{ padding: '8px 0' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             <div 
                                 draggable 
@@ -711,18 +726,6 @@ const WorkflowEditor = () => {
                                 style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
                             >
                                 <IconPlayCircle style={{ color: '#f5319d' }} /> Multimodal Video
-                            </div>
-                        </div>
-                    </Collapse.Item>
-
-                    <Collapse.Item header={renderCategoryHeader('4', 'Agentic AI')} name="4" contentStyle={{ padding: '8px 0' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'agentic')}
-                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f0f5ff' }}
-                            >
-                                <IconRobot style={{ color: '#165dff' }} /> Agentic Director
                             </div>
                         </div>
                     </Collapse.Item>
@@ -817,9 +820,9 @@ const WorkflowEditor = () => {
   );
 };
 
-const WorkflowEditorWithProvider = () => (
+const WorkflowEditorWithProvider = ({ active }) => (
   <ReactFlowProvider>
-    <WorkflowEditor />
+    <WorkflowEditor active={active} />
   </ReactFlowProvider>
 );
 

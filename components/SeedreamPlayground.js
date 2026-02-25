@@ -96,12 +96,14 @@ const SeedreamPlayground = ({
   );
 
   const getFieldOptions = (key) => {
-    const field = schema.fields.find(f => f.key === key);
+    const fields = schema?.fields || [];
+    const field = fields.find(f => f.key === key);
     return field ? field.options : [];
   };
   
   const isFieldHidden = (key) => {
-      const field = schema.fields.find(f => f.key === key);
+      const fields = schema?.fields || [];
+      const field = fields.find(f => f.key === key);
       return field?.hidden;
   };
 

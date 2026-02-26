@@ -122,9 +122,11 @@ const LLMPlayground = ({ schema, formValues, setFormValues, onSubmit, loading, h
                     />
                 </div>
                 
-                <Button type="primary" long onClick={onSubmit} loading={loading} icon={<IconSend />}>
-                    Analyze
-                </Button>
+                <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid #eee' }}>
+                    <Button type="primary" long onClick={onSubmit} loading={loading} icon={<IconSend />}>
+                        Run Analysis
+                    </Button>
+                </div>
              </Card>
         </div>
 
@@ -137,7 +139,7 @@ const LLMPlayground = ({ schema, formValues, setFormValues, onSubmit, loading, h
                  {loading ? (
                      <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>Analyzing...</div>
                  ) : result && result.content ? (
-                     <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                     <div style={{ wordBreak: 'break-word', overflowWrap: 'break-word', userSelect: 'text', cursor: 'text' }}>
                         <ReactMarkdown 
                             remarkPlugins={[remarkGfm]}
                             components={{

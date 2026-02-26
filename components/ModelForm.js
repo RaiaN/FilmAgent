@@ -69,6 +69,39 @@ const ModelForm = ({ uiSchema, formValues, setFormValues, onSubmit, loading, han
               </div>
             );
           }
+          if (field.type === 'video-list') {
+            return (
+              <div className="field full-width" key={field.key}>
+                <label>{field.label}</label>
+                <div className="image-drop-area">
+                  <div className="image-preview-row">
+                    {(value || []).map((vid, idx) => (
+                      <div key={idx} className="image-preview-item" style={{ width: '200px' }}>
+                        <video src={vid} controls style={{ width: '100%', maxHeight: '150px' }} />
+                        <button
+                          type="button"
+                          className="remove-btn"
+                          onClick={() => removeImage(field.key, idx)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="file-input-wrapper">
+                    <span>Click to upload videos (or drag here)</span>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      multiple
+                      onChange={(e) => handleImageUpload(e, field.key)}
+                    />
+                  </div>
+                </div>
+                <p className="helper">{field.description}</p>
+              </div>
+            );
+          }
           if (field.type === 'number') {
             return (
               <div className="field" key={field.key}>

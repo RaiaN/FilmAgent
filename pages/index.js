@@ -5,10 +5,11 @@ import { IconSettings, IconRobot, IconImage, IconVideoCamera, IconPlus, IconClos
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { baseSchemas } from '../utils/schemas';
-import { constructSeedreamPayload, constructSeedancePayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import { constructSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
+import LLMPlayground from '../components/LLMPlayground';
 import WorkflowEditor from '../components/workflow/WorkflowEditor';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
@@ -199,6 +200,15 @@ export default function Home() {
       if (activeModelId === 'seedance') {
           endpoint = '/api/seedance';
           requestBody = constructSeedancePayload(formValues);
+      } else if (activeModelId === 'llm') {
+          endpoint = '/api/seed';
+          const llmPayload = constructLLMPayload(formValues);
+          requestBody = {
+            prompt: llmPayload.prompt,
+            modelId: llmPayload.model,
+            image: llmPayload.image,
+            video: llmPayload.video,
+          };
       } else {
           requestBody = constructSeedreamPayload(formValues);
       }
@@ -250,6 +260,9 @@ export default function Home() {
                     <Menu.Item key="seedance">
                         <IconVideoCamera style={{ fontSize: 20 }} />
                     </Menu.Item>
+                    <Menu.Item key="llm">
+                        <IconRobot style={{ fontSize: 20 }} />
+                    </Menu.Item>
                     {/* Settings Tab - explicitly added back */}
                     <Menu.Item key="settings">
                         <IconSettings style={{ fontSize: 20 }} />
@@ -293,6 +306,12 @@ export default function Home() {
                                 Video (Seedance)
                             </Button>
                             <Button 
+                                type={activeModelId === 'llm' ? 'primary' : 'secondary'}
+                                onClick={() => handleModelFamilyChange('llm')}
+                            >
+                                AI Analysis
+                            </Button>
+                            <Button 
                                 type={activeModelId === 'workflow' ? 'primary' : 'secondary'}
                                 onClick={() => handleModelFamilyChange('workflow')}
                             >
@@ -329,9 +348,22 @@ export default function Home() {
                         onModelChange={handleModelChange}
                     />
                 </div>
+                <div style={{ display: activeModelId === 'llm' ? 'block' : 'none' }}>
+                    <LLMPlayground
+                        schema={uiSchema}
+                        formValues={formValues}
+                        setFormValues={setFormValues}
+                        onSubmit={handleSeedreamSubmit}
+                        loading={seedreamLoading}
+                        handleImageUpload={handleImageUpload}
+                        removeImage={removeImage}
+                        onModelChange={handleModelChange}
+                        result={seedreamResult}
+                    />
+                </div>
                 
                 <div style={{ marginTop: 24 }}>
-                     <ResultViewer result={seedreamResult} modelType={activeModelId} />
+                     {activeModelId !== 'llm' && <ResultViewer result={seedreamResult} modelType={activeModelId} />}
                 </div>
                 
                 {showRequestOutput && (lastRequestPayload || lastResponsePayload) && (

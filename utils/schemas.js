@@ -133,6 +133,48 @@ export const baseSchemas = {
       response_format: 'url',
     },
   },
+  llm: {
+    id: 'llm',
+    name: 'AI Analysis',
+    description: 'Multimodal AI for text, image, and video analysis.',
+    fields: [
+      {
+        key: 'model',
+        label: 'Model',
+        type: 'enum',
+        options: [
+            'seed-2-0-mini-260215'
+        ],
+        defaultValue: 'seed-2-0-mini-260215',
+        description: 'LLM model id used for analysis.',
+      },
+      {
+        key: 'prompt',
+        label: 'Prompt',
+        type: 'text',
+        required: true,
+        description: 'Text prompt for the analysis.',
+      },
+      {
+        key: 'image',
+        label: 'Image',
+        type: 'image-list',
+        description: 'Image to analyze.',
+      },
+      {
+        key: 'video',
+        label: 'Video',
+        type: 'video-list', 
+        description: 'Video to analyze.',
+      },
+    ],
+    defaults: {
+      model: 'seed-2-0-mini-260215',
+      prompt: 'Describe this content.',
+      image: [],
+      video: [],
+    },
+  },
   seedance: {
     id: 'seedance',
     name: 'Seedance Video',

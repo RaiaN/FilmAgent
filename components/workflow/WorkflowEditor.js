@@ -12,6 +12,9 @@ import VideoExtendNode from './nodes/VideoExtendNode';
 import MergeVideosNode from './nodes/MergeVideosNode';
 import MultimodalVideoNode from './nodes/MultimodalVideoNode';
 import AgenticNode from './nodes/AgenticNode';
+import LLMNode from './nodes/LLMNode';
+import ImageNode from './nodes/ImageNode';
+import VideoNode from './nodes/VideoNode';
 import { constructSeedreamPayload, constructSeedancePayload } from '../../utils/apiHelpers';
 import { getApiKey } from '../../utils/apiKeyStore';
 
@@ -25,6 +28,9 @@ const nodeTypes = {
   mergeVideos: MergeVideosNode,
   multimodalVideo: MultimodalVideoNode,
   agentic: AgenticNode,
+  llm: LLMNode,
+  image: ImageNode,
+  video: VideoNode,
 };
 
 const initialNodes = [
@@ -246,6 +252,26 @@ const WorkflowEditor = ({ active }) => {
                      // Preset logic handled by getUpstreamPrompts
                  }
              }
+        } else if (targetNode && targetNode.type === 'llm') {
+             if (params.targetHandle === 'inputImage' && sourceNode.data.output) {
+                 updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
+             } else if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
+                 updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
+             } else if (params.targetHandle === 'prompt') {
+                 if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
+                     updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.outputPrompt });
+                 }
+             }
+        } else if (targetNode && targetNode.type === 'videoEdit') {
+             if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
+                 updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
+             }
+        } else if (targetNode && targetNode.type === 'multimodalVideo') {
+             if (params.targetHandle === 'inputImage' && sourceNode.data.output) {
+                 updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
+             } else if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
+                 updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
+             }
         }
     },
     [nodes, setEdges],
@@ -313,6 +339,9 @@ const WorkflowEditor = ({ active }) => {
             ...(nodeType === 'mergeVideos' ? { videoA: null, videoB: null } : {}),
             ...(nodeType === 'multimodalVideo' ? { inputImage: null, inputVideo: null, inputAudio: null, prompt: '' } : {}),
             ...(nodeType === 'agentic' ? { task: '', steps: [], dynamicOutputs: [] } : {}),
+            ...(nodeType === 'llm' ? { inputImage: null, inputVideo: null, prompt: '', output: '' } : {}),
+            ...(nodeType === 'image' ? { output: null } : {}),
+            ...(nodeType === 'video' ? { output: null } : {}),
             ...(nodeType === 'preset' ? { presetType: subType, value: '' } : {})
         },
       };
@@ -536,6 +565,60 @@ const WorkflowEditor = ({ active }) => {
       }
   };
 
+  // Run LLM Analysis
+  const runLLM = async (nodeId, data) => {
+      if (!data.inputPrompt && !data.prompt) {
+          Message.warning("Please enter a prompt!");
+          return;
+      }
+      
+      const inputImage = data.inputImage || data.uploadedImage;
+      const inputVideo = data.inputVideo || data.uploadedVideo;
+
+      if (!inputImage && !inputVideo) {
+          Message.warning("No input image or video!");
+          // Actually LLM can run text-only, but the node is designed for analysis
+      }
+
+      updateNodeData(nodeId, { loading: true });
+      try {
+          const apiKey = getApiKey();
+          if (!apiKey) throw new Error("API Key missing");
+
+          // Build messages
+          const payload = {
+              prompt: data.inputPrompt || data.prompt,
+              apiKey: apiKey,
+              modelId: 'seed-2-0-mini-260215',
+              image: inputImage, 
+              video: inputVideo 
+          };
+
+          const res = await fetch('/api/seed', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
+          const result = await res.json();
+          
+          if (result.content) {
+              updateNodeData(nodeId, { output: result.content, loading: false });
+              
+              // Propagate to connected nodes (e.g. Prompt input of other nodes)
+              const connectedEdges = edges.filter(e => e.source === nodeId);
+              connectedEdges.forEach(edge => {
+                  updateNodeData(edge.target, { inputPrompt: result.content });
+              });
+              Message.success("Analysis Complete!");
+          } else {
+              throw new Error("Analysis failed");
+          }
+      } catch (err) {
+          Message.error(err.message);
+          updateNodeData(nodeId, { loading: false });
+      }
+  };
+
   // Inject handlers into nodes
   const nodesWithHandlers = nodes.map(node => ({
       ...node,
@@ -549,12 +632,16 @@ const WorkflowEditor = ({ active }) => {
                   updateNodeData(node.id, { output: null, loading: false, uploadedImage: null, lastFrame: null, inputImage: null });
               } else if (node.type === 'promptEnhancer') {
                   updateNodeData(node.id, { outputPrompt: '', loading: false });
+              } else if (node.type === 'llm') {
+                  updateNodeData(node.id, { output: '', loading: false, uploadedImage: null, uploadedVideo: null });
               }
           },
           onRun: () => {
               if (node.type === 'imageGen') runImageGen(node.id, node.data);
               if (node.type === 'videoGen') runVideoGen(node.id, node.data);
               if (node.type === 'promptEnhancer') runPromptEnhancer(node.id, node.data);
+              if (node.type === 'llm') runLLM(node.id, node.data);
+              if (node.type === 'agentic') runAgentic(node.id, node.data);
           }
       }
   }));
@@ -670,6 +757,22 @@ const WorkflowEditor = ({ active }) => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             <div 
                                 draggable 
+                                onDragStart={(event) => onDragStart(event, 'image')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
+                            >
+                                <IconImage style={{ color: '#165dff' }} /> Image
+                            </div>
+
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'video')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
+                            >
+                                <IconVideoCamera style={{ color: '#722ed1' }} /> Video
+                            </div>
+
+                            <div 
+                                draggable 
                                 onDragStart={(event) => onDragStart(event, 'imageGen')}
                                 style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
                             >
@@ -690,6 +793,14 @@ const WorkflowEditor = ({ active }) => {
                                 style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
                             >
                                 <IconStar style={{ color: '#ffb400' }} /> Enhancer
+                            </div>
+
+                            <div 
+                                draggable 
+                                onDragStart={(event) => onDragStart(event, 'llm')}
+                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
+                            >
+                                <IconRobot style={{ color: '#165dff' }} /> AI Analysis
                             </div>
                         </div>
                     </Collapse.Item>

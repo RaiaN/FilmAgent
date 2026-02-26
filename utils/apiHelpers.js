@@ -229,3 +229,12 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
 
     return prevSchema;
 };
+
+export const constructLLMPayload = (formValues) => {
+    return {
+        model: formValues.model,
+        prompt: formValues.prompt,
+        image: formValues.image && formValues.image.length > 0 ? formValues.image[0] : null,
+        video: formValues.video && formValues.video.length > 0 ? formValues.video[0] : null,
+    };
+};

@@ -1,10 +1,18 @@
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+  },
+};
+
 async function seedHandler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl, systemPrompt, image } = req.body;
+  const { prompt, apiKey, modelId, baseUrl, systemPrompt, image, video } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -23,14 +31,15 @@ async function seedHandler(req, res) {
       { role: 'system', content: systemPrompt || 'You are a helpful assistant.' }
     ];
 
-    if (image) {
-      messages.push({
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: image } }
-        ]
-      });
+    if (image || video) {
+      const content = [{ type: 'text', text: prompt }];
+      if (image) {
+        content.push({ type: 'image_url', image_url: { url: image } });
+      }
+      if (video) {
+        content.push({ type: 'video_url', video_url: { url: video } });
+      }
+      messages.push({ role: 'user', content });
     } else {
       messages.push({ role: 'user', content: prompt });
     }

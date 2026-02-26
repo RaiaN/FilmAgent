@@ -1,11 +1,11 @@
 import Head from 'next/head';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layout, Menu, Button, Drawer, Input, Message, Card, Typography, Tooltip, Upload } from '@arco-design/web-react';
-import { IconSettings, IconRobot, IconImage, IconVideoCamera, IconPlus, IconClose, IconMindMapping } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconSettings, IconRobot, IconPlus, IconClose, IconMindMapping, IconUser } from '@arco-design/web-react/icon';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { baseSchemas } from '../utils/schemas';
-import { constructSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import { constructSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility, MODEL_CAPABILITIES } from '../utils/apiHelpers';
 import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
@@ -13,6 +13,23 @@ import LLMPlayground from '../components/LLMPlayground';
 import WorkflowEditor from '../components/workflow/WorkflowEditor';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
+
+// Custom BytePlus Icon
+const IconBytePlus = ({ style }) => (
+  <svg 
+    width="1em" 
+    height="1em" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg"
+    style={style}
+  >
+    <path d="M5.5 8V16" stroke="#165dff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M9.5 11V16" stroke="#4080ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M13.5 11V16" stroke="#00d0b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M17.5 8V16" stroke="#86dfd6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
 const { Sider, Content } = Layout;
 const { Title, Text } = Typography;
@@ -43,6 +60,7 @@ export default function Home() {
 
   const [seedreamLoading, setSeedreamLoading] = useState(false);
   const [seedreamResult, setSeedreamResult] = useState(null);
+  const [modelCapabilities, setModelCapabilities] = useState({}); // Store model metadata
   
   const chatEndRef = useRef(null);
 
@@ -53,7 +71,9 @@ export default function Home() {
       return;
     }
     const savedKey = getApiKey();
-    if (savedKey) setApiKey(savedKey);
+    if (savedKey) {
+        setApiKey(savedKey);
+    }
   }, []);
   
   useEffect(() => {
@@ -208,6 +228,13 @@ export default function Home() {
             modelId: llmPayload.model,
             image: llmPayload.image,
             video: llmPayload.video,
+            systemPrompt: `You are an expert AI media analyst for the ModelArk platform. 
+            Your goal is to analyze the provided image or video and answer the user's prompt.
+            
+            GUIDELINES:
+            1. Be concise, accurate, and helpful.
+            2. If the user asks for generation advice, recommend prompts compatible with 'Seedream' (Image Gen) or 'Seedance' (Video Gen).
+            3. Do NOT recommend complex workflows, external tools, or features not available in a standard text-to-media generation interface (e.g. do not suggest manual masking, 3D modeling, or post-processing software).`
           };
       } else {
           requestBody = constructSeedreamPayload(formValues);
@@ -251,6 +278,7 @@ export default function Home() {
                     selectedKeys={[activeModelId]}
                     onClickMenuItem={(key) => {
                         if (key === 'settings') setIsSettingsOpen(true);
+                        else if (key === 'assistant') setIsAssistantOpen(true);
                         else handleModelFamilyChange(key);
                     }}
                 >
@@ -267,6 +295,27 @@ export default function Home() {
                     <Menu.Item key="settings">
                         <IconSettings style={{ fontSize: 20 }} />
                     </Menu.Item>
+                    {/* Assistant - explicitly added back */}
+                    <Menu.Item key="assistant">
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <IconBytePlus style={{ fontSize: 24 }} />
+                            <div style={{
+                                position: 'absolute',
+                                bottom: -2,
+                                right: -4,
+                                width: 14,
+                                height: 14,
+                                borderRadius: '50%',
+                                background: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                border: '1px solid #ff7d00'
+                            }}>
+                                <span style={{ fontSize: 10, fontWeight: 'bold', color: '#ff7d00', lineHeight: 1 }}>?</span>
+                            </div>
+                        </div>
+                    </Menu.Item>
                 </Menu>
                 {/* Removed duplicate settings button at bottom */}
                 <div style={{ marginTop: 'auto', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -274,18 +323,8 @@ export default function Home() {
             </div>
         </Sider>
         
-        <Content style={{ padding: activeModelId === 'workflow' ? '12px' : '24px', background: '#f6f7f9', overflowY: 'auto' }}>
-            <div style={{ maxWidth: activeModelId === 'workflow' ? '100%' : 1000, margin: activeModelId === 'workflow' ? 0 : '0 auto', position: 'relative' }}>
-                {/* Robot Icon moved to top right */}
-                <Tooltip content="AI Assistant">
-                    <Button 
-                        icon={<IconRobot style={{ fontSize: 20 }} />} 
-                        shape="circle" 
-                        type="primary" 
-                        style={{ position: 'absolute', top: 0, right: 0, zIndex: 10 }}
-                        onClick={() => setIsAssistantOpen(true)} 
-                    />
-                </Tooltip>
+        <Content style={{ padding: '24px', background: '#f6f7f9', overflowY: 'auto' }}>
+            <div style={{ maxWidth: activeModelId === 'workflow' ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
 
                 <header style={{ marginBottom: 24, textAlign: 'center' }}>
                     <Title heading={2} style={{ margin: 0 }}>{uiSchema.title}</Title>
@@ -297,24 +336,28 @@ export default function Home() {
                                 type={activeModelId === 'seedream' ? 'primary' : 'secondary'}
                                 onClick={() => handleModelFamilyChange('seedream')}
                             >
+                                <IconImage style={{ marginRight: 8 }} />
                                 Image (Seedream)
                             </Button>
                             <Button 
                                 type={activeModelId === 'seedance' ? 'primary' : 'secondary'}
                                 onClick={() => handleModelFamilyChange('seedance')}
                             >
+                                <IconVideoCamera style={{ marginRight: 8 }} />
                                 Video (Seedance)
                             </Button>
                             <Button 
                                 type={activeModelId === 'llm' ? 'primary' : 'secondary'}
                                 onClick={() => handleModelFamilyChange('llm')}
                             >
+                                <IconRobot style={{ marginRight: 8 }} />
                                 AI Analysis
                             </Button>
                             <Button 
                                 type={activeModelId === 'workflow' ? 'primary' : 'secondary'}
                                 onClick={() => handleModelFamilyChange('workflow')}
                             >
+                                <IconMindMapping style={{ marginRight: 8 }} />
                                 Workflow (Beta)
                             </Button>
                         </Button.Group>
@@ -323,18 +366,6 @@ export default function Home() {
 
                 <div style={{ display: activeModelId === 'workflow' ? 'block' : 'none', height: '75vh', border: '1px solid #e5e6eb', borderRadius: 8 }}>
                     <WorkflowEditor active={activeModelId === 'workflow'} />
-                </div>
-                <div style={{ display: activeModelId === 'seedance' ? 'block' : 'none' }}>
-                    <SeedancePlayground
-                        schema={uiSchema}
-                        formValues={formValues}
-                        setFormValues={setFormValues}
-                        onSubmit={handleSeedreamSubmit}
-                        loading={seedreamLoading}
-                        handleImageUpload={handleImageUpload}
-                        removeImage={removeImage}
-                        onModelChange={handleModelChange}
-                    />
                 </div>
                 <div style={{ display: activeModelId === 'seedream' ? 'block' : 'none' }}>
                     <SeedreamPlayground
@@ -346,6 +377,20 @@ export default function Home() {
                         handleImageUpload={handleImageUpload}
                         removeImage={removeImage}
                         onModelChange={handleModelChange}
+                        result={seedreamResult}
+                    />
+                </div>
+                <div style={{ display: activeModelId === 'seedance' ? 'block' : 'none' }}>
+                    <SeedancePlayground
+                        schema={uiSchema}
+                        formValues={formValues}
+                        setFormValues={setFormValues}
+                        onSubmit={handleSeedreamSubmit}
+                        loading={seedreamLoading}
+                        handleImageUpload={handleImageUpload}
+                        removeImage={removeImage}
+                        onModelChange={handleModelChange}
+                        result={seedreamResult}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'llm' ? 'block' : 'none' }}>
@@ -359,6 +404,7 @@ export default function Home() {
                         removeImage={removeImage}
                         onModelChange={handleModelChange}
                         result={seedreamResult}
+                        capabilities={modelCapabilities[formValues.model]}
                     />
                 </div>
                 

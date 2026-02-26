@@ -1,6 +1,8 @@
 import React from 'react';
+import { Button, Tooltip } from '@arco-design/web-react';
+import { IconRefresh } from '@arco-design/web-react/icon';
 
-const ModelForm = ({ uiSchema, formValues, setFormValues, onSubmit, loading, handleImageUpload, removeImage, activeModelId, onModelChange }) => {
+const ModelForm = ({ uiSchema, formValues, setFormValues, onSubmit, loading, handleImageUpload, removeImage, activeModelId, onModelChange, onRefreshModels }) => {
   return (
     <form onSubmit={onSubmit}>
       <div className="field-grid">
@@ -10,7 +12,20 @@ const ModelForm = ({ uiSchema, formValues, setFormValues, onSubmit, loading, han
           if (field.type === 'enum') {
             return (
               <div className="field" key={field.key}>
-                <label htmlFor={`field-${field.key}`}>{field.label}</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label htmlFor={`field-${field.key}`}>{field.label}</label>
+                    {field.key === 'model' && onRefreshModels && (
+                        <Tooltip content="Refresh Model List">
+                            <Button 
+                                icon={<IconRefresh />} 
+                                size="mini" 
+                                type="text" 
+                                onClick={onRefreshModels}
+                                style={{ marginBottom: 4 }}
+                            />
+                        </Tooltip>
+                    )}
+                </div>
                 <select
                   id={`field-${field.key}`}
                   value={value}

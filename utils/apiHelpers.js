@@ -149,41 +149,188 @@ export const constructSeedancePayload = (formValues) => {
     return payload;
 };
 
-export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) => {
-    // Determine mode based on activeModelId (schema key) directly
-    // Since we separated schemas, we don't need complex cross-hiding logic.
-    // We only need to handle intra-schema visibility (e.g. within Seedream fields).
+export const MODEL_CAPABILITIES = {
+    // --- SEEDREAM (IMAGE) MODELS ---
+    'seedream-5-0-lite': {
+        sizes: ['2K', 'Custom'], // 5.0 Lite usually limited to 2K or Custom, removing 4K based on user correction
+        optimize_prompt_modes: ['standard'], 
+        sequential_generation: true,
+        guidance_scale: false,
+        supports_watermark: true,
+        output_format: true,
+        supports_seed: false,
+        max_ref_images: 14,
+    },
+    'seedream-4-5-251128': {
+        sizes: ['2K', '4K', 'Custom'],
+        optimize_prompt_modes: ['standard'],
+        sequential_generation: true,
+        guidance_scale: false,
+        supports_watermark: true,
+        supports_seed: false,
+        max_ref_images: 14,
+    },
+    'seedream-4-0-250828': {
+        sizes: ['2K', '4K', 'Custom'],
+        optimize_prompt_modes: ['standard', 'fast'],
+        sequential_generation: true,
+        guidance_scale: false,
+        supports_watermark: true,
+        supports_seed: false,
+        max_ref_images: 14,
+    },
+    'seedream-3-0-t2i': {
+        sizes: ['1K', '2K', '4K'], // 3.0 supports 1K/2K/4K but custom sizing is different/limited
+        optimize_prompt_modes: [],
+        sequential_generation: false,
+        guidance_scale: true,
+        supports_watermark: false,
+        supports_seed: true,
+        max_ref_images: 0, // T2I only
+    },
+    'seededit-3-0-i2i': {
+        sizes: ['2K', '4K'], // Supports method 1 (resolution enum)
+        optimize_prompt_modes: [],
+        sequential_generation: false,
+        guidance_scale: true,
+        supports_watermark: false,
+        supports_seed: true,
+        max_ref_images: 1, // Only single image input
+    },
 
+    // --- SEEDANCE (VIDEO) MODELS ---
+    'seedance-1-5-pro-251215': {
+        resolutions: ['480p', '720p', '1080p'],
+        ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
+        durations: [5, 10, -1], // -1 for auto
+        supports_audio: true,
+        supports_draft: true,
+        supports_ref_images: false,
+        supports_last_frame: true,
+        supports_first_frame: true,
+    },
+    'seedance-1-0-pro': {
+        resolutions: ['720p'], 
+        ratios: ['16:9', '9:16', '1:1'],
+        durations: [2, 4],
+        supports_audio: false,
+        supports_draft: false,
+        supports_ref_images: false,
+        supports_last_frame: true,
+        supports_first_frame: true,
+    },
+    'seedance-pro-fast': {
+        resolutions: ['480p', '720p'],
+        ratios: ['16:9', '9:16', '1:1'],
+        durations: [2, 4],
+        supports_audio: false,
+        supports_draft: false,
+        supports_ref_images: false,
+        supports_last_frame: false, // Pro Fast only supports First Frame
+        supports_first_frame: true,
+    },
+    'seedance-1-0-lite-i2v': {
+        resolutions: ['720p'],
+        ratios: ['16:9', '9:16', '1:1', 'adaptive'], 
+        durations: [2, 4],
+        supports_audio: false,
+        supports_draft: false,
+        supports_ref_images: true, // Specific feature
+        supports_last_frame: true,
+        supports_first_frame: true,
+    },
+    'seedance-1-0-lite-t2v': {
+        resolutions: ['720p'],
+        ratios: ['16:9', '9:16', '1:1'], 
+        durations: [2, 4],
+        supports_audio: false,
+        supports_draft: false,
+        supports_ref_images: false,
+        supports_last_frame: false, // T2V doesn't support frames
+        supports_first_frame: false, 
+    },
+
+    // --- LLM / AI ANALYSIS MODELS ---
+    'seed-2-0-mini-260215': {
+        input_modalities: ['text', 'image'],
+    },
+    'skylark-vision-250515': {
+        input_modalities: ['text', 'image', 'video'],
+    },
+    'doubao-vision-pro': {
+        input_modalities: ['text', 'image'],
+    },
+
+    // Default fallback
+    'default': {
+        // Seedream defaults
+        sizes: ['2K', '4K', 'Custom'],
+        optimize_prompt_modes: ['standard'],
+        sequential_generation: false,
+        guidance_scale: false,
+        supports_watermark: true,
+        output_format: false,
+        supports_seed: true,
+        
+        // Seedance defaults
+        resolutions: ['480p', '720p', '1080p'],
+        ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
+        durations: [2, 5, 10],
+        supports_audio: false,
+        supports_draft: false,
+        supports_ref_images: false,
+        supports_last_frame: false,
+        supports_first_frame: true,
+
+        // LLM defaults
+        input_modalities: ['text', 'image'],
+    }
+};
+
+export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) => {
     const model = formValues.model || '';
+    
+    // Get capabilities with fallback
+    const caps = MODEL_CAPABILITIES[model] || MODEL_CAPABILITIES['default'];
 
     // --- SEEDREAM (IMAGE) VISIBILITY LOGIC ---
     if (activeModelId === 'seedream') {
         const isCustomSize = formValues.size === 'Custom';
         const isSequential = formValues.sequential_image_generation;
-        const is30Model = model && (model.includes('3-0') || model.includes('3.0'));
-        const is50Lite = model === 'seedream-5-0-lite';
-        const isSeqSupported = !is30Model;
-        const isOptimizePromptSupported = !is30Model;
 
         const nextFields = prevSchema.fields.map((f) => {
-            // Specific logic for Seedream fields
+            // Option Filtering
+            if (f.key === 'size' && caps.sizes) {
+                return { ...f, options: caps.sizes };
+            }
+            if (f.key === 'optimize_prompt_mode' && caps.optimize_prompt_modes) {
+                return { ...f, options: caps.optimize_prompt_modes };
+            }
+
+            // Visibility
             if (f.key === 'width' || f.key === 'height') {
                 return { ...f, hidden: !isCustomSize };
             }
             if (f.key === 'sequential_image_generation') {
-                return { ...f, hidden: !isSeqSupported };
+                return { ...f, hidden: !caps.sequential_generation };
             }
             if (f.key === 'sequential_max_images') {
-                return { ...f, hidden: !isSequential || !isSeqSupported };
+                return { ...f, hidden: !isSequential || !caps.sequential_generation };
             }
             if (f.key === 'optimize_prompt_mode') {
-                return { ...f, hidden: !isOptimizePromptSupported };
+                return { ...f, hidden: !caps.optimize_prompt_modes || caps.optimize_prompt_modes.length === 0 };
             }
             if (f.key === 'output_format') {
-                return { ...f, hidden: !is50Lite };
+                return { ...f, hidden: !caps.output_format };
             }
-            if (f.key === 'guidance_scale' || f.key === 'seed') {
-                return { ...f, hidden: !is30Model };
+            if (f.key === 'guidance_scale') {
+                return { ...f, hidden: !caps.guidance_scale };
+            }
+            if (f.key === 'seed') {
+                return { ...f, hidden: !caps.supports_seed };
+            }
+            if (f.key === 'watermark') {
+                return { ...f, hidden: caps.supports_watermark === false };
             }
             return f;
         });
@@ -196,27 +343,30 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
     
     // --- SEEDANCE (VIDEO) VISIBILITY LOGIC ---
     if (activeModelId === 'seedance') {
-        const is15Pro = model.includes('1-5-pro');
-        const is10LiteI2V = model.includes('1-0-lite-i2v');
-        const isT2VOnly = model.includes('t2v') || model === 'seedance-1-0-lite-t2v';
-        const isProFast = model === 'seedance-pro-fast';
-
         const nextFields = prevSchema.fields.map((f) => {
-            // Specific logic for Seedance fields
+            // Option Filtering Logic
+            if (f.key === 'resolution' && caps.resolutions) {
+                return { ...f, options: caps.resolutions };
+            }
+            if (f.key === 'ratio' && caps.ratios) {
+                return { ...f, options: caps.ratios };
+            }
+
+            // Visibility Logic
             if (f.key === 'generate_audio') {
-                return { ...f, hidden: !is15Pro };
+                return { ...f, hidden: !caps.supports_audio };
             }
             if (f.key === 'draft') {
-                return { ...f, hidden: !is15Pro };
+                return { ...f, hidden: !caps.supports_draft };
             }
             if (f.key === 'reference_images') {
-                return { ...f, hidden: !is10LiteI2V };
+                return { ...f, hidden: !caps.supports_ref_images };
             }
             if (f.key === 'last_frame') {
-                return { ...f, hidden: isProFast || isT2VOnly };
+                return { ...f, hidden: !caps.supports_last_frame };
             }
             if (f.key === 'first_frame') {
-                return { ...f, hidden: isT2VOnly };
+                return { ...f, hidden: !caps.supports_first_frame };
             }
             return f;
         });

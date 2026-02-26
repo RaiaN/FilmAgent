@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Select, Input, InputNumber, Button, Upload, Checkbox, Dropdown, Menu, Message, Tooltip, Collapse, Grid } from '@arco-design/web-react';
-import { IconCopy, IconCode, IconDown, IconRight, IconStar } from '@arco-design/web-react/icon';
+import { IconCopy, IconCode, IconDown, IconRight, IconStar, IconRefresh } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedreamPayload } from '../utils/apiHelpers';
@@ -16,7 +16,8 @@ const SeedreamPlayground = ({
   schema,
   handleImageUpload,
   removeImage,
-  onModelChange 
+  onModelChange,
+  onRefreshModels 
 }) => {
   const promptRef = useRef(null);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
@@ -132,6 +133,17 @@ const SeedreamPlayground = ({
               <Select.Option key={opt} value={opt}>{opt}</Select.Option>
             ))}
           </Select>
+          {onRefreshModels && (
+              <Tooltip content="Refresh Model List">
+                  <Button 
+                      icon={<IconRefresh />} 
+                      shape="circle" 
+                      type="text" 
+                      onClick={onRefreshModels}
+                      style={{ marginLeft: 8 }}
+                  />
+              </Tooltip>
+          )}
         </div>
       </div>
 

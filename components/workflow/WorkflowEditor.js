@@ -805,39 +805,39 @@ const WorkflowEditor = ({ active }) => {
                         </div>
                     </Collapse.Item>
 
-                    <Collapse.Item header={renderCategoryHeader('3', 'Preview')} name="3" contentStyle={{ padding: '8px 0' }}>
+                    <Collapse.Item header={renderCategoryHeader('3', 'Seedance (2.0)')} name="3" contentStyle={{ padding: '8px 0' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'videoEdit')}
-                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
-                            >
-                                <IconEdit style={{ color: '#722ed1' }} /> Video Edit
-                            </div>
+                            <Tooltip content="Coming Soon in Seedance 2.0">
+                                <div 
+                                    style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f2f3f5', color: '#86909c', cursor: 'not-allowed' }}
+                                >
+                                    <IconEdit style={{ color: '#86909c' }} /> Video Edit
+                                </div>
+                            </Tooltip>
 
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'videoExtend')}
-                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
-                            >
-                                <IconDoubleRight style={{ color: '#00b42a' }} /> Video Extend
-                            </div>
+                            <Tooltip content="Coming Soon in Seedance 2.0">
+                                <div 
+                                    style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f2f3f5', color: '#86909c', cursor: 'not-allowed' }}
+                                >
+                                    <IconDoubleRight style={{ color: '#86909c' }} /> Video Extend
+                                </div>
+                            </Tooltip>
 
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'mergeVideos')}
-                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
-                            >
-                                <IconFullscreen style={{ color: '#ff7d00' }} /> Merge Videos
-                            </div>
+                            <Tooltip content="Coming Soon in Seedance 2.0">
+                                <div 
+                                    style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f2f3f5', color: '#86909c', cursor: 'not-allowed' }}
+                                >
+                                    <IconFullscreen style={{ color: '#86909c' }} /> Merge Videos
+                                </div>
+                            </Tooltip>
 
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'multimodalVideo')}
-                                style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f9f0ff' }}
-                            >
-                                <IconPlayCircle style={{ color: '#f5319d' }} /> Multimodal Video
-                            </div>
+                            <Tooltip content="Coming Soon in Seedance 2.0">
+                                <div 
+                                    style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f2f3f5', color: '#86909c', cursor: 'not-allowed' }}
+                                >
+                                    <IconPlayCircle style={{ color: '#86909c' }} /> Multimodal Video
+                                </div>
+                            </Tooltip>
                         </div>
                     </Collapse.Item>
 

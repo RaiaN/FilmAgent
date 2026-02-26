@@ -1,15 +1,51 @@
+import modelsData from './models.json';
+
+// Helper to filter models from the JSON
+const getModelsByFilter = (filterFn) => {
+    const models = modelsData.data || [];
+    // Sort by created date descending
+    models.sort((a, b) => (b.created || 0) - (a.created || 0));
+    return models.filter(filterFn).map(m => m.id);
+};
+
+// Seedream Models
+const seedreamModels = getModelsByFilter(m => 
+    m.domain === 'ImageGeneration' || 
+    (m.task_type && (m.task_type.includes('TextToImage') || m.task_type.includes('ImageToImage'))) ||
+    m.id.startsWith('seedream') || 
+    m.id.startsWith('seededit')
+);
+
+// Seedance Models
+const seedanceModels = getModelsByFilter(m => 
+    (m.domain === 'VideoGeneration' || 
+    (m.task_type && (m.task_type.includes('ImageToVideo') || m.task_type.includes('TextToVideo'))) ||
+    m.id.startsWith('seedance')) &&
+    !m.id.startsWith('seedream') && !m.id.startsWith('seededit')
+);
+
+// LLM Models (excluding DeepSeek, supporting BytePlus)
+const llmModels = getModelsByFilter(m => 
+    ((m.domain === 'LLM' || 
+    m.domain === 'VLM' ||
+    (m.task_type && (m.task_type.includes('TextGeneration') || m.task_type.includes('VisualQuestionAnswering'))) ||
+    m.id.startsWith('doubao') || 
+    m.id.startsWith('skylark') ||
+    (m.id.startsWith('seed') && !m.id.startsWith('seedream') && !m.id.startsWith('seedance'))) &&
+    !m.id.startsWith('deepseek'))
+);
+
 export const baseSchemas = {
   seedream: {
     id: 'seedream',
     name: 'Seedream Image',
-    description: 'Seedream images/generations request schema (API 1:1).',
+    description: 'Seedream images/generations',
     fields: [
       {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: [
-            // Seedream Models Only
+        options: seedreamModels.length > 0 ? seedreamModels : [
             'seedream-5-0-lite',
             'seedream-4-5-251128', 
             'seedream-4-0-250828', 
@@ -17,7 +53,7 @@ export const baseSchemas = {
             'seedream-3-0-t2i',
             'seededit-3-0-i2i'
         ],
-        defaultValue: 'seedream-5-0-lite',
+        defaultValue: seedreamModels.length > 0 ? seedreamModels[0] : 'seedream-5-0-lite',
         description: 'Seedream model id used for generation.',
       },
       {
@@ -117,7 +153,7 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: 'seedream-5-0-lite',
+      model: seedreamModels.length > 0 ? seedreamModels[0] : 'seedream-5-0-lite',
       prompt: 'A hero product shot of a premium skincare bottle on a minimal studio set.',
       size: '2K',
       width: 2048,
@@ -142,10 +178,10 @@ export const baseSchemas = {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: [
+        options: llmModels.length > 0 ? llmModels : [
             'seed-2-0-mini-260215'
         ],
-        defaultValue: 'seed-2-0-mini-260215',
+        defaultValue: llmModels.length > 0 ? llmModels[0] : 'seed-2-0-mini-260215',
         description: 'LLM model id used for analysis.',
       },
       {
@@ -169,7 +205,7 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: 'seed-2-0-mini-260215',
+      model: llmModels.length > 0 ? llmModels[0] : 'seed-2-0-mini-260215',
       prompt: 'Describe this content.',
       image: [],
       video: [],
@@ -178,13 +214,13 @@ export const baseSchemas = {
   seedance: {
     id: 'seedance',
     name: 'Seedance Video',
-    description: 'Seedance video generation request schema (API 1:1).',
+    description: 'Seedance video generation',
     fields: [
       {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: [
+        options: seedanceModels.length > 0 ? seedanceModels : [
             // Seedance Models Only
             'seedance-1-5-pro-251215',
             'seedance-1-0-pro',
@@ -192,7 +228,7 @@ export const baseSchemas = {
             'seedance-1-0-lite-t2v',
             'seedance-1-0-lite-i2v'
         ],
-        defaultValue: 'seedance-1-5-pro-251215',
+        defaultValue: seedanceModels.length > 0 ? seedanceModels[0] : 'seedance-1-5-pro-251215',
         description: 'Seedance model id used for video generation.',
       },
       {

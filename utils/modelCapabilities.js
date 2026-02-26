@@ -1,7 +1,7 @@
 export const MODEL_CAPABILITIES = {
     // --- SEEDREAM (IMAGE) MODELS ---
     'seedream-5-0-260128': { // Was 'seedream-5-0-lite'
-        sizes: ['2K', 'Custom'],
+        sizes: ['2K', '3K', '4K', 'Custom'],
         optimize_prompt_modes: ['standard'], 
         sequential_generation: true,
         guidance_scale: false,

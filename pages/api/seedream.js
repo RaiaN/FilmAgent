@@ -1,3 +1,5 @@
+import { CONFIG, getEndpointUrl } from '../../utils/config';
+
 export const config = {
   api: {
     bodyParser: {
@@ -27,7 +29,12 @@ async function seedreamHandler(req, res) {
     return res.status(500).json({ error: 'API key not configured' });
   }
 
-  const endpoint = baseUrl || process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3';
+  // Use getEndpointUrl('image') which returns /images/generations
+  const defaultEndpoint = getEndpointUrl('image');
+  const endpoint = baseUrl 
+      ? `${baseUrl}/images/generations`
+      : defaultEndpoint;
+
   const resolvedModelId = modelId || process.env.SEEDREAM_MODEL_ID || 'seedream-4-5-251128';
 
   try {
@@ -69,7 +76,7 @@ async function seedreamHandler(req, res) {
       payload.seed = seed;
     }
 
-    const response = await fetch(`${endpoint}/images/generations`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

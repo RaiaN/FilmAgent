@@ -5,6 +5,7 @@ import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedancePayload } from '../utils/apiHelpers';
 import { getApiKey } from '../utils/apiKeyStore';
+import { getEndpointUrl } from '../utils/config';
 
 const { Row, Col } = Grid;
 
@@ -69,18 +70,18 @@ const SeedancePlayground = ({
 
   const handleCopyCode = (type) => {
       const payload = constructSeedancePayload(formValues);
-      const endpoint = '/api/seedance'; // Simplified for display, real call uses full URL
+      const endpointUrl = getEndpointUrl('video');
       let code = '';
       
       switch(type) {
           case 'curl':
-              code = generateCurlCommand('https://ark.cn-beijing.volces.com/api/v3/content_generation/generations', payload);
+              code = generateCurlCommand(endpointUrl, payload);
               break;
           case 'python':
-              code = generatePythonCode('https://ark.cn-beijing.volces.com/api/v3/content_generation/generations', payload);
+              code = generatePythonCode(endpointUrl, payload);
               break;
           case 'node':
-              code = generateNodeCode('https://ark.cn-beijing.volces.com/api/v3/content_generation/generations', payload);
+              code = generateNodeCode(endpointUrl, payload);
               break;
       }
       

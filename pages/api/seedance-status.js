@@ -1,3 +1,5 @@
+import { CONFIG, getEndpointUrl } from '../../utils/config';
+
 async function seedanceStatusHandler(req, res) {
     if (req.method !== 'GET') {
       res.setHeader('Allow', ['GET']);
@@ -27,10 +29,21 @@ async function seedanceStatusHandler(req, res) {
       return res.status(500).json({ error: 'API key not configured' });
     }
   
-    const endpoint = baseUrl || process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3';
+    // Use config-defined base URL, fallback to passed baseUrl if provided
+    const endpointBase = baseUrl || CONFIG.API_BASE_URL;
+    // Construct video endpoint (task status is usually under the same path structure)
+    // e.g. /contents/generations/tasks/{taskId}
+    // We can use getEndpointUrl('video') which returns .../contents/generations/tasks
+    // Then append taskId
+    const videoEndpoint = getEndpointUrl('video');
+    // However, if baseUrl is custom, getEndpointUrl won't use it.
+    // So we need manual construction if baseUrl is provided.
+    const statusEndpoint = baseUrl 
+        ? `${baseUrl}/contents/generations/tasks/${taskId}`
+        : `${videoEndpoint}/${taskId}`;
   
     try {
-      const response = await fetch(`${endpoint}/contents/generations/tasks/${taskId}`, {
+      const response = await fetch(statusEndpoint, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${bearerToken}`,

@@ -5,6 +5,7 @@ import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedreamPayload } from '../utils/apiHelpers';
 import { getApiKey } from '../utils/apiKeyStore';
+import { getEndpointUrl } from '../utils/config';
 
 const { Row, Col } = Grid;
 
@@ -69,18 +70,18 @@ const SeedreamPlayground = ({
 
   const handleCopyCode = (type) => {
       const payload = constructSeedreamPayload(formValues);
-      const endpoint = '/api/seedream'; 
+      const endpointUrl = getEndpointUrl('image');
       let code = '';
       
       switch(type) {
           case 'curl':
-              code = generateCurlCommand('https://ark.cn-beijing.volces.com/api/v3/content_generation/generations', payload);
+              code = generateCurlCommand(endpointUrl, payload);
               break;
           case 'python':
-              code = generatePythonCode('https://ark.cn-beijing.volces.com/api/v3/content_generation/generations', payload);
+              code = generatePythonCode(endpointUrl, payload);
               break;
           case 'node':
-              code = generateNodeCode('https://ark.cn-beijing.volces.com/api/v3/content_generation/generations', payload);
+              code = generateNodeCode(endpointUrl, payload);
               break;
       }
       
@@ -103,9 +104,9 @@ const SeedreamPlayground = ({
   };
   
   const isFieldHidden = (key) => {
-      const fields = schema?.fields || [];
-      const field = fields.find(f => f.key === key);
-      return field?.hidden;
+    const fields = schema?.fields || [];
+    const field = fields.find(f => f.key === key);
+    return field?.hidden;
   };
 
   const modelOptions = getFieldOptions('model');

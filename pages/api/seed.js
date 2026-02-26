@@ -1,3 +1,5 @@
+import { CONFIG, getEndpointUrl } from '../../utils/config';
+
 export const config = {
   api: {
     bodyParser: {
@@ -23,7 +25,8 @@ async function seedHandler(req, res) {
     return res.status(500).json({ error: 'API key not configured' });
   }
 
-  const endpoint = baseUrl || process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3';
+  // Use config-defined base URL, fallback to passed baseUrl if provided
+  const endpointBase = baseUrl || CONFIG.API_BASE_URL;
   const resolvedModelId = modelId || process.env.SEED_MODEL_ID || 'seed-2-0-mini-260215';
 
   try {
@@ -44,7 +47,10 @@ async function seedHandler(req, res) {
       messages.push({ role: 'user', content: prompt });
     }
 
-    const response = await fetch(`${endpoint}/chat/completions`, {
+    // Construct endpoint manually since we might have custom baseUrl
+    const chatEndpoint = `${endpointBase}/chat/completions`;
+
+    const response = await fetch(chatEndpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

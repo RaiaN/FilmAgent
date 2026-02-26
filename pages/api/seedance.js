@@ -1,3 +1,5 @@
+import { CONFIG, getEndpointUrl } from '../../utils/config';
+
 export const config = {
   api: {
     bodyParser: {
@@ -19,10 +21,14 @@ async function seedanceHandler(req, res) {
     return res.status(500).json({ error: 'API key not configured' });
   }
 
-  const endpoint = baseUrl || process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3';
+  // Use getEndpointUrl('video') which returns /contents/generations/tasks
+  const defaultEndpoint = getEndpointUrl('video');
+  const endpoint = baseUrl 
+      ? `${baseUrl}/contents/generations/tasks`
+      : defaultEndpoint;
 
   try {
-    const response = await fetch(`${endpoint}/contents/generations/tasks`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

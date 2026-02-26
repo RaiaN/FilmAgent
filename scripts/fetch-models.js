@@ -3,9 +3,11 @@ const path = require('path');
 const https = require('https');
 
 // Configuration
+// Using hardcoded default from config logic to ensure consistency across build/runtime
+const DEFAULT_BASE_URL = 'https://ark.ap-southeast.bytepluses.com/api/v3';
 const API_ENDPOINT = process.env.MODELARK_BASE_URL 
     ? `${process.env.MODELARK_BASE_URL}/models` 
-    : 'https://ark.ap-southeast.bytepluses.com/api/v3/models';
+    : `${DEFAULT_BASE_URL}/models`;
 
 const API_KEY = process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
 const OUTPUT_FILE = path.join(__dirname, '../utils/models.json');

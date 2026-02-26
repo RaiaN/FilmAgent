@@ -1,3 +1,5 @@
+import { CONFIG } from './config';
+
 export const generateCurlCommand = (endpoint, payload) => {
     // Basic redaction for safety in display, though user can copy full if needed
     const safePayload = { ...payload };
@@ -9,10 +11,19 @@ export const generateCurlCommand = (endpoint, payload) => {
   };
   
   export const generatePythonCode = (endpoint, payload) => {
+    // Determine base_url from endpoint
+    const baseUrl = endpoint.includes('/api/v3') 
+        ? endpoint.split('/api/v3')[0] + '/api/v3'
+        : CONFIG.API_BASE_URL;
+
     return `import os
   from volcenginesdkarkruntime import Ark
   
-  client = Ark(api_key=os.environ.get("ARK_API_KEY"))
+  # Configure client with the correct endpoint
+  client = Ark(
+      base_url="${baseUrl}",
+      api_key=os.environ.get("ARK_API_KEY")
+  )
   
   # Note: This is a direct API call example. 
   # For official SDK usage, refer to Volcengine Ark Runtime docs.

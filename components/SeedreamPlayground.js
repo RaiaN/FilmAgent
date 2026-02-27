@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Select, Input, InputNumber, Button, Upload, Checkbox, Dropdown, Menu, Message, Tooltip, Collapse, Grid } from '@arco-design/web-react';
-import { IconCopy, IconCode, IconDown, IconRight, IconStar, IconRefresh } from '@arco-design/web-react/icon';
+import { IconCopy, IconCode, IconDown, IconRight, IconStar, IconRefresh, IconBook } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedreamPayload } from '../utils/apiHelpers';
@@ -145,6 +145,15 @@ const SeedreamPlayground = ({
                   />
               </Tooltip>
           )}
+          <Tooltip content="API Reference">
+              <Button 
+                  icon={<IconBook />} 
+                  shape="circle" 
+                  type="text" 
+                  onClick={() => window.open('https://docs.byteplus.com/en/docs/ModelArk/1541523', '_blank')}
+                  style={{ marginLeft: 8 }}
+              />
+          </Tooltip>
         </div>
       </div>
 

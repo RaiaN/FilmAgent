@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Select, Input, Button, Upload, Message, Grid, Card, Typography, Tooltip } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconSend, IconRobot, IconRefresh } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconSend, IconRobot, IconRefresh, IconBook } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -24,16 +24,26 @@ const LLMPlayground = ({ schema, formValues, setFormValues, onSubmit, loading, h
                 <div style={{ marginBottom: 16 }}>
                     <div style={{ marginBottom: 8, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span>Model</span>
-                        {onRefreshModels && (
-                            <Tooltip content="Refresh Model List">
+                        <div style={{ display: 'flex' }}>
+                            {onRefreshModels && (
+                                <Tooltip content="Refresh Model List">
+                                    <Button 
+                                        icon={<IconRefresh />} 
+                                        size="mini" 
+                                        type="text" 
+                                        onClick={onRefreshModels}
+                                    />
+                                </Tooltip>
+                            )}
+                            <Tooltip content="API Reference">
                                 <Button 
-                                    icon={<IconRefresh />} 
+                                    icon={<IconBook />} 
                                     size="mini" 
                                     type="text" 
-                                    onClick={onRefreshModels}
+                                    onClick={() => window.open('https://docs.byteplus.com/en/docs/ModelArk/1902647', '_blank')}
                                 />
                             </Tooltip>
-                        )}
+                        </div>
                     </div>
                     <Select 
                         style={{ width: '100%' }}

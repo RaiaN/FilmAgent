@@ -2,6 +2,7 @@
   "name": "modelark-starter-kit",
   "version": "1.0.0",
   "private": true,
+  "author": "BytePlus Team",
   "description": "Starter kit for Seedream, Seedance, and Seed APIs",
   "main": "electron/main.js",
   "scripts": {
@@ -36,14 +37,25 @@
   "build": {
     "appId": "com.modelark.starterkit",
     "productName": "ModelArk Starter Kit",
-    "asar": false,
+    "asar": true,
     "files": [
       "electron/**/*",
-      ".next/**/*",
+      ".next/server/**/*",
+      ".next/static/**/*",
+      ".next/BUILD_ID",
+      ".next/package.json",
+      ".next/manifest.json",
       "public/**/*",
       "package.json",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}/**/*",
+      "!**/node_modules/.bin",
+      "!**/*.{o,hprof,orig,pyc,pyo,rbc,swp,tod,ts,tsx,web}",
+      "!.next/cache/**/*"
     ],
+    "directories": {
+      "output": "dist/${os}"
+    },
     "mac": {
       "target": "dmg",
       "hardenedRuntime": true,

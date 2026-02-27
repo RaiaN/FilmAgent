@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Tooltip, Input, Button, Image, Upload } from '@arco-design/web-react';
 import { IconRobot, IconPlus, IconClose } from '@arco-design/web-react/icon';
 
-const LLMNode = ({ data }) => {
+const VLMNode = ({ data }) => {
   return (
     <Card 
         style={{ width: 320, border: '1px solid #c9cdd4', borderRadius: 8, boxShadow: '0 2px 5px rgba(0,0,0,0.1)', position: 'relative' }}
@@ -31,16 +31,9 @@ const LLMNode = ({ data }) => {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
               <IconRobot style={{ marginRight: 8, color: '#165dff' }} />
-              <Typography.Text bold>AI Analysis</Typography.Text>
+              <Typography.Text bold>VLM (AI Analysis)</Typography.Text>
           </div>
-          <Button 
-              size="mini" 
-              type="primary" 
-              onClick={data.onRun} 
-              loading={data.loading}
-          >
-              Run
-          </Button>
+          {/* Run button moved to bottom */}
       </div>
 
       {/* Inputs Display & Upload */}
@@ -159,12 +152,25 @@ const LLMNode = ({ data }) => {
 
       {/* Result Display */}
       {data.output && (
-          <div style={{ marginTop: 8, padding: 8, background: '#f8f9fa', borderRadius: 4, border: '1px solid #e5e6eb', maxHeight: 150, overflowY: 'auto' }}>
+          <div className="nodrag" style={{ marginTop: 8, padding: 8, background: '#f8f9fa', borderRadius: 4, border: '1px solid #e5e6eb', maxHeight: 150, overflowY: 'auto', userSelect: 'text', cursor: 'text' }} onMouseDown={(e) => e.stopPropagation()}>
                <Typography.Text style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
                    {data.output}
                </Typography.Text>
           </div>
       )}
+
+      {/* Run Button (Moved to bottom) */}
+      <div style={{ marginTop: 12, textAlign: 'right' }}>
+          <Button 
+              size="small" 
+              type="primary" 
+              long
+              onClick={data.onRun} 
+              loading={data.loading}
+          >
+              Run Analysis
+          </Button>
+      </div>
 
       {/* Output Handle */}
       <Tooltip content="Analysis Result (Text)">
@@ -176,4 +182,4 @@ const LLMNode = ({ data }) => {
   );
 };
 
-export default memo(LLMNode);
+export default memo(VLMNode);

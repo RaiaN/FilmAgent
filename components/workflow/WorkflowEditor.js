@@ -12,7 +12,7 @@ import VideoExtendNode from './nodes/VideoExtendNode';
 import MergeVideosNode from './nodes/MergeVideosNode';
 import MultimodalVideoNode from './nodes/MultimodalVideoNode';
 import AgenticNode from './nodes/AgenticNode';
-import LLMNode from './nodes/LLMNode';
+import VLMNode from './nodes/VLMNode';
 import ImageNode from './nodes/ImageNode';
 import VideoNode from './nodes/VideoNode';
 import { constructSeedreamPayload, constructSeedancePayload } from '../../utils/apiHelpers';
@@ -28,7 +28,7 @@ const nodeTypes = {
   mergeVideos: MergeVideosNode,
   multimodalVideo: MultimodalVideoNode,
   agentic: AgenticNode,
-  llm: LLMNode,
+  llm: VLMNode, // Kept key as 'llm' to avoid breaking existing saves, but component is VLMNode
   image: ImageNode,
   video: VideoNode,
 };

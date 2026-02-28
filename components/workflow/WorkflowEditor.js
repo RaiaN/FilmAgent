@@ -325,7 +325,9 @@ const WorkflowEditor = ({ active }) => {
   const onEdgesDelete = useCallback((deletedEdges) => {
       deletedEdges.forEach((edge) => {
           const targetNode = nodes.find(n => n.id === edge.target);
-          if (targetNode && targetNode.type === 'videoGen') {
+          if (!targetNode) return;
+
+          if (targetNode.type === 'videoGen') {
               if (edge.targetHandle === 'lastFrame') {
                   updateNodeData(targetNode.id, { inputLastFrame: null });
               } else if (edge.targetHandle === 'firstFrame') {
@@ -333,16 +335,39 @@ const WorkflowEditor = ({ active }) => {
               } else if (edge.targetHandle === 'prompt') {
                   updateNodeData(targetNode.id, { inputPrompt: null });
               }
-          } else if (targetNode && targetNode.type === 'imageGen') {
+          } else if (targetNode.type === 'imageGen') {
               if (edge.targetHandle === 'refImage') {
-                  // Hard to remove specific ref image without tracking edge-to-image map. 
-                  // For MVP, clear all ref images or just leave them (user can delete manually).
-                  // Better: We can't easily know WHICH image came from this edge unless we track it.
-                  // Let's reset refImages for safety or do nothing? 
-                  // Let's do nothing for now, as user can click 'x' on the upload list.
-                  // Actually, if we disconnect, we should probably clear the inputPrompt if it was the prompt handle.
+                  // If refImage is disconnected, we should probably clear or filter the refImages array.
+                  // Since we don't track which image belongs to which edge easily without extra state,
+                  // clearing ALL refImages is the safest "reset" behavior when connections change.
+                  // User can re-connect.
+                  updateNodeData(targetNode.id, { refImages: [] });
               } else if (edge.targetHandle === 'prompt') {
                   updateNodeData(targetNode.id, { inputPrompt: null });
+              }
+          } else if (targetNode.type === 'vlm') {
+              if (edge.targetHandle === 'inputImage') {
+                  updateNodeData(targetNode.id, { inputImage: null });
+              } else if (edge.targetHandle === 'inputVideo') {
+                  updateNodeData(targetNode.id, { inputVideo: null });
+              } else if (edge.targetHandle === 'prompt') {
+                  updateNodeData(targetNode.id, { inputPrompt: null });
+              }
+          } else if (targetNode.type === 'multimodalVideo') {
+              if (edge.targetHandle === 'inputImage') {
+                  updateNodeData(targetNode.id, { inputImage: null });
+              } else if (edge.targetHandle === 'inputVideo') {
+                  updateNodeData(targetNode.id, { inputVideo: null });
+              } else if (edge.targetHandle === 'prompt') {
+                  updateNodeData(targetNode.id, { inputPrompt: null });
+              }
+          } else if (targetNode.type === 'promptEnhancer') {
+              if (edge.targetHandle === 'inputPrompt') {
+                  updateNodeData(targetNode.id, { inputPrompt: '' });
+              }
+          } else if (targetNode.type === 'videoEdit') {
+              if (edge.targetHandle === 'inputVideo') {
+                  updateNodeData(targetNode.id, { inputVideo: null });
               }
           }
       });
@@ -663,7 +688,7 @@ const WorkflowEditor = ({ active }) => {
           
           const payload = {
               modelId: data.model || 'seed-2-0-mini-260215', // Fallback to seed mini
-              prompt: data.inputPrompt || data.prompt || "Describe this content",
+              prompt: data.inputPrompt || data.prompt || "Convert into prompt",
               apiKey: apiKey,
               image, 
               video
@@ -677,7 +702,29 @@ const WorkflowEditor = ({ active }) => {
           
           if (!res.ok) {
               const errorText = await res.text();
-              throw new Error(`API Error ${res.status}: ${errorText}`);
+              let errorMsg = `API Error ${res.status}`;
+              try {
+                  const errorJson = JSON.parse(errorText);
+                  if (errorJson.error) {
+                      // Check for specific Seed error structure
+                      if (typeof errorJson.error === 'string') {
+                          errorMsg = errorJson.error;
+                      } else if (errorJson.error.details && errorJson.error.details.error && errorJson.error.details.error.message) {
+                           errorMsg = errorJson.error.details.error.message;
+                      } else if (errorJson.details && errorJson.details.error && errorJson.details.error.message) {
+                           errorMsg = errorJson.details.error.message;
+                      }
+                  }
+              } catch (e) {
+                  // If text is not JSON, use raw text
+                  errorMsg = errorText;
+              }
+              
+              if (res.status === 429) {
+                  errorMsg = "Rate limit exceeded (429). Please wait a moment before retrying.";
+              }
+              
+              throw new Error(errorMsg);
           }
 
           const result = await res.json();
@@ -696,8 +743,17 @@ const WorkflowEditor = ({ active }) => {
           }
       } catch (err) {
           console.error("VLM Error:", err);
-          Message.error(err.message);
-          updateNodeData(nodeId, { loading: false });
+          
+          // Display a friendly notification
+          const msg = err.message || "Unknown error occurred";
+          Notification.error({
+              title: 'Analysis Failed',
+              content: msg,
+              duration: 5000,
+          });
+          
+          // Also show in the node output for context
+          updateNodeData(nodeId, { output: `[Error] ${msg}`, loading: false });
       }
   };
 

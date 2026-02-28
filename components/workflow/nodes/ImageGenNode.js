@@ -65,13 +65,6 @@ const ImageGenNode = ({ data }) => {
           </div>
       </div>
       
-      {data.inputPrompt && (
-          <div style={{ marginBottom: 8, padding: 8, background: '#e8ffea', borderRadius: 4, border: '1px solid #b7eb8f' }}>
-              <Typography.Text type="secondary" style={{ fontSize: 10, color: '#00b42a' }}>Linked Prompt</Typography.Text>
-              <div style={{ fontSize: 11, maxHeight: 40, overflow: 'hidden' }}>{data.inputPrompt}</div>
-          </div>
-      )}
-
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 10 }}>Reference Images</Typography.Text>
           {data.refImages && data.refImages.length > 0 ? (

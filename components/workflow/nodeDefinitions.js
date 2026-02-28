@@ -65,7 +65,7 @@ export const NODE_DEFINITIONS = {
     category: '2', // ModelArk
     defaults: {
       model: 'seed-2-0-mini-260215',
-      prompt: 'Convert into prompt',
+      prompt: 'Convert into prompt, return PROMPT only',
       output: '',
       loading: false
     },

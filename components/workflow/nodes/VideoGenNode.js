@@ -184,7 +184,15 @@ const VideoGenNode = ({ data }) => {
       </div>
 
       <div style={{ textAlign: 'right' }}>
-          <Button type="primary" status="warning" size="small" onClick={data.onRun} loading={data.loading} disabled={!data.inputImage && !data.uploadedImage && !data.lastFrame}>
+          <Button 
+            type="primary" 
+            status="warning" 
+            size="small" 
+            onClick={data.onRun} 
+            loading={data.loading} 
+            disabled={!data.firstFrame && !data.lastFrame && !data.prompt}
+            title={(!data.firstFrame && !data.lastFrame && !data.prompt) ? "Requires First Frame, Last Frame, or Prompt" : "Generate Video"}
+          >
               Animate
           </Button>
       </div>

@@ -6,7 +6,6 @@ import { IconPlus, IconImage, IconVideoCamera, IconStar, IconLeft, IconRight, Ic
 import ImageGenNode from './nodes/ImageGenNode';
 import VideoGenNode from './nodes/VideoGenNode';
 import PromptEnhancerNode from './nodes/PromptEnhancerNode';
-import PresetNode from './nodes/PresetNode';
 import VideoEditNode from './nodes/VideoEditNode';
 import VideoExtendNode from './nodes/VideoExtendNode';
 import MergeVideosNode from './nodes/MergeVideosNode';
@@ -23,13 +22,12 @@ const nodeTypes = {
   imageGen: ImageGenNode,
   videoGen: VideoGenNode,
   promptEnhancer: PromptEnhancerNode,
-  preset: PresetNode,
+  vlm: VLMNode,
   videoEdit: VideoEditNode,
   videoExtend: VideoExtendNode,
   mergeVideos: MergeVideosNode,
   multimodalVideo: MultimodalVideoNode,
   agentic: AgenticNode,
-  llm: VLMNode, // Kept key as 'llm' to avoid breaking existing saves, but component is VLMNode
   image: ImageNode,
   video: VideoNode,
 };
@@ -104,36 +102,79 @@ const WorkflowEditor = ({ active }) => {
       setActiveKeys(nextKeys);
   };
 
+  // Import/Export Logic
   const exportWorkflow = () => {
-      const payload = {
-          version: 1,
-          nodes,
-          edges
+      const flow = reactFlowInstance.toObject();
+      
+      // Filter out sensitive/large data from nodes
+      const cleanNodes = flow.nodes.map(node => {
+          const cleanData = { ...node.data };
+          // Remove large base64 data and runtime outputs
+          delete cleanData.output;
+          delete cleanData.inputImage;
+          delete cleanData.inputLastFrame;
+          delete cleanData.uploadedImage;
+          delete cleanData.uploadedVideo;
+          delete cleanData.lastFrame;
+          delete cleanData.refImages;
+          delete cleanData.loading;
+          delete cleanData.inputPrompt; // Runtime connection data can be cleared (connections will restore it)
+          delete cleanData.outputPrompt;
+          
+          return {
+              ...node,
+              data: cleanData
+          };
+      });
+
+      const exportData = {
+          ...flow,
+          nodes: cleanNodes
       };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `workflow-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+      const downloadAnchorNode = document.createElement('a');
+      downloadAnchorNode.setAttribute("href", dataStr);
+      downloadAnchorNode.setAttribute("download", "workflow.json");
+      document.body.appendChild(downloadAnchorNode);
+      downloadAnchorNode.click();
+      downloadAnchorNode.remove();
   };
 
-  const importWorkflow = async (file) => {
-      try {
-          const text = await file.text();
-          const parsed = JSON.parse(text);
-          if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
-              throw new Error('Invalid workflow file');
+  const importWorkflow = (file) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          try {
+              const flow = JSON.parse(event.target.result);
+              if (flow && flow.nodes && flow.edges) {
+                  // Restore handlers
+                  const restoredNodes = flow.nodes.map(node => ({
+                      ...node,
+                      data: {
+                          ...node.data,
+                          // Ensure defaults are present
+                          ...getNodeDefaults(node.type),
+                          // Override with saved data
+                          ...node.data
+                      }
+                  }));
+                  setNodes(restoredNodes);
+                  setEdges(flow.edges);
+                  
+                  // Wait for render then fit view
+                  setTimeout(() => {
+                      reactFlowInstance.fitView();
+                  }, 100);
+                  Message.success("Workflow imported successfully");
+              } else {
+                  throw new Error("Invalid workflow file format");
+              }
+          } catch (err) {
+              console.error(err);
+              Message.error("Failed to import workflow");
           }
-          setNodes(parsed.nodes);
-          setEdges(parsed.edges);
-          Message.success('Workflow imported');
-      } catch (err) {
-          Message.error(err?.message || 'Failed to import workflow');
-      }
+      };
+      reader.readAsText(file);
   };
 
   const updateToolboxScrollbar = useCallback(() => {
@@ -327,9 +368,7 @@ const WorkflowEditor = ({ active }) => {
         position,
         data: { 
             // Load defaults from centralized schema
-            ...getNodeDefaults(nodeType),
-            // Handle special preset subtype logic
-            ...(nodeType === 'preset' ? { presetType: subType, value: '' } : {})
+            ...getNodeDefaults(nodeType)
         },
       };
 
@@ -361,11 +400,9 @@ const WorkflowEditor = ({ active }) => {
       incomingEdges.forEach(edge => {
           const sourceNode = allNodes.find(n => n.id === edge.source);
           if (sourceNode) {
-              if (sourceNode.type === 'preset' && sourceNode.data.value) {
-                  promptParts.push(sourceNode.data.value);
-              } else if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
+              if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
                   promptParts.push(sourceNode.data.outputPrompt);
-              } else if (sourceNode.type === 'llm' && sourceNode.data.output) {
+              } else if (sourceNode.type === 'vlm' && sourceNode.data.output) {
                   // VLM/LLM node output can be used as a prompt
                   promptParts.push(sourceNode.data.output);
               }
@@ -393,20 +430,19 @@ const WorkflowEditor = ({ active }) => {
           const apiKey = getApiKey();
           if (!apiKey) throw new Error("API Key missing");
 
-          // Collect upstream prompts
-          const upstreamPrompts = getUpstreamPrompts(nodeId, nodes, edges);
-          // Combine: Linked/Enhancer prompt OR Manual prompt, THEN append Presets
-          // Prioritize Enhancer output if present in upstream, else use manual.
-          // Wait, getUpstreamPrompts returns ALL parts. 
-          // Strategy: If upstream has text, use that joined. If manual prompt exists, append it?
-          // Better: Join all unique non-empty strings.
+          // Priority: 1. Input Prompt (Upstream) 2. Manual Prompt
+          // Presets are appended to this base prompt
+          const basePrompt = data.inputPrompt || data.prompt;
           
-          let basePrompt = data.inputPrompt || data.prompt || "";
-          // If inputPrompt came from enhancer via "push", it's already in data.inputPrompt.
-          // But now we want to support "pulling" from multiple presets.
-          // Let's rely on the "Pull" mainly.
+          const presetList = Array.isArray(data.preset) ? data.preset : (data.preset ? [data.preset] : []);
+
+          // Filter out duplicates and empty strings
+          const promptSources = [
+              basePrompt,
+              ...presetList, // Spread preset array
+          ];
           
-          const combinedPrompt = [...new Set([basePrompt, ...upstreamPrompts])].filter(Boolean).join(', ');
+          const combinedPrompt = [...new Set(promptSources.filter(p => p && p.trim() !== ""))].join(', ');
           
           if (!combinedPrompt) throw new Error("Prompt is required");
 
@@ -415,7 +451,7 @@ const WorkflowEditor = ({ active }) => {
               prompt: combinedPrompt,
               size: data.size || '2K', 
               response_format: 'url',
-              // Add reference image support if uploaded
+              // Use ONLY pushed refImages
               ...(data.refImages && data.refImages.length > 0 ? { image: data.refImages } : {})
           });
 
@@ -456,12 +492,12 @@ const WorkflowEditor = ({ active }) => {
 
   // Run Video Generation
   const runVideoGen = async (nodeId, data) => {
-      // Use linked image OR uploaded image
-      const firstFrame = data.inputImage || data.uploadedImage;
-      const lastFrame = data.inputLastFrame || data.lastFrame;
+      // Use ONLY linked image (no local upload fallback)
+      const firstFrame = data.inputImage;
+      const lastFrame = data.inputLastFrame;
 
       if (!firstFrame) {
-          Message.warning("No input image connected or uploaded!");
+          Message.warning("No input image connected!");
           return;
       }
       updateNodeData(nodeId, { loading: true });
@@ -469,9 +505,20 @@ const WorkflowEditor = ({ active }) => {
           const apiKey = getApiKey();
           if (!apiKey) throw new Error("API Key missing");
 
-          const upstreamPrompts = getUpstreamPrompts(nodeId, nodes, edges);
-          let basePrompt = data.inputPrompt || data.prompt || "";
-          const combinedPrompt = [...new Set([basePrompt, ...upstreamPrompts])].filter(Boolean).join(', ');
+          // Priority: 1. Input Prompt (Upstream) 2. Manual Prompt
+          // Presets are appended to this base prompt
+          const basePrompt = data.inputPrompt || data.prompt;
+          
+          const presetList = Array.isArray(data.preset) ? data.preset : (data.preset ? [data.preset] : []);
+
+          const promptSources = [
+              basePrompt,
+              ...presetList,
+          ];
+          
+          const combinedPrompt = [...new Set(promptSources.filter(p => p && p.trim() !== ""))].join(', ');
+          
+          if (!combinedPrompt && !firstFrame) throw new Error("Prompt is required if no image is provided");
 
           const payload = constructSeedancePayload({
               model: data.model,
@@ -560,33 +607,28 @@ const WorkflowEditor = ({ active }) => {
       }
   };
 
-  // Run LLM Analysis
-  const runLLM = async (nodeId, data) => {
-      if (!data.inputPrompt && !data.prompt) {
-          Message.warning("Please enter a prompt!");
-          return;
-      }
-      
-      const inputImage = data.inputImage || data.uploadedImage;
-      const inputVideo = data.inputVideo || data.uploadedVideo;
+  // Run LLM / VLM Node
+  const runVLM = async (nodeId, data) => {
+      // Use ONLY pushed inputs
+      const image = data.inputImage;
+      const video = data.inputVideo;
 
-      if (!inputImage && !inputVideo) {
-          Message.warning("No input image or video!");
-          // Actually LLM can run text-only, but the node is designed for analysis
+      if (!image && !video) {
+          Message.warning("No image or video input connected!");
+          return;
       }
 
       updateNodeData(nodeId, { loading: true });
       try {
           const apiKey = getApiKey();
           if (!apiKey) throw new Error("API Key missing");
-
-          // Build messages
+          
           const payload = {
-              prompt: data.inputPrompt || data.prompt,
+              modelId: data.model, // seed.js expects 'modelId', not 'model'
+              prompt: data.inputPrompt || data.prompt || "Describe this content",
               apiKey: apiKey,
-              modelId: 'seed-2-0-mini-260215',
-              image: inputImage, 
-              video: inputVideo 
+              image, 
+              video
           };
 
           const res = await fetch('/api/seed', {
@@ -594,6 +636,12 @@ const WorkflowEditor = ({ active }) => {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
           });
+          
+          if (!res.ok) {
+              const errorText = await res.text();
+              throw new Error(`API Error ${res.status}: ${errorText}`);
+          }
+
           const result = await res.json();
           
           if (result.content) {
@@ -606,9 +654,10 @@ const WorkflowEditor = ({ active }) => {
               });
               Message.success("Analysis Complete!");
           } else {
-              throw new Error("Analysis failed");
+              throw new Error(result.error || "Analysis failed");
           }
       } catch (err) {
+          console.error("VLM Error:", err);
           Message.error(err.message);
           updateNodeData(nodeId, { loading: false });
       }
@@ -620,6 +669,13 @@ const WorkflowEditor = ({ active }) => {
       data: {
           ...node.data,
           onChange: (key, val) => updateNodeData(node.id, { [key]: val }),
+          onRun: () => {
+              if (node.type === 'imageGen') runImageGen(node.id, node.data);
+              else if (node.type === 'videoGen') runVideoGen(node.id, node.data);
+              else if (node.type === 'promptEnhancer') runPromptEnhancer(node.id, node.data);
+              else if (node.type === 'vlm') runVLM(node.id, node.data);
+              // else if (node.type === 'agentic') runAgentic(node.id, node.data);
+          },
           onReset: () => {
               const defaults = getNodeDefaults(node.type);
               updateNodeData(node.id, { ...defaults });
@@ -628,17 +684,10 @@ const WorkflowEditor = ({ active }) => {
               // The original code reset specific fields. Let's stick to partial reset for UX.
               // Actually, looking at original code, it reset 'output', 'loading', 'inputImage' etc.
               // So we should probably define "reset state" separately or just manually reset execution state.
-              if (node.type === 'imageGen') updateNodeData(node.id, { output: null, loading: false, refImages: [] });
-              else if (node.type === 'videoGen') updateNodeData(node.id, { output: null, loading: false, uploadedImage: null, lastFrame: null, inputImage: null });
+              if (node.type === 'imageGen') updateNodeData(node.id, { output: null, loading: false });
+              else if (node.type === 'videoGen') updateNodeData(node.id, { output: null, loading: false });
               else if (node.type === 'promptEnhancer') updateNodeData(node.id, { outputPrompt: '', loading: false });
-              else if (node.type === 'llm') updateNodeData(node.id, { output: '', loading: false, uploadedImage: null, uploadedVideo: null });
-          },
-          onRun: () => {
-              if (node.type === 'imageGen') runImageGen(node.id, node.data);
-              if (node.type === 'videoGen') runVideoGen(node.id, node.data);
-              if (node.type === 'promptEnhancer') runPromptEnhancer(node.id, node.data);
-              if (node.type === 'llm') runLLM(node.id, node.data);
-              if (node.type === 'agentic') runAgentic(node.id, node.data);
+              else if (node.type === 'vlm') updateNodeData(node.id, { output: '', loading: false });
           }
       }
   }));
@@ -687,19 +736,6 @@ const WorkflowEditor = ({ active }) => {
                 </div>
                 {isToolboxOpen && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Tooltip content="Export workflow">
-                            <Button
-                              icon={<IconDownload />}
-                              size="mini"
-                              type="text"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                  e.stopPropagation();
-                                  exportWorkflow();
-                              }}
-                              style={{ padding: '0 4px' }}
-                            />
-                        </Tooltip>
                         <Tooltip content="Import workflow">
                             <Button
                               icon={<IconUpload />}
@@ -709,6 +745,19 @@ const WorkflowEditor = ({ active }) => {
                               onClick={(e) => {
                                   e.stopPropagation();
                                   workflowImportInputRef.current?.click();
+                              }}
+                              style={{ padding: '0 4px' }}
+                            />
+                        </Tooltip>
+                        <Tooltip content="Export workflow">
+                            <Button
+                              icon={<IconDownload />}
+                              size="mini"
+                              type="text"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                  e.stopPropagation();
+                                  exportWorkflow();
                               }}
                               style={{ padding: '0 4px' }}
                             />
@@ -794,7 +843,7 @@ const WorkflowEditor = ({ active }) => {
 
                             <div 
                                 draggable 
-                                onDragStart={(event) => onDragStart(event, 'llm')}
+                                onDragStart={(event) => onDragStart(event, 'vlm')}
                                 style={{ padding: '8px 12px', border: '1px solid #c9cdd4', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 12, background: '#f8f9fa' }}
                             >
                                 <IconRobot style={{ color: '#165dff' }} /> AI Analysis
@@ -838,40 +887,8 @@ const WorkflowEditor = ({ active }) => {
                         </div>
                     </Collapse.Item>
 
-                    <Collapse.Item header={renderCategoryHeader('2', 'Presets')} name="2" contentStyle={{ padding: '8px 0' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'preset:camera')}
-                                style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
-                            >
-                                <IconCamera style={{ color: '#165dff' }} /> Camera
-                            </div>
-
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'preset:lighting')}
-                                style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
-                            >
-                                <IconBulb style={{ color: '#ff7d00' }} /> Lighting
-                            </div>
-
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'preset:style')}
-                                style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
-                            >
-                                <IconPalette style={{ color: '#722ed1' }} /> Style
-                            </div>
-
-                            <div 
-                                draggable 
-                                onDragStart={(event) => onDragStart(event, 'preset:movement')}
-                                style={{ padding: '8px 12px', border: '1px solid #e5e6eb', borderRadius: 6, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', fontSize: 11, background: '#fff' }}
-                            >
-                                <IconSwap style={{ color: '#00b42a' }} /> Movement
-                            </div>
-                        </div>
+                    <Collapse.Item header={renderCategoryHeader('2', 'Presets')} name="2" contentStyle={{ padding: '8px 0' }} style={{ display: 'none' }}>
+                        {/* Presets removed and integrated into nodes */}
                     </Collapse.Item>
                 </Collapse>
             </div>

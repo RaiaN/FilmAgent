@@ -3,10 +3,12 @@ import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Select, Input, Button, Image, Upload, Checkbox, Tooltip, InputNumber } from '@arco-design/web-react';
 import { IconVideoCamera, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
 import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
+import { getPresetsForNode } from '../presets';
 
 const VideoGenNode = ({ data }) => {
   const inputs = getNodeInputs('videoGen');
   const outputs = getNodeOutputs('videoGen');
+  const presets = getPresetsForNode('videoGen');
 
   return (
     <Card 
@@ -63,61 +65,28 @@ const VideoGenNode = ({ data }) => {
           </div>
       </div>
       
-      {data.inputImage ? (
-          <div style={{ marginBottom: 8, padding: 8, background: '#f8f9fa', borderRadius: 4 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 10 }}>Input Image (Linked)</Typography.Text>
-              <Image src={data.inputImage} width={40} height={40} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
+      <div style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 10 }}>First Frame</Typography.Text>
+              {data.inputImage ? (
+                  <Image src={data.inputImage} width="100%" height={60} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
+              ) : (
+                  <div style={{ height: 60, background: '#f8f9fa', borderRadius: 4, border: '1px dashed #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86909c', fontSize: 10 }}>
+                      Input
+                  </div>
+              )}
           </div>
-      ) : (
-          <div style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                  <Typography.Text type="secondary" style={{ fontSize: 10 }}>First Frame</Typography.Text>
-                  <Upload
-                    listType="picture-card"
-                    limit={1}
-                    fileList={data.uploadedImage ? [{ uid: '-1', url: data.uploadedImage }] : []}
-                    showUploadList={{
-                        previewIcon: null,
-                        removeIcon: <div style={{ color: 'white' }}>x</div>,
-                    }}
-                    beforeUpload={(file) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => data.onChange('uploadedImage', e.target.result);
-                        reader.readAsDataURL(file);
-                        return false;
-                    }}
-                    onRemove={() => data.onChange('uploadedImage', null)}
-                  />
-              </div>
-          </div>
-      )}
-
-      {data.inputLastFrame ? (
-          <div style={{ marginBottom: 8, padding: 8, background: '#f8f9fa', borderRadius: 4 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 10 }}>Last Frame (Linked)</Typography.Text>
-              <Image src={data.inputLastFrame} width={40} height={40} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
-          </div>
-      ) : (
-          <div style={{ marginBottom: 8 }}>
+          <div style={{ flex: 1 }}>
               <Typography.Text type="secondary" style={{ fontSize: 10 }}>Last Frame</Typography.Text>
-              <Upload
-                listType="picture-card"
-                limit={1}
-                fileList={data.lastFrame ? [{ uid: '-1', url: data.lastFrame }] : []}
-                showUploadList={{
-                    previewIcon: null,
-                    removeIcon: <div style={{ color: 'white' }}>x</div>,
-                }}
-                beforeUpload={(file) => {
-                    const reader = new FileReader();
-                    reader.onload = (e) => data.onChange('lastFrame', e.target.result);
-                    reader.readAsDataURL(file);
-                    return false;
-                }}
-                onRemove={() => data.onChange('lastFrame', null)}
-              />
+              {data.inputLastFrame ? (
+                  <Image src={data.inputLastFrame} width="100%" height={60} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
+              ) : (
+                  <div style={{ height: 60, background: '#f8f9fa', borderRadius: 4, border: '1px dashed #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86909c', fontSize: 10 }}>
+                      Input
+                  </div>
+              )}
           </div>
-      )}
+      </div>
 
       {data.inputPrompt && (
           <div style={{ marginBottom: 8, padding: 8, background: '#e8ffea', borderRadius: 4, border: '1px solid #b7eb8f' }}>
@@ -125,6 +94,33 @@ const VideoGenNode = ({ data }) => {
               <div style={{ fontSize: 11, maxHeight: 40, overflow: 'hidden' }}>{data.inputPrompt}</div>
           </div>
       )}
+
+      <div style={{ marginBottom: 8 }} className="nodrag">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Presets</Typography.Text>
+          <Select 
+            placeholder="Select styles..." 
+            size="small"
+            mode="multiple"
+            maxTagCount={1}
+            value={Array.isArray(data.preset) ? data.preset : []}
+            onChange={(val) => data.onChange('preset', val)}
+            allowClear
+            getPopupContainer={() => document.body}
+            triggerProps={{
+                autoAlignPopupWidth: false,
+                autoAlignPopupMinWidth: true,
+                position: 'bl',
+            }}
+          >
+              {Object.entries(presets).map(([key, category]) => (
+                  <Select.OptGroup key={key} label={category.label}>
+                      {category.options.map(opt => (
+                          <Select.Option key={opt} value={opt}>{opt}</Select.Option>
+                      ))}
+                  </Select.OptGroup>
+              ))}
+          </Select>
+      </div>
 
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Model</Typography.Text>

@@ -11,13 +11,13 @@ export const NODE_DEFINITIONS = {
       model: 'seedream-5-0-lite',
       size: '2K',
       prompt: '',
+      preset: [], // Multi-select array
       loading: false,
-      output: null,
-      refImages: []
+      output: null
     },
     inputs: {
-      prompt: { type: 'text', label: 'Prompt', required: true },
-      refImage: { type: 'image', label: 'Reference Image', multiple: true }
+      refImage: { type: 'image', label: 'Reference Image', multiple: true },
+      prompt: { type: 'text', label: 'Prompt', required: true }
     },
     outputs: {
       output: { type: 'image', label: 'Generated Image' }
@@ -32,17 +32,14 @@ export const NODE_DEFINITIONS = {
       duration: 5,
       generate_audio: true,
       prompt: '',
-      inputImage: null,
-      inputLastFrame: null,
-      uploadedImage: null,
-      lastFrame: null,
+      preset: [], // Multi-select array
       output: null,
       loading: false
     },
     inputs: {
-      prompt: { type: 'text', label: 'Prompt', required: true },
       firstFrame: { type: 'image', label: 'First Frame' },
-      lastFrame: { type: 'image', label: 'Last Frame' }
+      lastFrame: { type: 'image', label: 'Last Frame' },
+      prompt: { type: 'text', label: 'Prompt', required: true }
     },
     outputs: {
       output: { type: 'video', label: 'Generated Video' }
@@ -63,20 +60,19 @@ export const NODE_DEFINITIONS = {
       outputPrompt: { type: 'text', label: 'Enhanced Prompt' }
     }
   },
-  llm: { // VLM Node
-    label: 'AI Analysis',
-    category: '2', // Seed (Analysis)
+  vlm: {
+    label: 'VLM Analysis',
+    category: '2', // ModelArk
     defaults: {
+      model: 'doubao-vision-pro-32k',
       prompt: '',
-      inputImage: null,
-      inputVideo: null,
       output: '',
       loading: false
     },
     inputs: {
-      prompt: { type: 'text', label: 'Question/Instruction' },
       inputImage: { type: 'image', label: 'Input Image' },
-      inputVideo: { type: 'video', label: 'Input Video' }
+      inputVideo: { type: 'video', label: 'Input Video' },
+      prompt: { type: 'text', label: 'Question/Instruction' }
     },
     outputs: {
       output: { type: 'text', label: 'Analysis Result' }
@@ -87,9 +83,7 @@ export const NODE_DEFINITIONS = {
     category: '3',
     defaults: {
       prompt: '',
-      inputImage: null,
-      inputVideo: null,
-      inputAudio: null
+      output: null
     },
     inputs: {
       prompt: { type: 'text', label: 'Prompt' },
@@ -105,8 +99,8 @@ export const NODE_DEFINITIONS = {
     label: 'Video Edit',
     category: '3',
     defaults: {
-      inputVideo: null,
-      prompt: ''
+      prompt: '',
+      output: null
     },
     inputs: {
       inputVideo: { type: 'video', label: 'Input Video' },
@@ -120,7 +114,7 @@ export const NODE_DEFINITIONS = {
     label: 'Video Extend',
     category: '3',
     defaults: {
-      inputVideo: null
+      output: null
     },
     inputs: {
       inputVideo: { type: 'video', label: 'Input Video' }
@@ -133,8 +127,7 @@ export const NODE_DEFINITIONS = {
     label: 'Merge Videos',
     category: '3',
     defaults: {
-      videoA: null,
-      videoB: null
+      output: null
     },
     inputs: {
       videoA: { type: 'video', label: 'Video A' },
@@ -142,18 +135,6 @@ export const NODE_DEFINITIONS = {
     },
     outputs: {
       output: { type: 'video', label: 'Merged Video' }
-    }
-  },
-  preset: {
-    label: 'Preset',
-    category: '2',
-    defaults: {
-      presetType: 'style',
-      value: ''
-    },
-    inputs: {}, // Source only
-    outputs: {
-      value: { type: 'text', label: 'Preset Value' }
     }
   },
   agentic: {

@@ -5,8 +5,8 @@ import { IconRobot, IconPlus, IconClose } from '@arco-design/web-react/icon';
 import { getNodeInputs } from '../nodeDefinitions';
 
 const VLMNode = ({ data }) => {
-  const inputs = getNodeInputs('llm');
-  const outputs = getNodeInputs('llm');
+  const inputs = getNodeInputs('vlm');
+  const outputs = getNodeInputs('vlm');
 
   return (
     <Card 
@@ -40,7 +40,7 @@ const VLMNode = ({ data }) => {
           {/* Run button moved to bottom */}
       </div>
 
-      {/* Inputs Display & Upload */}
+      {/* Inputs Display */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           {/* Image Input */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -49,46 +49,21 @@ const VLMNode = ({ data }) => {
                       <Image src={data.inputImage} width="100%" height="100%" preview={false} />
                       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(22, 93, 255, 0.8)', color: '#fff', fontSize: 10, textAlign: 'center' }}>Linked</div>
                   </div>
-              ) : data.uploadedImage ? (
-                   <div style={{ position: 'relative', width: 80, height: 80, border: '1px solid #e5e6eb', borderRadius: 4, overflow: 'hidden' }}>
-                      <Image src={data.uploadedImage} width="100%" height="100%" preview={false} />
-                      <Button 
-                        size="mini" 
-                        status="danger" 
-                        shape="circle" 
-                        style={{ position: 'absolute', top: 2, right: 2, width: 20, height: 20 }}
-                        onClick={() => data.onChange('uploadedImage', null)}
-                        icon={<IconClose style={{ fontSize: 12 }} />}
-                      />
-                  </div>
               ) : (
-                  <Upload
-                      showUploadList={false}
-                      accept="image/*"
-                      beforeUpload={(file) => {
-                          const reader = new FileReader();
-                          reader.onload = (e) => data.onChange('uploadedImage', e.target.result);
-                          reader.readAsDataURL(file);
-                          return false;
-                      }}
-                  >
-                      <div style={{ 
-                          width: 80, 
-                          height: 80, 
-                          background: '#f8f9fa', 
-                          border: '1px dashed #c9cdd4', 
-                          borderRadius: 4, 
-                          display: 'flex', 
-                          flexDirection: 'column', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          color: '#86909c'
-                      }}>
-                          <IconPlus style={{ fontSize: 16, marginBottom: 4 }} />
-                          <span style={{ fontSize: 10 }}>Image</span>
-                      </div>
-                  </Upload>
+                  <div style={{ 
+                      width: 80, 
+                      height: 80, 
+                      background: '#f8f9fa', 
+                      border: '1px dashed #c9cdd4', 
+                      borderRadius: 4, 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      color: '#86909c'
+                  }}>
+                      <span style={{ fontSize: 10 }}>Input Image</span>
+                  </div>
               )}
           </div>
 
@@ -99,46 +74,21 @@ const VLMNode = ({ data }) => {
                       <video src={data.inputVideo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(114, 46, 209, 0.8)', color: '#fff', fontSize: 10, textAlign: 'center' }}>Linked</div>
                   </div>
-              ) : data.uploadedVideo ? (
-                   <div style={{ position: 'relative', width: 80, height: 80, border: '1px solid #e5e6eb', borderRadius: 4, overflow: 'hidden', background: '#000' }}>
-                      <video src={data.uploadedVideo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      <Button 
-                        size="mini" 
-                        status="danger" 
-                        shape="circle" 
-                        style={{ position: 'absolute', top: 2, right: 2, width: 20, height: 20 }}
-                        onClick={() => data.onChange('uploadedVideo', null)}
-                        icon={<IconClose style={{ fontSize: 12 }} />}
-                      />
-                  </div>
               ) : (
-                  <Upload
-                      showUploadList={false}
-                      accept="video/*"
-                      beforeUpload={(file) => {
-                          const reader = new FileReader();
-                          reader.onload = (e) => data.onChange('uploadedVideo', e.target.result);
-                          reader.readAsDataURL(file);
-                          return false;
-                      }}
-                  >
-                      <div style={{ 
-                          width: 80, 
-                          height: 80, 
-                          background: '#f8f9fa', 
-                          border: '1px dashed #c9cdd4', 
-                          borderRadius: 4, 
-                          display: 'flex', 
-                          flexDirection: 'column', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          color: '#86909c'
-                      }}>
-                          <IconPlus style={{ fontSize: 16, marginBottom: 4 }} />
-                          <span style={{ fontSize: 10 }}>Video</span>
-                      </div>
-                  </Upload>
+                  <div style={{ 
+                      width: 80, 
+                      height: 80, 
+                      background: '#f8f9fa', 
+                      border: '1px dashed #c9cdd4', 
+                      borderRadius: 4, 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      color: '#86909c'
+                  }}>
+                      <span style={{ fontSize: 10 }}>Input Video</span>
+                  </div>
               )}
           </div>
       </div>

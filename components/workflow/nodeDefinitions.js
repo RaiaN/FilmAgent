@@ -26,7 +26,6 @@ export const NODE_DEFINITIONS = {
       model: 'seedream-5-0-lite',
       size: '2K',
       prompt: '',
-      preset: [], // Multi-select array
       loading: false,
       output: null
     },
@@ -47,7 +46,6 @@ export const NODE_DEFINITIONS = {
       duration: 5,
       generate_audio: true,
       prompt: '',
-      preset: [], // Multi-select array
       output: null,
       loading: false
     },

@@ -3,12 +3,10 @@ import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Select, Input, Button, Image, Upload, Tooltip } from '@arco-design/web-react';
 import { IconImage, IconUpload, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
 import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
-import { getPresetsForNode } from '../presets';
 
 const ImageGenNode = ({ data }) => {
   const inputs = getNodeInputs('imageGen');
   const outputs = getNodeOutputs('imageGen');
-  const presets = getPresetsForNode('imageGen');
 
   return (
     <Card 
@@ -85,33 +83,6 @@ const ImageGenNode = ({ data }) => {
                   Connect Image Node
               </div>
           )}
-      </div>
-
-      <div style={{ marginBottom: 8 }} className="nodrag">
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Presets</Typography.Text>
-          <Select 
-            placeholder="Select styles..." 
-            size="small"
-            mode="multiple"
-            maxTagCount={1}
-            value={Array.isArray(data.preset) ? data.preset : []}
-            onChange={(val) => data.onChange('preset', val)}
-            allowClear
-            getPopupContainer={() => document.body}
-            triggerProps={{
-                autoAlignPopupWidth: false,
-                autoAlignPopupMinWidth: true,
-                position: 'bl',
-            }}
-          >
-              {Object.entries(presets).map(([key, category]) => (
-                  <Select.OptGroup key={key} label={category.label}>
-                      {category.options.map(opt => (
-                          <Select.Option key={opt} value={opt}>{opt}</Select.Option>
-                      ))}
-                  </Select.OptGroup>
-              ))}
-          </Select>
       </div>
 
       <div style={{ marginBottom: 8 }}>

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Button, Message, Typography, Collapse, Tooltip } from '@arco-design/web-react';
-import { IconPlus, IconImage, IconVideoCamera, IconStar, IconLeft, IconRight, IconEdit, IconDoubleRight, IconFullscreen, IconPlayCircle, IconMinus, IconRobot, IconDownload, IconUpload } from '@arco-design/web-react/icon';
+import { IconPlus, IconImage, IconVideoCamera, IconStar, IconLeft, IconRight, IconEdit, IconDoubleRight, IconFullscreen, IconPlayCircle, IconMinus, IconRobot, IconImport, IconExport } from '@arco-design/web-react/icon';
 import ImageGenNode from './nodes/ImageGenNode';
 import VideoGenNode from './nodes/VideoGenNode';
 import PromptEnhancerNode from './nodes/PromptEnhancerNode';
@@ -61,8 +61,8 @@ const WorkflowEditor = ({ active }) => {
   const reactFlowWrapper = useRef(null);
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const [isToolboxOpen, setIsToolboxOpen] = useState(true);
-  const [activeKeys, setActiveKeys] = useState(['1', '2', '3']);
-  const allCategoryKeys = ['1', '2', '3'];
+  const [activeKeys, setActiveKeys] = useState(['1', '3']);
+  const allCategoryKeys = ['1', '3'];
   const toolboxHeaderRef = useRef(null);
   const toolboxScrollRef = useRef(null);
   const workflowImportInputRef = useRef(null);
@@ -350,8 +350,7 @@ const WorkflowEditor = ({ active }) => {
       const type = event.dataTransfer.getData('application/reactflow');
       if (typeof type === 'undefined' || !type) return;
 
-      // Extract preset type if any
-      const [nodeType, subType] = type.split(':');
+      const nodeType = type;
 
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
@@ -395,18 +394,7 @@ const WorkflowEditor = ({ active }) => {
 
           // Priority: 1. Connected Prompt (upstream) overwrites manual prompt if both map to 'prompt'
           // Actually, 'data.prompt' IS the unified field now.
-          // Presets are appended to this base prompt
-          const basePrompt = data.prompt;
-          
-          const presetList = Array.isArray(data.preset) ? data.preset : (data.preset ? [data.preset] : []);
-
-          // Filter out duplicates and empty strings
-          const promptSources = [
-              basePrompt,
-              ...presetList, // Spread preset array
-          ];
-          
-          const combinedPrompt = [...new Set(promptSources.filter(p => p && p.trim() !== ""))].join(', ');
+          const combinedPrompt = data.prompt;
           
           if (!combinedPrompt) throw new Error("Prompt is required");
 
@@ -485,17 +473,7 @@ const WorkflowEditor = ({ active }) => {
 
           // Priority: 1. Connected Prompt (upstream) overwrites manual prompt if both map to 'prompt'
           // Actually, 'data.prompt' IS the unified field now.
-          // Presets are appended to this base prompt
-          const basePrompt = data.prompt;
-          
-          const presetList = Array.isArray(data.preset) ? data.preset : (data.preset ? [data.preset] : []);
-
-          const promptSources = [
-              basePrompt,
-              ...presetList,
-          ];
-          
-          const combinedPrompt = [...new Set(promptSources.filter(p => p && p.trim() !== ""))].join(', ');
+          const combinedPrompt = data.prompt;
           
           if (!combinedPrompt && !firstFrame) throw new Error("Prompt is required if no image is provided");
 
@@ -766,7 +744,7 @@ const WorkflowEditor = ({ active }) => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <Tooltip content="Import workflow">
                             <Button
-                              icon={<IconUpload />}
+                              icon={<IconImport />}
                               size="mini"
                               type="text"
                               onMouseDown={(e) => e.stopPropagation()}
@@ -779,7 +757,7 @@ const WorkflowEditor = ({ active }) => {
                         </Tooltip>
                         <Tooltip content="Export workflow">
                             <Button
-                              icon={<IconDownload />}
+                              icon={<IconExport />}
                               size="mini"
                               type="text"
                               onMouseDown={(e) => e.stopPropagation()}
@@ -915,9 +893,7 @@ const WorkflowEditor = ({ active }) => {
                         </div>
                     </Collapse.Item>
 
-                    <Collapse.Item header={renderCategoryHeader('2', 'Presets')} name="2" contentStyle={{ padding: '8px 0' }} style={{ display: 'none' }}>
-                        {/* Presets removed and integrated into nodes */}
-                    </Collapse.Item>
+
                 </Collapse>
             </div>
             )}

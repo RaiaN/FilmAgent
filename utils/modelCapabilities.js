@@ -51,7 +51,7 @@ export const MODEL_CAPABILITIES = {
     'seedance-1-5-pro-251215': {
         resolutions: ['480p', '720p', '1080p'],
         ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
-        durations: [5, 10, -1], 
+        durations: [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12], 
         supports_audio: true,
         supports_draft: true,
         supports_ref_images: false,

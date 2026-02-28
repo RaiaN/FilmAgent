@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Input, Button, Message, Tooltip } from '@arco-design/web-react';
 import { IconStar, IconPlayCircle, IconRefresh } from '@arco-design/web-react/icon';
-import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
+import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 
 const PromptEnhancerNode = ({ data }) => {
   const inputs = getNodeInputs('promptEnhancer');
@@ -23,7 +23,7 @@ const PromptEnhancerNode = ({ data }) => {
                         position={Position.Left} 
                         id={key} 
                         style={{ 
-                            background: '#ff7d00', 
+                            background: getPinColor(config.type), 
                             width: 16, height: 16, border: '2px solid #fff' 
                         }} 
                     />
@@ -34,7 +34,7 @@ const PromptEnhancerNode = ({ data }) => {
       
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconStar style={{ marginRight: 8, color: '#ffb400' }} />
+              <IconStar style={{ marginRight: 8, color: PIN_COLORS.text }} />
               <Typography.Text bold>Prompt Enhancer</Typography.Text>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
@@ -92,7 +92,7 @@ const PromptEnhancerNode = ({ data }) => {
                     position={Position.Right} 
                     id={key} 
                     style={{ 
-                        background: '#165dff', 
+                        background: getPinColor(config.type), 
                         width: 16, height: 16, border: '2px solid #fff' 
                     }} 
                 />

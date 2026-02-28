@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Select, Input, Button, Image, Upload, Checkbox, Tooltip, InputNumber } from '@arco-design/web-react';
 import { IconVideoCamera, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
-import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
+import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 import { getPresetsForNode } from '../presets';
 
 const VideoGenNode = ({ data }) => {
@@ -25,7 +25,7 @@ const VideoGenNode = ({ data }) => {
                         position={Position.Left} 
                         id={key} 
                         style={{ 
-                            background: config.type === 'text' ? '#ffb400' : (config.type === 'image' ? '#165dff' : '#722ed1'), 
+                            background: getPinColor(config.type), 
                             width: 16, height: 16, border: '2px solid #fff' 
                         }} 
                     />
@@ -36,7 +36,7 @@ const VideoGenNode = ({ data }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconVideoCamera style={{ marginRight: 8, color: '#ff7d00' }} />
+              <IconVideoCamera style={{ marginRight: 8, color: PIN_COLORS.video }} />
               <Typography.Text bold>Video Generation</Typography.Text>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
@@ -216,7 +216,7 @@ const VideoGenNode = ({ data }) => {
                     position={Position.Right} 
                     id={key} 
                     style={{ 
-                        background: config.type === 'text' ? '#ffb400' : '#ff7d00', 
+                        background: getPinColor(config.type), 
                         width: 16, height: 16, border: '2px solid #fff' 
                     }} 
                 />

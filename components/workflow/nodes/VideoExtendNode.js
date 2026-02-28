@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Tooltip, Tag } from '@arco-design/web-react';
 import { IconDoubleRight } from '@arco-design/web-react/icon';
-import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
+import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 
 const VideoExtendNode = ({ data }) => {
   const inputs = getNodeInputs('videoExtend');
@@ -23,7 +23,7 @@ const VideoExtendNode = ({ data }) => {
                         position={Position.Left} 
                         id={key} 
                         style={{ 
-                            background: '#722ed1', 
+                            background: getPinColor(config.type), 
                             width: 16, height: 16, border: '2px solid #fff' 
                         }} 
                     />
@@ -34,7 +34,7 @@ const VideoExtendNode = ({ data }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconDoubleRight style={{ marginRight: 8, color: '#00b42a' }} />
+              <IconDoubleRight style={{ marginRight: 8, color: PIN_COLORS.video }} />
               <Typography.Text bold>Video Extend</Typography.Text>
           </div>
           <Tag color="purple" size="small">2.0</Tag>
@@ -53,7 +53,7 @@ const VideoExtendNode = ({ data }) => {
                     position={Position.Right} 
                     id={key} 
                     style={{ 
-                        background: '#722ed1', 
+                        background: getPinColor(config.type), 
                         width: 16, height: 16, border: '2px solid #fff' 
                     }} 
                 />

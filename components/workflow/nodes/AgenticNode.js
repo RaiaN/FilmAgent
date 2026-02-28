@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Tooltip, Tag, Input, Button, Steps, Popover, Message } from '@arco-design/web-react';
 import { IconRobot, IconEye, IconCheckCircle, IconLoading, IconPlayCircle, IconTool } from '@arco-design/web-react/icon';
 import PipelineInspector from '../PipelineInspector';
-import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
+import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 
 const Step = Steps.Step;
 
@@ -155,7 +155,7 @@ const AgenticNode = ({ data }) => {
                         position={Position.Left} 
                         id={key} 
                         style={{ 
-                            background: '#722ed1', 
+                            background: getPinColor(config.type), 
                             width: 16, height: 16, border: '2px solid #fff' 
                         }} 
                     />
@@ -166,7 +166,7 @@ const AgenticNode = ({ data }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, borderBottom: '1px solid #d9e1ff', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconRobot style={{ marginRight: 8, color: '#165dff', fontSize: 18 }} />
+              <IconRobot style={{ marginRight: 8, color: PIN_COLORS.image, fontSize: 18 }} />
               <Typography.Text bold>Agentic Director</Typography.Text>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -230,7 +230,7 @@ const AgenticNode = ({ data }) => {
                             type="source" 
                             position={Position.Right} 
                             id={`output-${index}`} 
-                            style={{ background: '#00b42a', width: 16, height: 16, border: '2px solid #fff' }} 
+                            style={{ background: getPinColor('default'), width: 16, height: 16, border: '2px solid #fff' }} 
                           />
                           <div style={{ position: 'absolute', right: 20, top: -2, whiteSpace: 'nowrap', fontSize: 10, color: '#86909c' }}>{outputName}</div>
                       </div>
@@ -247,7 +247,7 @@ const AgenticNode = ({ data }) => {
                             type="source" 
                             position={Position.Right} 
                             id={key} 
-                            style={{ background: '#00b42a', width: 16, height: 16, border: '2px solid #fff' }} 
+                            style={{ background: getPinColor(config.type), width: 16, height: 16, border: '2px solid #fff' }} 
                         />
                     </div>
                 </Tooltip>

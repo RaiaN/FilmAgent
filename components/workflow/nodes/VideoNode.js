@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Upload, Tooltip, Button } from '@arco-design/web-react';
 import { IconVideoCamera, IconPlus, IconClose } from '@arco-design/web-react/icon';
-import { getNodeOutputs } from '../nodeDefinitions';
+import { getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 
 const VideoNode = ({ data }) => {
   const outputs = getNodeOutputs('video');
@@ -14,7 +14,7 @@ const VideoNode = ({ data }) => {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconVideoCamera style={{ marginRight: 8, color: '#722ed1' }} />
+              <IconVideoCamera style={{ marginRight: 8, color: PIN_COLORS.video }} />
               <Typography.Text bold>Video</Typography.Text>
           </div>
       </div>
@@ -66,7 +66,7 @@ const VideoNode = ({ data }) => {
       {Object.entries(outputs).map(([key, config]) => (
         <Tooltip key={key} content={config.label}>
             <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16 }}>
-                <Handle type="source" position={Position.Right} id={key} style={{ background: '#722ed1', width: 16, height: 16, border: '2px solid #fff' }} />
+                <Handle type="source" position={Position.Right} id={key} style={{ background: getPinColor(config.type), width: 16, height: 16, border: '2px solid #fff' }} />
             </div>
         </Tooltip>
       ))}

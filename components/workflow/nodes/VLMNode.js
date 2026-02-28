@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Tooltip, Input, Button, Image, Upload } from '@arco-design/web-react';
 import { IconRobot, IconPlus, IconClose } from '@arco-design/web-react/icon';
-import { getNodeInputs } from '../nodeDefinitions';
+import { getNodeInputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 
 const VLMNode = ({ data }) => {
   const inputs = getNodeInputs('vlm');
@@ -23,7 +23,7 @@ const VLMNode = ({ data }) => {
                         position={Position.Left} 
                         id={key} 
                         style={{ 
-                            background: config.type === 'text' ? '#ffb400' : (config.type === 'image' ? '#165dff' : '#722ed1'), 
+                            background: getPinColor(config.type), 
                             width: 16, height: 16, border: '2px solid #fff' 
                         }} 
                     />
@@ -34,7 +34,7 @@ const VLMNode = ({ data }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconRobot style={{ marginRight: 8, color: '#165dff' }} />
+              <IconRobot style={{ marginRight: 8, color: PIN_COLORS.image }} />
               <Typography.Text bold>VLM (AI Analysis)</Typography.Text>
           </div>
           {/* Run button moved to bottom */}
@@ -135,7 +135,7 @@ const VLMNode = ({ data }) => {
                     position={Position.Right} 
                     id={key} 
                     style={{ 
-                        background: config.type === 'text' ? '#ffb400' : '#165dff', 
+                        background: getPinColor(config.type), 
                         width: 16, height: 16, border: '2px solid #fff' 
                     }} 
                 />

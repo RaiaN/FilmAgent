@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Tooltip, Tag, Input, Button } from '@arco-design/web-react';
 import { IconPlayCircle } from '@arco-design/web-react/icon';
-import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
+import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 
 const MultimodalVideoNode = ({ data }) => {
   const inputs = getNodeInputs('multimodalVideo');
@@ -23,7 +23,7 @@ const MultimodalVideoNode = ({ data }) => {
                         position={Position.Left} 
                         id={key} 
                         style={{ 
-                            background: config.type === 'image' ? '#165dff' : (config.type === 'video' ? '#722ed1' : (config.type === 'audio' ? '#f5319d' : '#ffb400')), 
+                            background: getPinColor(config.type), 
                             width: 16, height: 16, border: '2px solid #fff' 
                         }} 
                     />
@@ -34,7 +34,7 @@ const MultimodalVideoNode = ({ data }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconPlayCircle style={{ marginRight: 8, color: '#f5319d' }} />
+              <IconPlayCircle style={{ marginRight: 8, color: PIN_COLORS.video }} />
               <Typography.Text bold>Multimodal Video</Typography.Text>
           </div>
           <Tag color="purple" size="small">2.0</Tag>
@@ -70,7 +70,7 @@ const MultimodalVideoNode = ({ data }) => {
                     position={Position.Right} 
                     id={key} 
                     style={{ 
-                        background: '#722ed1', 
+                        background: getPinColor(config.type), 
                         width: 16, height: 16, border: '2px solid #fff' 
                     }} 
                 />

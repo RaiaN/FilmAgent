@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Select, Input, Button, Image, Upload, Tooltip } from '@arco-design/web-react';
 import { IconImage, IconUpload, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
-import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
+import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 import { getPresetsForNode } from '../presets';
 
 const ImageGenNode = ({ data }) => {
@@ -25,7 +25,7 @@ const ImageGenNode = ({ data }) => {
                         position={Position.Left} 
                         id={key} 
                         style={{ 
-                            background: config.type === 'text' ? '#ffb400' : '#165dff', 
+                            background: getPinColor(config.type), 
                             width: 16, height: 16, border: '2px solid #fff' 
                         }} 
                     />
@@ -36,7 +36,7 @@ const ImageGenNode = ({ data }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconImage style={{ marginRight: 8, color: '#165dff' }} />
+              <IconImage style={{ marginRight: 8, color: PIN_COLORS.image }} />
               <Typography.Text bold>Image Generation</Typography.Text>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
@@ -188,7 +188,7 @@ const ImageGenNode = ({ data }) => {
                     position={Position.Right} 
                     id={key} 
                     style={{ 
-                        background: config.type === 'text' ? '#ffb400' : '#165dff', 
+                        background: getPinColor(config.type), 
                         width: 16, height: 16, border: '2px solid #fff' 
                     }} 
                 />

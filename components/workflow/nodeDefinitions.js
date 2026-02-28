@@ -3,6 +3,21 @@
 // Defines the schema for all node types in the workflow editor.
 // This allows for data-driven initialization, validation, and connection logic.
 
+import { IconImage, IconVideoCamera, IconRobot, IconPlayCircle, IconEdit, IconDoubleRight, IconFullscreen, IconStar } from '@arco-design/web-react/icon';
+
+// Standardized Color Palette for Pin Types
+export const PIN_COLORS = {
+  text: '#ff7d00',    // Orange
+  image: '#165dff',   // Blue
+  video: '#722ed1',   // Purple
+  audio: '#00b42a',   // Green
+  default: '#86909c'  // Gray
+};
+
+export const getPinColor = (type) => {
+  return PIN_COLORS[type] || PIN_COLORS.default;
+};
+
 export const NODE_DEFINITIONS = {
   imageGen: {
     label: 'Image Generation',

@@ -48,7 +48,7 @@ const initialNodes = [
     position: { x: 500, y: 100 }, 
     data: { 
         ...getNodeDefaults('videoGen'),
-        prompt: 'Slow camera pan right, flying cars moving',
+        prompt: 'Cinematic drone shot flying over a futuristic city with neon lights and flying cars at night, highly detailed, photorealistic, 4k, slow smooth motion',
     } 
   },
 ];

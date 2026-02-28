@@ -45,7 +45,7 @@ export const NODE_DEFINITIONS = {
       resolution: '720p',
       duration: 5,
       generate_audio: true,
-      prompt: '',
+      prompt: 'Generate cinematic video of the main subject in the reference image',
       output: null,
       loading: false
     },

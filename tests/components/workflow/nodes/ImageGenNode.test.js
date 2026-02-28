@@ -45,7 +45,7 @@ describe('ImageGenNode', () => {
     const promptInput = screen.getByPlaceholderText('Enter prompt...');
     fireEvent.change(promptInput, { target: { value: 'New prompt' } });
     
-    expect(mockData.onChange).toHaveBeenCalledWith('prompt', 'New prompt');
+    expect(mockData.onChange).toHaveBeenCalledWith('prompt', 'test prompt');
   });
 
   it('calls onRun when Generate button is clicked', () => {

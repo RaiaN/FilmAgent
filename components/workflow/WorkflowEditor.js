@@ -105,21 +105,36 @@ const WorkflowEditor = ({ active }) => {
   // Import/Export Logic
   const exportWorkflow = () => {
       const flow = reactFlowInstance.toObject();
+      const edges = flow.edges;
+      
+      // Identify nodes with connected prompts
+      // If a node has a connection to its 'prompt' handle, the data.prompt value is derived (ephemeral).
+      // If NOT connected, data.prompt is user manual input (configuration).
+      const nodesWithConnectedPrompt = new Set();
+      edges.forEach(edge => {
+          if (edge.targetHandle === 'prompt') {
+              nodesWithConnectedPrompt.add(edge.target);
+          }
+      });
       
       // Filter out sensitive/large data from nodes
       const cleanNodes = flow.nodes.map(node => {
           const cleanData = { ...node.data };
-          // Remove large base64 data and runtime outputs
-          delete cleanData.output;
-          delete cleanData.inputImage;
-          delete cleanData.inputLastFrame;
-          delete cleanData.uploadedImage;
-          delete cleanData.uploadedVideo;
-          delete cleanData.lastFrame;
-          delete cleanData.refImages;
-          delete cleanData.loading;
-          delete cleanData.inputPrompt; // Runtime connection data can be cleared (connections will restore it)
-          delete cleanData.outputPrompt;
+          
+          const isPromptConnected = nodesWithConnectedPrompt.has(node.id);
+          
+          const ephemeralKeys = [
+              'output', 
+              'loading',
+              'uploadedImage', 'uploadedVideo', // Large blobs
+              'firstFrame', 'lastFrame', // VideoGen inputs
+              'inputImage', 'inputVideo', 'inputAudio', // VLM/Multimodal inputs
+              'refImages', // ImageGen inputs
+              'videoA', 'videoB', // Merge inputs
+              ...(isPromptConnected ? ['prompt'] : []) // Only delete prompt if it's a connected value
+          ];
+
+          ephemeralKeys.forEach(key => delete cleanData[key]);
           
           return {
               ...node,
@@ -253,71 +268,40 @@ const WorkflowEditor = ({ active }) => {
     (params) => {
         setEdges((eds) => addEdge({ ...params, animated: true }, eds));
         
-        // Update target node data based on handle ID
         const targetNode = nodes.find(n => n.id === params.target);
         const sourceNode = nodes.find(n => n.id === params.source);
         
         if (!targetNode || !sourceNode) return;
 
-        // Use Schema for validation/mapping?
-        // For now, keep the explicit logic but maybe generalize it
-        // The pattern is: check target handle, check source output type, map data.
+        // Check compatibility via Schema
+        const inputConfig = getNodeInputs(targetNode.type)[params.targetHandle];
+        if (!inputConfig) return; // Invalid handle
+
+        const sourceHandleId = params.sourceHandle || 'output'; 
+        const sourceDataValue = sourceNode.data[sourceHandleId];
         
-        if (targetNode.type === 'videoGen') {
-            // STRICT CONNECTION LOGIC FOR VIDEO GEN
-            if (params.targetHandle === 'firstFrame' && sourceNode.data.output) {
-                 updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
-            } else if (params.targetHandle === 'lastFrame' && sourceNode.data.output) {
-                 updateNodeData(targetNode.id, { inputLastFrame: sourceNode.data.output });
-            } else if (params.targetHandle === 'prompt') {
-                 // Allow Prompt Enhancer OR Presets OR LLM
-                 if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
-                     updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.outputPrompt });
-                 } else if (sourceNode.type === 'llm' && sourceNode.data.output) {
-                     updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.output });
-                 }
-            }
-        } else if (targetNode.type === 'imageGen') {
-             if (params.targetHandle === 'refImage' && sourceNode.data.output) {
-                 // Append to refImages array if not already present
-                 const currentRefs = targetNode.data.refImages || [];
-                 if (!currentRefs.includes(sourceNode.data.output)) {
-                     updateNodeData(targetNode.id, { refImages: [...currentRefs, sourceNode.data.output] });
-                 }
-             } else if (params.targetHandle === 'prompt') {
-                 if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
-                     updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.outputPrompt });
-                 } else if (sourceNode.type === 'llm' && sourceNode.data.output) {
-                     updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.output });
-                 }
-             }
-        } else if (targetNode.type === 'vlm') {
-             if (params.targetHandle === 'inputImage' && sourceNode.data.output) {
-                 // Check if source is actually an image (Image Node or Image Gen Node)
-                 if (sourceNode.type === 'image' || sourceNode.type === 'imageGen') {
-                     updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
-                 }
-             } else if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
-                 // Check if source is actually a video (Video Node or Video Gen Node)
-                 if (sourceNode.type === 'video' || sourceNode.type === 'videoGen') {
-                     updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
-                 }
-             } else if (params.targetHandle === 'prompt') {
-                 if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
-                     updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.outputPrompt });
-                 }
-             }
-        } else if (targetNode.type === 'videoEdit') {
-             if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
-                 updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
-             }
-        } else if (targetNode.type === 'multimodalVideo') {
-             if (params.targetHandle === 'inputImage' && sourceNode.data.output) {
-                 updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
-             } else if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
-                 updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
-             }
+        if (!sourceDataValue) return; // No data to pass
+
+        // Data Mapping Logic
+        let dataKey = params.targetHandle;
+        
+        // Generic mapping for 'prompt' handle -> 'prompt' data key
+        if (params.targetHandle === 'prompt') {
+            dataKey = 'prompt'; // Standardized to 'prompt'
         }
+
+        // Handle deviations (legacy/special mappings)
+        if (targetNode.type === 'imageGen' && params.targetHandle === 'refImage') {
+             // Special case: refImage -> refImages array
+             const currentRefs = targetNode.data.refImages || [];
+             if (!currentRefs.includes(sourceDataValue)) {
+                 updateNodeData(targetNode.id, { refImages: [...currentRefs, sourceDataValue] });
+             }
+             return;
+        }
+
+        // Generic Update
+        updateNodeData(targetNode.id, { [dataKey]: sourceDataValue });
     },
     [nodes, setEdges],
   );
@@ -327,48 +311,31 @@ const WorkflowEditor = ({ active }) => {
           const targetNode = nodes.find(n => n.id === edge.target);
           if (!targetNode) return;
 
-          if (targetNode.type === 'videoGen') {
-              if (edge.targetHandle === 'lastFrame') {
-                  updateNodeData(targetNode.id, { inputLastFrame: null });
-              } else if (edge.targetHandle === 'firstFrame') {
-                  updateNodeData(targetNode.id, { inputImage: null });
-              } else if (edge.targetHandle === 'prompt') {
-                  updateNodeData(targetNode.id, { inputPrompt: null });
+          // Data-driven reset based on nodeDefinitions
+          const inputs = getNodeInputs(targetNode.type);
+          const handleId = edge.targetHandle;
+          
+          if (inputs && inputs[handleId]) {
+              const inputConfig = inputs[handleId];
+              
+              let dataKey = handleId;
+              let resetValue = null;
+
+              // Override for specific known deviations
+              // Most nodes follow dataKey = handleId (default)
+              if (targetNode.type === 'imageGen' && handleId === 'refImage') {
+                  dataKey = 'refImages';
+                  resetValue = [];
+              } else if (targetNode.type === 'promptEnhancer' && handleId === 'prompt') {
+                  resetValue = ''; // Explicitly empty string for text input
               }
-          } else if (targetNode.type === 'imageGen') {
-              if (edge.targetHandle === 'refImage') {
-                  // If refImage is disconnected, we should probably clear or filter the refImages array.
-                  // Since we don't track which image belongs to which edge easily without extra state,
-                  // clearing ALL refImages is the safest "reset" behavior when connections change.
-                  // User can re-connect.
-                  updateNodeData(targetNode.id, { refImages: [] });
-              } else if (edge.targetHandle === 'prompt') {
-                  updateNodeData(targetNode.id, { inputPrompt: null });
+
+              // Check if schema defines it as multiple
+              if (inputConfig.multiple && resetValue === null) {
+                  resetValue = [];
               }
-          } else if (targetNode.type === 'vlm') {
-              if (edge.targetHandle === 'inputImage') {
-                  updateNodeData(targetNode.id, { inputImage: null });
-              } else if (edge.targetHandle === 'inputVideo') {
-                  updateNodeData(targetNode.id, { inputVideo: null });
-              } else if (edge.targetHandle === 'prompt') {
-                  updateNodeData(targetNode.id, { inputPrompt: null });
-              }
-          } else if (targetNode.type === 'multimodalVideo') {
-              if (edge.targetHandle === 'inputImage') {
-                  updateNodeData(targetNode.id, { inputImage: null });
-              } else if (edge.targetHandle === 'inputVideo') {
-                  updateNodeData(targetNode.id, { inputVideo: null });
-              } else if (edge.targetHandle === 'prompt') {
-                  updateNodeData(targetNode.id, { inputPrompt: null });
-              }
-          } else if (targetNode.type === 'promptEnhancer') {
-              if (edge.targetHandle === 'inputPrompt') {
-                  updateNodeData(targetNode.id, { inputPrompt: '' });
-              }
-          } else if (targetNode.type === 'videoEdit') {
-              if (edge.targetHandle === 'inputVideo') {
-                  updateNodeData(targetNode.id, { inputVideo: null });
-              }
+
+              updateNodeData(targetNode.id, { [dataKey]: resetValue });
           }
       });
   }, [nodes]);
@@ -408,39 +375,6 @@ const WorkflowEditor = ({ active }) => {
     [reactFlowInstance, setNodes],
   );
 
-  // Helper to get connected upstream prompt texts
-  const getUpstreamPrompts = (nodeId, allNodes, allEdges) => {
-      // For VideoGen, only check edges connected to 'prompt' handle
-      // For others, check any connection
-      const incomingEdges = allEdges.filter(e => {
-          if (e.target !== nodeId) return false;
-          const targetNode = allNodes.find(n => n.id === nodeId);
-          if (targetNode && targetNode.type === 'videoGen') {
-              return e.targetHandle === 'prompt';
-          }
-          if (targetNode && targetNode.type === 'imageGen') {
-              // For ImageGen, we only want text prompts from specific handles if possible
-              // But usually we just take all text sources connected to 'prompt' handle
-              return e.targetHandle === 'prompt';
-          }
-          return true;
-      });
-
-      const promptParts = [];
-      
-      incomingEdges.forEach(edge => {
-          const sourceNode = allNodes.find(n => n.id === edge.source);
-          if (sourceNode) {
-              if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
-                  promptParts.push(sourceNode.data.outputPrompt);
-              } else if (sourceNode.type === 'vlm' && sourceNode.data.output) {
-                  // VLM/LLM node output can be used as a prompt
-                  promptParts.push(sourceNode.data.output);
-              }
-          }
-      });
-      return promptParts;
-  };
 
   // Update node data helper
   const updateNodeData = (nodeId, newData) => {
@@ -461,9 +395,10 @@ const WorkflowEditor = ({ active }) => {
           const apiKey = getApiKey();
           if (!apiKey) throw new Error("API Key missing");
 
-          // Priority: 1. Input Prompt (Upstream) 2. Manual Prompt
+          // Priority: 1. Connected Prompt (upstream) overwrites manual prompt if both map to 'prompt'
+          // Actually, 'data.prompt' IS the unified field now.
           // Presets are appended to this base prompt
-          const basePrompt = data.inputPrompt || data.prompt;
+          const basePrompt = data.prompt;
           
           const presetList = Array.isArray(data.preset) ? data.preset : (data.preset ? [data.preset] : []);
 
@@ -510,12 +445,12 @@ const WorkflowEditor = ({ active }) => {
                               updateNodeData(targetNode.id, { refImages: [...currentRefs, outputUrl] });
                           }
                       } else if (targetNode.type === 'videoGen') {
-                          if (edge.targetHandle === 'lastFrame') {
-                              updateNodeData(targetNode.id, { inputLastFrame: outputUrl });
-                          } else {
-                              updateNodeData(targetNode.id, { inputImage: outputUrl });
-                          }
-                      } else if (targetNode.type === 'vlm') {
+                      if (edge.targetHandle === 'lastFrame') {
+                          updateNodeData(targetNode.id, { lastFrame: outputUrl });
+                      } else {
+                          updateNodeData(targetNode.id, { firstFrame: outputUrl });
+                      }
+                  } else if (targetNode.type === 'vlm') {
                           updateNodeData(targetNode.id, { inputImage: outputUrl });
                       } else if (targetNode.type === 'multimodalVideo') {
                           updateNodeData(targetNode.id, { inputImage: outputUrl });
@@ -538,8 +473,8 @@ const WorkflowEditor = ({ active }) => {
   // Run Video Generation
   const runVideoGen = async (nodeId, data) => {
       // Use ONLY linked image (no local upload fallback)
-      const firstFrame = data.inputImage;
-      const lastFrame = data.inputLastFrame;
+      const firstFrame = data.firstFrame;
+      const lastFrame = data.lastFrame;
 
       if (!firstFrame) {
           Message.warning("No input image connected!");
@@ -550,9 +485,10 @@ const WorkflowEditor = ({ active }) => {
           const apiKey = getApiKey();
           if (!apiKey) throw new Error("API Key missing");
 
-          // Priority: 1. Input Prompt (Upstream) 2. Manual Prompt
+          // Priority: 1. Connected Prompt (upstream) overwrites manual prompt if both map to 'prompt'
+          // Actually, 'data.prompt' IS the unified field now.
           // Presets are appended to this base prompt
-          const basePrompt = data.inputPrompt || data.prompt;
+          const basePrompt = data.prompt;
           
           const presetList = Array.isArray(data.preset) ? data.preset : (data.preset ? [data.preset] : []);
 
@@ -631,7 +567,7 @@ const WorkflowEditor = ({ active }) => {
 
   // Run Prompt Enhancer
   const runPromptEnhancer = async (nodeId, data) => {
-      if (!data.inputPrompt) {
+      if (!data.prompt) {
           Message.warning("No input prompt!");
           return;
       }
@@ -644,7 +580,7 @@ const WorkflowEditor = ({ active }) => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                  prompt: data.inputPrompt,
+                  prompt: data.prompt,
                   apiKey: apiKey,
                   systemPrompt: "Enhance this prompt for image/video generation. Make it detailed, descriptive, and artistic. Return ONLY the prompt.",
                   modelId: 'seed-2-0-mini-260215'
@@ -653,12 +589,12 @@ const WorkflowEditor = ({ active }) => {
           const result = await res.json();
           
           if (result.content) {
-              updateNodeData(nodeId, { outputPrompt: result.content, loading: false });
+              updateNodeData(nodeId, { output: result.content, loading: false });
               
               // Propagate to connected nodes (Image/Video Gen)
               const connectedEdges = edges.filter(e => e.source === nodeId);
               connectedEdges.forEach(edge => {
-                  updateNodeData(edge.target, { inputPrompt: result.content });
+                  updateNodeData(edge.target, { prompt: result.content });
               });
               Message.success("Prompt Enhanced!");
           } else {
@@ -688,7 +624,7 @@ const WorkflowEditor = ({ active }) => {
           
           const payload = {
               modelId: data.model || 'seed-2-0-mini-260215', // Fallback to seed mini
-              prompt: data.inputPrompt || data.prompt || "Convert into prompt",
+              prompt: data.prompt || "Convert into prompt",
               apiKey: apiKey,
               image, 
               video
@@ -735,7 +671,7 @@ const WorkflowEditor = ({ active }) => {
               // Propagate to connected nodes (e.g. Prompt input of other nodes)
               const connectedEdges = edges.filter(e => e.source === nodeId);
               connectedEdges.forEach(edge => {
-                  updateNodeData(edge.target, { inputPrompt: result.content });
+                  updateNodeData(edge.target, { prompt: result.content });
               });
               Message.success("Analysis Complete!");
           } else {
@@ -780,7 +716,7 @@ const WorkflowEditor = ({ active }) => {
               // So we should probably define "reset state" separately or just manually reset execution state.
               if (node.type === 'imageGen') updateNodeData(node.id, { output: null, loading: false });
               else if (node.type === 'videoGen') updateNodeData(node.id, { output: null, loading: false });
-              else if (node.type === 'promptEnhancer') updateNodeData(node.id, { outputPrompt: '', loading: false });
+              else if (node.type === 'promptEnhancer') updateNodeData(node.id, { output: '', loading: false });
               else if (node.type === 'vlm') updateNodeData(node.id, { output: '', loading: false });
           }
       }

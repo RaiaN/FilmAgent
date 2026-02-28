@@ -44,14 +44,14 @@ const MultimodalVideoNode = ({ data }) => {
           Combine Image, Video, and Audio sources into a single video generation.
       </Typography.Text>
 
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Prompt</Typography.Text>
           <Input.TextArea 
-            placeholder="Describe how to combine inputs..." 
+            placeholder="Describe video..." 
             style={{ minHeight: 60, fontSize: 12 }}
-            value={data.inputPrompt || data.prompt}
+            value={data.prompt}
             onChange={(val) => data.onChange('prompt', val)}
-            disabled={!!data.inputPrompt}
+            className="nodrag"
           />
       </div>
 

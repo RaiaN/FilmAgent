@@ -36,7 +36,7 @@ describe('PromptEnhancerNode', () => {
     const input = screen.getByDisplayValue('Simple idea');
     fireEvent.change(input, { target: { value: 'New idea' } });
     
-    expect(mockData.onChange).toHaveBeenCalledWith('inputPrompt', 'New idea');
+    expect(mockData.onChange).toHaveBeenCalledWith('prompt', 'New idea');
   });
 
   it('calls onRun when Enhance button is clicked', () => {

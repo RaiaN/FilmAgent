@@ -49,9 +49,9 @@ describe('VideoGenNode', () => {
     render(<VideoGenNode data={mockData} />);
     
     const promptInput = screen.getByPlaceholderText('Describe motion...');
-    fireEvent.change(promptInput, { target: { value: 'New video prompt' } });
+    fireEvent.change(promptInput, { target: { value: 'test prompt' } });
     
-    expect(mockData.onChange).toHaveBeenCalledWith('prompt', 'New video prompt');
+    expect(mockData.onChange).toHaveBeenCalledWith('prompt', 'test prompt');
   });
 
   it('calls onRun when Animate button is clicked', () => {

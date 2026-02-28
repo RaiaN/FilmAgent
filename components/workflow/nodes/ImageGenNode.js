@@ -130,11 +130,12 @@ const ImageGenNode = ({ data }) => {
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Prompt</Typography.Text>
           <Input.TextArea 
-            placeholder="Enter prompt..." 
+            placeholder="A futuristic city..." 
             style={{ minHeight: 60, fontSize: 12 }}
-            value={data.inputPrompt || data.prompt}
+            value={data.prompt}
             onChange={(val) => data.onChange('prompt', val)}
-            disabled={!!data.inputPrompt}
+            disabled={false} // Always editable, but connection overwrites value via state
+            className="nodrag"
           />
       </div>
 

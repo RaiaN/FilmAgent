@@ -68,8 +68,8 @@ const VideoGenNode = ({ data }) => {
       <div style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
           <div style={{ flex: 1 }}>
               <Typography.Text type="secondary" style={{ fontSize: 10 }}>First Frame</Typography.Text>
-              {data.inputImage ? (
-                  <Image src={data.inputImage} width="100%" height={60} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
+              {data.firstFrame ? (
+                  <Image src={data.firstFrame} width="100%" height={60} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
               ) : (
                   <div style={{ height: 60, background: '#f8f9fa', borderRadius: 4, border: '1px dashed #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86909c', fontSize: 10 }}>
                       Input
@@ -78,8 +78,8 @@ const VideoGenNode = ({ data }) => {
           </div>
           <div style={{ flex: 1 }}>
               <Typography.Text type="secondary" style={{ fontSize: 10 }}>Last Frame</Typography.Text>
-              {data.inputLastFrame ? (
-                  <Image src={data.inputLastFrame} width="100%" height={60} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
+              {data.lastFrame ? (
+                  <Image src={data.lastFrame} width="100%" height={60} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
               ) : (
                   <div style={{ height: 60, background: '#f8f9fa', borderRadius: 4, border: '1px dashed #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86909c', fontSize: 10 }}>
                       Input
@@ -87,13 +87,6 @@ const VideoGenNode = ({ data }) => {
               )}
           </div>
       </div>
-
-      {data.inputPrompt && (
-          <div style={{ marginBottom: 8, padding: 8, background: '#e8ffea', borderRadius: 4, border: '1px solid #b7eb8f' }}>
-              <Typography.Text type="secondary" style={{ fontSize: 10, color: '#00b42a' }}>Linked Prompt</Typography.Text>
-              <div style={{ fontSize: 11, maxHeight: 40, overflow: 'hidden' }}>{data.inputPrompt}</div>
-          </div>
-      )}
 
       <div style={{ marginBottom: 8 }} className="nodrag">
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Presets</Typography.Text>
@@ -137,11 +130,11 @@ const VideoGenNode = ({ data }) => {
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Prompt</Typography.Text>
           <Input.TextArea 
-            placeholder="Describe motion..." 
+            placeholder="Slow pan right..." 
             style={{ minHeight: 60, fontSize: 12 }}
-            value={data.inputPrompt || data.prompt}
+            value={data.prompt}
             onChange={(val) => data.onChange('prompt', val)}
-            disabled={!!data.inputPrompt}
+            className="nodrag"
           />
       </div>
 

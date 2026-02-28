@@ -94,13 +94,13 @@ const VLMNode = ({ data }) => {
       </div>
 
       <div style={{ marginBottom: 8 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Prompt</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Question / Instruction</Typography.Text>
           <Input.TextArea 
-            placeholder="Ask something..." 
+            placeholder="Describe this image..." 
             style={{ minHeight: 60, fontSize: 12 }}
-            value={data.inputPrompt || data.prompt}
+            value={data.prompt}
             onChange={(val) => data.onChange('prompt', val)}
-            disabled={!!data.inputPrompt}
+            className="nodrag"
           />
       </div>
 

@@ -49,15 +49,15 @@ export const NODE_DEFINITIONS = {
     label: 'Prompt Enhancer',
     category: '1',
     defaults: {
-      inputPrompt: '',
-      outputPrompt: '',
+      prompt: '',
+      output: '',
       loading: false
     },
     inputs: {
-      inputPrompt: { type: 'text', label: 'Input Prompt' }
+      prompt: { type: 'text', label: 'Input Prompt' }
     },
     outputs: {
-      outputPrompt: { type: 'text', label: 'Enhanced Prompt' }
+      output: { type: 'text', label: 'Enhanced Prompt' }
     }
   },
   vlm: {

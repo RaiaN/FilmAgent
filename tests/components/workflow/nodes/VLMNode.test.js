@@ -41,9 +41,9 @@ describe('VLMNode', () => {
     render(<VLMNode data={mockData} />);
     
     const promptInput = screen.getByPlaceholderText('Ask something...');
-    fireEvent.change(promptInput, { target: { value: 'New prompt' } });
+    fireEvent.change(promptInput, { target: { value: 'test prompt' } });
     
-    expect(mockData.onChange).toHaveBeenCalledWith('prompt', 'New prompt');
+    expect(mockData.onChange).toHaveBeenCalledWith('prompt', 'test prompt');
   });
 
   it('calls onRun when Run Analysis button is clicked', () => {

@@ -56,8 +56,8 @@ const PromptEnhancerNode = ({ data }) => {
           <Input.TextArea 
             placeholder="Simple idea..." 
             style={{ minHeight: 60, fontSize: 12 }}
-            value={data.inputPrompt}
-            onChange={(val) => data.onChange('inputPrompt', val)}
+            value={data.prompt}
+            onChange={(val) => data.onChange('prompt', val)}
             className="nodrag"
           />
       </div>
@@ -67,7 +67,7 @@ const PromptEnhancerNode = ({ data }) => {
           <Input.TextArea 
             placeholder="Result..." 
             style={{ minHeight: 80, fontSize: 12, background: '#f8f9fa' }}
-            value={data.outputPrompt}
+            value={data.output}
             readOnly
             className="nodrag"
           />

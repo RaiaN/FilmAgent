@@ -64,7 +64,7 @@ export const NODE_DEFINITIONS = {
     label: 'VLM Analysis',
     category: '2', // ModelArk
     defaults: {
-      model: 'doubao-vision-pro-32k',
+      model: 'seed-2-0-mini-260215',
       prompt: '',
       output: '',
       loading: false

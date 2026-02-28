@@ -291,11 +291,17 @@ const WorkflowEditor = ({ active }) => {
                      updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.output });
                  }
              }
-        } else if (targetNode.type === 'llm') {
+        } else if (targetNode.type === 'vlm') {
              if (params.targetHandle === 'inputImage' && sourceNode.data.output) {
-                 updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
+                 // Check if source is actually an image (Image Node or Image Gen Node)
+                 if (sourceNode.type === 'image' || sourceNode.type === 'imageGen') {
+                     updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
+                 }
              } else if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
-                 updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
+                 // Check if source is actually a video (Video Node or Video Gen Node)
+                 if (sourceNode.type === 'video' || sourceNode.type === 'videoGen') {
+                     updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
+                 }
              } else if (params.targetHandle === 'prompt') {
                  if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
                      updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.outputPrompt });
@@ -471,10 +477,24 @@ const WorkflowEditor = ({ active }) => {
               // Propagate to connected nodes
               const connectedEdges = edges.filter(e => e.source === nodeId);
               connectedEdges.forEach(edge => {
-                  if (edge.targetHandle === 'lastFrame') {
-                      updateNodeData(edge.target, { inputLastFrame: outputUrl });
-                  } else {
-                      updateNodeData(edge.target, { inputImage: outputUrl });
+                  const targetNode = nodes.find(n => n.id === edge.target);
+                  if (targetNode) {
+                      if (targetNode.type === 'imageGen' && edge.targetHandle === 'refImage') {
+                          const currentRefs = targetNode.data.refImages || [];
+                          if (!currentRefs.includes(outputUrl)) {
+                              updateNodeData(targetNode.id, { refImages: [...currentRefs, outputUrl] });
+                          }
+                      } else if (targetNode.type === 'videoGen') {
+                          if (edge.targetHandle === 'lastFrame') {
+                              updateNodeData(targetNode.id, { inputLastFrame: outputUrl });
+                          } else {
+                              updateNodeData(targetNode.id, { inputImage: outputUrl });
+                          }
+                      } else if (targetNode.type === 'vlm') {
+                          updateNodeData(targetNode.id, { inputImage: outputUrl });
+                      } else if (targetNode.type === 'multimodalVideo') {
+                          updateNodeData(targetNode.id, { inputImage: outputUrl });
+                      }
                   }
               });
               Message.success("Image Generated!");
@@ -549,7 +569,25 @@ const WorkflowEditor = ({ active }) => {
                   
                   if (statusData.status === 'succeeded') {
                       clearInterval(poll);
-                      updateNodeData(nodeId, { output: statusData.video_url, loading: false });
+                      const outputUrl = statusData.video_url;
+                      updateNodeData(nodeId, { output: outputUrl, loading: false });
+
+                      // Propagate to connected nodes
+                      const connectedEdges = edges.filter(e => e.source === nodeId);
+                      connectedEdges.forEach(edge => {
+                          const targetNode = nodes.find(n => n.id === edge.target);
+                          if (targetNode) {
+                              if (targetNode.type === 'vlm') {
+                                  updateNodeData(targetNode.id, { inputVideo: outputUrl });
+                              } else if (targetNode.type === 'multimodalVideo') {
+                                  updateNodeData(targetNode.id, { inputVideo: outputUrl });
+                              } else if (targetNode.type === 'videoEdit') {
+                                  updateNodeData(targetNode.id, { inputVideo: outputUrl });
+                              } else if (targetNode.type === 'videoExtend') {
+                                  updateNodeData(targetNode.id, { inputVideo: outputUrl });
+                              }
+                          }
+                      });
                       Message.success("Video Generated!");
                   } else if (statusData.status === 'failed') {
                       clearInterval(poll);
@@ -624,7 +662,7 @@ const WorkflowEditor = ({ active }) => {
           if (!apiKey) throw new Error("API Key missing");
           
           const payload = {
-              modelId: data.model, // seed.js expects 'modelId', not 'model'
+              modelId: data.model || 'seed-2-0-mini-260215', // Fallback to seed mini
               prompt: data.inputPrompt || data.prompt || "Describe this content",
               apiKey: apiKey,
               image, 

@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { ReactFlow, Background, Controls, addEdge, useNodesState, useEdgesState, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Button, Message, Card, Typography, Collapse, Tooltip } from '@arco-design/web-react';
-import { IconPlus, IconImage, IconVideoCamera, IconStar, IconLeft, IconRight, IconBulb, IconPalette, IconSwap, IconCamera, IconEdit, IconDoubleRight, IconFullscreen, IconPlayCircle, IconMinus, IconRobot, IconDownload, IconUpload } from '@arco-design/web-react/icon';
+import { Button, Message, Typography, Collapse, Tooltip } from '@arco-design/web-react';
+import { IconPlus, IconImage, IconVideoCamera, IconStar, IconLeft, IconRight, IconEdit, IconDoubleRight, IconFullscreen, IconPlayCircle, IconMinus, IconRobot, IconDownload, IconUpload } from '@arco-design/web-react/icon';
 import ImageGenNode from './nodes/ImageGenNode';
 import VideoGenNode from './nodes/VideoGenNode';
 import PromptEnhancerNode from './nodes/PromptEnhancerNode';
@@ -16,7 +16,7 @@ import ImageNode from './nodes/ImageNode';
 import VideoNode from './nodes/VideoNode';
 import { constructSeedreamPayload, constructSeedancePayload } from '../../utils/apiHelpers';
 import { getApiKey } from '../../utils/apiKeyStore';
-import { NODE_DEFINITIONS, getNodeDefaults } from './nodeDefinitions';
+import { getNodeDefaults, getNodeInputs, getNodeOutputs } from './nodeDefinitions';
 
 const nodeTypes = {
   imageGen: ImageGenNode,
@@ -256,11 +256,6 @@ const WorkflowEditor = ({ active }) => {
       };
   }, [updateToolboxScrollbar]);
 
-  const onConnect = useCallback(
-    (params) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
-    [setEdges],
-  );
-
   // Helper to get connected upstream data
   // We need to know which handle was connected to update the correct input
   // ReactFlow onConnect params: { source, sourceHandle, target, targetHandle }
@@ -274,7 +269,10 @@ const WorkflowEditor = ({ active }) => {
         if (!targetNode || !sourceNode) return;
 
         // Check compatibility via Schema
-        const inputConfig = getNodeInputs(targetNode.type)[params.targetHandle];
+        const inputs = getNodeInputs(targetNode.type);
+        if (!inputs) return; 
+        
+        const inputConfig = inputs[params.targetHandle];
         if (!inputConfig) return; // Invalid handle
 
         const sourceHandleId = params.sourceHandle || 'output'; 

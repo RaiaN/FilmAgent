@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Select, Tooltip } from '@arco-design/web-react';
 import { IconCamera, IconBulb, IconPalette, IconSwap } from '@arco-design/web-react/icon';
+import { getNodeOutputs } from '../nodeDefinitions';
 
 const PRESET_OPTIONS = {
     camera: {
@@ -29,6 +30,7 @@ const PRESET_OPTIONS = {
 const PresetNode = ({ data }) => {
   const presetType = data.presetType || 'camera';
   const config = PRESET_OPTIONS[presetType];
+  const outputs = getNodeOutputs('preset');
 
   return (
     <Card 
@@ -36,8 +38,8 @@ const PresetNode = ({ data }) => {
         bodyStyle={{ padding: 12 }}
     >
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
-          {config.icon}
-          <Typography.Text bold style={{ marginLeft: 8, fontSize: 12 }}>{config.title}</Typography.Text>
+          {config?.icon}
+          <Typography.Text bold style={{ marginLeft: 8, fontSize: 12 }}>{config?.title}</Typography.Text>
       </div>
 
       <Select 
@@ -47,16 +49,18 @@ const PresetNode = ({ data }) => {
         onChange={(val) => data.onChange('value', val)}
         style={{ width: '100%' }}
       >
-          {config.options.map(opt => (
+          {config?.options.map(opt => (
               <Select.Option key={opt} value={opt}>{opt}</Select.Option>
           ))}
       </Select>
 
-      <Tooltip content="Preset Output">
-          <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16 }}>
-              <Handle type="source" position={Position.Right} style={{ background: '#165dff', width: 16, height: 16, border: '2px solid #fff' }} />
-          </div>
-      </Tooltip>
+      {Object.entries(outputs).map(([key, config]) => (
+          <Tooltip key={key} content={config.label}>
+              <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16 }}>
+                  <Handle type="source" position={Position.Right} id={key} style={{ background: '#165dff', width: 16, height: 16, border: '2px solid #fff' }} />
+              </div>
+          </Tooltip>
+      ))}
     </Card>
   );
 };

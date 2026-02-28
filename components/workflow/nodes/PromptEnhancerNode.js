@@ -2,14 +2,26 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Input, Button, Message } from '@arco-design/web-react';
 import { IconStar } from '@arco-design/web-react/icon';
+import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
 
 const PromptEnhancerNode = ({ data }) => {
+  const inputs = getNodeInputs('promptEnhancer');
+  const outputs = getNodeOutputs('promptEnhancer');
+
   return (
     <Card 
         style={{ width: 280, border: '1px solid #c9cdd4', borderRadius: 8, boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}
         bodyStyle={{ padding: 12 }}
     >
-      <Handle type="target" position={Position.Left} style={{ background: '#ff7d00' }} />
+      {Object.entries(inputs).map(([key, config]) => (
+          <Handle 
+            key={key}
+            type="target" 
+            position={Position.Left} 
+            id={key}
+            style={{ background: '#ff7d00' }} 
+          />
+      ))}
       
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
           <IconStar style={{ marginRight: 8, color: '#ffb400' }} />
@@ -42,7 +54,15 @@ const PromptEnhancerNode = ({ data }) => {
           />
       </div>
 
-      <Handle type="source" position={Position.Right} style={{ background: '#165dff' }} />
+      {Object.entries(outputs).map(([key, config]) => (
+          <Handle 
+            key={key}
+            type="source" 
+            position={Position.Right} 
+            id={key}
+            style={{ background: '#165dff' }} 
+          />
+      ))}
     </Card>
   );
 };

@@ -17,6 +17,7 @@ import ImageNode from './nodes/ImageNode';
 import VideoNode from './nodes/VideoNode';
 import { constructSeedreamPayload, constructSeedancePayload } from '../../utils/apiHelpers';
 import { getApiKey } from '../../utils/apiKeyStore';
+import { NODE_DEFINITIONS, getNodeDefaults } from './nodeDefinitions';
 
 const nodeTypes = {
   imageGen: ImageGenNode,
@@ -39,10 +40,8 @@ const initialNodes = [
     type: 'imageGen', 
     position: { x: 100, y: 100 }, 
     data: { 
-        model: 'seedream-5-0-lite',
-        prompt: 'A cinematic shot of a futuristic city',
-        output: null,
-        loading: false
+        ...getNodeDefaults('imageGen'),
+        prompt: 'A cinematic shot of a futuristic city'
     } 
   },
   { 
@@ -50,14 +49,8 @@ const initialNodes = [
     type: 'videoGen', 
     position: { x: 500, y: 100 }, 
     data: { 
-        model: 'seedance-1-5-pro-251215',
+        ...getNodeDefaults('videoGen'),
         prompt: 'Slow camera pan right, flying cars moving',
-        resolution: '720p',
-        duration: 5,
-        generate_audio: true,
-        inputImage: null,
-        output: null,
-        loading: false
     } 
   },
 ];
@@ -223,22 +216,27 @@ const WorkflowEditor = ({ active }) => {
         const targetNode = nodes.find(n => n.id === params.target);
         const sourceNode = nodes.find(n => n.id === params.source);
         
-        if (targetNode && targetNode.type === 'videoGen') {
+        if (!targetNode || !sourceNode) return;
+
+        // Use Schema for validation/mapping?
+        // For now, keep the explicit logic but maybe generalize it
+        // The pattern is: check target handle, check source output type, map data.
+        
+        if (targetNode.type === 'videoGen') {
             // STRICT CONNECTION LOGIC FOR VIDEO GEN
             if (params.targetHandle === 'firstFrame' && sourceNode.data.output) {
                  updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
             } else if (params.targetHandle === 'lastFrame' && sourceNode.data.output) {
                  updateNodeData(targetNode.id, { inputLastFrame: sourceNode.data.output });
             } else if (params.targetHandle === 'prompt') {
-                 // Allow Prompt Enhancer OR Presets
+                 // Allow Prompt Enhancer OR Presets OR LLM
                  if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
                      updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.outputPrompt });
-                 } else if (sourceNode.type === 'preset' && sourceNode.data.value) {
-                     // Presets logic is handled via getUpstreamPrompts, but we can visual feedback here if needed
-                     // Actually, getUpstreamPrompts needs to check connected edges to 'prompt' handle now
+                 } else if (sourceNode.type === 'llm' && sourceNode.data.output) {
+                     updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.output });
                  }
             }
-        } else if (targetNode && targetNode.type === 'imageGen') {
+        } else if (targetNode.type === 'imageGen') {
              if (params.targetHandle === 'refImage' && sourceNode.data.output) {
                  // Append to refImages array if not already present
                  const currentRefs = targetNode.data.refImages || [];
@@ -248,11 +246,11 @@ const WorkflowEditor = ({ active }) => {
              } else if (params.targetHandle === 'prompt') {
                  if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
                      updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.outputPrompt });
-                 } else if (sourceNode.type === 'preset' && sourceNode.data.value) {
-                     // Preset logic handled by getUpstreamPrompts
+                 } else if (sourceNode.type === 'llm' && sourceNode.data.output) {
+                     updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.output });
                  }
              }
-        } else if (targetNode && targetNode.type === 'llm') {
+        } else if (targetNode.type === 'llm') {
              if (params.targetHandle === 'inputImage' && sourceNode.data.output) {
                  updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
              } else if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
@@ -262,11 +260,11 @@ const WorkflowEditor = ({ active }) => {
                      updateNodeData(targetNode.id, { inputPrompt: sourceNode.data.outputPrompt });
                  }
              }
-        } else if (targetNode && targetNode.type === 'videoEdit') {
+        } else if (targetNode.type === 'videoEdit') {
              if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
                  updateNodeData(targetNode.id, { inputVideo: sourceNode.data.output });
              }
-        } else if (targetNode && targetNode.type === 'multimodalVideo') {
+        } else if (targetNode.type === 'multimodalVideo') {
              if (params.targetHandle === 'inputImage' && sourceNode.data.output) {
                  updateNodeData(targetNode.id, { inputImage: sourceNode.data.output });
              } else if (params.targetHandle === 'inputVideo' && sourceNode.data.output) {
@@ -328,20 +326,9 @@ const WorkflowEditor = ({ active }) => {
         type: nodeType,
         position,
         data: { 
-            loading: false, 
-            prompt: '', 
-            // Defaults based on type
-            ...(nodeType === 'imageGen' ? { model: 'seedream-5-0-lite', size: '2K' } : {}),
-            ...(nodeType === 'videoGen' ? { model: 'seedance-1-5-pro-251215', resolution: '720p', duration: 5, generate_audio: true } : {}),
-            ...(nodeType === 'promptEnhancer' ? { inputPrompt: '', outputPrompt: '' } : {}),
-            ...(nodeType === 'videoEdit' ? { inputVideo: null, prompt: '' } : {}),
-            ...(nodeType === 'videoExtend' ? { inputVideo: null } : {}),
-            ...(nodeType === 'mergeVideos' ? { videoA: null, videoB: null } : {}),
-            ...(nodeType === 'multimodalVideo' ? { inputImage: null, inputVideo: null, inputAudio: null, prompt: '' } : {}),
-            ...(nodeType === 'agentic' ? { task: '', steps: [], dynamicOutputs: [] } : {}),
-            ...(nodeType === 'llm' ? { inputImage: null, inputVideo: null, prompt: '', output: '' } : {}),
-            ...(nodeType === 'image' ? { output: null } : {}),
-            ...(nodeType === 'video' ? { output: null } : {}),
+            // Load defaults from centralized schema
+            ...getNodeDefaults(nodeType),
+            // Handle special preset subtype logic
             ...(nodeType === 'preset' ? { presetType: subType, value: '' } : {})
         },
       };
@@ -361,6 +348,11 @@ const WorkflowEditor = ({ active }) => {
           if (targetNode && targetNode.type === 'videoGen') {
               return e.targetHandle === 'prompt';
           }
+          if (targetNode && targetNode.type === 'imageGen') {
+              // For ImageGen, we only want text prompts from specific handles if possible
+              // But usually we just take all text sources connected to 'prompt' handle
+              return e.targetHandle === 'prompt';
+          }
           return true;
       });
 
@@ -373,6 +365,9 @@ const WorkflowEditor = ({ active }) => {
                   promptParts.push(sourceNode.data.value);
               } else if (sourceNode.type === 'promptEnhancer' && sourceNode.data.outputPrompt) {
                   promptParts.push(sourceNode.data.outputPrompt);
+              } else if (sourceNode.type === 'llm' && sourceNode.data.output) {
+                  // VLM/LLM node output can be used as a prompt
+                  promptParts.push(sourceNode.data.output);
               }
           }
       });
@@ -626,15 +621,17 @@ const WorkflowEditor = ({ active }) => {
           ...node.data,
           onChange: (key, val) => updateNodeData(node.id, { [key]: val }),
           onReset: () => {
-              if (node.type === 'imageGen') {
-                  updateNodeData(node.id, { output: null, loading: false, refImages: [] });
-              } else if (node.type === 'videoGen') {
-                  updateNodeData(node.id, { output: null, loading: false, uploadedImage: null, lastFrame: null, inputImage: null });
-              } else if (node.type === 'promptEnhancer') {
-                  updateNodeData(node.id, { outputPrompt: '', loading: false });
-              } else if (node.type === 'llm') {
-                  updateNodeData(node.id, { output: '', loading: false, uploadedImage: null, uploadedVideo: null });
-              }
+              const defaults = getNodeDefaults(node.type);
+              updateNodeData(node.id, { ...defaults });
+              // Preserve persistent fields if needed (like prompt if we only want to clear output)
+              // But onReset usually means "reset state", maybe not "clear user input"
+              // The original code reset specific fields. Let's stick to partial reset for UX.
+              // Actually, looking at original code, it reset 'output', 'loading', 'inputImage' etc.
+              // So we should probably define "reset state" separately or just manually reset execution state.
+              if (node.type === 'imageGen') updateNodeData(node.id, { output: null, loading: false, refImages: [] });
+              else if (node.type === 'videoGen') updateNodeData(node.id, { output: null, loading: false, uploadedImage: null, lastFrame: null, inputImage: null });
+              else if (node.type === 'promptEnhancer') updateNodeData(node.id, { outputPrompt: '', loading: false });
+              else if (node.type === 'llm') updateNodeData(node.id, { output: '', loading: false, uploadedImage: null, uploadedVideo: null });
           },
           onRun: () => {
               if (node.type === 'imageGen') runImageGen(node.id, node.data);

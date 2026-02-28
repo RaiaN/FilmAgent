@@ -1,9 +1,13 @@
 import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Card, Typography, Select, Input, Button, Image, Upload, Checkbox, Tooltip } from '@arco-design/web-react';
+import { Card, Typography, Select, Input, Button, Image, Upload, Checkbox, Tooltip, InputNumber } from '@arco-design/web-react';
 import { IconVideoCamera, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
+import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
 
 const VideoGenNode = ({ data }) => {
+  const inputs = getNodeInputs('videoGen');
+  const outputs = getNodeOutputs('videoGen');
+
   return (
     <Card 
         style={{ width: 300, border: '1px solid #c9cdd4', borderRadius: 8, boxShadow: '0 2px 5px rgba(0,0,0,0.1)', position: 'relative' }}
@@ -11,21 +15,21 @@ const VideoGenNode = ({ data }) => {
     >
       {/* Input Handles */}
       <div style={{ position: 'absolute', left: -8, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <Tooltip content="First Frame Input">
-              <div style={{ position: 'relative', width: 16, height: 16 }}>
-                  <Handle type="target" position={Position.Left} id="firstFrame" style={{ background: '#165dff', width: 16, height: 16, border: '2px solid #fff' }} />
-              </div>
-          </Tooltip>
-          <Tooltip content="Last Frame Input">
-              <div style={{ position: 'relative', width: 16, height: 16 }}>
-                  <Handle type="target" position={Position.Left} id="lastFrame" style={{ background: '#722ed1', width: 16, height: 16, border: '2px solid #fff' }} />
-              </div>
-          </Tooltip>
-          <Tooltip content="Prompt Input">
-              <div style={{ position: 'relative', width: 16, height: 16 }}>
-                  <Handle type="target" position={Position.Left} id="prompt" style={{ background: '#ffb400', width: 16, height: 16, border: '2px solid #fff' }} />
-              </div>
-          </Tooltip>
+          {Object.entries(inputs).map(([key, config]) => (
+            <Tooltip key={key} content={config.label}>
+                <div style={{ position: 'relative', width: 16, height: 16 }}>
+                    <Handle 
+                        type="target" 
+                        position={Position.Left} 
+                        id={key} 
+                        style={{ 
+                            background: config.type === 'text' ? '#ffb400' : (config.type === 'image' ? '#165dff' : '#722ed1'), 
+                            width: 16, height: 16, border: '2px solid #fff' 
+                        }} 
+                    />
+                </div>
+            </Tooltip>
+          ))}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
@@ -172,16 +176,14 @@ const VideoGenNode = ({ data }) => {
 
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Duration (s)</Typography.Text>
-          <Select
+          <InputNumber
             size="small"
+            min={1}
+            max={60}
             value={Number(data.duration) || 5}
             onChange={(val) => data.onChange('duration', val)}
-          >
-              <Select.Option value={3}>3</Select.Option>
-              <Select.Option value={5}>5</Select.Option>
-              <Select.Option value={10}>10</Select.Option>
-              <Select.Option value={15}>15</Select.Option>
-          </Select>
+            style={{ width: '100%' }}
+          />
       </div>
 
       <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -209,11 +211,21 @@ const VideoGenNode = ({ data }) => {
       )}
 
       {/* Output Handle */}
-      <Tooltip content="Video Output">
-          <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16 }}>
-              <Handle type="source" position={Position.Right} style={{ background: '#ff7d00', width: 16, height: 16, border: '2px solid #fff' }} />
-          </div>
-      </Tooltip>
+      {Object.entries(outputs).map(([key, config]) => (
+        <Tooltip key={key} content={config.label}>
+            <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16 }}>
+                <Handle 
+                    type="source" 
+                    position={Position.Right} 
+                    id={key} 
+                    style={{ 
+                        background: config.type === 'text' ? '#ffb400' : '#ff7d00', 
+                        width: 16, height: 16, border: '2px solid #fff' 
+                    }} 
+                />
+            </div>
+        </Tooltip>
+      ))}
     </Card>
   );
 };

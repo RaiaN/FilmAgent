@@ -2,8 +2,12 @@ import React, { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Select, Input, Button, Image, Upload, Tooltip } from '@arco-design/web-react';
 import { IconImage, IconUpload, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
+import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
 
 const ImageGenNode = ({ data }) => {
+  const inputs = getNodeInputs('imageGen');
+  const outputs = getNodeOutputs('imageGen');
+
   return (
     <Card 
         style={{ width: 300, border: '1px solid #c9cdd4', borderRadius: 8, boxShadow: '0 2px 5px rgba(0,0,0,0.1)', position: 'relative' }}
@@ -11,16 +15,21 @@ const ImageGenNode = ({ data }) => {
     >
       {/* Input Handles */}
       <div style={{ position: 'absolute', left: -8, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <Tooltip content="Reference Image Input">
-              <div style={{ position: 'relative', width: 16, height: 16 }}>
-                  <Handle type="target" position={Position.Left} id="refImage" style={{ background: '#165dff', width: 16, height: 16, border: '2px solid #fff' }} />
-              </div>
-          </Tooltip>
-          <Tooltip content="Prompt Input">
-              <div style={{ position: 'relative', width: 16, height: 16 }}>
-                  <Handle type="target" position={Position.Left} id="prompt" style={{ background: '#ffb400', width: 16, height: 16, border: '2px solid #fff' }} />
-              </div>
-          </Tooltip>
+          {Object.entries(inputs).map(([key, config]) => (
+            <Tooltip key={key} content={config.label}>
+                <div style={{ position: 'relative', width: 16, height: 16 }}>
+                    <Handle 
+                        type="target" 
+                        position={Position.Left} 
+                        id={key} 
+                        style={{ 
+                            background: config.type === 'text' ? '#ffb400' : '#165dff', 
+                            width: 16, height: 16, border: '2px solid #fff' 
+                        }} 
+                    />
+                </div>
+            </Tooltip>
+          ))}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, borderBottom: '1px solid #f2f3f5', paddingBottom: 8 }}>
@@ -154,11 +163,21 @@ const ImageGenNode = ({ data }) => {
           </div>
       )}
 
-      <Tooltip content="Image Output">
-          <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16 }}>
-              <Handle type="source" position={Position.Right} style={{ background: '#165dff', width: 16, height: 16, border: '2px solid #fff' }} />
-          </div>
-      </Tooltip>
+      {Object.entries(outputs).map(([key, config]) => (
+        <Tooltip key={key} content={config.label}>
+            <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16 }}>
+                <Handle 
+                    type="source" 
+                    position={Position.Right} 
+                    id={key} 
+                    style={{ 
+                        background: config.type === 'text' ? '#ffb400' : '#165dff', 
+                        width: 16, height: 16, border: '2px solid #fff' 
+                    }} 
+                />
+            </div>
+        </Tooltip>
+      ))}
     </Card>
   );
 };

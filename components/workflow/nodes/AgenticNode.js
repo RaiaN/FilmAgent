@@ -3,10 +3,14 @@ import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Tooltip, Tag, Input, Button, Steps, Popover, Message } from '@arco-design/web-react';
 import { IconRobot, IconEye, IconCheckCircle, IconLoading, IconPlayCircle, IconTool } from '@arco-design/web-react/icon';
 import PipelineInspector from '../PipelineInspector';
+import { getNodeInputs, getNodeOutputs } from '../nodeDefinitions';
 
 const Step = Steps.Step;
 
 const AgenticNode = ({ data }) => {
+  const inputs = getNodeInputs('agentic');
+  const outputs = getNodeOutputs('agentic');
+
   const [task, setTask] = useState(data.task || '');
   const [isPlanning, setIsPlanning] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -143,11 +147,21 @@ const AgenticNode = ({ data }) => {
 
       {/* Dynamic Input Handles */}
       <div style={{ position: 'absolute', left: -8, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <Tooltip content="Context (Video/Image/Text)">
-              <div style={{ position: 'relative', width: 16, height: 16 }}>
-                  <Handle type="target" position={Position.Left} id="context" style={{ background: '#722ed1', width: 16, height: 16, border: '2px solid #fff' }} />
-              </div>
-          </Tooltip>
+          {Object.entries(inputs).map(([key, config]) => (
+            <Tooltip key={key} content={config.label}>
+                <div style={{ position: 'relative', width: 16, height: 16 }}>
+                    <Handle 
+                        type="target" 
+                        position={Position.Left} 
+                        id={key} 
+                        style={{ 
+                            background: '#722ed1', 
+                            width: 16, height: 16, border: '2px solid #fff' 
+                        }} 
+                    />
+                </div>
+            </Tooltip>
+          ))}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, borderBottom: '1px solid #d9e1ff', paddingBottom: 8 }}>
@@ -207,7 +221,7 @@ const AgenticNode = ({ data }) => {
       </div>
 
       {/* Dynamic Output Handles */}
-      {data.dynamicOutputs && data.dynamicOutputs.length > 0 && (
+      {data.dynamicOutputs && data.dynamicOutputs.length > 0 ? (
           <div style={{ position: 'absolute', right: -8, top: 40, display: 'flex', flexDirection: 'column', gap: 30 }}>
               {data.dynamicOutputs.map((outputName, index) => (
                   <Tooltip key={index} content={outputName}>
@@ -221,6 +235,22 @@ const AgenticNode = ({ data }) => {
                           <div style={{ position: 'absolute', right: 20, top: -2, whiteSpace: 'nowrap', fontSize: 10, color: '#86909c' }}>{outputName}</div>
                       </div>
                   </Tooltip>
+              ))}
+          </div>
+      ) : (
+          /* Default Schema Output if no dynamic outputs */
+          <div style={{ position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', gap: 24 }}>
+              {Object.entries(outputs).map(([key, config]) => (
+                <Tooltip key={key} content={config.label}>
+                    <div style={{ position: 'relative', width: 16, height: 16 }}>
+                        <Handle 
+                            type="source" 
+                            position={Position.Right} 
+                            id={key} 
+                            style={{ background: '#00b42a', width: 16, height: 16, border: '2px solid #fff' }} 
+                        />
+                    </div>
+                </Tooltip>
               ))}
           </div>
       )}

@@ -77,7 +77,7 @@ export const NODE_DEFINITIONS = {
     label: 'VLM Analysis',
     category: '2', // ModelArk
     defaults: {
-      model: 'seed-2-0-mini-260215',
+      model: 'seed-2-0-pro-260328',
       prompt: 'Convert into prompt, return PROMPT only',
       output: '',
       loading: false

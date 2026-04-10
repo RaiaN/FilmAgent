@@ -30,6 +30,65 @@ async function seedHandler(req, res) {
   const resolvedModelId = modelId || process.env.SEED_MODEL_ID || 'seed-2-0-mini-260215';
 
   try {
+    const isPro260328 = resolvedModelId === 'seed-2-0-pro-260328';
+    
+    // For seed-2-0-pro-260328, we use /responses and input formatting
+    if (isPro260328) {
+      const inputContent = [{ type: 'input_text', text: prompt }];
+      if (image) {
+          inputContent.push({ 
+              type: 'input_image', 
+              image_url: image
+          });
+      }
+      if (video) {
+          inputContent.push({
+              type: 'input_video',
+              video_url: video
+          });
+      }
+
+      const payload = {
+          model: resolvedModelId,
+          stream: false, // Stream false for simpler REST handling in StarterKit
+          input: [
+              {
+                  role: "user",
+                  content: inputContent
+              }
+          ]
+      };
+
+      const responsesEndpoint = `${endpointBase}/responses`;
+      
+      const response = await fetch(responsesEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error?.message || `API error: ${response.status}`);
+      }
+      
+      // Adapt /responses output to match standard /chat/completions for frontend
+      const content = data.output_text
+        || data.output?.[0]?.content?.find((item) => item.type === 'output_text')?.text
+        || data.output?.[0]?.content?.find((item) => item.type === 'text')?.text
+        || data.output?.content?.[0]?.text
+        || JSON.stringify(data);
+
+      return res.status(200).json({ 
+          content,
+          raw: data 
+      });
+    }
+
+    // Standard Chat Completions logic for other models
     const messages = [
       { role: 'system', content: systemPrompt || 'You are a helpful assistant.' }
     ];

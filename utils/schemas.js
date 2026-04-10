@@ -215,13 +215,14 @@ export const baseSchemas = {
         type: 'enum',
         options: seedanceModels.length > 0 ? seedanceModels : [
             // Seedance Models Only
+            'ep-20260326205814-gzqlf',
             'seedance-1-5-pro-251215',
             'seedance-1-0-pro-250528',
             'seedance-1-0-pro-fast-251015',
             'seedance-1-0-lite-t2v-250428',
             'seedance-1-0-lite-i2v-250428'
         ],
-        defaultValue: seedanceModels.length > 0 ? seedanceModels[0] : 'seedance-1-5-pro-251215',
+        defaultValue: seedanceModels.length > 0 ? seedanceModels[0] : 'ep-20260326205814-gzqlf',
         description: 'Seedance model id used for video generation.',
       },
       {
@@ -247,7 +248,19 @@ export const baseSchemas = {
         key: 'reference_images',
         label: 'Reference Images',
         type: 'image-list',
-        description: 'Reference images (1-4) for Seedance 1.0 Lite I2V.',
+        description: 'Reference images (1-4) for Seedance 1.0 Lite I2V and Seedance 2.0.',
+      },
+      {
+        key: 'reference_videos',
+        label: 'Reference Videos',
+        type: 'video-list',
+        description: 'Reference video for Video-to-Video generation (Seedance 2.0).',
+      },
+      {
+        key: 'reference_audios',
+        label: 'Reference Audio',
+        type: 'audio-list',
+        description: 'Reference audio for generation (Seedance 2.0).',
       },
       {
         key: 'resolution',
@@ -268,7 +281,8 @@ export const baseSchemas = {
       {
         key: 'duration',
         label: 'Duration (seconds)',
-        type: 'number',
+        type: 'enum',
+        options: [2, 4, 5, 10, 11, 12],
         defaultValue: 5,
         description: 'Video duration in seconds (2-12s). -1 for auto (1.5 pro only).',
       },
@@ -316,11 +330,13 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: 'seedance-1-5-pro-251215',
+      model: seedanceModels.length > 0 ? seedanceModels[0] : 'ep-20260326205814-gzqlf',
       prompt: 'A cinematic shot of a futuristic city with flying cars.',
       first_frame: [],
       last_frame: [],
       reference_images: [],
+      reference_videos: [],
+      reference_audios: [],
       resolution: '720p',
       ratio: '16:9',
       duration: 5,

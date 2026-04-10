@@ -158,8 +158,8 @@ const SeedancePlayground = ({
 
       <form onSubmit={onSubmit}>
         <div className={styles.mainInputArea}>
-          {/* Left: Image Inputs */}
-          <div className={styles.imageInputs}>
+          {/* Left: Media Inputs */}
+          <div className={styles.imageInputs} style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '8px' }}>
             {/* First Frame */}
             {!isFieldHidden('first_frame') && (
                 <div style={{ position: 'relative' }}>
@@ -207,6 +207,86 @@ const SeedancePlayground = ({
                         showUploadList={{
                             removeIcon: <div style={{ color: 'white' }}>x</div>,
                             previewIcon: null,
+                        }}
+                    />
+                </div>
+            )}
+
+            {/* Reference Images */}
+            {!isFieldHidden('reference_images') && (
+                <div style={{ position: 'relative' }}>
+                    <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>Ref Images</div>
+                    <Upload
+                        listType="picture-card"
+                        multiple
+                        limit={4}
+                        fileList={(formValues.reference_images || []).map((url, index) => ({
+                            uid: `refimg-${index}`,
+                            url: url,
+                            name: `refimg-${index}.png`
+                        }))}
+                        beforeUpload={(file) => {
+                            const mockEvent = { target: { files: [file] } };
+                            handleImageUpload(mockEvent, 'reference_images');
+                            return false;
+                        }}
+                        onRemove={(_, file) => {
+                           const index = parseInt(file.uid.split('-')[1], 10);
+                           removeImage('reference_images', index);
+                        }}
+                        showUploadList={{
+                            removeIcon: <div style={{ color: 'white' }}>x</div>,
+                            previewIcon: null,
+                        }}
+                    />
+                </div>
+            )}
+
+            {/* Reference Videos */}
+            {!isFieldHidden('reference_videos') && (
+                <div style={{ position: 'relative', marginTop: 8 }}>
+                    <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>Ref Video</div>
+                    <Upload
+                        limit={1}
+                        accept="video/*"
+                        fileList={(formValues.reference_videos || []).map((url, index) => ({
+                            uid: `refvid-${index}`,
+                            url: url,
+                            name: `video-${index}.mp4`
+                        }))}
+                        beforeUpload={(file) => {
+                            const mockEvent = { target: { files: [file] } };
+                            handleImageUpload(mockEvent, 'reference_videos');
+                            return false;
+                        }}
+                        onRemove={(_, file) => {
+                           const index = parseInt(file.uid.split('-')[1], 10);
+                           removeImage('reference_videos', index);
+                        }}
+                    />
+                </div>
+            )}
+
+            {/* Reference Audios */}
+            {!isFieldHidden('reference_audios') && (
+                <div style={{ position: 'relative', marginTop: 8 }}>
+                    <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>Ref Audio</div>
+                    <Upload
+                        limit={1}
+                        accept="audio/*"
+                        fileList={(formValues.reference_audios || []).map((url, index) => ({
+                            uid: `refaud-${index}`,
+                            url: url,
+                            name: `audio-${index}.mp3`
+                        }))}
+                        beforeUpload={(file) => {
+                            const mockEvent = { target: { files: [file] } };
+                            handleImageUpload(mockEvent, 'reference_audios');
+                            return false;
+                        }}
+                        onRemove={(_, file) => {
+                           const index = parseInt(file.uid.split('-')[1], 10);
+                           removeImage('reference_audios', index);
                         }}
                     />
                 </div>
@@ -272,17 +352,16 @@ const SeedancePlayground = ({
 
           {/* Duration */}
           {!isFieldHidden('duration') && (
-            <div className={styles.toolChip} style={{ minWidth: 140 }}>
-                <span style={{ marginRight: 12 }}>⏱️ {formValues.duration}s</span>
-                <Slider 
+            <div className={styles.toolChip}>
+                <span style={{ marginRight: 8 }}>⏱️</span>
+                <Select 
                     value={formValues.duration} 
                     onChange={(val) => handleInputChange('duration', val)}
-                    min={2}
-                    max={12}
-                    step={1}
-                    style={{ width: 100 }}
-                    showInput={false}
-                />
+                    style={{ width: 80 }}
+                    size="small"
+                >
+                    {(getFieldOptions('duration') || [2,3,4,5,6,7,8,9,10,11,12]).map(opt => <Select.Option key={opt} value={opt}>{opt}s</Select.Option>)}
+                </Select>
             </div>
           )}
           

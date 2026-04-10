@@ -245,6 +245,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...requestBody,
+          modelId: requestBody.model,
           apiKey: apiKey.trim(),
         }),
       });

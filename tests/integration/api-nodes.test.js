@@ -16,6 +16,67 @@ dotenv.config({ path: '.env.local' });
 // Helper to wait
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+describe('Seed API request formatting', () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+        jest.restoreAllMocks();
+    });
+
+    test('uses Responses API input_image format for seed-2-0-pro-260328 image requests', async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                output_text: 'Image analysis result'
+            })
+        });
+
+        const { req, res } = createMocks({
+            method: 'POST',
+            body: {
+                prompt: 'Describe this image',
+                apiKey: 'test-api-key',
+                modelId: 'seed-2-0-pro-260328',
+                baseUrl: 'https://example.test/api/v3',
+                image: 'data:image/png;base64,abc123'
+            },
+        });
+
+        await seedHandler(req, res);
+
+        expect(res._getStatusCode()).toBe(200);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(global.fetch).toHaveBeenCalledWith(
+            'https://example.test/api/v3/responses',
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({
+                    Authorization: 'Bearer test-api-key',
+                    'Content-Type': 'application/json',
+                }),
+                body: JSON.stringify({
+                    model: 'seed-2-0-pro-260328',
+                    stream: false,
+                    input: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'input_text', text: 'Describe this image' },
+                                { type: 'input_image', image_url: 'data:image/png;base64,abc123' }
+                            ]
+                        }
+                    ]
+                }),
+            })
+        );
+
+        expect(JSON.parse(res._getData())).toEqual(
+            expect.objectContaining({ content: 'Image analysis result' })
+        );
+    });
+});
+
 describe('Workflow Nodes API Integration (Real API Calls)', () => {
     // Increase timeout for real API calls
     jest.setTimeout(60000); 

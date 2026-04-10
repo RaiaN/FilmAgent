@@ -1415,6 +1415,67 @@
         "max_reasoning_token_length": 131072
       },
       "version": "260215"
+    },
+    {
+      "created": 1774533787,
+      "domain": "VideoGeneration",
+      "features": {
+        "structured_outputs": {
+          "json_object": false,
+          "json_schema": false
+        }
+      },
+      "id": "ep-20260326205814-gzqlf",
+      "modalities": {
+        "input_modalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "output_modalities": [
+          "video"
+        ]
+      },
+      "name": "seedance-2-0",
+      "object": "model",
+      "task_type": [
+        "ImageToVideo",
+        "TextToVideo",
+        "VideoToVideo"
+      ],
+      "token_limits": {},
+      "version": "260326"
+    },
+    {
+      "created": 1774534217,
+      "domain": "Chat",
+      "features": {
+        "structured_outputs": {
+          "json_object": true,
+          "json_schema": true
+        }
+      },
+      "id": "seed-2-0-pro-260328",
+      "modalities": {
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "name": "seed-2-0-pro-260328",
+      "object": "model",
+      "task_type": [
+        "Chat"
+      ],
+      "token_limits": {
+        "context_window": 128000,
+        "max_output_tokens": 4096
+      },
+      "version": "260328"
     }
   ],
   "object": "list"

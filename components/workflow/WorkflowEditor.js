@@ -599,7 +599,7 @@ const WorkflowEditor = ({ active }) => {
           if (!apiKey) throw new Error("API Key missing");
           
           const payload = {
-              modelId: data.model || 'seed-2-0-mini-260215', // Fallback to seed mini
+              modelId: data.model || 'seed-2-0-pro-260328', // Fallback to seed pro
               prompt: data.prompt || "Convert into prompt",
               apiKey: apiKey,
               image, 

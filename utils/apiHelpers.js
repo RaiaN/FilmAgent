@@ -101,11 +101,13 @@ export const constructSeedancePayload = (formValues) => {
         payload.seed = Number(formValues.seed);
     }
 
-    if (formValues.model.includes('1-5-pro')) {
+    const caps = MODEL_CAPABILITIES[formValues.model] || MODEL_CAPABILITIES['default'];
+
+    if (caps.supports_audio) {
         payload.generate_audio = formValues.generate_audio;
-        if (formValues.draft) {
-            payload.draft = true;
-        }
+    }
+    if (caps.supports_draft && formValues.draft) {
+        payload.draft = true;
     }
 
     if (formValues.return_last_frame) {
@@ -133,13 +135,35 @@ export const constructSeedancePayload = (formValues) => {
         });
     }
 
-    // Reference Images (Only for 1.0 lite i2v)
+    // Reference Images (For 1.0 lite i2v and 2.0)
     if (formValues.reference_images && formValues.reference_images.length > 0) {
         formValues.reference_images.forEach(img => {
             images.push({
                 type: 'image_url',
                 image_url: { url: img },
                 role: 'reference_image'
+            });
+        });
+    }
+
+    // Reference Videos (For 2.0)
+    if (formValues.reference_videos && formValues.reference_videos.length > 0) {
+        formValues.reference_videos.forEach(vid => {
+            images.push({
+                type: 'video_url',
+                video_url: { url: vid },
+                role: 'reference_video'
+            });
+        });
+    }
+
+    // Reference Audios (For 2.0)
+    if (formValues.reference_audios && formValues.reference_audios.length > 0) {
+        formValues.reference_audios.forEach(aud => {
+            images.push({
+                type: 'audio_url',
+                audio_url: { url: aud },
+                role: 'reference_audio'
             });
         });
     }
@@ -224,6 +248,9 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
             if (f.key === 'ratio' && caps.ratios) {
                 return { ...f, options: caps.ratios };
             }
+            if (f.key === 'duration' && caps.durations) {
+                return { ...f, options: caps.durations };
+            }
 
             // Visibility Logic
             if (f.key === 'generate_audio') {
@@ -234,6 +261,12 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
             }
             if (f.key === 'reference_images') {
                 return { ...f, hidden: !caps.supports_ref_images };
+            }
+            if (f.key === 'reference_videos') {
+                return { ...f, hidden: !caps.supports_ref_videos };
+            }
+            if (f.key === 'reference_audios') {
+                return { ...f, hidden: !caps.supports_ref_audios };
             }
             if (f.key === 'last_frame') {
                 return { ...f, hidden: !caps.supports_last_frame };

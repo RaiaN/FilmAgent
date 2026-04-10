@@ -48,6 +48,18 @@ export const MODEL_CAPABILITIES = {
     },
 
     // --- SEEDANCE (VIDEO) MODELS ---
+    'ep-20260326205814-gzqlf': {
+        resolutions: ['720p', '1080p'],
+        ratios: ['16:9', '9:16', '1:1'],
+        durations: [5, 11],
+        supports_audio: true,
+        supports_draft: false,
+        supports_ref_images: true,
+        supports_ref_videos: true,
+        supports_ref_audios: true,
+        supports_last_frame: true,
+        supports_first_frame: true,
+    },
     'seedance-1-5-pro-251215': {
         resolutions: ['480p', '720p', '1080p'],
         ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
@@ -100,6 +112,9 @@ export const MODEL_CAPABILITIES = {
     },
 
     // --- LLM / AI ANALYSIS MODELS ---
+    'seed-2-0-pro-260328': {
+        input_modalities: ['text', 'image'],
+    },
     'seed-2-0-mini-260215': {
         input_modalities: ['text', 'image'],
     },
@@ -128,6 +143,8 @@ export const MODEL_CAPABILITIES = {
         supports_audio: false,
         supports_draft: false,
         supports_ref_images: false,
+        supports_ref_videos: false,
+        supports_ref_audios: false,
         supports_last_frame: false,
         supports_first_frame: true,
 

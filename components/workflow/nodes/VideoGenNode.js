@@ -94,12 +94,12 @@ const VideoGenNode = ({ data }) => {
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Model</Typography.Text>
           <Select 
-            defaultValue="seedance-1-5-pro-251215" 
+            defaultValue="ep-20260415171928-pdvvr" 
             size="small"
             value={data.model}
             onChange={(val) => data.onChange('model', val)}
           >
-              <Select.Option value="seedance-1-5-pro-251215">Seedance 1.5 Pro</Select.Option>
+              <Select.Option value="ep-20260415171928-pdvvr">Seedance 2.0</Select.Option>
           </Select>
       </div>
 

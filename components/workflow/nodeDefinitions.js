@@ -41,7 +41,7 @@ export const NODE_DEFINITIONS = {
     label: 'Video Generation',
     category: '3', // Seedance
     defaults: {
-      model: 'seedance-1-5-pro-251215',
+      model: 'ep-20260415171928-pdvvr',
       resolution: '720p',
       duration: 5,
       generate_audio: true,

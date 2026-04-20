@@ -1,5 +1,7 @@
 import modelsData from './models.json';
 
+const DEFAULT_SEEDANCE_MODEL = 'ep-20260415171928-pdvvr';
+
 // Helper to filter models from the JSON
 const getModelsByFilter = (filterFn) => {
     const models = modelsData.data || [];
@@ -41,10 +43,7 @@ export const baseSchemas = {
         type: 'enum',
         options: seedreamModels.length > 0 ? seedreamModels : [
             'seedream-5-0-260128',
-            'seedream-4-5-251128', 
-            'seedream-4-0-250828', 
-            'seedream-3-0-t2i-250415',
-            'seededit-3-0-i2i-250628'
+            'seedream-4-5-251128'
         ],
         defaultValue: seedreamModels.length > 0 ? seedreamModels[0] : 'seedream-5-0-260128',
         description: 'Seedream model id used for generation.',
@@ -215,14 +214,12 @@ export const baseSchemas = {
         type: 'enum',
         options: seedanceModels.length > 0 ? seedanceModels : [
             // Seedance Models Only
-            'ep-20260326205814-gzqlf',
-            'seedance-1-5-pro-251215',
-            'seedance-1-0-pro-250528',
-            'seedance-1-0-pro-fast-251015',
-            'seedance-1-0-lite-t2v-250428',
-            'seedance-1-0-lite-i2v-250428'
+            DEFAULT_SEEDANCE_MODEL,
+            'seedance-1-5-pro-251215'
         ],
-        defaultValue: seedanceModels.length > 0 ? seedanceModels[0] : 'ep-20260326205814-gzqlf',
+        defaultValue: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
+          ? DEFAULT_SEEDANCE_MODEL
+          : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
         description: 'Seedance model id used for video generation.',
       },
       {
@@ -330,7 +327,9 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: seedanceModels.length > 0 ? seedanceModels[0] : 'ep-20260326205814-gzqlf',
+      model: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
+        ? DEFAULT_SEEDANCE_MODEL
+        : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
       prompt: 'A cinematic shot of a futuristic city with flying cars.',
       first_frame: [],
       last_frame: [],

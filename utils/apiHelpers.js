@@ -117,8 +117,8 @@ export const constructSeedancePayload = (formValues) => {
     // Handle Image Inputs based on Model & Role
     const images = [];
 
-    // First Frame (Supported by most models)
-    if (formValues.first_frame && formValues.first_frame.length > 0) {
+    // Only include media inputs that the selected model actually supports.
+    if (caps.supports_first_frame && formValues.first_frame && formValues.first_frame.length > 0) {
         images.push({
             type: 'image_url',
             image_url: { url: formValues.first_frame[0] },
@@ -126,8 +126,7 @@ export const constructSeedancePayload = (formValues) => {
         });
     }
 
-    // Last Frame (Supported by 1.5 pro, 1.0 pro, 1.0 lite i2v)
-    if (formValues.last_frame && formValues.last_frame.length > 0) {
+    if (caps.supports_last_frame && formValues.last_frame && formValues.last_frame.length > 0) {
         images.push({
             type: 'image_url',
             image_url: { url: formValues.last_frame[0] },
@@ -135,8 +134,7 @@ export const constructSeedancePayload = (formValues) => {
         });
     }
 
-    // Reference Images (For 1.0 lite i2v and 2.0)
-    if (formValues.reference_images && formValues.reference_images.length > 0) {
+    if (caps.supports_ref_images && formValues.reference_images && formValues.reference_images.length > 0) {
         formValues.reference_images.forEach(img => {
             images.push({
                 type: 'image_url',
@@ -146,8 +144,7 @@ export const constructSeedancePayload = (formValues) => {
         });
     }
 
-    // Reference Videos (For 2.0)
-    if (formValues.reference_videos && formValues.reference_videos.length > 0) {
+    if (caps.supports_ref_videos && formValues.reference_videos && formValues.reference_videos.length > 0) {
         formValues.reference_videos.forEach(vid => {
             images.push({
                 type: 'video_url',
@@ -157,8 +154,7 @@ export const constructSeedancePayload = (formValues) => {
         });
     }
 
-    // Reference Audios (For 2.0)
-    if (formValues.reference_audios && formValues.reference_audios.length > 0) {
+    if (caps.supports_ref_audios && formValues.reference_audios && formValues.reference_audios.length > 0) {
         formValues.reference_audios.forEach(aud => {
             images.push({
                 type: 'audio_url',

@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import VideoGenNode from '../../../../components/workflow/nodes/VideoGenNode';
@@ -11,16 +10,12 @@ jest.mock('@xyflow/react', () => ({
 
 describe('VideoGenNode', () => {
   const mockData = {
-    model: 'seedance-1-5-pro-251215',
+    model: 'ep-20260415171928-pdvvr',
     prompt: 'A test video prompt',
-    inputPrompt: null,
     resolution: '720p',
     duration: 5,
-    inputImage: null,
-    inputLastFrame: null,
-    // Provide an uploaded image to enable the "Animate" button
-    uploadedImage: 'data:image/png;base64,fakeimage',
-    uploadedLastFrame: null,
+    firstFrame: null,
+    lastFrame: null,
     generate_audio: true,
     loading: false,
     output: null,
@@ -41,14 +36,14 @@ describe('VideoGenNode', () => {
     expect(screen.getByText('Prompt')).toBeInTheDocument();
     
     // Correct placeholder
-    const promptInput = screen.getByPlaceholderText('Describe motion...');
+    const promptInput = screen.getByPlaceholderText('Slow pan right...');
     expect(promptInput).toHaveValue('A test video prompt');
   });
 
   it('calls onChange when prompt input changes', () => {
     render(<VideoGenNode data={mockData} />);
     
-    const promptInput = screen.getByPlaceholderText('Describe motion...');
+    const promptInput = screen.getByPlaceholderText('Slow pan right...');
     fireEvent.change(promptInput, { target: { value: 'test prompt' } });
     
     expect(mockData.onChange).toHaveBeenCalledWith('prompt', 'test prompt');
@@ -60,7 +55,7 @@ describe('VideoGenNode', () => {
     // Correct button text
     const animateButton = screen.getByText('Animate');
     
-    // Check if enabled (since we provided uploadedImage)
+    // Prompt alone is enough to enable the button.
     expect(animateButton.closest('button')).not.toBeDisabled();
     
     fireEvent.click(animateButton);
@@ -70,20 +65,25 @@ describe('VideoGenNode', () => {
 
   it('displays linked input image when provided', () => {
     const imageUrl = 'http://example.com/frame1.png';
-    // When inputImage is provided, the upload for first frame is hidden/replaced
-    render(<VideoGenNode data={{ ...mockData, inputImage: imageUrl, uploadedImage: null }} />);
+    render(<VideoGenNode data={{ ...mockData, firstFrame: imageUrl }} />);
     
-    expect(screen.getByText('Input Image (Linked)')).toBeInTheDocument();
-    // Arco Image renders an img tag.
-    const images = screen.getAllByRole('img');
-    expect(images.length).toBeGreaterThan(0);
+    expect(screen.getByText('First Frame')).toBeInTheDocument();
+    expect(screen.getByRole('img')).toHaveAttribute('src', imageUrl);
   });
 
   it('displays linked last frame when provided', () => {
     const imageUrl = 'http://example.com/frame2.png';
-    render(<VideoGenNode data={{ ...mockData, inputLastFrame: imageUrl }} />);
+    render(<VideoGenNode data={{ ...mockData, lastFrame: imageUrl }} />);
     
-    expect(screen.getByText('Last Frame (Linked)')).toBeInTheDocument();
+    expect(screen.getByText('Last Frame')).toBeInTheDocument();
+    const images = screen.getAllByRole('img');
+    expect(images.some((img) => img.getAttribute('src') === imageUrl)).toBe(true);
+  });
+
+  it('renders the Seedance 2.0 model option', () => {
+    render(<VideoGenNode data={mockData} />);
+
+    expect(screen.getAllByRole('combobox')[0]).toHaveTextContent('Seedance 2.0');
   });
 
   it('shows output video link/button when output is present', () => {

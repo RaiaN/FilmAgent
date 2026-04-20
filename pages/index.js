@@ -5,7 +5,8 @@ import { IconImage, IconVideoCamera, IconSettings, IconRobot, IconPlus, IconClos
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { baseSchemas } from '../utils/schemas';
-import { constructSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility, MODEL_CAPABILITIES } from '../utils/apiHelpers';
+import { constructSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
 import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
@@ -113,6 +114,18 @@ export default function Home() {
     setFormValues((prev) => ({
         ...prev,
         model: newModelId,
+        ...(activeModelId === 'seedance' ? (() => {
+          const caps = MODEL_CAPABILITIES[newModelId] || MODEL_CAPABILITIES.default;
+          return {
+            first_frame: caps.supports_first_frame ? prev.first_frame : [],
+            last_frame: caps.supports_last_frame ? prev.last_frame : [],
+            reference_images: caps.supports_ref_images ? prev.reference_images : [],
+            reference_videos: caps.supports_ref_videos ? prev.reference_videos : [],
+            reference_audios: caps.supports_ref_audios ? prev.reference_audios : [],
+            generate_audio: caps.supports_audio ? prev.generate_audio : false,
+            draft: caps.supports_draft ? prev.draft : false,
+          };
+        })() : {}),
     }));
   };
 

@@ -364,32 +364,6 @@
       "version": "250515"
     },
     {
-      "created": 1748334484,
-      "domain": "ImageGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seedream-3-0-t2i-250415",
-      "modalities": {
-        "input_modalities": [
-          "text"
-        ],
-        "output_modalities": [
-          "image"
-        ]
-      },
-      "name": "seedream-3-0-t2i",
-      "object": "model",
-      "task_type": [
-        "TextToImage"
-      ],
-      "token_limits": {},
-      "version": "250415"
-    },
-    {
       "created": 1748490117,
       "domain": "LLM",
       "features": {
@@ -422,59 +396,6 @@
         "max_reasoning_token_length": 32768
       },
       "version": "250528"
-    },
-    {
-      "created": 1748944645,
-      "domain": "VideoGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seedance-1-0-lite-i2v-250428",
-      "modalities": {
-        "input_modalities": [
-          "text",
-          "image"
-        ],
-        "output_modalities": [
-          "video"
-        ]
-      },
-      "name": "seedance-1-0-lite-i2v",
-      "object": "model",
-      "task_type": [
-        "ImageToVideo"
-      ],
-      "token_limits": {},
-      "version": "250428"
-    },
-    {
-      "created": 1749019489,
-      "domain": "VideoGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seedance-1-0-lite-t2v-250428",
-      "modalities": {
-        "input_modalities": [
-          "text"
-        ],
-        "output_modalities": [
-          "video"
-        ]
-      },
-      "name": "seedance-1-0-lite-t2v",
-      "object": "model",
-      "task_type": [
-        "TextToVideo"
-      ],
-      "token_limits": {},
-      "version": "250428"
     },
     {
       "created": 1749527076,
@@ -520,34 +441,6 @@
         "max_output_token_length": 12288
       },
       "version": "sc-250615"
-    },
-    {
-      "created": 1750916435,
-      "domain": "VideoGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seedance-1-0-pro-250528",
-      "modalities": {
-        "input_modalities": [
-          "text",
-          "image"
-        ],
-        "output_modalities": [
-          "video"
-        ]
-      },
-      "name": "seedance-1-0-pro",
-      "object": "model",
-      "task_type": [
-        "ImageToVideo",
-        "TextToVideo"
-      ],
-      "token_limits": {},
-      "version": "250528"
     },
     {
       "created": 1751270603,
@@ -670,34 +563,6 @@
         "max_output_token_length": 32768
       },
       "version": "250711"
-    },
-    {
-      "created": 1753676058,
-      "domain": "ImageGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seededit-3-0-i2i-250628",
-      "modalities": {
-        "input_modalities": [
-          "text",
-          "image"
-        ],
-        "output_modalities": [
-          "image"
-        ]
-      },
-      "name": "seededit-3-0-i2i",
-      "object": "model",
-      "status": "Shutdown",
-      "task_type": [
-        "ImageToImage"
-      ],
-      "token_limits": {},
-      "version": "250628"
     },
     {
       "created": 1753784178,
@@ -840,34 +705,6 @@
       "version": "250821"
     },
     {
-      "created": 1757334416,
-      "domain": "ImageGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seedream-4-0-250828",
-      "modalities": {
-        "input_modalities": [
-          "text",
-          "image"
-        ],
-        "output_modalities": [
-          "image"
-        ]
-      },
-      "name": "seedream-4-0",
-      "object": "model",
-      "task_type": [
-        "ImageToImage",
-        "TextToImage"
-      ],
-      "token_limits": {},
-      "version": "250828"
-    },
-    {
       "created": 1757927317,
       "domain": "LLM",
       "features": {
@@ -947,34 +784,6 @@
         "max_reasoning_token_length": 32768
       },
       "version": "250915"
-    },
-    {
-      "created": 1760504832,
-      "domain": "VideoGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seedance-1-0-pro-fast-251015",
-      "modalities": {
-        "input_modalities": [
-          "text",
-          "image"
-        ],
-        "output_modalities": [
-          "video"
-        ]
-      },
-      "name": "seedance-1-0-pro-fast",
-      "object": "model",
-      "task_type": [
-        "ImageToVideo",
-        "TextToVideo"
-      ],
-      "token_limits": {},
-      "version": "251015"
     },
     {
       "created": 1761220664,
@@ -1158,34 +967,6 @@
         "max_reasoning_token_length": 32768
       },
       "version": "251201"
-    },
-    {
-      "created": 1765188094,
-      "domain": "VideoGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seedance-1-5-pro-251215",
-      "modalities": {
-        "input_modalities": [
-          "text",
-          "image"
-        ],
-        "output_modalities": [
-          "video"
-        ]
-      },
-      "name": "seedance-1-5-pro",
-      "object": "model",
-      "task_type": [
-        "ImageToVideo",
-        "TextToVideo"
-      ],
-      "token_limits": {},
-      "version": "251215"
     },
     {
       "created": 1767881946,
@@ -1425,7 +1206,7 @@
           "json_schema": false
         }
       },
-      "id": "ep-20260326205814-gzqlf",
+      "id": "ep-20260415171928-pdvvr",
       "modalities": {
         "input_modalities": [
           "text",

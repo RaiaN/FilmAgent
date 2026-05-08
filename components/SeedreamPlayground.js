@@ -1,13 +1,11 @@
-import React, { useRef, useState } from 'react';
-import { Select, Input, InputNumber, Button, Upload, Checkbox, Dropdown, Menu, Message, Tooltip, Collapse, Grid } from '@arco-design/web-react';
-import { IconCopy, IconCode, IconDown, IconRight, IconStar, IconRefresh, IconBook } from '@arco-design/web-react/icon';
+import { useRef, useState } from 'react';
+import { Select, Input, Button, Upload, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
+import { IconCode, IconStar, IconRefresh, IconBook } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
-import { constructSeedreamPayload } from '../utils/apiHelpers';
+import { constructWorkflowSeedreamPayload } from '../utils/apiHelpers';
 import { getApiKey } from '../utils/apiKeyStore';
 import { getEndpointUrl } from '../utils/config';
-
-const { Row, Col } = Grid;
 
 const SeedreamPlayground = ({ 
   formValues, 
@@ -21,7 +19,6 @@ const SeedreamPlayground = ({
   onRefreshModels 
 }) => {
   const promptRef = useRef(null);
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
 
   const handleInputChange = (key, value) => {
@@ -69,7 +66,7 @@ const SeedreamPlayground = ({
   };
 
   const handleCopyCode = (type) => {
-      const payload = constructSeedreamPayload(formValues);
+      const payload = constructWorkflowSeedreamPayload(formValues);
       const endpointUrl = getEndpointUrl('image');
       let code = '';
       
@@ -111,9 +108,6 @@ const SeedreamPlayground = ({
 
   const modelOptions = getFieldOptions('model');
   const sizeOptions = getFieldOptions('size');
-  const optimizePromptOptions = getFieldOptions('optimize_prompt_mode');
-  const outputFormatOptions = getFieldOptions('output_format');
-
   return (
     <div className={styles.playgroundContainer}>
       {/* Header */}
@@ -170,7 +164,7 @@ const SeedreamPlayground = ({
                     url: url,
                     name: `image-${index}.png`
                 }))}
-                onChange={(_, currentFile) => {
+                onChange={() => {
                     // Arco's onChange gives us the file object. 
                     // We need to bridge this to our existing handleImageUpload logic which expects an event-like object or handle directly.
                     // Since our existing logic reads files from input event, we might need to adapt.
@@ -243,39 +237,6 @@ const SeedreamPlayground = ({
             </div>
           )}
 
-          {/* Custom W/H if Size is Custom */}
-          {!isFieldHidden('width') && (
-             <div className={styles.toolChip}>
-                <InputNumber 
-                    placeholder="W"
-                    value={formValues.width}
-                    onChange={(val) => handleInputChange('width', val)}
-                    style={{ width: 70 }}
-                    size="small"
-                />
-                <span style={{ margin: '0 4px' }}>x</span>
-                <InputNumber 
-                    placeholder="H"
-                    value={formValues.height}
-                    onChange={(val) => handleInputChange('height', val)}
-                    style={{ width: 70 }}
-                    size="small"
-                />
-            </div>
-          )}
-
-          {/* Sequential Toggle */}
-          {!isFieldHidden('sequential_image_generation') && (
-            <div className={styles.toolChip}>
-                <Checkbox 
-                    checked={formValues.sequential_image_generation}
-                    onChange={(checked) => handleInputChange('sequential_image_generation', checked)}
-                >
-                    Sequential
-                </Checkbox>
-            </div>
-          )}
-
           {/* Submit */}
           <Dropdown droplist={codeMenu} trigger="click" position="bl">
               <Tooltip content="Copy code snippet (API Key not included)">
@@ -293,71 +254,6 @@ const SeedreamPlayground = ({
           >
             {loading ? 'Generating...' : 'Generate ➔'}
           </Button>
-        </div>
-
-        {/* Advanced Settings */}
-        <div style={{ marginTop: 16, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>
-            <Button 
-                type="text" 
-                size="small" 
-                onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
-                style={{ color: '#64748b', paddingLeft: 0 }}
-            >
-                {isAdvancedOpen ? <IconDown /> : <IconRight />} Advanced Settings
-            </Button>
-            
-            {isAdvancedOpen && (
-                <div style={{ marginTop: 12, padding: '12px', background: '#f8fafc', borderRadius: 8 }}>
-                    <Row gutter={[24, 12]}>
-                        {!isFieldHidden('seed') && (
-                            <Col span={12}>
-                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Seed</div>
-                                <InputNumber 
-                                    value={formValues.seed} 
-                                    onChange={(val) => handleInputChange('seed', val)}
-                                    placeholder="Random (-1)"
-                                    style={{ width: '100%' }}
-                                />
-                            </Col>
-                        )}
-                        {!isFieldHidden('sequential_max_images') && (
-                            <Col span={12}>
-                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Max Images (Sequential)</div>
-                                <InputNumber 
-                                    value={formValues.sequential_max_images}
-                                    onChange={(val) => handleInputChange('sequential_max_images', val)}
-                                    min={1} max={15}
-                                    style={{ width: '100%' }}
-                                />
-                            </Col>
-                        )}
-                        {!isFieldHidden('optimize_prompt_mode') && (
-                            <Col span={12}>
-                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Prompt Optimization</div>
-                                <Select 
-                                    value={formValues.optimize_prompt_mode} 
-                                    onChange={(val) => handleInputChange('optimize_prompt_mode', val)}
-                                    style={{ width: '100%' }}
-                                >
-                                    {optimizePromptOptions.map(opt => <Select.Option key={opt} value={opt}>{opt}</Select.Option>)}
-                                </Select>
-                            </Col>
-                        )}
-                        {!isFieldHidden('output_format') && (
-                            <Col span={12}>
-                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Output Format</div>
-                                <Select 
-                                    value={formValues.output_format} 
-                                    onChange={(val) => handleInputChange('output_format', val)}
-                                    style={{ width: '100%' }}
-                                >
-                                    {outputFormatOptions.map(opt => <Select.Option key={opt} value={opt}>{opt}</Select.Option>)}
-                                </Select>
-                            </Col>
-                        )}
-                    </Row>
-                </div>
-            )}
         </div>
       </form>
     </div>

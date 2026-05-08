@@ -1,4 +1,4 @@
-import { CONFIG, getEndpointUrl } from '../../utils/config';
+import { CONFIG } from '../../utils/config';
 
 export const config = {
   api: {
@@ -75,10 +75,14 @@ async function seedHandler(req, res) {
         throw new Error(data.error?.message || `API error: ${response.status}`);
       }
       
-      // Adapt /responses output to match standard /chat/completions for frontend
+      // Adapt /responses output to match standard /chat/completions for frontend.
+      // Some models emit reasoning items first and the assistant message later in output[].
+      const outputItems = Array.isArray(data.output) ? data.output : [];
+      const firstTextItem = outputItems
+        .flatMap((item) => (Array.isArray(item.content) ? item.content : []))
+        .find((item) => item?.type === 'output_text' || item?.type === 'text');
       const content = data.output_text
-        || data.output?.[0]?.content?.find((item) => item.type === 'output_text')?.text
-        || data.output?.[0]?.content?.find((item) => item.type === 'text')?.text
+        || firstTextItem?.text
         || data.output?.content?.[0]?.text
         || JSON.stringify(data);
 

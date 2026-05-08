@@ -1,4 +1,38 @@
-import React from 'react';
+import CopyButton from './CopyButton';
+
+const isRemoteUrl = (value) => typeof value === 'string' && /^https?:\/\//.test(value);
+
+const UriPanel = ({ uri }) => {
+  if (!uri) return null;
+
+  return (
+    <div
+      style={{
+        marginTop: '0.75rem',
+        padding: '0.75rem',
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        background: '#f8fafc',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+        <strong style={{ fontSize: 13 }}>Image URI</strong>
+        <CopyButton text={uri} />
+      </div>
+      <div
+        style={{
+          marginTop: '0.5rem',
+          fontSize: 12,
+          lineHeight: 1.5,
+          wordBreak: 'break-all',
+          color: '#4b5563',
+        }}
+      >
+        {uri}
+      </div>
+    </div>
+  );
+};
 
 const ImageResultViewer = ({ result }) => {
   if (!result) return null;
@@ -21,6 +55,7 @@ const ImageResultViewer = ({ result }) => {
                   Download
                 </a>
               </div>
+              {isRemoteUrl(src) && <UriPanel uri={src} />}
             </div>
           );
         })}
@@ -42,6 +77,7 @@ const ImageResultViewer = ({ result }) => {
             Download
           </a>
         </div>
+        <UriPanel uri={result.imageUrl} />
       </>
     );
   }

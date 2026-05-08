@@ -1,8 +1,8 @@
-import React from 'react';
 import ImageResultViewer from './ImageResultViewer';
 import VideoResultViewer from './VideoResultViewer';
+import ProductionDesignResultViewer from './ProductionDesignResultViewer';
 
-const ResultViewer = ({ result, modelType }) => {
+const ResultViewer = ({ result, modelType, ...rest }) => {
   if (!result) return null;
 
   // Render Image Viewer for Seedream
@@ -13,6 +13,10 @@ const ResultViewer = ({ result, modelType }) => {
   // Render Video Viewer for Seedance
   if (modelType === 'seedance') {
       return <VideoResultViewer result={result} />;
+  }
+
+  if (modelType === 'production-design') {
+      return <ProductionDesignResultViewer result={result} {...rest} />;
   }
 
   // Default fallback if type is unknown or mismatched

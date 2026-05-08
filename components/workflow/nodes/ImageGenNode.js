@@ -1,7 +1,7 @@
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Card, Typography, Select, Input, Button, Image, Upload, Tooltip } from '@arco-design/web-react';
-import { IconImage, IconUpload, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
+import { Card, Typography, Select, Input, Button, Image, Tooltip } from '@arco-design/web-react';
+import { IconImage, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
 import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 
 const ImageGenNode = ({ data }) => {
@@ -88,13 +88,12 @@ const ImageGenNode = ({ data }) => {
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Model</Typography.Text>
           <Select 
-            defaultValue="seedream-5-0-lite" 
+            defaultValue="seedream-5-0-260128" 
             size="small"
             value={data.model}
             onChange={(val) => data.onChange('model', val)}
           >
-              <Select.Option value="seedream-5-0-lite">Seedream 5.0 Lite</Select.Option>
-              <Select.Option value="seedream-4-5-251128">Seedream 4.5</Select.Option>
+              <Select.Option value="seedream-5-0-260128">Seedream 5.0</Select.Option>
           </Select>
       </div>
 

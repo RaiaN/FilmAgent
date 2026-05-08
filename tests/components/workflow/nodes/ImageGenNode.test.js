@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import ImageGenNode from '../../../../components/workflow/nodes/ImageGenNode';
@@ -11,7 +10,7 @@ jest.mock('@xyflow/react', () => ({
 
 describe('ImageGenNode', () => {
   const mockData = {
-    model: 'seedream-5-0-lite',
+    model: 'seedream-5-0-260128',
     prompt: 'A test prompt',
     inputPrompt: null,
     size: '2K',

@@ -1,6 +1,7 @@
 import modelsData from './models.json';
 
 const DEFAULT_SEEDANCE_MODEL = 'ep-20260415171928-pdvvr';
+const DEFAULT_SEEDREAM_MODEL = 'seedream-5-0-260128';
 
 // Helper to filter models from the JSON
 const getModelsByFilter = (filterFn) => {
@@ -11,12 +12,7 @@ const getModelsByFilter = (filterFn) => {
 };
 
 // Seedream Models
-const seedreamModels = getModelsByFilter(m => 
-    m.domain === 'ImageGeneration' || 
-    (m.task_type && (m.task_type.includes('TextToImage') || m.task_type.includes('ImageToImage'))) ||
-    m.id.startsWith('seedream') || 
-    m.id.startsWith('seededit')
-);
+const seedreamModels = getModelsByFilter(m => m.id === DEFAULT_SEEDREAM_MODEL);
 
 // Seedance Models
 const seedanceModels = getModelsByFilter(m => 
@@ -41,11 +37,8 @@ export const baseSchemas = {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: seedreamModels.length > 0 ? seedreamModels : [
-            'seedream-5-0-260128',
-            'seedream-4-5-251128'
-        ],
-        defaultValue: seedreamModels.length > 0 ? seedreamModels[0] : 'seedream-5-0-260128',
+        options: seedreamModels.length > 0 ? seedreamModels : [DEFAULT_SEEDREAM_MODEL],
+        defaultValue: DEFAULT_SEEDREAM_MODEL,
         description: 'Seedream model id used for generation.',
       },
       {
@@ -65,100 +58,16 @@ export const baseSchemas = {
         key: 'size',
         label: 'Size',
         type: 'enum',
-        options: ['2K', '4K', 'Custom'],
+        options: ['2K', '4K'],
         defaultValue: '2K',
-        description: 'Output resolution. 2K=2048x2048 approx. Custom allows specific WxH.',
-      },
-      {
-        key: 'width',
-        label: 'Width (px)',
-        type: 'number',
-        hidden: true,
-        description: 'Custom width in pixels.',
-      },
-      {
-        key: 'height',
-        label: 'Height (px)',
-        type: 'number',
-        hidden: true,
-        description: 'Custom height in pixels.',
-      },
-      {
-        key: 'watermark',
-        label: 'Watermark',
-        type: 'boolean',
-        defaultValue: false,
-        description: 'Whether to apply a watermark to the output.',
-      },
-      {
-        key: 'sequential_image_generation',
-        label: 'Sequential Generation',
-        type: 'boolean',
-        defaultValue: false,
-        description: 'Generate multiple related images in sequence (auto).',
-      },
-      {
-        key: 'sequential_max_images',
-        label: 'Max Images (Batch)',
-        type: 'number',
-        defaultValue: 5,
-        hidden: true, 
-        description: 'Max images to generate (1-15). Only for sequential generation.',
-      },
-      {
-        key: 'optimize_prompt_mode',
-        label: 'Optimize Prompt Mode',
-        type: 'enum',
-        options: ['standard', 'fast'],
-        defaultValue: 'standard',
-        description: 'Prompt optimization mode (Standard/Fast).',
-      },
-      {
-        key: 'output_format',
-        label: 'Output Format',
-        type: 'enum',
-        options: ['jpeg', 'png'],
-        defaultValue: 'jpeg',
-        description: 'Output image format (5.0-lite only).',
-      },
-      {
-        key: 'guidance_scale',
-        label: 'Guidance Scale',
-        type: 'number',
-        defaultValue: 2.5,
-        description: 'Controls prompt adherence (1-10). Only for 3.0 models.',
-      },
-      {
-        key: 'seed',
-        label: 'Seed',
-        type: 'number',
-        defaultValue: -1,
-        description: 'Random seed (-1 for random).',
-      },
-      {
-        key: 'response_format',
-        label: 'Response Format',
-        type: 'enum',
-        options: ['url', 'b64_json'],
-        defaultValue: 'url',
-        description: 'Output format for the generated image.',
+        description: 'Output resolution used by the workflow-style image payload.',
       },
     ],
     defaults: {
-      model: seedreamModels.length > 0 ? seedreamModels[0] : 'seedream-5-0-260128',
+      model: DEFAULT_SEEDREAM_MODEL,
       prompt: 'A hero product shot of a premium skincare bottle on a minimal studio set.',
       size: '2K',
-      width: 2048,
-      height: 2048,
       image: [],
-      watermark: false,
-      sequential_image_generation: false,
-      sequential_max_images: 5,
-      optimize_prompt_mode: 'standard',
-      output_format: 'jpeg',
-      guidance_scale: 2.5,
-      seed: -1,
-      response_format: 'url',
     },
   },
   llm: {
@@ -230,18 +139,6 @@ export const baseSchemas = {
         description: 'Text prompt describing the video content.',
       },
       {
-        key: 'first_frame',
-        label: 'First Frame Image',
-        type: 'image-list',
-        description: 'First frame image for Image-to-Video generation (Single image).',
-      },
-      {
-        key: 'last_frame',
-        label: 'Last Frame Image',
-        type: 'image-list',
-        description: 'Last frame image for First-and-Last-Frame generation (Single image).',
-      },
-      {
         key: 'reference_images',
         label: 'Reference Images',
         type: 'image-list',
@@ -298,32 +195,11 @@ export const baseSchemas = {
         description: 'Generate synchronized audio (1.5 pro only).',
       },
       {
-        key: 'camera_fixed',
-        label: 'Fix Camera',
-        type: 'boolean',
-        defaultValue: false,
-        description: 'Attempt to keep camera fixed.',
-      },
-      {
         key: 'watermark',
         label: 'Watermark',
         type: 'boolean',
         defaultValue: false,
         description: 'Add watermark to output video.',
-      },
-      {
-        key: 'draft',
-        label: 'Draft Mode',
-        type: 'boolean',
-        defaultValue: false,
-        description: 'Enable Draft sample mode (1.5 pro only) for cheaper/faster preview.',
-      },
-      {
-        key: 'return_last_frame',
-        label: 'Return Last Frame',
-        type: 'boolean',
-        defaultValue: false,
-        description: 'Return the last frame image (useful for continuous generation).',
       },
     ],
     defaults: {
@@ -331,8 +207,6 @@ export const baseSchemas = {
         ? DEFAULT_SEEDANCE_MODEL
         : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
       prompt: 'A cinematic shot of a futuristic city with flying cars.',
-      first_frame: [],
-      last_frame: [],
       reference_images: [],
       reference_videos: [],
       reference_audios: [],
@@ -341,10 +215,106 @@ export const baseSchemas = {
       duration: 5,
       seed: -1,
       generate_audio: true,
-      camera_fixed: false,
       watermark: false,
-      draft: false,
-      return_last_frame: false,
+    },
+  },
+  'production-design': {
+    id: 'production-design',
+    name: 'Production Design',
+    description: 'Research a world-design brief, turn it into natural-language design rules, and generate repeatable video explorations for ongoing environment discovery.',
+    fields: [
+      {
+        key: 'model',
+        label: 'Model',
+        type: 'enum',
+        options: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
+          ? [DEFAULT_SEEDANCE_MODEL, ...seedanceModels.filter((modelId) => modelId !== DEFAULT_SEEDANCE_MODEL)]
+          : (seedanceModels.length > 0 ? seedanceModels : [DEFAULT_SEEDANCE_MODEL]),
+        defaultValue: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
+          ? DEFAULT_SEEDANCE_MODEL
+          : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
+        description: 'Seedance model used for all production design exploration passes.',
+      },
+      {
+        key: 'prompt',
+        label: 'Core Brief',
+        type: 'text',
+        required: true,
+        description: 'What the production designer is trying to define, including the world, mood, and design challenge.',
+      },
+      {
+        key: 'sourceMaterials',
+        label: 'Source Materials',
+        type: 'text',
+        description: 'Describe the sketch, AI imagery, paintovers, and any existing visual development artifacts.',
+      },
+      {
+        key: 'designRules',
+        label: 'Design Rules',
+        type: 'text',
+        description: 'Natural-language constraints the agent should preserve across explorations.',
+      },
+      {
+        key: 'explorationGoal',
+        label: 'Exploration Goal',
+        type: 'text',
+        description: 'What this round should explore, test, or uncover in the world.',
+      },
+      {
+        key: 'continuityNotes',
+        label: 'Continuation Notes',
+        type: 'text',
+        description: 'Details that help the next iteration continue world exploration without losing continuity.',
+      },
+      {
+        key: 'ratio',
+        label: 'Aspect Ratio',
+        type: 'enum',
+        options: ['16:9', '9:16', '1:1'],
+        defaultValue: '16:9',
+        description: 'Aspect ratio used for all three variants.',
+      },
+      {
+        key: 'resolution',
+        label: 'Resolution',
+        type: 'enum',
+        options: ['1080p'],
+        defaultValue: '1080p',
+        description: 'Locked default output quality.',
+      },
+      {
+        key: 'duration',
+        label: 'Duration (seconds)',
+        type: 'enum',
+        options: [15],
+        defaultValue: 15,
+        description: 'Locked maximum duration.',
+      },
+    ],
+    defaults: {
+      model: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
+        ? DEFAULT_SEEDANCE_MODEL
+        : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
+      prompt: 'Build the production design for a weathered cliffside observatory city carved into black volcanic stone, with cable lifts, wind-battered banners, and a sense of ancient scientific purpose.',
+      sourceMaterials: 'Sketch: loose graphite thumbnail showing stacked observatory terraces and a central tower. AI imagery: moody overcast variations with wet stone, hanging lanterns, and deep chasms. Paintover: emphasized asymmetry, giant lens housings, and stronger foreground railings.',
+      designRules: 'Preserve monumental scale, believable circulation paths, tactile materials, and a lived-in scientific culture. Avoid generic sci-fi gloss. Keep architecture rooted in stone, brass, oxidized copper, canvas, and fog-softened glass.',
+      ruleGroups: {
+        architecture: 'Tiered terraces, strong vertical hierarchy, and clear circulation routes linking public, industrial, and scholarly zones.',
+        materials: 'Black volcanic stone, oxidized brass, weathered canvas, fogged glass, and salt-worn metal hardware.',
+        culture: 'Signs of a long-lived scientific society: maintenance access, observation platforms, weatherproof equipment, and ritualized civic gathering spaces.',
+        camera: 'Gliding travel that reveals elevation change, landmark hierarchy, and how one district leads into the next.',
+        guards: 'No sleek generic sci-fi skins. Preserve tactile scale, weathering, and landmark silhouettes from pass to pass.',
+      },
+      explorationGoal: 'Define how a camera can move through the environment to reveal hierarchy, material language, and the relationship between public terraces and the main observatory tower.',
+      continuityNotes: 'Keep landmark silhouettes and material palette stable so later passes can continue exploring adjacent districts and alternate weather conditions without resetting the world.',
+      sourceImages: [],
+      sourceVideos: [],
+      continuationImages: [],
+      continuationVideos: [],
+      continuedFrom: null,
+      ratio: '16:9',
+      resolution: '1080p',
+      duration: 15,
     },
   },
 };

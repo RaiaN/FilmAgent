@@ -1,81 +1,15 @@
 import { MODEL_CAPABILITIES } from './modelCapabilities';
 
-export const constructSeedreamPayload = (formValues) => {
-    const composedPrompt = formValues.prompt;
-    const model = formValues.model;
-    
-    // Construct payload based on strict schema
+export const constructWorkflowSeedreamPayload = (formValues) => {
     const requestBody = {
-      model: model,
-      prompt: composedPrompt,
-      watermark: formValues.watermark,
-      response_format: formValues.response_format,
+      model: formValues.model,
+      prompt: formValues.prompt,
+      size: formValues.size || '2K',
+      response_format: 'url',
     };
 
-    // Handle Size
-    if (formValues.size === 'Custom') {
-      // Size must be WxH string e.g. "2048x2048"
-      if (formValues.width && formValues.height) {
-         requestBody.size = `${formValues.width}x${formValues.height}`;
-      } else {
-         // Fallback or error? defaulting to 2K if missing
-         requestBody.size = '2K'; 
-      }
-    } else {
-      requestBody.size = formValues.size;
-    }
-
-    // Handle Images
     if (formValues.image && formValues.image.length > 0) {
-      if (formValues.image.length === 1) {
-          requestBody.image = formValues.image[0];
-      } else {
-          requestBody.image = formValues.image;
-      }
-    }
-
-    // Conditional Fields based on Model
-    const is30Model = model && (model.includes('3-0') || model.includes('3.0'));
-    // Re-enabled as requested by user - only for 5.0-lite
-    const is50Lite = model === 'seedream-5-0-lite';
-    
-    const isSeqSupported = !is30Model; // 5.0, 4.5, 4.0 support sequential
-    const isOptimizePromptSupported = !is30Model; // 5.0, 4.5, 4.0 support optimize prompt
-    // 4.5 and 5.0-lite only support 'standard' mode. 4.0 supports both.
-    const isStandardOnly = model.includes('4-5') || model.includes('5-0-lite');
-
-    if (isSeqSupported && formValues.sequential_image_generation) {
-      requestBody.sequential_image_generation = 'auto';
-      requestBody.sequential_image_generation_options = {
-        max_images: Number(formValues.sequential_max_images) || 5
-      };
-    }
-
-    if (isOptimizePromptSupported && formValues.optimize_prompt_mode) {
-      // If model is standard-only and user selected 'fast', force 'standard'
-      if (isStandardOnly && formValues.optimize_prompt_mode === 'fast') {
-          requestBody.optimize_prompt_options = { mode: 'standard' };
-      } else {
-          requestBody.optimize_prompt_options = {
-            mode: formValues.optimize_prompt_mode
-          };
-      }
-    }
-
-    // Re-enabled as requested by user - only for 5.0-lite
-    // DISABLED: User requested to comment off output_format
-    /*
-    if (is50Lite && formValues.output_format) {
-      requestBody.output_format = formValues.output_format;
-    } 
-    */ 
-
-    if (is30Model && formValues.guidance_scale) {
-      requestBody.guidance_scale = Number(formValues.guidance_scale);
-    }
-
-    if (is30Model && formValues.seed !== undefined && formValues.seed !== -1) {
-      requestBody.seed = Number(formValues.seed);
+      requestBody.image = formValues.image;
     }
 
     return requestBody;
@@ -94,7 +28,6 @@ export const constructSeedancePayload = (formValues) => {
         ratio: formValues.ratio,
         duration: Number(formValues.duration),
         watermark: formValues.watermark,
-        camera_fixed: formValues.camera_fixed
     };
 
     if (formValues.seed !== -1) {
@@ -106,34 +39,10 @@ export const constructSeedancePayload = (formValues) => {
     if (caps.supports_audio) {
         payload.generate_audio = formValues.generate_audio;
     }
-    if (caps.supports_draft && formValues.draft) {
-        payload.draft = true;
-    }
-
-    if (formValues.return_last_frame) {
-        payload.return_last_frame = true;
-    }
-
     // Handle Image Inputs based on Model & Role
     const images = [];
 
     // Only include media inputs that the selected model actually supports.
-    if (caps.supports_first_frame && formValues.first_frame && formValues.first_frame.length > 0) {
-        images.push({
-            type: 'image_url',
-            image_url: { url: formValues.first_frame[0] },
-            role: 'first_frame'
-        });
-    }
-
-    if (caps.supports_last_frame && formValues.last_frame && formValues.last_frame.length > 0) {
-        images.push({
-            type: 'image_url',
-            image_url: { url: formValues.last_frame[0] },
-            role: 'last_frame'
-        });
-    }
-
     if (caps.supports_ref_images && formValues.reference_images && formValues.reference_images.length > 0) {
         formValues.reference_images.forEach(img => {
             images.push({
@@ -171,6 +80,45 @@ export const constructSeedancePayload = (formValues) => {
     return payload;
 };
 
+export const formatProductionRuleGroups = (ruleGroups = {}) => {
+    const sections = [
+        ['Architecture & Space', ruleGroups.architecture],
+        ['Materials & Patina', ruleGroups.materials],
+        ['Culture & Use', ruleGroups.culture],
+        ['Traversal & Camera', ruleGroups.camera],
+        ['Non-Negotiables', ruleGroups.guards],
+    ].filter(([, value]) => value && String(value).trim());
+
+    return sections
+        .map(([label, value]) => `${label}:\n${String(value).trim()}`)
+        .join('\n\n');
+};
+
+export const constructProductionDesignPayload = (formValues) => {
+    const formattedRuleGroups = formatProductionRuleGroups(formValues.ruleGroups);
+    const combinedDesignRules = [formValues.designRules, formattedRuleGroups]
+        .filter((value) => value && String(value).trim())
+        .join('\n\n');
+
+    return {
+        model: formValues.model,
+        prompt: formValues.prompt,
+        sourceMaterials: formValues.sourceMaterials,
+        designRules: combinedDesignRules,
+        ruleGroups: formValues.ruleGroups || {},
+        explorationGoal: formValues.explorationGoal,
+        continuityNotes: formValues.continuityNotes,
+        sourceImages: formValues.sourceImages || [],
+        sourceVideos: formValues.sourceVideos || [],
+        continuationImages: formValues.continuationImages || [],
+        continuationVideos: formValues.continuationVideos || [],
+        continuedFrom: formValues.continuedFrom || null,
+        ratio: formValues.ratio,
+        resolution: '1080p',
+        duration: 15,
+    };
+};
+
 export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) => {
     const model = formValues.model || '';
     
@@ -184,46 +132,10 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
 
     // --- SEEDREAM (IMAGE) VISIBILITY LOGIC ---
     if (activeModelId === 'seedream') {
-        const isCustomSize = formValues.size === 'Custom';
-        const isSequential = formValues.sequential_image_generation;
-
         const nextFields = prevSchema.fields.map((f) => {
             // Option Filtering
             if (f.key === 'size' && caps.sizes) {
-                return { ...f, options: caps.sizes };
-            }
-            if (f.key === 'optimize_prompt_mode' && caps.optimize_prompt_modes) {
-                return { ...f, options: caps.optimize_prompt_modes };
-            }
-
-            // Visibility
-            if (f.key === 'width' || f.key === 'height') {
-                return { ...f, hidden: !isCustomSize };
-            }
-            if (f.key === 'sequential_image_generation') {
-                // If capability is explicitly true, show it. Otherwise hidden.
-                // The issue might be that 'caps' is falling back to 'default' if model key doesn't match EXACTLY.
-                // Or previous logic was '!caps.sequential_generation', which means if true -> hidden=false (CORRECT).
-                // Let's ensure the key in MODEL_CAPABILITIES matches formValues.model exactly.
-                return { ...f, hidden: !caps.sequential_generation };
-            }
-            if (f.key === 'sequential_max_images') {
-                return { ...f, hidden: !isSequential || !caps.sequential_generation };
-            }
-            if (f.key === 'optimize_prompt_mode') {
-                return { ...f, hidden: !caps.optimize_prompt_modes || caps.optimize_prompt_modes.length === 0 };
-            }
-            if (f.key === 'output_format') {
-                return { ...f, hidden: !caps.output_format };
-            }
-            if (f.key === 'guidance_scale') {
-                return { ...f, hidden: !caps.guidance_scale };
-            }
-            if (f.key === 'seed') {
-                return { ...f, hidden: !caps.supports_seed };
-            }
-            if (f.key === 'watermark') {
-                return { ...f, hidden: caps.supports_watermark === false };
+                return { ...f, options: caps.sizes.filter((size) => size !== 'Custom') };
             }
             return f;
         });
@@ -263,12 +175,6 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
             }
             if (f.key === 'reference_audios') {
                 return { ...f, hidden: !caps.supports_ref_audios };
-            }
-            if (f.key === 'last_frame') {
-                return { ...f, hidden: !caps.supports_last_frame };
-            }
-            if (f.key === 'first_frame') {
-                return { ...f, hidden: !caps.supports_first_frame };
             }
             return f;
         });

@@ -899,34 +899,6 @@
       "version": "thinking-251104"
     },
     {
-      "created": 1764295050,
-      "domain": "ImageGeneration",
-      "features": {
-        "structured_outputs": {
-          "json_object": false,
-          "json_schema": false
-        }
-      },
-      "id": "seedream-4-5-251128",
-      "modalities": {
-        "input_modalities": [
-          "text",
-          "image"
-        ],
-        "output_modalities": [
-          "image"
-        ]
-      },
-      "name": "seedream-4-5",
-      "object": "model",
-      "task_type": [
-        "TextToImage",
-        "ImageToImage"
-      ],
-      "token_limits": {},
-      "version": "251128"
-    },
-    {
       "created": 1764927076,
       "domain": "LLM",
       "features": {

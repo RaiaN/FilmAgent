@@ -1,6 +1,6 @@
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Card, Typography, Select, Input, Button, Image, Upload, Checkbox, Tooltip, InputNumber } from '@arco-design/web-react';
+import { Card, Typography, Select, Input, Button, Image, Checkbox, Tooltip } from '@arco-design/web-react';
 import { IconVideoCamera, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
 import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
 import { MODEL_CAPABILITIES } from '../../../utils/modelCapabilities';
@@ -68,27 +68,26 @@ const VideoGenNode = ({ data }) => {
           </div>
       </div>
       
-      <div style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 10 }}>First Frame</Typography.Text>
-              {data.firstFrame ? (
-                  <Image src={data.firstFrame} width="100%" height={60} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
-              ) : (
-                  <div style={{ height: 60, background: '#f8f9fa', borderRadius: 4, border: '1px dashed #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86909c', fontSize: 10 }}>
-                      Input
-                  </div>
-              )}
-          </div>
-          <div style={{ flex: 1 }}>
-              <Typography.Text type="secondary" style={{ fontSize: 10 }}>Last Frame</Typography.Text>
-              {data.lastFrame ? (
-                  <Image src={data.lastFrame} width="100%" height={60} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
-              ) : (
-                  <div style={{ height: 60, background: '#f8f9fa', borderRadius: 4, border: '1px dashed #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86909c', fontSize: 10 }}>
-                      Input
-                  </div>
-              )}
-          </div>
+      <div style={{ marginBottom: 8 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 10 }}>Reference Images</Typography.Text>
+          {data.referenceImages && data.referenceImages.length > 0 ? (
+              <div style={{ display: 'flex', gap: 4, overflowX: 'auto', padding: 4 }}>
+                  {data.referenceImages.map((url, index) => (
+                      <Image
+                        key={index}
+                        src={url}
+                        width={56}
+                        height={56}
+                        style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #e5e6eb' }}
+                        preview={false}
+                      />
+                  ))}
+              </div>
+          ) : (
+              <div style={{ height: 60, background: '#f8f9fa', borderRadius: 4, border: '1px dashed #e5e6eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86909c', fontSize: 10 }}>
+                  Connect Seedream image output
+              </div>
+          )}
       </div>
 
       <div style={{ marginBottom: 8 }}>
@@ -170,8 +169,8 @@ const VideoGenNode = ({ data }) => {
             size="small" 
             onClick={data.onRun} 
             loading={data.loading} 
-            disabled={!data.firstFrame && !data.lastFrame && !data.prompt}
-            title={(!data.firstFrame && !data.lastFrame && !data.prompt) ? "Requires First Frame, Last Frame, or Prompt" : "Generate Video"}
+            disabled={!data.referenceImages || data.referenceImages.length === 0 || !data.prompt}
+            title={(!data.referenceImages || data.referenceImages.length === 0 || !data.prompt) ? "Requires Reference Image and Prompt" : "Generate Video"}
           >
               Animate
           </Button>

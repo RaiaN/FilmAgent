@@ -1,16 +1,17 @@
 import Head from 'next/head';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Layout, Menu, Button, Drawer, Input, Message, Card, Typography, Tooltip, Upload } from '@arco-design/web-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Layout, Menu, Button, Drawer, Input, Message, Card, Typography, Upload } from '@arco-design/web-react';
 import { IconImage, IconVideoCamera, IconSettings, IconRobot, IconPlus, IconClose, IconMindMapping, IconUser } from '@arco-design/web-react/icon';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { baseSchemas } from '../utils/schemas';
-import { constructSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructProductionDesignPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
 import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
+import ProductionDesignPlayground from '../components/ProductionDesignPlayground';
 import WorkflowEditor from '../components/workflow/WorkflowEditor';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
@@ -61,7 +62,8 @@ export default function Home() {
 
   const [seedreamLoading, setSeedreamLoading] = useState(false);
   const [seedreamResult, setSeedreamResult] = useState(null);
-  const [modelCapabilities, setModelCapabilities] = useState({}); // Store model metadata
+  const [modelCapabilities] = useState({}); // Store model metadata
+  const [productionDesignRuns, setProductionDesignRuns] = useState([]);
   
   const chatEndRef = useRef(null);
 
@@ -109,21 +111,123 @@ export default function Home() {
       setSeedreamResult(null);
   };
 
+  const saveProductionDesignRun = useCallback((snapshot) => {
+    if (!snapshot?.runId) return;
+    setProductionDesignRuns((prev) => {
+      const existing = prev.find((item) => item.runId === snapshot.runId);
+      if (existing && JSON.stringify(existing) === JSON.stringify(snapshot)) {
+        return prev;
+      }
+      const nextRuns = [snapshot, ...prev.filter((item) => item.runId !== snapshot.runId)].slice(0, 6);
+      return nextRuns;
+    });
+  }, []);
+
+  const buildProductionDesignContinuation = (run, passKey) => {
+    if (!run) return baseSchemas['production-design'].defaults;
+    const pass = (run.tasks || []).find((item) => item.key === passKey) || run.tasks?.[0];
+    const selectedVideoUrl = pass?.taskStatus?.video_url || '';
+    const baseDefaults = baseSchemas['production-design'].defaults;
+    const inputContext = run.inputContext || {};
+
+    return {
+      ...baseDefaults,
+      model: inputContext.model || run.model || baseDefaults.model,
+      prompt: run.projectSummary || inputContext.prompt || baseDefaults.prompt,
+      sourceMaterials: inputContext.sourceMaterials || baseDefaults.sourceMaterials,
+      designRules: inputContext.designRules || (run.designRules || []).join('\n'),
+      ruleGroups: inputContext.ruleGroups || baseDefaults.ruleGroups,
+      explorationGoal: pass
+        ? `Continue world exploration from ${pass.label} to reveal the next coherent zone, transition, or condition of the same environment.`
+        : inputContext.explorationGoal || baseDefaults.explorationGoal,
+      continuityNotes: [
+        inputContext.continuityNotes,
+        ...(run.continuationHooks || []),
+        pass ? `Continue from ${pass.label}. Preserve the established silhouettes, material language, and spatial logic.` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      sourceImages: inputContext.sourceImages || [],
+      sourceVideos: inputContext.sourceVideos || [],
+      continuationImages: inputContext.continuationImages || [],
+      continuationVideos: [...(inputContext.continuationVideos || []), ...(selectedVideoUrl ? [selectedVideoUrl] : [])],
+      continuedFrom: pass
+        ? {
+            runId: run.runId,
+            passKey: pass.key,
+            passLabel: pass.label,
+            taskId: pass.task?.id || '',
+            prompt: pass.prompt,
+            videoUrl: selectedVideoUrl,
+          }
+        : null,
+      ratio: run.ratio || inputContext.ratio || baseDefaults.ratio,
+      resolution: '1080p',
+      duration: 15,
+    };
+  };
+
+  const handleContinueProductionDesign = (run, pass, status) => {
+    const nextValues = buildProductionDesignContinuation(
+      {
+        ...run,
+        tasks: (run?.tasks || []).map((task) =>
+          task.key === pass?.key ? { ...task, taskStatus: status || task.taskStatus || null } : task
+        ),
+      },
+      pass?.key
+    );
+    setActiveModelId('production-design');
+    const schema = baseSchemas['production-design'];
+    setUiSchema({
+      title: schema.name,
+      description: schema.description,
+      fields: schema.fields,
+      defaults: schema.defaults,
+    });
+    setFormValues(nextValues);
+    setSeedreamResult(null);
+  };
+
+  const handleLoadProductionDesignRun = (run, passKey) => {
+    const nextValues = buildProductionDesignContinuation(run, passKey);
+    setActiveModelId('production-design');
+    const schema = baseSchemas['production-design'];
+    setUiSchema({
+      title: schema.name,
+      description: schema.description,
+      fields: schema.fields,
+      defaults: schema.defaults,
+    });
+    setFormValues(nextValues);
+    setSeedreamResult(null);
+  };
+
+  const handleResetProductionDesignContinuation = () => {
+    const defaults = baseSchemas['production-design'].defaults;
+    setFormValues((prev) => ({
+      ...defaults,
+      model: prev.model || defaults.model,
+      sourceImages: prev.sourceImages || [],
+      sourceVideos: prev.sourceVideos || [],
+      continuationImages: [],
+      continuationVideos: [],
+      continuedFrom: null,
+    }));
+  };
+
   const handleModelChange = (e) => {
     const newModelId = e.target.value;
     setFormValues((prev) => ({
         ...prev,
         model: newModelId,
-        ...(activeModelId === 'seedance' ? (() => {
+        ...((activeModelId === 'seedance' || activeModelId === 'production-design') ? (() => {
           const caps = MODEL_CAPABILITIES[newModelId] || MODEL_CAPABILITIES.default;
           return {
-            first_frame: caps.supports_first_frame ? prev.first_frame : [],
-            last_frame: caps.supports_last_frame ? prev.last_frame : [],
             reference_images: caps.supports_ref_images ? prev.reference_images : [],
             reference_videos: caps.supports_ref_videos ? prev.reference_videos : [],
             reference_audios: caps.supports_ref_audios ? prev.reference_audios : [],
             generate_audio: caps.supports_audio ? prev.generate_audio : false,
-            draft: caps.supports_draft ? prev.draft : false,
           };
         })() : {}),
     }));
@@ -157,7 +261,7 @@ export default function Home() {
       You have knowledge of the following API schema: ${JSON.stringify(baseSchema, null, 2)}.
       
       RECOMMENDATION POLICY:
-      - For IMAGE generation (Seedream), recommend 'seedream-5-0-lite' for efficiency, or 'seedream-4-5-251128' as the current high-fidelity flagship (full 5.0 is not yet available).
+      - For IMAGE generation (Seedream), use and recommend only 'seedream-5-0-260128'. Do NOT recommend removed or legacy Seedream variants.
       - For VIDEO generation (Seedance), recommend 'seedance-1-5-pro-251215' as the latest and most capable model.
       - NOTE: 'seed-2-0-mini-260215' is the model powering YOU (the assistant) for text/image analysis, NOT for generating images.
       - Do NOT recommend random or older model versions unless specifically asked.
@@ -233,6 +337,9 @@ export default function Home() {
       if (activeModelId === 'seedance') {
           endpoint = '/api/seedance';
           requestBody = constructSeedancePayload(formValues);
+      } else if (activeModelId === 'production-design') {
+          endpoint = '/api/production-design';
+          requestBody = constructProductionDesignPayload(formValues);
       } else if (activeModelId === 'llm') {
           endpoint = '/api/seed';
           const llmPayload = constructLLMPayload(formValues);
@@ -250,7 +357,7 @@ export default function Home() {
             3. Do NOT recommend complex workflows, external tools, or features not available in a standard text-to-media generation interface (e.g. do not suggest manual masking, 3D modeling, or post-processing software).`
           };
       } else {
-          requestBody = constructSeedreamPayload(formValues);
+          requestBody = constructWorkflowSeedreamPayload(formValues);
       }
 
       const response = await fetch(endpoint, {
@@ -258,19 +365,28 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...requestBody,
-          modelId: requestBody.model,
           apiKey: apiKey.trim(),
         }),
       });
       const data = await response.json();
-      setSeedreamResult(data);
+      const nextResult = activeModelId === 'production-design' && !data.error
+        ? {
+            ...data,
+            runId: data.runId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            inputContext: requestBody,
+          }
+        : data;
+      setSeedreamResult(nextResult);
+      if (activeModelId === 'production-design' && nextResult && !nextResult.error) {
+        saveProductionDesignRun(nextResult);
+      }
       if (showRequestOutput) {
         const debugBody = { ...requestBody, apiKey: 'REDACTED' };
         setLastRequestPayload({
           endpoint,
           body: debugBody,
         });
-        setLastResponsePayload(data);
+        setLastResponsePayload(nextResult);
       }
     } catch (error) {
       setSeedreamResult({ error: 'Request failed', details: error.message });
@@ -301,6 +417,9 @@ export default function Home() {
                     </Menu.Item>
                     <Menu.Item key="seedance">
                         <IconVideoCamera style={{ fontSize: 20 }} />
+                    </Menu.Item>
+                    <Menu.Item key="production-design">
+                        <IconUser style={{ fontSize: 20 }} />
                     </Menu.Item>
                     <Menu.Item key="llm">
                         <IconRobot style={{ fontSize: 20 }} />
@@ -361,6 +480,13 @@ export default function Home() {
                                 Video (Seedance)
                             </Button>
                             <Button 
+                                type={activeModelId === 'production-design' ? 'primary' : 'secondary'}
+                                onClick={() => handleModelFamilyChange('production-design')}
+                            >
+                                <IconUser style={{ marginRight: 8 }} />
+                                Production Design
+                            </Button>
+                            <Button 
                                 type={activeModelId === 'llm' ? 'primary' : 'secondary'}
                                 onClick={() => handleModelFamilyChange('llm')}
                             >
@@ -407,6 +533,22 @@ export default function Home() {
                         result={seedreamResult}
                     />
                 </div>
+                <div style={{ display: activeModelId === 'production-design' ? 'block' : 'none' }}>
+                    <ProductionDesignPlayground
+                        schema={uiSchema}
+                        formValues={formValues}
+                        setFormValues={setFormValues}
+                        onSubmit={handleSeedreamSubmit}
+                        loading={seedreamLoading}
+                        handleImageUpload={handleImageUpload}
+                        removeImage={removeImage}
+                        onModelChange={handleModelChange}
+                        runHistory={productionDesignRuns}
+                        onLoadRun={handleLoadProductionDesignRun}
+                        onResetContinuation={handleResetProductionDesignContinuation}
+                        result={seedreamResult}
+                    />
+                </div>
                 <div style={{ display: activeModelId === 'llm' ? 'block' : 'none' }}>
                     <LLMPlayground
                         schema={uiSchema}
@@ -423,7 +565,14 @@ export default function Home() {
                 </div>
                 
                 <div style={{ marginTop: 24 }}>
-                     {activeModelId !== 'llm' && <ResultViewer result={seedreamResult} modelType={activeModelId} />}
+                     {activeModelId !== 'llm' && (
+                        <ResultViewer
+                          result={seedreamResult}
+                          modelType={activeModelId}
+                          onContinueExploration={handleContinueProductionDesign}
+                          onSnapshotChange={saveProductionDesignRun}
+                        />
+                      )}
                 </div>
                 
                 {showRequestOutput && (lastRequestPayload || lastResponsePayload) && (

@@ -10,15 +10,6 @@ export const MODEL_CAPABILITIES = {
         supports_seed: false,
         max_ref_images: 14,
     },
-    'seedream-4-5-251128': {
-        sizes: ['2K', '4K', 'Custom'],
-        optimize_prompt_modes: ['standard'],
-        sequential_generation: true,
-        guidance_scale: false,
-        supports_watermark: true,
-        supports_seed: false,
-        max_ref_images: 14,
-    },
     // --- SEEDANCE (VIDEO) MODELS ---
     'ep-20260415171928-pdvvr': {
         resolutions: ['720p', '1080p'],

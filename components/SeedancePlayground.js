@@ -1,6 +1,6 @@
-import React, { useRef, useState } from 'react';
-import { Select, Input, InputNumber, Button, Upload, Checkbox, Slider, Dropdown, Menu, Message, Tooltip, Collapse, Grid } from '@arco-design/web-react';
-import { IconCopy, IconCode, IconDown, IconRight, IconStar, IconRefresh, IconBook } from '@arco-design/web-react/icon';
+import { useRef, useState } from 'react';
+import { Select, Input, InputNumber, Button, Upload, Checkbox, Dropdown, Menu, Message, Tooltip, Grid } from '@arco-design/web-react';
+import { IconCode, IconDown, IconRight, IconStar, IconRefresh, IconBook } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedancePayload } from '../utils/apiHelpers';
@@ -23,9 +23,44 @@ const SeedancePlayground = ({
   const promptRef = useRef(null);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
+  const [referenceImageUri, setReferenceImageUri] = useState('');
 
   const handleInputChange = (key, value) => {
     setFormValues(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleAddReferenceImageUri = () => {
+    const nextUri = referenceImageUri.trim();
+    if (!nextUri) {
+      Message.warning('Please enter an image URI');
+      return;
+    }
+
+    try {
+      const parsedUrl = new URL(nextUri);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        Message.warning('Only http(s) image URIs are supported');
+        return;
+      }
+    } catch (error) {
+      Message.warning('Please enter a valid image URI');
+      return;
+    }
+
+    const currentImages = formValues.reference_images || [];
+    if (currentImages.includes(nextUri)) {
+      Message.info('This image URI is already added');
+      return;
+    }
+
+    if (currentImages.length >= 4) {
+      Message.warning('Seedance supports up to 4 reference images here');
+      return;
+    }
+
+    handleInputChange('reference_images', [...currentImages, nextUri]);
+    setReferenceImageUri('');
+    Message.success('Reference image URI added');
   };
 
   const handleEnhancePrompt = async () => {
@@ -160,66 +195,18 @@ const SeedancePlayground = ({
         <div className={styles.mainInputArea}>
           {/* Left: Media Inputs */}
           <div className={styles.imageInputs} style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '8px' }}>
-            {/* First Frame */}
-            {!isFieldHidden('first_frame') && (
-                <div style={{ position: 'relative' }}>
-                    <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>First Frame</div>
-                    <Upload
-                        listType="picture-card"
-                        limit={1}
-                        fileList={(formValues.first_frame || []).map((url, index) => ({
-                            uid: `first-${index}`,
-                            url: url,
-                            name: `first-${index}.png`
-                        }))}
-                        beforeUpload={(file) => {
-                            const mockEvent = { target: { files: [file] } };
-                            handleImageUpload(mockEvent, 'first_frame');
-                            return false;
-                        }}
-                        onRemove={() => removeImage('first_frame', 0)}
-                        showUploadList={{
-                            removeIcon: <div style={{ color: 'white' }}>x</div>,
-                            previewIcon: null,
-                        }}
-                    />
-                </div>
-            )}
-
-            {/* Last Frame */}
-            {!isFieldHidden('last_frame') && (
-                <div style={{ position: 'relative' }}>
-                    <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>Last Frame</div>
-                    <Upload
-                        listType="picture-card"
-                        limit={1}
-                        fileList={(formValues.last_frame || []).map((url, index) => ({
-                            uid: `last-${index}`,
-                            url: url,
-                            name: `last-${index}.png`
-                        }))}
-                        beforeUpload={(file) => {
-                            const mockEvent = { target: { files: [file] } };
-                            handleImageUpload(mockEvent, 'last_frame');
-                            return false;
-                        }}
-                        onRemove={() => removeImage('last_frame', 0)}
-                        showUploadList={{
-                            removeIcon: <div style={{ color: 'white' }}>x</div>,
-                            previewIcon: null,
-                        }}
-                    />
-                </div>
-            )}
-
             {/* Reference Images */}
             {!isFieldHidden('reference_images') && (
                 <div style={{ position: 'relative' }}>
                     <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>Ref Images</div>
+                    <div style={{ fontSize: 12, color: '#86909c', lineHeight: 1.4, marginBottom: 8 }}>
+                        Upload local images here or paste a Seedream image URI below.
+                    </div>
                     <Upload
                         listType="picture-card"
                         multiple
                         limit={4}
+                        accept="image/*"
                         fileList={(formValues.reference_images || []).map((url, index) => ({
                             uid: `refimg-${index}`,
                             url: url,
@@ -239,6 +226,23 @@ const SeedancePlayground = ({
                             previewIcon: null,
                         }}
                     />
+                    <div style={{ marginTop: 8 }}>
+                        <Input
+                            placeholder="Paste Seedream image URI (https://...)"
+                            value={referenceImageUri}
+                            onChange={setReferenceImageUri}
+                            onPressEnter={handleAddReferenceImageUri}
+                            allowClear
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 8 }}>
+                            <div style={{ fontSize: 12, color: '#86909c', lineHeight: 1.4 }}>
+                                Add a Seedream output URI directly as another reference image.
+                            </div>
+                            <Button size="mini" type="secondary" onClick={handleAddReferenceImageUri}>
+                                Add URI
+                            </Button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -365,18 +369,6 @@ const SeedancePlayground = ({
             </div>
           )}
           
-          {/* Return Last Frame */}
-           {!isFieldHidden('return_last_frame') && (
-            <div className={styles.toolChip}>
-                <Checkbox 
-                    checked={formValues.return_last_frame}
-                    onChange={(checked) => handleInputChange('return_last_frame', checked)}
-                >
-                    Last Frame
-                </Checkbox>
-            </div>
-          )}
-
           {/* Audio Toggle */}
           {!isFieldHidden('generate_audio') && (
              <div className={styles.toolChip}>
@@ -385,18 +377,6 @@ const SeedancePlayground = ({
                     onChange={(checked) => handleInputChange('generate_audio', checked)}
                 >
                     Audio
-                </Checkbox>
-            </div>
-          )}
-
-          {/* Draft Mode */}
-          {!isFieldHidden('draft') && (
-             <div className={styles.toolChip}>
-                <Checkbox 
-                    checked={formValues.draft}
-                    onChange={(checked) => handleInputChange('draft', checked)}
-                >
-                    Draft
                 </Checkbox>
             </div>
           )}

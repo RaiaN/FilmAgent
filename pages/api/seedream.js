@@ -1,4 +1,7 @@
-import { CONFIG, getEndpointUrl } from '../../utils/config';
+import { getEndpointUrl } from '../../utils/config';
+
+const FIXED_SEEDREAM_MODEL_ID = 'ep-20260501195034-hj78f';
+// this is Seeedream 5.0-Lite
 
 export const config = {
   api: {
@@ -15,7 +18,7 @@ async function seedreamHandler(req, res) {
   }
 
   const { 
-    prompt, apiKey, modelId, baseUrl, size, watermark, responseFormat, image, 
+    prompt, apiKey, baseUrl, size, watermark, responseFormat, image, 
     sequential_image_generation, sequential_image_generation_options,
     optimize_prompt_options, output_format, guidance_scale, seed
   } = req.body;
@@ -35,11 +38,9 @@ async function seedreamHandler(req, res) {
       ? `${baseUrl}/images/generations`
       : defaultEndpoint;
 
-  const resolvedModelId = modelId || process.env.SEEDREAM_MODEL_ID || 'seedream-4-5-251128';
-
   try {
     const payload = {
-      model: resolvedModelId,
+      model: FIXED_SEEDREAM_MODEL_ID,
       prompt,
       size: size || '2K',
       watermark: watermark ?? false,

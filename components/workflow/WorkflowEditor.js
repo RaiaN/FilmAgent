@@ -14,9 +14,9 @@ import AgenticNode from './nodes/AgenticNode';
 import VLMNode from './nodes/VLMNode';
 import ImageNode from './nodes/ImageNode';
 import VideoNode from './nodes/VideoNode';
-import { constructSeedreamPayload, constructSeedancePayload } from '../../utils/apiHelpers';
+import { constructWorkflowSeedreamPayload, constructSeedancePayload } from '../../utils/apiHelpers';
 import { getApiKey } from '../../utils/apiKeyStore';
-import { getNodeDefaults, getNodeInputs, getNodeOutputs } from './nodeDefinitions';
+import { getNodeDefaults, getNodeInputs } from './nodeDefinitions';
 
 const nodeTypes = {
   imageGen: ImageGenNode,
@@ -127,7 +127,7 @@ const WorkflowEditor = ({ active }) => {
               'output', 
               'loading',
               'uploadedImage', 'uploadedVideo', // Large blobs
-              'firstFrame', 'lastFrame', // VideoGen inputs
+              'referenceImages', // VideoGen inputs
               'inputImage', 'inputVideo', 'inputAudio', // VLM/Multimodal inputs
               'refImages', // ImageGen inputs
               'videoA', 'videoB', // Merge inputs
@@ -298,6 +298,14 @@ const WorkflowEditor = ({ active }) => {
              return;
         }
 
+        if (targetNode.type === 'videoGen' && params.targetHandle === 'referenceImage') {
+            const currentRefs = targetNode.data.referenceImages || [];
+            if (!currentRefs.includes(sourceDataValue)) {
+                updateNodeData(targetNode.id, { referenceImages: [...currentRefs, sourceDataValue] });
+            }
+            return;
+        }
+
         // Generic Update
         updateNodeData(targetNode.id, { [dataKey]: sourceDataValue });
     },
@@ -323,6 +331,9 @@ const WorkflowEditor = ({ active }) => {
               // Most nodes follow dataKey = handleId (default)
               if (targetNode.type === 'imageGen' && handleId === 'refImage') {
                   dataKey = 'refImages';
+                  resetValue = [];
+              } else if (targetNode.type === 'videoGen' && handleId === 'referenceImage') {
+                  dataKey = 'referenceImages';
                   resetValue = [];
               } else if (targetNode.type === 'promptEnhancer' && handleId === 'prompt') {
                   resetValue = ''; // Explicitly empty string for text input
@@ -398,11 +409,10 @@ const WorkflowEditor = ({ active }) => {
           
           if (!combinedPrompt) throw new Error("Prompt is required");
 
-          const payload = constructSeedreamPayload({
+          const payload = constructWorkflowSeedreamPayload({
               model: data.model,
               prompt: combinedPrompt,
               size: data.size || '2K', 
-              response_format: 'url',
               // Use ONLY pushed refImages
               ...(data.refImages && data.refImages.length > 0 ? { image: data.refImages } : {})
           });
@@ -414,8 +424,8 @@ const WorkflowEditor = ({ active }) => {
           });
           const result = await res.json();
           
-          // API might return 'image_url' (snake_case) or 'imageUrl' (camelCase) or 'images' array
-          const outputUrl = result.image_url || result.imageUrl || (result.images && result.images[0] && result.images[0].url);
+          // Follow the Seedream tab response contract from /api/seedream.
+          const outputUrl = result.imageUrl || (result.images && result.images[0] && result.images[0].url);
 
           if (outputUrl) {
               updateNodeData(nodeId, { output: outputUrl, loading: false });
@@ -430,13 +440,12 @@ const WorkflowEditor = ({ active }) => {
                           if (!currentRefs.includes(outputUrl)) {
                               updateNodeData(targetNode.id, { refImages: [...currentRefs, outputUrl] });
                           }
-                      } else if (targetNode.type === 'videoGen') {
-                      if (edge.targetHandle === 'lastFrame') {
-                          updateNodeData(targetNode.id, { lastFrame: outputUrl });
-                      } else {
-                          updateNodeData(targetNode.id, { firstFrame: outputUrl });
-                      }
-                  } else if (targetNode.type === 'vlm') {
+                      } else if (targetNode.type === 'videoGen' && edge.targetHandle === 'referenceImage') {
+                          const currentRefs = targetNode.data.referenceImages || [];
+                          if (!currentRefs.includes(outputUrl)) {
+                              updateNodeData(targetNode.id, { referenceImages: [...currentRefs, outputUrl] });
+                          }
+                      } else if (targetNode.type === 'vlm') {
                           updateNodeData(targetNode.id, { inputImage: outputUrl });
                       } else if (targetNode.type === 'multimodalVideo') {
                           updateNodeData(targetNode.id, { inputImage: outputUrl });
@@ -445,9 +454,13 @@ const WorkflowEditor = ({ active }) => {
               });
               Message.success("Image Generated!");
           } else {
-              // Only throw if there is no image_url
               console.error("API Error Result:", result); // Debugging log
-              throw new Error(result.error || JSON.stringify(result) || "Generation failed");
+              const detailMessage =
+                  result?.details?.error?.message ||
+                  result?.details?.message ||
+                  (typeof result?.details === 'string' ? result.details : '') ||
+                  result.error;
+              throw new Error(detailMessage || "Seedream generation failed");
           }
       } catch (err) {
           console.error("Image Gen Error:", err);
@@ -458,12 +471,10 @@ const WorkflowEditor = ({ active }) => {
 
   // Run Video Generation
   const runVideoGen = async (nodeId, data) => {
-      // Use ONLY linked image (no local upload fallback)
-      const firstFrame = data.firstFrame;
-      const lastFrame = data.lastFrame;
+      const referenceImages = data.referenceImages || [];
 
-      if (!firstFrame) {
-          Message.warning("No input image connected!");
+      if (referenceImages.length === 0) {
+          Message.warning("No reference image connected!");
           return;
       }
       updateNodeData(nodeId, { loading: true });
@@ -475,16 +486,15 @@ const WorkflowEditor = ({ active }) => {
           // Actually, 'data.prompt' IS the unified field now.
           const combinedPrompt = data.prompt;
           
-          if (!combinedPrompt && !firstFrame) throw new Error("Prompt is required if no image is provided");
+          if (!combinedPrompt) throw new Error("Prompt is required");
 
           const payload = constructSeedancePayload({
               model: data.model,
               prompt: combinedPrompt,
-              first_frame: [firstFrame],
+              reference_images: referenceImages,
               resolution: data.resolution || '720p',
               duration: Number(data.duration) || 5,
               generate_audio: !!data.generate_audio,
-              ...(lastFrame ? { last_frame: [lastFrame] } : {})
           });
 
           // Start Task

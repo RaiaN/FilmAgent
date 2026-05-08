@@ -3,8 +3,6 @@
 // Defines the schema for all node types in the workflow editor.
 // This allows for data-driven initialization, validation, and connection logic.
 
-import { IconImage, IconVideoCamera, IconRobot, IconPlayCircle, IconEdit, IconDoubleRight, IconFullscreen, IconStar } from '@arco-design/web-react/icon';
-
 // Standardized Color Palette for Pin Types
 export const PIN_COLORS = {
   text: '#ff7d00',    // Orange
@@ -23,7 +21,7 @@ export const NODE_DEFINITIONS = {
     label: 'Image Generation',
     category: '1', // Seedream
     defaults: {
-      model: 'seedream-5-0-lite',
+      model: 'seedream-5-0-260128',
       size: '2K',
       prompt: '',
       loading: false,
@@ -46,12 +44,12 @@ export const NODE_DEFINITIONS = {
       duration: 5,
       generate_audio: true,
       prompt: 'Generate cinematic video of the main subject in the reference image',
+      referenceImages: [],
       output: null,
       loading: false
     },
     inputs: {
-      firstFrame: { type: 'image', label: 'First Frame' },
-      lastFrame: { type: 'image', label: 'Last Frame' },
+      referenceImage: { type: 'image', label: 'Reference Image', multiple: true },
       prompt: { type: 'text', label: 'Prompt', required: true }
     },
     outputs: {

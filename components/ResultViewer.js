@@ -1,6 +1,7 @@
 import ImageResultViewer from './ImageResultViewer';
 import VideoResultViewer from './VideoResultViewer';
 import ProductionDesignResultViewer from './ProductionDesignResultViewer';
+import AssetUploadResultViewer from './AssetUploadResultViewer';
 
 const ResultViewer = ({ result, modelType, ...rest }) => {
   if (!result) return null;
@@ -17,6 +18,10 @@ const ResultViewer = ({ result, modelType, ...rest }) => {
 
   if (modelType === 'production-design') {
       return <ProductionDesignResultViewer result={result} {...rest} />;
+  }
+
+  if (modelType === 'asset-upload') {
+      return <AssetUploadResultViewer result={result} />;
   }
 
   // Default fallback if type is unknown or mismatched

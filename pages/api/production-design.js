@@ -1,28 +1,8 @@
-import fs from 'fs';
 import { CONFIG } from '../../utils/config';
 
-const DEFAULT_SEEDANCE_MODEL = 'ep-20260415171928-pdvvr';
 const DEFAULT_RESEARCH_MODEL = 'seed-2-0-pro-260328';
-const EXPLORATION_VARIANTS = [
-  {
-    key: 'anchor',
-    label: 'Anchor Pass',
-    directive:
-      'Create the most faithful production-design pass. Prioritize landmark readability, architecture hierarchy, and a stable visual language that can anchor future iterations.',
-  },
-  {
-    key: 'adjacent',
-    label: 'Adjacent Pass',
-    directive:
-      'Explore a nearby variation of the same world. Preserve the core rules while revealing an adjacent district, route, or atmospheric condition that expands the design space.',
-  },
-  {
-    key: 'frontier',
-    label: 'Frontier Pass',
-    directive:
-      'Push the world outward. Test a bolder edge case that still belongs to the same design system, surfacing new opportunities for continued exploration.',
-  },
-];
+const SEEDREAM_ENDPOINT_MODEL = 'ep-20260501195034-hj78f';
+const PRODUCTION_DESIGN_IMAGE_SIZE = '4K';
 
 export const config = {
   api: {
@@ -30,23 +10,6 @@ export const config = {
       sizeLimit: '50mb',
     },
   },
-};
-
-const clampDuration = (value) => {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return 15;
-  return Math.min(15, Math.max(1, Math.round(numeric)));
-};
-
-const toArray = (value) => {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim()).filter(Boolean);
-  }
-  return String(value)
-    .split('\n')
-    .map((item) => item.trim())
-    .filter(Boolean);
 };
 
 const extractResponseText = (data) => {
@@ -63,245 +26,31 @@ const extractResponseText = (data) => {
   );
 };
 
-const parseJsonResponse = (text) => {
-  const trimmed = String(text || '').trim();
-  if (!trimmed) {
-    throw new Error('Research model returned an empty response.');
-  }
-
-  try {
-    return JSON.parse(trimmed);
-  } catch (error) {
-    const match = trimmed.match(/\{[\s\S]*\}/);
-    if (!match) {
-      throw error;
-    }
-    return JSON.parse(match[0]);
-  }
-};
-
-const reportDebugEvent = ({ runId = 'post-fix', hypothesisId, location, msg, data = {} }) => {
-  if (process.env.NODE_ENV === 'test') return;
-  let url = 'http://127.0.0.1:7777/event';
-  let sessionId = 'production-design-empty-response';
-  try {
-    const env = fs.readFileSync(`${process.cwd()}/.dbg/production-design-empty-response.env`, 'utf8');
-    url = env.match(/DEBUG_SERVER_URL=(.+)/)?.[1] || url;
-    sessionId = env.match(/DEBUG_SESSION_ID=(.+)/)?.[1] || sessionId;
-  } catch {}
-  fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sessionId,
-      runId,
-      hypothesisId,
-      location,
-      msg,
-      data,
-      ts: Date.now(),
-    }),
-  }).catch(() => {});
-};
-
-const buildResearchSystemPrompt = (duration) => {
-  return [
-    'You are an agentic production design researcher and planner for environment exploration videos.',
-    'Your job is to turn rough creative inputs into a repeatable world-exploration package that can be used across multiple iterations.',
-    'Study the user brief, source materials, natural-language rules, exploration goal, and continuity notes.',
-    'Respond with JSON only and no markdown fences.',
-    'Return this exact shape:',
-    '{',
-    '"project_summary": "string",',
-    '"world_foundation": "string",',
-    '"design_rules": ["string"],',
-    '"material_palette": ["string"],',
-    '"spatial_logic": ["string"],',
-    '"camera_strategy": "string",',
-    '"continuation_hooks": ["string"],',
-    '"exploration_passes": [',
-    '{"key":"anchor","label":"Anchor Pass","goal":"string","prompt":"string"},',
-    '{"key":"adjacent","label":"Adjacent Pass","goal":"string","prompt":"string"},',
-    '{"key":"frontier","label":"Frontier Pass","goal":"string","prompt":"string"}',
-    ']',
-    '}',
-    `Each prompt must be generation-ready for a single ${duration}-second production design exploration video.`,
-    'Every prompt must preserve world continuity while defining camera path, environment staging, materials, lighting, atmosphere, and design intent.',
-    'The anchor pass should lock the world identity, the adjacent pass should expand it without breaking continuity, and the frontier pass should test a bolder but still believable edge of the same design system.',
-    'Keep the output specific, production-oriented, and directly usable.',
-  ].join(' ');
-};
-
-const buildResearchUserPrompt = ({
-  prompt,
-  sourceMaterials,
-  designRules,
-  ruleGroups,
-  explorationGoal,
-  continuityNotes,
-  sourceImages,
-  sourceVideos,
-  continuationImages,
-  continuationVideos,
-  continuedFrom,
-}) => {
-  return [
-    `Core brief: ${String(prompt || '').trim()}`,
-    `Source materials: ${String(sourceMaterials || '').trim() || 'None provided.'}`,
-    `Natural-language rules: ${String(designRules || '').trim() || 'None provided.'}`,
-    `Structured world rules: ${ruleGroups && Object.keys(ruleGroups).length ? JSON.stringify(ruleGroups) : 'None provided.'}`,
-    `Exploration goal: ${String(explorationGoal || '').trim() || 'Define the world through exploratory camera movement.'}`,
-    `Continuation notes: ${String(continuityNotes || '').trim() || 'Preserve continuity for future iterations.'}`,
-    `Source images attached: ${Array.isArray(sourceImages) ? sourceImages.length : 0}`,
-    `Source videos attached: ${Array.isArray(sourceVideos) ? sourceVideos.length : 0}`,
-    `Continuation images attached: ${Array.isArray(continuationImages) ? continuationImages.length : 0}`,
-    `Continuation videos attached: ${Array.isArray(continuationVideos) ? continuationVideos.length : 0}`,
-    `Continued from: ${continuedFrom ? JSON.stringify(continuedFrom) : 'Fresh exploration run.'}`,
-  ].join('\n\n');
-};
-
-const normalizeResearchPlan = (plan) => {
-  const passesFromPlan = Array.isArray(plan?.exploration_passes) ? plan.exploration_passes : [];
-
-  const explorationPasses = EXPLORATION_VARIANTS.map((variant, index) => {
-    const source = passesFromPlan.find((item) => item?.key === variant.key) || passesFromPlan[index] || {};
-    return {
-      key: variant.key,
-      label: variant.label,
-      goal: String(source.goal || variant.directive).trim(),
-      prompt: String(source.prompt || '').trim(),
-      directive: variant.directive,
-    };
-  });
-
-  return {
-    projectSummary: String(plan?.project_summary || '').trim(),
-    worldFoundation: String(plan?.world_foundation || '').trim(),
-    designRules: toArray(plan?.design_rules),
-    materialPalette: toArray(plan?.material_palette),
-    spatialLogic: toArray(plan?.spatial_logic),
-    cameraStrategy: String(plan?.camera_strategy || '').trim(),
-    continuationHooks: toArray(plan?.continuation_hooks),
-    explorationPasses,
-  };
-};
-
-const buildSeedancePayload = ({ model, prompt, ratio, duration, resolution }) => ({
-  model,
-  content: [
-    {
-      type: 'text',
-      text: prompt,
-    },
-  ],
-  resolution,
-  ratio,
-  duration,
-  watermark: false,
-  generate_audio: false,
-});
-
-const addResearchMediaInputs = (inputContent, mediaItems = [], type) => {
+const addInputImages = (inputContent, mediaItems = []) => {
   mediaItems.filter(Boolean).forEach((url) => {
-    if (type === 'image') {
-      inputContent.push({
-        type: 'input_image',
-        image_url: url,
-      });
-      return;
-    }
-
     inputContent.push({
-      type: 'input_video',
-      video_url: url,
+      type: 'input_image',
+      image_url: url,
     });
   });
 };
 
-const buildProductionReferenceMedia = ({
-  sourceImages = [],
-  sourceVideos = [],
-  continuationImages = [],
-  continuationVideos = [],
-}) => {
-  const media = [];
-  [...sourceImages, ...continuationImages].filter(Boolean).forEach((url) => {
-    media.push({
-      type: 'image_url',
-      image_url: { url },
-      role: 'reference_image',
-    });
-  });
-  [...sourceVideos, ...continuationVideos].filter(Boolean).forEach((url) => {
-    media.push({
-      type: 'video_url',
-      video_url: { url },
-      role: 'reference_video',
-    });
-  });
-  return media;
-};
-
-async function researchPlan({
+async function callSeed2Prompt({
   apiKey,
   baseUrl,
-  prompt,
-  sourceMaterials,
-  designRules,
-  ruleGroups,
-  explorationGoal,
-  continuityNotes,
-  sourceImages,
-  sourceVideos,
-  continuationImages,
-  continuationVideos,
-  continuedFrom,
-  duration,
+  systemText,
+  userText,
+  inputImages = [],
   modelId = DEFAULT_RESEARCH_MODEL,
 }) {
-  // #region debug-point E:request-shape
-  reportDebugEvent({
-    hypothesisId: 'E',
-    location: 'pages/api/production-design.js:researchPlan:start',
-    msg: '[DEBUG] production-design research request started',
-    data: {
-      baseUrl,
-      modelId,
-      duration,
-      promptLength: String(prompt || '').length,
-      sourceMaterialsLength: String(sourceMaterials || '').length,
-      designRulesLength: String(designRules || '').length,
-      explorationGoalLength: String(explorationGoal || '').length,
-      continuityNotesLength: String(continuityNotes || '').length,
-      sourceImageCount: Array.isArray(sourceImages) ? sourceImages.length : 0,
-      sourceVideoCount: Array.isArray(sourceVideos) ? sourceVideos.length : 0,
-      continuationImageCount: Array.isArray(continuationImages) ? continuationImages.length : 0,
-      continuationVideoCount: Array.isArray(continuationVideos) ? continuationVideos.length : 0,
-    },
-  });
-  // #endregion
   const inputContent = [
     {
       type: 'input_text',
-      text: buildResearchUserPrompt({
-        prompt,
-        sourceMaterials,
-        designRules,
-        ruleGroups,
-        explorationGoal,
-        continuityNotes,
-        sourceImages,
-        sourceVideos,
-        continuationImages,
-        continuationVideos,
-        continuedFrom,
-      }),
+      text: userText,
     },
   ];
-  addResearchMediaInputs(inputContent, sourceImages, 'image');
-  addResearchMediaInputs(inputContent, sourceVideos, 'video');
-  addResearchMediaInputs(inputContent, continuationImages, 'image');
-  addResearchMediaInputs(inputContent, continuationVideos, 'video');
+  addInputImages(inputContent, inputImages);
+
   const response = await fetch(`${baseUrl}/responses`, {
     method: 'POST',
     headers: {
@@ -317,7 +66,7 @@ async function researchPlan({
           content: [
             {
               type: 'input_text',
-              text: buildResearchSystemPrompt(duration),
+              text: systemText,
             },
           ],
         },
@@ -328,129 +77,109 @@ async function researchPlan({
       ],
     }),
   });
-
-  // #region debug-point A:upstream-status
-  reportDebugEvent({
-    hypothesisId: 'A',
-    location: 'pages/api/production-design.js:researchPlan:response',
-    msg: '[DEBUG] production-design research upstream response received',
-    data: {
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      contentType: response.headers?.get?.('content-type') || null,
-    },
-  });
-  // #endregion
-
   const data = await response.json();
-  // #region debug-point B:response-shape
-  reportDebugEvent({
-    hypothesisId: 'B',
-    location: 'pages/api/production-design.js:researchPlan:data',
-    msg: '[DEBUG] production-design research upstream body parsed',
-    data: {
-      topLevelKeys: Object.keys(data || {}),
-      hasOutputText: Boolean(data?.output_text),
-      outputLength: Array.isArray(data?.output) ? data.output.length : 0,
-      firstOutputContentTypes: Array.isArray(data?.output?.[0]?.content)
-        ? data.output[0].content.map((item) => item?.type).filter(Boolean)
-        : [],
-      outputItems: Array.isArray(data?.output)
-        ? data.output.map((item, index) => ({
-            index,
-            type: item?.type,
-            role: item?.role,
-            status: item?.status,
-            contentTypes: Array.isArray(item?.content)
-              ? item.content.map((contentItem) => contentItem?.type).filter(Boolean)
-              : [],
-          }))
-        : [],
-    },
-  });
-  // #endregion
   if (!response.ok) {
-    throw new Error(data.error?.message || data.details || `Production design research failed: ${response.status}`);
+    throw new Error(data.error?.message || data.details || `Seed 2.0 prompt synthesis failed: ${response.status}`);
   }
 
-  const researchText = extractResponseText(data).trim();
-  // #region debug-point D:extract-text
-  reportDebugEvent({
-    hypothesisId: 'D',
-    location: 'pages/api/production-design.js:researchPlan:extractResponseText',
-    msg: '[DEBUG] production-design research text extracted',
-    data: {
-      extractedLength: researchText.length,
-      extractedPreview: researchText.slice(0, 300),
-    },
-  });
-  // #endregion
-  const parsedPlan = parseJsonResponse(researchText);
-  const normalizedPlan = normalizeResearchPlan(parsedPlan);
-
-  normalizedPlan.explorationPasses.forEach((pass) => {
-    if (!pass.prompt) {
-      throw new Error(`Research plan did not return a usable prompt for ${pass.label}.`);
-    }
-  });
-
+  const promptText = extractResponseText(data).trim();
+  if (!promptText) {
+    throw new Error('Seed 2.0 prompt synthesis returned an empty response.');
+  }
   return {
-    researchText,
-    normalizedPlan,
+    text: promptText,
     raw: data,
   };
 }
 
-async function createSeedanceTask({ apiKey, baseUrl, payload }) {
-  const response = await fetch(`${baseUrl}/contents/generations/tasks`, {
+async function generateSeedreamImage({ apiKey, baseUrl, prompt, referenceImage }) {
+  const response = await fetch(`${baseUrl}/images/generations`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      model: SEEDREAM_ENDPOINT_MODEL,
+      prompt,
+      size: PRODUCTION_DESIGN_IMAGE_SIZE,
+      watermark: false,
+      response_format: 'url',
+      ...(referenceImage ? { image: referenceImage } : {}),
+    }),
   });
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error?.message || data.details || `Seedance request failed: ${response.status}`);
+    throw new Error(data.error?.message || data.details || `Seedream request failed: ${response.status}`);
   }
-
-  if (!data.id) {
-    throw new Error('Seedance response did not include a task id.');
+  if (!Array.isArray(data?.data) || !data.data[0]?.url) {
+    throw new Error('Seedream response did not include an image URL.');
   }
-
-  return data;
+  return {
+    imageUrl: data.data[0].url,
+    raw: data,
+  };
 }
 
-const buildVariantPrompt = ({ pass, plan, continuityNotes }) => {
-  const rulesBlock = plan.designRules.length
-    ? `Design rules to preserve:\n- ${plan.designRules.join('\n- ')}`
-    : '';
-  const materialBlock = plan.materialPalette.length
-    ? `Material palette:\n- ${plan.materialPalette.join('\n- ')}`
-    : '';
-  const continuityBlock = plan.continuationHooks.length
-    ? `Continuation hooks:\n- ${plan.continuationHooks.join('\n- ')}`
-    : '';
-
+const buildStepOneSystemPrompt = () => {
   return [
-    `Exploration pass: ${pass.label}`,
-    `Exploration goal: ${pass.goal}`,
+    'You convert fictional character descriptions into one production-ready Seedream portrait prompt.',
+    'Return prompt only. No markdown. No explanations.',
+    'Use exactly these bracketed sections and this exact order:',
+    '[MEDIUM] [SUBJECT] [CAMERA] [SKIN_REFLECTANCE] [HAIR] [EXPRESSION] [FORBIDDEN].',
+    'Write in the same style as a premium photoreal editorial image prompt.',
+    'The output must describe exactly one fictional character in a frontal close shot with photorealistic textures.',
+    'The generated image must contain no text, no letters, no numbers, no logos, no watermarks, and no typographic elements of any kind.',
+    'Do not include any extra bracket sections.',
+  ].join(' ');
+};
+
+const buildStepOneUserPrompt = (characterDescription) => {
+  return [
+    'Transform the following fictional character description into the required bracketed format.',
+    'Keep the output photorealistic, fashion/editorial, and suitable for a single close portrait image.',
     '',
-    pass.prompt,
-    '',
-    `Pass intent: ${pass.directive}`,
-    rulesBlock,
-    materialBlock,
-    plan.cameraStrategy ? `Camera strategy: ${plan.cameraStrategy}` : '',
-    continuityBlock,
-    continuityNotes ? `User continuation notes: ${continuityNotes}` : '',
-    'Keep the world consistent enough that a later pass can continue exploring this environment without resetting the design language.',
-  ]
-    .filter(Boolean)
-    .join('\n');
+    characterDescription,
+  ].join('\n');
+};
+
+const buildCharacterSheetConversionSystemPrompt = () => {
+  return [
+    'You convert a portrait reference into a single Seedream prompt for a character sheet image.',
+    'Return prompt only. No markdown. No explanations.',
+    'Preserve all important identity details from the portrait exactly, including facial structure, skin texture, hair, age, ethnicity, expression logic, and photoreal surface detail.',
+    'Also preserve wardrobe design continuity, including garment types, silhouette, material feel, accessories, and color palette.',
+    'Do not replace the wardrobe with generic black clothing or simplify it to an all-black outfit unless black clothing is explicitly established by the source description or portrait.',
+    'The generated image must contain no text, no letters, no numbers, no logos, no watermarks, no captions, and no typographic elements of any kind.',
+  ].join(' ');
+};
+
+const buildCloseSheetInstruction = ({ characterDescription, portraitPrompt }) => {
+  return [
+    'Given the portrait, provide a single prompt to generate a full character sheet for AI native movie.',
+    'The character sheet must preserve all important details and contain 2 view angles, front and side, close shot.',
+    `Original character description: ${characterDescription}`,
+    `Portrait anchor prompt: ${portraitPrompt}`,
+    'Keep wardrobe continuity with the source character concept and portrait anchor. Preserve clothing colors, materials, accessories, and design logic.',
+    'If the portrait framing hides parts of the outfit, infer the unseen portions from the source character description and the visible styling cues instead of defaulting to plain black clothing.',
+    'No text, labels, captions, logos, numbers, or watermark-like marks. Neutral solid gray background. Output prompt only.',
+  ].join('\n');
+};
+
+const buildDistantSheetInstruction = ({ characterDescription, portraitPrompt }) => {
+  return [
+    'Given the portrait, provide a single prompt to generate a full character sheet for AI native movie.',
+    'The character sheet must preserve all important details and contain 2 view angles, front and side, distant shot.',
+    `Original character description: ${characterDescription}`,
+    `Portrait anchor prompt: ${portraitPrompt}`,
+    'Preserve clothing colors, garment types, materials, accessories, and styling logic from the character concept and portrait anchor.',
+    'If the portrait does not show the full outfit, infer a coherent full-body wardrobe from the source character description and the visible portrait styling. Never default to generic black clothing unless black is explicitly part of the established design.',
+    'This must be a true full-body turnaround: show the entire figure from head to toe in both views, including shoes or feet, with no cropping at the knees, thighs, waist, shoulders, or top of head.',
+    'The camera must be far enough away that the full silhouette is clearly visible in both views with a small amount of neutral gray negative space around the body.',
+    'Scale-match the two views and align them like a production character sheet for an AI native movie.',
+    'No text, labels, captions, logos, numbers, or watermark-like marks. Neutral solid gray background. Output prompt only.',
+  ].join('\n');
 };
 
 export default async function productionDesignHandler(req, res) {
@@ -463,24 +192,11 @@ export default async function productionDesignHandler(req, res) {
     apiKey,
     baseUrl,
     prompt,
-    sourceMaterials,
-    designRules,
-    ruleGroups,
-    explorationGoal,
-    continuityNotes,
-    sourceImages = [],
-    sourceVideos = [],
-    continuationImages = [],
-    continuationVideos = [],
     continuedFrom = null,
-    model = DEFAULT_SEEDANCE_MODEL,
-    ratio = '16:9',
-    resolution = '1080p',
-    duration = 15,
   } = req.body || {};
 
   if (!prompt || !String(prompt).trim()) {
-    return res.status(400).json({ error: 'Core brief is required' });
+    return res.status(400).json({ error: 'Fictional character description is required' });
   }
 
   const token = apiKey || process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
@@ -489,90 +205,111 @@ export default async function productionDesignHandler(req, res) {
   }
 
   const endpointBase = (baseUrl || CONFIG.API_BASE_URL).replace(/\/+$/, '');
-  const normalizedDuration = clampDuration(duration);
-  const normalizedResolution = resolution === '1080p' ? '1080p' : '1080p';
 
   try {
-    const { researchText, normalizedPlan, raw } = await researchPlan({
+    const normalizedPrompt = String(prompt).trim();
+    const stepOnePrompt = await callSeed2Prompt({
       apiKey: token,
       baseUrl: endpointBase,
-      prompt: String(prompt).trim(),
-      sourceMaterials,
-      designRules,
-      ruleGroups,
-      explorationGoal,
-      continuityNotes,
-      sourceImages,
-      sourceVideos,
-      continuationImages,
-      continuationVideos,
-      continuedFrom,
-      duration: normalizedDuration,
+      systemText: buildStepOneSystemPrompt(),
+      userText: buildStepOneUserPrompt(normalizedPrompt),
     });
 
-    const sharedReferenceMedia = buildProductionReferenceMedia({
-      sourceImages,
-      sourceVideos,
-      continuationImages,
-      continuationVideos,
+    const portraitImage = await generateSeedreamImage({
+      apiKey: token,
+      baseUrl: endpointBase,
+      prompt: stepOnePrompt.text,
     });
 
-    const tasks = await Promise.all(
-      normalizedPlan.explorationPasses.map(async (pass) => {
-        const variantPrompt = buildVariantPrompt({
-          pass,
-          plan: normalizedPlan,
-          continuityNotes: String(continuityNotes || '').trim(),
-        });
-        const payload = buildSeedancePayload({
-          model,
-          prompt: variantPrompt,
-          ratio,
-          duration: normalizedDuration,
-          resolution: normalizedResolution,
-        });
-        if (sharedReferenceMedia.length > 0) {
-          payload.content = [...payload.content, ...sharedReferenceMedia];
-        }
-        const task = await createSeedanceTask({
-          apiKey: token,
-          baseUrl: endpointBase,
-          payload,
-        });
+    const stepTwoPrompt = await callSeed2Prompt({
+      apiKey: token,
+      baseUrl: endpointBase,
+      systemText: buildCharacterSheetConversionSystemPrompt(),
+      userText: buildCloseSheetInstruction({
+        characterDescription: normalizedPrompt,
+        portraitPrompt: stepOnePrompt.text,
+      }),
+      inputImages: [portraitImage.imageUrl],
+    });
 
-        return {
-          key: pass.key,
-          label: pass.label,
-          goal: pass.goal,
-          directive: pass.directive,
-          prompt: variantPrompt,
-          task,
-        };
-      })
-    );
+    const stepThreePrompt = await callSeed2Prompt({
+      apiKey: token,
+      baseUrl: endpointBase,
+      systemText: buildCharacterSheetConversionSystemPrompt(),
+      userText: buildDistantSheetInstruction({
+        characterDescription: normalizedPrompt,
+        portraitPrompt: stepOnePrompt.text,
+      }),
+      inputImages: [portraitImage.imageUrl],
+    });
+
+    const closeSheetImage = await generateSeedreamImage({
+      apiKey: token,
+      baseUrl: endpointBase,
+      prompt: stepTwoPrompt.text,
+      referenceImage: portraitImage.imageUrl,
+    });
+
+    const distantSheetImage = await generateSeedreamImage({
+      apiKey: token,
+      baseUrl: endpointBase,
+      prompt: stepThreePrompt.text,
+      referenceImage: portraitImage.imageUrl,
+    });
+
+    const steps = [
+      {
+        key: 'portrait-anchor',
+        label: 'Step 1: Portrait Anchor',
+        description: 'One photorealistic frontal close shot generated from the Seed 2.0 Pro formatted prompt.',
+        prompt: stepOnePrompt.text,
+        imageUrl: portraitImage.imageUrl,
+      },
+      {
+        key: 'close-sheet',
+        label: 'Step 2: Close Character Sheet',
+        description: 'Two close shots of the same character, frontal and side profile, preserving the portrait identity.',
+        prompt: stepTwoPrompt.text,
+        imageUrl: closeSheetImage.imageUrl,
+        referenceImageUrl: portraitImage.imageUrl,
+      },
+      {
+        key: 'distant-sheet',
+        label: 'Step 3: Full-Body Character Sheet',
+        description: 'Two true full-body shots of the same character, frontal and side profile, shown head-to-toe using the portrait anchor URI.',
+        prompt: stepThreePrompt.text,
+        imageUrl: distantSheetImage.imageUrl,
+        referenceImageUrl: portraitImage.imageUrl,
+      },
+    ];
 
     return res.status(200).json({
       researchModel: DEFAULT_RESEARCH_MODEL,
-      researchText,
-      projectSummary: normalizedPlan.projectSummary,
-      worldFoundation: normalizedPlan.worldFoundation,
-      designRules: normalizedPlan.designRules,
-      materialPalette: normalizedPlan.materialPalette,
-      spatialLogic: normalizedPlan.spatialLogic,
-      cameraStrategy: normalizedPlan.cameraStrategy,
-      continuationHooks: normalizedPlan.continuationHooks,
-      duration: normalizedDuration,
-      resolution: normalizedResolution,
-      ratio,
-      rawResearch: raw,
-      tasks: tasks.map((item) => ({
-        key: item.key,
-        label: item.label,
-        goal: item.goal,
-        directive: item.directive,
-        prompt: item.prompt,
-        task: item.task,
-      })),
+      generationModel: SEEDREAM_ENDPOINT_MODEL,
+      size: PRODUCTION_DESIGN_IMAGE_SIZE,
+      inputPrompt: normalizedPrompt,
+      characterPrompt: stepOnePrompt.text,
+      portrait: {
+        prompt: stepOnePrompt.text,
+        imageUrl: portraitImage.imageUrl,
+      },
+      closeSheet: {
+        prompt: stepTwoPrompt.text,
+        imageUrl: closeSheetImage.imageUrl,
+        referenceImageUrl: portraitImage.imageUrl,
+      },
+      distantSheet: {
+        prompt: stepThreePrompt.text,
+        imageUrl: distantSheetImage.imageUrl,
+        referenceImageUrl: portraitImage.imageUrl,
+      },
+      promptTrace: {
+        stepOne: stepOnePrompt.raw,
+        stepTwo: stepTwoPrompt.raw,
+        stepThree: stepThreePrompt.raw,
+      },
+      steps,
+      continuedFrom,
     });
   } catch (error) {
     return res.status(500).json({

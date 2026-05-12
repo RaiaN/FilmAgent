@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@arco-design/web-react": "^2.66.10",
+    "@volcengine/tos-sdk": "^2.9.1",
     "@xyflow/react": "^12.10.1",
     "next": "15.5.12",
     "react": "18.3.1",

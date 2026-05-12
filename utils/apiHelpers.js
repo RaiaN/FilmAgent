@@ -1,5 +1,46 @@
 import { MODEL_CAPABILITIES } from './modelCapabilities';
 
+const isHttpUrl = (value) => {
+    if (typeof value !== 'string' || !value.trim()) return false;
+
+    try {
+        const parsed = new URL(value);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch (error) {
+        return false;
+    }
+};
+
+const isDataUrl = (value) => typeof value === 'string' && /^data:[^;]+;base64,/i.test(value);
+const isAssetUrl = (value) => typeof value === 'string' && /^asset:\/\//i.test(value.trim());
+
+const assertSupportedSeedanceMediaInputs = (values, label) => {
+    const invalidValues = (values || []).filter((value) => !isHttpUrl(value) && !isDataUrl(value));
+    if (invalidValues.length > 0) {
+        throw new Error(`${label} must be public http(s) URLs or local uploaded files. Blob URLs and other unsupported formats are not supported.`);
+    }
+};
+
+const assertSupportedSeedanceImageInputs = (values) => {
+    const invalidValues = (values || []).filter((value) => !isHttpUrl(value) && !isDataUrl(value));
+    if (invalidValues.length > 0) {
+        throw new Error('Reference images must be public http(s) URLs or local uploaded files. Blob URLs and other unsupported formats are not supported.');
+    }
+};
+
+const assertAssetIds = (values, label) => {
+    const invalidValues = (values || []).filter((value) => typeof value !== 'string' || !value.trim());
+    if (invalidValues.length > 0) {
+        throw new Error(`${label} must be non-empty asset ids.`);
+    }
+};
+
+const toSeedanceAssetUrl = (value) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    return isAssetUrl(trimmed) ? trimmed : `asset://${trimmed}`;
+};
+
 export const constructWorkflowSeedreamPayload = (formValues) => {
     const requestBody = {
       model: formValues.model,
@@ -45,6 +86,7 @@ export const constructSeedancePayload = (formValues) => {
     // Only include media inputs that the selected model actually supports.
     if (caps.supports_ref_images && formValues.reference_images && formValues.reference_images.length > 0) {
         formValues.reference_images.forEach(img => {
+        assertSupportedSeedanceImageInputs(formValues.reference_images);
             images.push({
                 type: 'image_url',
                 image_url: { url: img },
@@ -53,7 +95,19 @@ export const constructSeedancePayload = (formValues) => {
         });
     }
 
+    if (caps.supports_ref_images && formValues.reference_image_asset_ids && formValues.reference_image_asset_ids.length > 0) {
+        assertAssetIds(formValues.reference_image_asset_ids, 'Reference image asset ids');
+        formValues.reference_image_asset_ids.forEach((assetId) => {
+            images.push({
+                type: 'image_url',
+                image_url: { url: toSeedanceAssetUrl(assetId) },
+                role: 'reference_image',
+            });
+        });
+    }
+
     if (caps.supports_ref_videos && formValues.reference_videos && formValues.reference_videos.length > 0) {
+        assertSupportedSeedanceMediaInputs(formValues.reference_videos, 'Reference videos');
         formValues.reference_videos.forEach(vid => {
             images.push({
                 type: 'video_url',
@@ -64,6 +118,7 @@ export const constructSeedancePayload = (formValues) => {
     }
 
     if (caps.supports_ref_audios && formValues.reference_audios && formValues.reference_audios.length > 0) {
+        assertSupportedSeedanceMediaInputs(formValues.reference_audios, 'Reference audio files');
         formValues.reference_audios.forEach(aud => {
             images.push({
                 type: 'audio_url',
@@ -80,42 +135,23 @@ export const constructSeedancePayload = (formValues) => {
     return payload;
 };
 
-export const formatProductionRuleGroups = (ruleGroups = {}) => {
-    const sections = [
-        ['Architecture & Space', ruleGroups.architecture],
-        ['Materials & Patina', ruleGroups.materials],
-        ['Culture & Use', ruleGroups.culture],
-        ['Traversal & Camera', ruleGroups.camera],
-        ['Non-Negotiables', ruleGroups.guards],
-    ].filter(([, value]) => value && String(value).trim());
-
-    return sections
-        .map(([label, value]) => `${label}:\n${String(value).trim()}`)
-        .join('\n\n');
-};
-
 export const constructProductionDesignPayload = (formValues) => {
-    const formattedRuleGroups = formatProductionRuleGroups(formValues.ruleGroups);
-    const combinedDesignRules = [formValues.designRules, formattedRuleGroups]
-        .filter((value) => value && String(value).trim())
-        .join('\n\n');
-
     return {
         model: formValues.model,
         prompt: formValues.prompt,
-        sourceMaterials: formValues.sourceMaterials,
-        designRules: combinedDesignRules,
-        ruleGroups: formValues.ruleGroups || {},
-        explorationGoal: formValues.explorationGoal,
-        continuityNotes: formValues.continuityNotes,
-        sourceImages: formValues.sourceImages || [],
-        sourceVideos: formValues.sourceVideos || [],
-        continuationImages: formValues.continuationImages || [],
-        continuationVideos: formValues.continuationVideos || [],
+        size: formValues.size,
         continuedFrom: formValues.continuedFrom || null,
-        ratio: formValues.ratio,
-        resolution: '1080p',
-        duration: 15,
+    };
+};
+
+export const constructAssetUploadPayload = (formValues) => {
+    return {
+        assetGroupId: formValues.assetGroupId,
+        imageUrl: formValues.imageUrl,
+        assetName: formValues.assetName,
+        localImageData: formValues.localImageData || '',
+        localImageName: formValues.localImageName || '',
+        pollUntilReady: formValues.pollUntilReady !== false,
     };
 };
 

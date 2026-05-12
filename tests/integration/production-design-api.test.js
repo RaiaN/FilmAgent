@@ -13,99 +13,61 @@ describe('Production design API', () => {
     jest.restoreAllMocks();
   });
 
-  test('researches the brief, locks 1080p, and creates three production design exploration passes', async () => {
+  test('builds the portrait anchor, close sheet, and distant sheet with Seed 2.0 Pro plus Seedream', async () => {
     global.fetch = jest
       .fn()
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          output_text: JSON.stringify({
-            project_summary: 'Ancient cliff observatory city explored through repeatable environment passes.',
-            world_foundation: 'Volcanic stone terraces, brass observatory hardware, cable lifts, and a wet, windy atmosphere.',
-            design_rules: [
-              'Preserve monumental vertical layering.',
-              'Avoid sleek generic sci-fi surfaces.',
-            ],
-            material_palette: [
-              'black volcanic stone',
-              'oxidized brass',
-              'fog-softened glass',
-            ],
-            spatial_logic: [
-              'Public terraces step toward the main tower.',
-              'Cable lifts connect lower industrial edges to upper scholarly zones.',
-            ],
-            camera_strategy: 'Use gliding moves that reveal hierarchy from approach to landmark.',
-            continuation_hooks: [
-              'Keep the main tower silhouette stable.',
-              'Maintain the wet storm palette for future adjacent district passes.',
-            ],
-            exploration_passes: [
-              {
-                key: 'anchor',
-                label: 'Anchor Pass',
-                goal: 'Establish the core environment and hierarchy.',
-                prompt: 'A slow approach into the observatory terraces, defining the primary tower and circulation routes.',
-              },
-              {
-                key: 'adjacent',
-                label: 'Adjacent Pass',
-                goal: 'Expand to a connected district without breaking continuity.',
-                prompt: 'Follow a route from the main terraces into an adjacent market-and-workshop ledge carved into the same cliff system.',
-              },
-              {
-                key: 'frontier',
-                label: 'Frontier Pass',
-                goal: 'Test a bolder edge of the same world.',
-                prompt: 'Push outward to a storm-exposed telescope platform at the city edge while preserving the same material language.',
-              },
-            ],
-          }),
+          output_text: '[MEDIUM] Fashion editorial photograph. [SUBJECT] Character. [CAMERA] Canon EOS R5. [SKIN_REFLECTANCE] Real skin. [HAIR] Blonde. [EXPRESSION] Direct. [FORBIDDEN] No plastic finish.',
         }),
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: 'task-anchor', status: 'queued' }),
+        json: async () => ({ data: [{ url: 'https://example.test/portrait.png' }] }),
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: 'task-adjacent', status: 'queued' }),
+        json: async () => ({
+          output: [
+            { type: 'reasoning', status: 'completed' },
+            {
+              type: 'message',
+              role: 'assistant',
+              status: 'completed',
+              content: [{ type: 'output_text', text: 'Close character sheet prompt.' }],
+            },
+          ],
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: 'task-frontier', status: 'queued' }),
+        json: async () => ({ output_text: 'Distant character sheet prompt.' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ url: 'https://example.test/close-sheet.png' }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ url: 'https://example.test/distant-sheet.png' }] }),
       });
 
     const { req, res } = createMocks({
       method: 'POST',
       body: {
-        prompt: 'Build the production design for a cliffside observatory city.',
-        sourceMaterials: 'Sketch plus AI stills plus Photoshop paintover.',
-        designRules: 'Keep the world monumental and tactile.',
-        ruleGroups: {
-          architecture: 'Keep the terraces vertically layered.',
-          materials: 'Use volcanic stone and oxidized brass.',
-        },
-        explorationGoal: 'Define camera routes for ongoing world exploration.',
-        continuityNotes: 'Keep silhouettes stable for future passes.',
-        sourceImages: ['data:image/png;base64,source-image'],
-        sourceVideos: ['data:video/mp4;base64,source-video'],
-        continuationImages: ['https://example.test/continuation-image.png'],
-        continuationVideos: ['https://example.test/continuation-video.mp4'],
-        continuedFrom: { runId: 'prior-run', passKey: 'anchor' },
+        prompt: 'A Scandinavian woman in her early 30s with sharp cheekbones and direct eye contact.',
         apiKey: 'test-api-key',
         baseUrl: 'https://example.test/api/v3',
-        model: 'ep-20260415171928-pdvvr',
-        ratio: '21:9',
-        duration: 20,
-        resolution: '720p',
+        model: 'seedream-5-0-260128',
+        size: '2K',
       },
     });
 
     await productionDesignHandler(req, res);
 
     expect(res._getStatusCode()).toBe(200);
-    expect(global.fetch).toHaveBeenCalledTimes(4);
+    expect(global.fetch).toHaveBeenCalledTimes(6);
 
     expect(global.fetch).toHaveBeenNthCalledWith(
       1,
@@ -119,54 +81,133 @@ describe('Production design API', () => {
       })
     );
 
-    const researchCallBody = JSON.parse(global.fetch.mock.calls[0][1].body);
-    expect(researchCallBody.input[1].content).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'input_text' }),
-        expect.objectContaining({ type: 'input_image', image_url: 'data:image/png;base64,source-image' }),
-        expect.objectContaining({ type: 'input_video', video_url: 'data:video/mp4;base64,source-video' }),
-        expect.objectContaining({ type: 'input_image', image_url: 'https://example.test/continuation-image.png' }),
-        expect.objectContaining({ type: 'input_video', video_url: 'https://example.test/continuation-video.mp4' }),
-      ])
-    );
+    const stepOneBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(stepOneBody.model).toBe('seed-2-0-pro-260328');
+    expect(stepOneBody.input[0].content[0].text).toContain('[MEDIUM]');
+    expect(stepOneBody.input[0].content[0].text).toContain('The generated image must contain no text');
+    expect(stepOneBody.input[1].content[0].text).toContain('Transform the following fictional character description');
 
-    const secondCallBody = JSON.parse(global.fetch.mock.calls[1][1].body);
-    const thirdCallBody = JSON.parse(global.fetch.mock.calls[2][1].body);
-    const fourthCallBody = JSON.parse(global.fetch.mock.calls[3][1].body);
+    const portraitBody = JSON.parse(global.fetch.mock.calls[1][1].body);
+    expect(portraitBody.model).toBe('ep-20260501195034-hj78f');
+    expect(portraitBody.prompt).toContain('[MEDIUM]');
+    expect(portraitBody.size).toBe('4K');
 
-    [secondCallBody, thirdCallBody, fourthCallBody].forEach((payload) => {
-      expect(payload.model).toBe('ep-20260415171928-pdvvr');
-      expect(payload.duration).toBe(15);
-      expect(payload.resolution).toBe('1080p');
-      expect(payload.ratio).toBe('21:9');
-      expect(payload.generate_audio).toBe(false);
-      expect(payload.content[0].type).toBe('text');
-      expect(payload.content[0].text).toContain('Keep the world consistent enough');
-      expect(payload.content).toEqual(
+    const closePromptBody = JSON.parse(global.fetch.mock.calls[2][1].body);
+    const distantPromptBody = JSON.parse(global.fetch.mock.calls[3][1].body);
+
+    [closePromptBody, distantPromptBody].forEach((payload) => {
+      expect(payload.model).toBe('seed-2-0-pro-260328');
+      expect(payload.input[1].content).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ type: 'image_url', role: 'reference_image' }),
-          expect.objectContaining({ type: 'video_url', role: 'reference_video' }),
+          expect.objectContaining({ type: 'input_text' }),
+          expect.objectContaining({ type: 'input_image', image_url: 'https://example.test/portrait.png' }),
         ])
       );
     });
+    expect(closePromptBody.input[1].content).toHaveLength(2);
+    expect(distantPromptBody.input[1].content).toHaveLength(2);
 
-    expect(secondCallBody.content[0].text).toContain('Anchor Pass');
-    expect(thirdCallBody.content[0].text).toContain('adjacent district');
-    expect(fourthCallBody.content[0].text).toContain('storm-exposed telescope platform');
+    expect(closePromptBody.input[1].content[0].text).toContain('2 view angles, front and side, close shot');
+    expect(closePromptBody.input[1].content[0].text).toContain('Original character description: A Scandinavian woman in her early 30s with sharp cheekbones and direct eye contact.');
+    expect(closePromptBody.input[1].content[0].text).toContain('Portrait anchor prompt: [MEDIUM]');
+    expect(closePromptBody.input[1].content[0].text).toContain('Keep wardrobe continuity');
+    expect(closePromptBody.input[1].content[0].text).toContain('No text, labels, captions, logos, numbers, or watermark-like marks');
+    expect(distantPromptBody.input[1].content[0].text).toContain('2 view angles, front and side, distant shot');
+    expect(distantPromptBody.input[1].content[0].text).toContain('Never default to generic black clothing');
+    expect(distantPromptBody.input[1].content[0].text).toContain('true full-body turnaround');
+    expect(distantPromptBody.input[1].content[0].text).toContain('show the entire figure from head to toe');
+    expect(distantPromptBody.input[1].content[0].text).toContain('No text, labels, captions, logos, numbers, or watermark-like marks');
+
+    const closeImageBody = JSON.parse(global.fetch.mock.calls[4][1].body);
+    const distantImageBody = JSON.parse(global.fetch.mock.calls[5][1].body);
+
+    [closeImageBody, distantImageBody].forEach((payload) => {
+      expect(payload.model).toBe('ep-20260501195034-hj78f');
+      expect(payload.size).toBe('4K');
+      expect(payload.image).toBe('https://example.test/portrait.png');
+    });
+
+    expect(closeImageBody.prompt).toBe('Close character sheet prompt.');
+    expect(distantImageBody.prompt).toBe('Distant character sheet prompt.');
 
     const data = JSON.parse(res._getData());
-    expect(data.duration).toBe(15);
-    expect(data.resolution).toBe('1080p');
     expect(data.researchModel).toBe('seed-2-0-pro-260328');
-    expect(data.designRules).toEqual([
-      'Preserve monumental vertical layering.',
-      'Avoid sleek generic sci-fi surfaces.',
+    expect(data.generationModel).toBe('ep-20260501195034-hj78f');
+    expect(data.characterPrompt).toContain('[MEDIUM]');
+    expect(data.portrait.imageUrl).toBe('https://example.test/portrait.png');
+    expect(data.closeSheet.imageUrl).toBe('https://example.test/close-sheet.png');
+    expect(data.distantSheet.imageUrl).toBe('https://example.test/distant-sheet.png');
+    expect(data.steps.map((item) => item.key)).toEqual([
+      'portrait-anchor',
+      'close-sheet',
+      'distant-sheet',
     ]);
-    expect(data.tasks).toHaveLength(3);
-    expect(data.tasks.map((item) => item.key)).toEqual(['anchor', 'adjacent', 'frontier']);
   });
 
-  test('rejects requests without a core brief before any research step runs', async () => {
+  test('creates portrait plus two character sheets without clothing inputs', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output_text: '[MEDIUM] Editorial portrait. [SUBJECT] Character. [CAMERA] Camera. [SKIN_REFLECTANCE] Skin. [HAIR] Hair. [EXPRESSION] Expression. [FORBIDDEN] No plastic.',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ url: 'https://example.test/portrait.png' }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ output_text: 'Close prompt without clothing.' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ output_text: 'Distant prompt without clothing.' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ url: 'https://example.test/close.png' }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ url: 'https://example.test/distant.png' }] }),
+      });
+
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: {
+        prompt: 'A weathered male detective with tired blue eyes.',
+        apiKey: 'test-api-key',
+        baseUrl: 'https://example.test/api/v3',
+        size: '2K',
+      },
+    });
+
+    await productionDesignHandler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(6);
+
+    const closePromptBody = JSON.parse(global.fetch.mock.calls[2][1].body);
+    expect(closePromptBody.input[1].content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'input_text' }),
+        expect.objectContaining({ type: 'input_image', image_url: 'https://example.test/portrait.png' }),
+      ])
+    );
+    expect(closePromptBody.input[1].content).toHaveLength(2);
+
+    const data = JSON.parse(res._getData());
+    expect(data.steps.map((item) => item.key)).toEqual([
+      'portrait-anchor',
+      'close-sheet',
+      'distant-sheet',
+    ]);
+    expect(data.size).toBe('4K');
+  });
+
+  test('rejects requests without a character description before any generation step runs', async () => {
     global.fetch = jest.fn();
 
     const { req, res } = createMocks({
@@ -181,83 +222,7 @@ describe('Production design API', () => {
     await productionDesignHandler(req, res);
 
     expect(res._getStatusCode()).toBe(400);
-    expect(JSON.parse(res._getData())).toEqual({ error: 'Core brief is required' });
+    expect(JSON.parse(res._getData())).toEqual({ error: 'Fictional character description is required' });
     expect(global.fetch).not.toHaveBeenCalled();
-  });
-
-  test('extracts research text when the responses API returns reasoning followed by a message output item', async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          output: [
-            {
-              type: 'reasoning',
-              status: 'completed',
-            },
-            {
-              type: 'message',
-              role: 'assistant',
-              status: 'completed',
-              content: [
-                {
-                  type: 'output_text',
-                  text: JSON.stringify({
-                    project_summary: 'Observatory city exploration package.',
-                    world_foundation: 'Stone terraces and scientific landmarks.',
-                    design_rules: ['Keep silhouettes stable.'],
-                    material_palette: ['volcanic stone'],
-                    spatial_logic: ['Terraces step toward the tower.'],
-                    camera_strategy: 'Glide from edge to center.',
-                    continuation_hooks: ['Preserve tower silhouette.'],
-                    exploration_passes: [
-                      {
-                        key: 'anchor',
-                        label: 'Anchor Pass',
-                        goal: 'Lock the world identity.',
-                        prompt: 'Approach the main observatory terraces.',
-                      },
-                      {
-                        key: 'adjacent',
-                        label: 'Adjacent Pass',
-                        goal: 'Expand to a nearby district.',
-                        prompt: 'Move into a connected cliff market district.',
-                      },
-                      {
-                        key: 'frontier',
-                        label: 'Frontier Pass',
-                        goal: 'Test a bolder edge.',
-                        prompt: 'Push toward a storm-facing telescope platform.',
-                      },
-                    ],
-                  }),
-                },
-              ],
-            },
-          ],
-        }),
-      })
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({ id: 'task-generic', status: 'queued' }),
-      });
-
-    const { req, res } = createMocks({
-      method: 'POST',
-      body: {
-        prompt: 'Build the production design for a cliffside observatory city.',
-        apiKey: 'test-api-key',
-        baseUrl: 'https://example.test/api/v3',
-        model: 'ep-20260415171928-pdvvr',
-      },
-    });
-
-    await productionDesignHandler(req, res);
-
-    expect(res._getStatusCode()).toBe(200);
-    const data = JSON.parse(res._getData());
-    expect(data.projectSummary).toBe('Observatory city exploration package.');
-    expect(data.tasks).toHaveLength(3);
   });
 });

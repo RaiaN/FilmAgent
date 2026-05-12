@@ -5,13 +5,14 @@ import { IconImage, IconVideoCamera, IconSettings, IconRobot, IconPlus, IconClos
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { baseSchemas } from '../utils/schemas';
-import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructProductionDesignPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructProductionDesignPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
 import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
 import ProductionDesignPlayground from '../components/ProductionDesignPlayground';
+import AssetUploadPlayground from '../components/AssetUploadPlayground';
 import WorkflowEditor from '../components/workflow/WorkflowEditor';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
@@ -36,6 +37,20 @@ const IconBytePlus = ({ style }) => (
 const { Sider, Content } = Layout;
 const { Title, Text } = Typography;
 
+const getSchemaDefaults = (modelId) => ({ ...(baseSchemas[modelId]?.defaults || {}) });
+
+const buildInitialFormState = () =>
+  Object.keys(baseSchemas).reduce((acc, key) => {
+    acc[key] = getSchemaDefaults(key);
+    return acc;
+  }, {});
+
+const buildInitialResultState = () =>
+  Object.keys(baseSchemas).reduce((acc, key) => {
+    acc[key] = null;
+    return acc;
+  }, {});
+
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
   const [activeModelId, setActiveModelId] = useState('seedream');
@@ -54,14 +69,37 @@ export default function Home() {
     fields: baseSchema.fields || [],
     defaults: baseSchema.defaults || {},
   });
-  const [formValues, setFormValues] = useState(baseSchema.defaults || {});
+  const [formStateByModel, setFormStateByModel] = useState(() => buildInitialFormState());
+  const formValues = formStateByModel[activeModelId] || getSchemaDefaults(activeModelId);
+  const setFormValues = useCallback((updater) => {
+    setFormStateByModel((prev) => {
+      const currentValues = prev[activeModelId] || getSchemaDefaults(activeModelId);
+      const nextValues = typeof updater === 'function' ? updater(currentValues) : updater;
+      return {
+        ...prev,
+        [activeModelId]: nextValues,
+      };
+    });
+  }, [activeModelId]);
   
   const [showRequestOutput, setShowRequestOutput] = useState(false);
   const [lastRequestPayload, setLastRequestPayload] = useState(null);
   const [lastResponsePayload, setLastResponsePayload] = useState(null);
 
   const [seedreamLoading, setSeedreamLoading] = useState(false);
-  const [seedreamResult, setSeedreamResult] = useState(null);
+  const [assetTosStagingLoading, setAssetTosStagingLoading] = useState(false);
+  const [resultStateByModel, setResultStateByModel] = useState(() => buildInitialResultState());
+  const seedreamResult = resultStateByModel[activeModelId] || null;
+  const setSeedreamResult = useCallback((updater) => {
+    setResultStateByModel((prev) => {
+      const currentValue = prev[activeModelId] || null;
+      const nextValue = typeof updater === 'function' ? updater(currentValue) : updater;
+      return {
+        ...prev,
+        [activeModelId]: nextValue,
+      };
+    });
+  }, [activeModelId]);
   const [modelCapabilities] = useState({}); // Store model metadata
   const [productionDesignRuns, setProductionDesignRuns] = useState([]);
   
@@ -105,10 +143,6 @@ export default function Home() {
         fields: newBaseSchema.fields,
         defaults: newBaseSchema.defaults,
       });
-      
-      // Reset form values to new family defaults
-      setFormValues(newBaseSchema.defaults);
-      setSeedreamResult(null);
   };
 
   const saveProductionDesignRun = useCallback((snapshot) => {
@@ -185,8 +219,14 @@ export default function Home() {
       fields: schema.fields,
       defaults: schema.defaults,
     });
-    setFormValues(nextValues);
-    setSeedreamResult(null);
+    setFormStateByModel((prev) => ({
+      ...prev,
+      'production-design': nextValues,
+    }));
+    setResultStateByModel((prev) => ({
+      ...prev,
+      'production-design': null,
+    }));
   };
 
   const handleLoadProductionDesignRun = (run, passKey) => {
@@ -199,8 +239,14 @@ export default function Home() {
       fields: schema.fields,
       defaults: schema.defaults,
     });
-    setFormValues(nextValues);
-    setSeedreamResult(null);
+    setFormStateByModel((prev) => ({
+      ...prev,
+      'production-design': nextValues,
+    }));
+    setResultStateByModel((prev) => ({
+      ...prev,
+      'production-design': null,
+    }));
   };
 
   const handleResetProductionDesignContinuation = () => {
@@ -225,6 +271,7 @@ export default function Home() {
           const caps = MODEL_CAPABILITIES[newModelId] || MODEL_CAPABILITIES.default;
           return {
             reference_images: caps.supports_ref_images ? prev.reference_images : [],
+            reference_image_asset_ids: caps.supports_ref_images ? prev.reference_image_asset_ids : [],
             reference_videos: caps.supports_ref_videos ? prev.reference_videos : [],
             reference_audios: caps.supports_ref_audios ? prev.reference_audios : [],
             generate_audio: caps.supports_audio ? prev.generate_audio : false,
@@ -243,6 +290,52 @@ export default function Home() {
       Message.success('API key set for this session');
     } else {
       Message.success('API key saved');
+    }
+  };
+
+  const handleStageAssetImageToTos = async () => {
+    if (activeModelId !== 'asset-upload') return;
+    if (!formValues.localImageData) {
+      Message.warning('Choose a local image first.');
+      return;
+    }
+
+    setAssetTosStagingLoading(true);
+    try {
+      const requestBody = {
+        localImageData: formValues.localImageData,
+        localImageName: formValues.localImageName || '',
+        stageOnly: true,
+      };
+
+      const response = await fetch('/api/asset-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      const data = await response.json();
+
+      if (!response.ok || data?.error) {
+        throw new Error(data?.details || data?.error || 'TOS upload failed');
+      }
+
+      setFormValues((prev) => ({
+        ...prev,
+        imageUrl: data.imageUrl || prev.imageUrl || '',
+      }));
+      Message.success('Uploaded to TOS and filled the Image URL field.');
+
+      if (showRequestOutput) {
+        setLastRequestPayload({
+          endpoint: '/api/asset-upload',
+          body: requestBody,
+        });
+        setLastResponsePayload(data);
+      }
+    } catch (error) {
+      Message.error(error.message || 'TOS upload failed');
+    } finally {
+      setAssetTosStagingLoading(false);
     }
   };
 
@@ -322,7 +415,7 @@ export default function Home() {
 
   const handleSeedreamSubmit = async (event) => {
     event.preventDefault();
-    if (!canRun) {
+    if (activeModelId !== 'asset-upload' && !canRun) {
       setSeedreamResult({ error: 'Please add your API key first.' });
       setIsSettingsOpen(true);
       return;
@@ -333,10 +426,15 @@ export default function Home() {
     try {
       let endpoint = '/api/seedream';
       let requestBody;
+      let parallelCount = 1;
 
       if (activeModelId === 'seedance') {
           endpoint = '/api/seedance';
           requestBody = constructSeedancePayload(formValues);
+          parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 5);
+      } else if (activeModelId === 'asset-upload') {
+          endpoint = '/api/asset-upload';
+          requestBody = constructAssetUploadPayload(formValues);
       } else if (activeModelId === 'production-design') {
           endpoint = '/api/production-design';
           requestBody = constructProductionDesignPayload(formValues);
@@ -360,22 +458,62 @@ export default function Home() {
           requestBody = constructWorkflowSeedreamPayload(formValues);
       }
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...requestBody,
-          apiKey: apiKey.trim(),
-        }),
-      });
-      const data = await response.json();
-      const nextResult = activeModelId === 'production-design' && !data.error
-        ? {
-            ...data,
-            runId: data.runId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            inputContext: requestBody,
-          }
-        : data;
+      const requestPayload = activeModelId === 'asset-upload'
+        ? requestBody
+        : {
+            ...requestBody,
+            apiKey: apiKey.trim(),
+          };
+
+      const executeRequest = async (requestIndex) => {
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestPayload),
+          });
+          const data = await response.json();
+          return {
+            ok: response.ok,
+            data,
+            requestIndex,
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            data: {
+              error: 'Request failed',
+              details: error.message,
+            },
+            requestIndex,
+          };
+        }
+      };
+
+      let nextResult;
+      if (activeModelId === 'seedance' && parallelCount > 1) {
+        const batchResponses = await Promise.all(
+          Array.from({ length: parallelCount }, (_, index) => executeRequest(index + 1))
+        );
+        nextResult = {
+          batch: true,
+          parallelCount,
+          items: batchResponses.map(({ ok, data, requestIndex }) => ({
+            ...(ok ? data : { error: data?.error || 'Request failed', details: data?.details || 'Unknown error' }),
+            requestIndex,
+          })),
+        };
+      } else {
+        const { data } = await executeRequest(1);
+        nextResult = activeModelId === 'production-design' && !data.error
+          ? {
+              ...data,
+              runId: data.runId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              inputContext: requestBody,
+            }
+          : data;
+      }
+
       setSeedreamResult(nextResult);
       if (activeModelId === 'production-design' && nextResult && !nextResult.error) {
         saveProductionDesignRun(nextResult);
@@ -384,7 +522,9 @@ export default function Home() {
         const debugBody = { ...requestBody, apiKey: 'REDACTED' };
         setLastRequestPayload({
           endpoint,
-          body: debugBody,
+          body: activeModelId === 'seedance' && parallelCount > 1
+            ? { parallelCount, request: debugBody }
+            : debugBody,
         });
         setLastResponsePayload(nextResult);
       }
@@ -420,6 +560,9 @@ export default function Home() {
                     </Menu.Item>
                     <Menu.Item key="production-design">
                         <IconUser style={{ fontSize: 20 }} />
+                    </Menu.Item>
+                    <Menu.Item key="asset-upload">
+                        <IconPlus style={{ fontSize: 20 }} />
                     </Menu.Item>
                     <Menu.Item key="llm">
                         <IconRobot style={{ fontSize: 20 }} />
@@ -487,6 +630,13 @@ export default function Home() {
                                 Production Design
                             </Button>
                             <Button 
+                                type={activeModelId === 'asset-upload' ? 'primary' : 'secondary'}
+                                onClick={() => handleModelFamilyChange('asset-upload')}
+                            >
+                                <IconPlus style={{ marginRight: 8 }} />
+                                Asset Upload
+                            </Button>
+                            <Button 
                                 type={activeModelId === 'llm' ? 'primary' : 'secondary'}
                                 onClick={() => handleModelFamilyChange('llm')}
                             >
@@ -546,6 +696,18 @@ export default function Home() {
                         runHistory={productionDesignRuns}
                         onLoadRun={handleLoadProductionDesignRun}
                         onResetContinuation={handleResetProductionDesignContinuation}
+                        result={seedreamResult}
+                    />
+                </div>
+                <div style={{ display: activeModelId === 'asset-upload' ? 'block' : 'none' }}>
+                    <AssetUploadPlayground
+                        schema={uiSchema}
+                        formValues={formValues}
+                        setFormValues={setFormValues}
+                        onSubmit={handleSeedreamSubmit}
+                        loading={seedreamLoading}
+                        onStageToTos={handleStageAssetImageToTos}
+                        stagingLoading={assetTosStagingLoading}
                         result={seedreamResult}
                     />
                 </div>

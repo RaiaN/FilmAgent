@@ -38,7 +38,7 @@ export const generateCurlCommand = (endpoint, payload) => {
   
   export const generateNodeCode = (endpoint, payload) => {
     return `const endpoint = "${endpoint}";
-  const apiKey = process.env.ARK_API_KEY;
+  const apiKey = process.env.MODELARK_API_KEY;
   
   const response = await fetch(endpoint, {
     method: 'POST',

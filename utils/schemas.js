@@ -1,7 +1,8 @@
 import modelsData from './models.json';
+import { generateAssetGroupId } from './assetGroupId';
 
 const DEFAULT_SEEDANCE_MODEL = 'ep-20260415171928-pdvvr';
-const DEFAULT_SEEDREAM_MODEL = 'seedream-5-0-260128';
+const DEFAULT_SEEDREAM_MODEL = 'ep-20260501195034-hj78f';
 
 // Helper to filter models from the JSON
 const getModelsByFilter = (filterFn) => {
@@ -123,12 +124,9 @@ export const baseSchemas = {
         type: 'enum',
         options: seedanceModels.length > 0 ? seedanceModels : [
             // Seedance Models Only
-            DEFAULT_SEEDANCE_MODEL,
-            'seedance-1-5-pro-251215'
+            DEFAULT_SEEDANCE_MODEL
         ],
-        defaultValue: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
-          ? DEFAULT_SEEDANCE_MODEL
-          : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
+        defaultValue: DEFAULT_SEEDANCE_MODEL,
         description: 'Seedance model id used for video generation.',
       },
       {
@@ -142,19 +140,25 @@ export const baseSchemas = {
         key: 'reference_images',
         label: 'Reference Images',
         type: 'image-list',
-        description: 'Reference images (1-4) for Seedance 1.0 Lite I2V and Seedance 2.0.',
+        description: 'Reference images (1-4) for Seedance 1.0 Lite I2V and Seedance 2.0. Use public URLs or local files to be staged via TOS.',
+      },
+      {
+        key: 'reference_image_asset_ids',
+        label: 'Reference Image Asset IDs',
+        type: 'text-list',
+        description: 'Seedance 2.0 image references can also come from Asset IDs created in the Asset Upload tab.',
       },
       {
         key: 'reference_videos',
         label: 'Reference Videos',
         type: 'video-list',
-        description: 'Reference video for Video-to-Video generation (Seedance 2.0).',
+        description: 'Reference video for Video-to-Video generation (Seedance 2.0). Use a public http(s) URL or upload a local file to be staged via TOS.',
       },
       {
         key: 'reference_audios',
         label: 'Reference Audio',
         type: 'audio-list',
-        description: 'Reference audio for generation (Seedance 2.0).',
+        description: 'Reference audio for generation (Seedance 2.0). Use a public http(s) URL or upload a local file to be staged via TOS.',
       },
       {
         key: 'resolution',
@@ -208,11 +212,13 @@ export const baseSchemas = {
         : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
       prompt: 'A cinematic shot of a futuristic city with flying cars.',
       reference_images: [],
+      reference_image_asset_ids: [],
       reference_videos: [],
       reference_audios: [],
       resolution: '720p',
       ratio: '16:9',
       duration: 5,
+      parallelCount: 1,
       seed: -1,
       generate_audio: true,
       watermark: false,
@@ -221,100 +227,68 @@ export const baseSchemas = {
   'production-design': {
     id: 'production-design',
     name: 'Production Design',
-    description: 'Research a world-design brief, turn it into natural-language design rules, and generate repeatable video explorations for ongoing environment discovery.',
+    description: 'Build an AI-native movie character pipeline: generate a portrait anchor, expand it into close and full-body character sheets, and optionally combine clothing direction.',
     fields: [
       {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
-          ? [DEFAULT_SEEDANCE_MODEL, ...seedanceModels.filter((modelId) => modelId !== DEFAULT_SEEDANCE_MODEL)]
-          : (seedanceModels.length > 0 ? seedanceModels : [DEFAULT_SEEDANCE_MODEL]),
-        defaultValue: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
-          ? DEFAULT_SEEDANCE_MODEL
-          : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
-        description: 'Seedance model used for all production design exploration passes.',
+        options: seedreamModels.length > 0 ? seedreamModels : [DEFAULT_SEEDREAM_MODEL],
+        defaultValue: DEFAULT_SEEDREAM_MODEL,
+        description: 'Display model for the character-sheet workflow. Generation is locked to the Seedream 5.0 endpoint.',
       },
       {
         key: 'prompt',
-        label: 'Core Brief',
+        label: 'Fictional Character Description',
         type: 'text',
         required: true,
-        description: 'What the production designer is trying to define, including the world, mood, and design challenge.',
-      },
-      {
-        key: 'sourceMaterials',
-        label: 'Source Materials',
-        type: 'text',
-        description: 'Describe the sketch, AI imagery, paintovers, and any existing visual development artifacts.',
-      },
-      {
-        key: 'designRules',
-        label: 'Design Rules',
-        type: 'text',
-        description: 'Natural-language constraints the agent should preserve across explorations.',
-      },
-      {
-        key: 'explorationGoal',
-        label: 'Exploration Goal',
-        type: 'text',
-        description: 'What this round should explore, test, or uncover in the world.',
-      },
-      {
-        key: 'continuityNotes',
-        label: 'Continuation Notes',
-        type: 'text',
-        description: 'Details that help the next iteration continue world exploration without losing continuity.',
-      },
-      {
-        key: 'ratio',
-        label: 'Aspect Ratio',
-        type: 'enum',
-        options: ['16:9', '9:16', '1:1'],
-        defaultValue: '16:9',
-        description: 'Aspect ratio used for all three variants.',
-      },
-      {
-        key: 'resolution',
-        label: 'Resolution',
-        type: 'enum',
-        options: ['1080p'],
-        defaultValue: '1080p',
-        description: 'Locked default output quality.',
-      },
-      {
-        key: 'duration',
-        label: 'Duration (seconds)',
-        type: 'enum',
-        options: [15],
-        defaultValue: 15,
-        description: 'Locked maximum duration.',
+        description: 'Describe the fictional character in plain language. Seed 2.0 Pro transforms this into the structured editorial portrait prompt used for step 1.',
       },
     ],
     defaults: {
-      model: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
-        ? DEFAULT_SEEDANCE_MODEL
-        : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
-      prompt: 'Build the production design for a weathered cliffside observatory city carved into black volcanic stone, with cable lifts, wind-battered banners, and a sense of ancient scientific purpose.',
-      sourceMaterials: 'Sketch: loose graphite thumbnail showing stacked observatory terraces and a central tower. AI imagery: moody overcast variations with wet stone, hanging lanterns, and deep chasms. Paintover: emphasized asymmetry, giant lens housings, and stronger foreground railings.',
-      designRules: 'Preserve monumental scale, believable circulation paths, tactile materials, and a lived-in scientific culture. Avoid generic sci-fi gloss. Keep architecture rooted in stone, brass, oxidized copper, canvas, and fog-softened glass.',
-      ruleGroups: {
-        architecture: 'Tiered terraces, strong vertical hierarchy, and clear circulation routes linking public, industrial, and scholarly zones.',
-        materials: 'Black volcanic stone, oxidized brass, weathered canvas, fogged glass, and salt-worn metal hardware.',
-        culture: 'Signs of a long-lived scientific society: maintenance access, observation platforms, weatherproof equipment, and ritualized civic gathering spaces.',
-        camera: 'Gliding travel that reveals elevation change, landmark hierarchy, and how one district leads into the next.',
-        guards: 'No sleek generic sci-fi skins. Preserve tactile scale, weathering, and landmark silhouettes from pass to pass.',
-      },
-      explorationGoal: 'Define how a camera can move through the environment to reveal hierarchy, material language, and the relationship between public terraces and the main observatory tower.',
-      continuityNotes: 'Keep landmark silhouettes and material palette stable so later passes can continue exploring adjacent districts and alternate weather conditions without resetting the world.',
-      sourceImages: [],
-      sourceVideos: [],
-      continuationImages: [],
-      continuationVideos: [],
+      model: DEFAULT_SEEDREAM_MODEL,
+      prompt: 'A fictional lead character for an AI-native movie: a young Scandinavian woman in her early 30s with a tall narrow face, sharp cheekbones, a long straight nose, blonde hair, and a direct, composed presence. Fashion editorial realism, photoreal textures, no retouching.',
       continuedFrom: null,
-      ratio: '16:9',
-      resolution: '1080p',
-      duration: 15,
+    },
+  },
+  'asset-upload': {
+    id: 'asset-upload',
+    name: 'Asset Upload',
+    description: 'Upload image assets into the ModelArk private virtual portrait library using AK/SK authentication and the Assets APIs.',
+    fields: [
+      {
+        key: 'assetGroupId',
+        label: 'Asset Group ID',
+        type: 'text',
+        description: 'The upload always uses this existing asset group id.',
+      },
+      {
+        key: 'imageUrl',
+        label: 'Image URL',
+        type: 'text',
+        description: 'Optional. If provided, the Assets API uses this public image URL directly. Leave it empty when staging a local image to TOS first.',
+      },
+      {
+        key: 'assetName',
+        label: 'Asset Name',
+        type: 'text',
+        description: 'Optional asset label used for management and fuzzy search.',
+      },
+      {
+        key: 'pollUntilReady',
+        label: 'Poll Until Ready',
+        type: 'boolean',
+        defaultValue: true,
+        description: 'Poll GetAsset until the asset becomes Active or Failed.',
+      },
+    ],
+    defaults: {
+      assetGroupId: generateAssetGroupId(),
+      imageUrl: '',
+      assetName: '',
+      localImageData: '',
+      localImageName: '',
+      pollUntilReady: true,
     },
   },
 };

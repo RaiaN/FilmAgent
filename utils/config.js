@@ -3,7 +3,7 @@
 
 export const CONFIG = {
     // Default to the AP-Southeast endpoint if not overridden by env vars
-    API_BASE_URL: process.env.MODELARK_BASE_URL || 'https://ark.ap-southeast.bytepluses.com/api/v3',
+    API_BASE_URL: process.env.MODELARK_API_BASE_URL,
     
     // Helper to construct full endpoints
     endpoints: {

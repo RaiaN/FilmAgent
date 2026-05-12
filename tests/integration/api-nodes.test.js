@@ -8,13 +8,6 @@ import seedanceHandler from '../../pages/api/seedance';
 import seedreamHandler from '../../pages/api/seedream';
 import fs from 'fs';
 import path from 'path';
-import dotenv from 'dotenv';
-
-// Load environment variables from .env.local
-dotenv.config({ path: '.env.local' });
-
-// Helper to wait
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 describe('Seed API request formatting', () => {
     const originalFetch = global.fetch;

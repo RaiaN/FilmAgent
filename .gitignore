@@ -26,7 +26,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
-.claude
+/.claude
+/.dbg
 .env
 .env.local
 .env.test

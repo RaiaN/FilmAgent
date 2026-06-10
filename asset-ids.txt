@@ -1,0 +1,35 @@
+Char 1 [Erik]
+asset-20260513171157-b9jhv
+asset-20260513171409-cq2kh
+asset-20260513171453-82fx9
+
+Char 2 [Mila]
+asset-20260513171919-qzs7x
+asset-20260513174555-9stps
+asset-20260513174632-ww429
+
+Loc 1:
+asset-20260513183501-c7mrh
+asset-20260513183531-wpj95
+asset-20260513183613-rrjc8
+
+Storyboard:
+asset-20260526174855-m5m7r
+
+Shot 1 last frame:
+asset-20260515195049-b7hw6
+
+Helper shot (Erik's back + Mila in front)
+asset-20260604021549-x9rjj
+
+Shot 2 last frame:
+asset-20260515200833-rhbln
+
+Shot 3 last frame:
+asset-20260527004105-qc96z
+
+Robot:
+asset-20260528232502-j7jj5
+
+Prop:
+asset-20260528232549-ff6s6

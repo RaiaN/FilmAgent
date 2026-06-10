@@ -34,11 +34,67 @@ const UriPanel = ({ uri }) => {
   );
 };
 
+const SingleImageResult = ({ result }) => {
+  if (result.error) {
+    return (
+      <div className="result" style={{ color: '#f53f3f', padding: '0.75rem', border: '1px solid #fde2e2', borderRadius: 8 }}>
+        {typeof result.error === 'string' ? result.error : JSON.stringify(result.error)}
+        {result.details && <pre style={{ fontSize: 11, marginTop: 4, whiteSpace: 'pre-wrap', color: '#86909c' }}>{typeof result.details === 'string' ? result.details : JSON.stringify(result.details, null, 2)}</pre>}
+      </div>
+    );
+  }
+  if (result.images) {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.75rem' }}>
+        {result.images.map((img, idx) => {
+          const src = img.url || `data:image/png;base64,${img.b64_json}`;
+          return (
+            <div key={idx}>
+              <img src={src} alt={`Result ${idx + 1}`} className="media" style={{ width: '100%', borderRadius: 6 }} />
+              <a className="link-button secondary small" href={src} download={`result-${idx + 1}.png`} style={{ display: 'block', marginTop: 4 }}>Download</a>
+              {isRemoteUrl(src) && <UriPanel uri={src} />}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  if (result.imageUrl) {
+    return (
+      <>
+        <img src={result.imageUrl} alt="Result" className="media" style={{ width: '100%', borderRadius: 6 }} />
+        <a className="link-button secondary" href={result.imageUrl} download="result.png" style={{ display: 'block', marginTop: 4 }}>Download</a>
+        <UriPanel uri={result.imageUrl} />
+      </>
+    );
+  }
+  return <div className="result">{JSON.stringify(result, null, 2)}</div>;
+};
+
 const ImageResultViewer = ({ result }) => {
   if (!result) return null;
 
   if (result.error) {
-    return <div className="result">{JSON.stringify(result, null, 2)}</div>;
+    return <div className="result">{typeof result.error === 'string' ? result.error : JSON.stringify(result.error)}</div>;
+  }
+
+  // Handle batch (parallel) results
+  if (result.batch && Array.isArray(result.items)) {
+    return (
+      <div style={{ marginTop: '1.5rem' }}>
+        <div style={{ fontSize: 13, color: '#86909c', marginBottom: 12 }}>
+          {result.items.length} generations
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+          {result.items.map((item, idx) => (
+            <div key={idx} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem', background: '#fafafa' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#165dff', marginBottom: 6 }}>#{idx + 1}</div>
+              <SingleImageResult result={item} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   // Handle Multi-Image Results (e.g. Sequential or Batch)

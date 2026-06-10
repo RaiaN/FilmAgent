@@ -1,8 +1,19 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const net = require('net');
 const { createServer } = require('http');
 const next = require('next');
+
+ipcMain.handle('film:pickFolder', async (_event, { mode } = {}) => {
+  const properties = ['openDirectory'];
+  if (mode === 'new') properties.push('createDirectory');
+  const result = await dialog.showOpenDialog({
+    title: mode === 'new' ? 'Pick a folder for the new project' : 'Open project folder',
+    properties,
+  });
+  if (result.canceled || !result.filePaths?.length) return { path: '' };
+  return { path: result.filePaths[0] };
+});
 
 const isDev = !app.isPackaged;
 let nextServer;
@@ -28,6 +39,7 @@ const createMainWindow = async () => {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 

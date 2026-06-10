@@ -117,7 +117,9 @@ async function normalizeSeedanceContent(content) {
       ...item,
       [key]: {
         ...(item[key] || {}),
-        url: staged.fetchUrl || staged.objectUrl,
+        // Presigned URL so Seedance can fetch it even on a private bucket
+        // (the unsigned objectUrl would 403).
+        url: staged.signedUrl || staged.fetchUrl || staged.objectUrl,
       },
     };
   }));

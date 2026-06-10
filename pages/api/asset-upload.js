@@ -68,13 +68,22 @@ export default async function assetUploadHandler(req, res) {
   const projectName = 'default';
   const {
     assetGroupId,
+    assetType = 'Image',
     imageUrl,
+    videoUrl,
     assetName,
     localImageData,
     localImageName,
+    localVideoData,
+    localVideoName,
     stageOnly = false,
     pollUntilReady = true,
   } = req.body || {};
+
+  const isVideo = assetType === 'Video';
+  const localMediaData = isVideo ? localVideoData : localImageData;
+  const localMediaName = isVideo ? localVideoName : localImageName;
+  const mediaUrl = isVideo ? videoUrl : imageUrl;
 
   const resolvedAccessKey = process.env.MODELARK_ASSET_ACCESS_KEY;
   const resolvedSecretKey = process.env.MODELARK_ASSET_SECRET_KEY;
@@ -92,8 +101,8 @@ export default async function assetUploadHandler(req, res) {
     });
   }
 
-  if (!imageUrl && !localImageData) {
-    return res.status(400).json({ error: 'Provide either an image URL or a local image file.' });
+  if (!mediaUrl && !localMediaData) {
+    return res.status(400).json({ error: `Provide either a ${isVideo ? 'video' : 'image'} URL or a local file.` });
   }
 
   if (!stageOnly && requestedAssetGroupId && !isValidAssetGroupId(requestedAssetGroupId)) {
@@ -101,12 +110,12 @@ export default async function assetUploadHandler(req, res) {
   }
 
   try {
-    let normalizedImageUrl = String(imageUrl || '').trim();
+    let normalizedMediaUrl = String(mediaUrl || '').trim();
     let stagedUpload = null;
 
-    if (normalizedImageUrl) {
-      if (!/^https?:\/\//i.test(normalizedImageUrl)) {
-        return res.status(400).json({ error: 'Image URL must be a publicly accessible http or https URL. Local file paths are not supported by CreateAsset.' });
+    if (normalizedMediaUrl) {
+      if (!/^https?:\/\//i.test(normalizedMediaUrl)) {
+        return res.status(400).json({ error: `${isVideo ? 'Video' : 'Image'} URL must be a publicly accessible http or https URL.` });
       }
     } else {
       if (!resolvedTosBucket) {
@@ -121,22 +130,22 @@ export default async function assetUploadHandler(req, res) {
         tosEndpoint: resolvedTosEndpoint,
         tosObjectPrefix: resolvedTosObjectPrefix,
         tosPublicBaseUrl: resolvedTosPublicBaseUrl,
-        localData: localImageData,
-        localName: localImageName,
-        fallbackName: `asset-${Date.now()}.png`,
-        dataLabel: 'Local image payload',
+        localData: localMediaData,
+        localName: localMediaName,
+        fallbackName: `asset-${Date.now()}.${isVideo ? 'mp4' : 'png'}`,
+        dataLabel: `Local ${isVideo ? 'video' : 'image'} payload`,
       });
-      normalizedImageUrl = stagedUpload.fetchUrl || stagedUpload.objectUrl;
+      normalizedMediaUrl = stagedUpload.fetchUrl || stagedUpload.objectUrl;
     }
 
     if (stageOnly) {
       return res.status(200).json({
         stagedOnly: true,
-        imageUrl: normalizedImageUrl,
+        imageUrl: normalizedMediaUrl,
         objectUrl: stagedUpload?.objectUrl || null,
-        stagedFromLocalFile: Boolean(localImageData),
-        localImageName: String(localImageName || '').trim(),
-        tos: localImageData
+        stagedFromLocalFile: Boolean(localMediaData),
+        localMediaName: String(localMediaName || '').trim(),
+        tos: localMediaData
           ? {
               bucket: resolvedTosBucket,
               region: resolvedTosRegion,
@@ -148,19 +157,21 @@ export default async function assetUploadHandler(req, res) {
       });
     }
 
+    const createAssetPayload = {
+      GroupId: resolvedAssetGroupId,
+      URL: normalizedMediaUrl,
+      AssetType: assetType,
+      ...(assetName ? { Name: String(assetName).trim() } : {}),
+      ProjectName: projectName || 'default',
+    };
+
     let groupId = resolvedAssetGroupId;
     let groupCreated = false;
     let createAssetResponse;
     try {
       createAssetResponse = await callAssetApi({
         action: 'CreateAsset',
-        payload: {
-          GroupId: groupId,
-          URL: normalizedImageUrl,
-          AssetType: 'Image',
-          ...(assetName ? { Name: String(assetName).trim() } : {}),
-          ProjectName: projectName || 'default',
-        },
+        payload: { ...createAssetPayload, GroupId: groupId },
         accessKey: resolvedAccessKey,
         secretKey: resolvedSecretKey,
       });
@@ -179,13 +190,7 @@ export default async function assetUploadHandler(req, res) {
       groupCreated = true;
       createAssetResponse = await callAssetApi({
         action: 'CreateAsset',
-        payload: {
-          GroupId: groupId,
-          URL: normalizedImageUrl,
-          AssetType: 'Image',
-          ...(assetName ? { Name: String(assetName).trim() } : {}),
-          ProjectName: projectName || 'default',
-        },
+        payload: { ...createAssetPayload, GroupId: groupId },
         accessKey: resolvedAccessKey,
         secretKey: resolvedSecretKey,
       });
@@ -227,12 +232,13 @@ export default async function assetUploadHandler(req, res) {
       groupId,
       groupCreated,
       assetId,
+      assetType,
       projectName: projectName || 'default',
-      imageUrl: normalizedImageUrl,
+      mediaUrl: normalizedMediaUrl,
       assetName: String(assetName || '').trim(),
-      stagedFromLocalFile: Boolean(localImageData),
-      localImageName: String(localImageName || '').trim(),
-      tos: localImageData
+      stagedFromLocalFile: Boolean(localMediaData),
+      localMediaName: String(localMediaName || '').trim(),
+      tos: localMediaData
         ? {
             bucket: resolvedTosBucket,
             region: resolvedTosRegion,

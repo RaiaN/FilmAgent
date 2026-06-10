@@ -142,13 +142,13 @@ const VideoGenNode = ({ data }) => {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Duration (s)</Typography.Text>
           <Select
             size="small"
-            value={Number(data.duration) || 5}
+            value={data.duration ?? 'auto'}
             onChange={(val) => data.onChange('duration', val)}
             style={{ width: '100%' }}
           >
               {durations.map(d => (
                   <Select.Option key={d} value={d}>
-                      {d === -1 ? "Auto (Model Decides)" : `${d}s`}
+                      {typeof d === 'number' ? `${d}s` : 'Auto'}
                   </Select.Option>
               ))}
           </Select>

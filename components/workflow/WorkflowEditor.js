@@ -493,7 +493,7 @@ const WorkflowEditor = ({ active }) => {
               prompt: combinedPrompt,
               reference_images: referenceImages,
               resolution: data.resolution || '720p',
-              duration: Number(data.duration) || 5,
+              duration: data.duration ?? 'auto',
               generate_audio: !!data.generate_audio,
           });
 

@@ -215,8 +215,8 @@ const LLMPlayground = ({
                  ) : result && result.error ? (
                      <div style={{ color: 'red', padding: 20, background: '#fff7f7', borderRadius: 8, border: '1px solid #ffecec' }}>
                          <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Error</div>
-                         {result.error}
-                         {result.details && <pre style={{ marginTop: 8, fontSize: 12, background: 'rgba(255,0,0,0.05)', padding: 8 }}>{JSON.stringify(result.details, null, 2)}</pre>}
+                         {typeof result.error === 'string' ? result.error : JSON.stringify(result.error)}
+                         {result.details && <pre style={{ marginTop: 8, fontSize: 12, background: 'rgba(255,0,0,0.05)', padding: 8 }}>{typeof result.details === 'string' ? result.details : JSON.stringify(result.details, null, 2)}</pre>}
                      </div>
                  ) : (
                      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#c9cdd4' }}>

@@ -14,7 +14,7 @@ export const MODEL_CAPABILITIES = {
     'ep-20260415171928-pdvvr': {
         resolutions: ['720p', '1080p'],
         ratios: ['16:9', '9:16', '1:1'],
-        durations: [5, 10, 15],
+        durations: ['auto', 5, 10, 15],
         supports_audio: true,
         supports_draft: false,
         supports_ref_images: true,
@@ -26,10 +26,19 @@ export const MODEL_CAPABILITIES = {
 
     // --- LLM / AI ANALYSIS MODELS ---
     'seed-2-0-pro-260328': {
-        input_modalities: ['text', 'image'],
+        input_modalities: ['text', 'image', 'video', 'audio'],
+        supportsImage: true,
+        supportsVideo: true,
     },
-    'seed-2-0-mini-260215': {
-        input_modalities: ['text', 'image'],
+    'seed-2-0-mini-260428': {
+        input_modalities: ['text', 'image', 'video', 'audio'],
+        supportsImage: true,
+        supportsVideo: true,
+    },
+    'seed-2-0-lite-260428': {
+        input_modalities: ['text', 'image', 'video', 'audio'],
+        supportsImage: true,
+        supportsVideo: true,
     },
 
     // Default fallback
@@ -46,7 +55,7 @@ export const MODEL_CAPABILITIES = {
         // Seedance defaults
         resolutions: ['480p', '720p', '1080p'],
         ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
-        durations: [5, 10, 15],
+        durations: ['auto', 5, 10, 15],
         supports_audio: true,
         supports_draft: false,
         supports_ref_images: true,

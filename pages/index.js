@@ -1,18 +1,19 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layout, Menu, Button, Drawer, Input, Message, Card, Typography, Upload } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconSettings, IconRobot, IconPlus, IconClose, IconMindMapping, IconUser } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconSettings, IconRobot, IconPlus, IconClose, IconMindMapping, IconUser, IconSound, IconApps } from '@arco-design/web-react/icon';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { baseSchemas } from '../utils/schemas';
-import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructProductionDesignPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
 import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
-import ProductionDesignPlayground from '../components/ProductionDesignPlayground';
+import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
 import AssetUploadPlayground from '../components/AssetUploadPlayground';
+import SpeechPlayground from '../components/SpeechPlayground';
 import WorkflowEditor from '../components/workflow/WorkflowEditor';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
@@ -51,9 +52,13 @@ const buildInitialResultState = () =>
     return acc;
   }, {});
 
+// Raw model playgrounds grouped under the "Tools" meta tab.
+const TOOL_TABS = ['seedream', 'seedance', 'asset-upload', 'llm', 'speech', 'workflow'];
+
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
-  const [activeModelId, setActiveModelId] = useState('seedream');
+  const [activeModelId, setActiveModelId] = useState('film-agent');
+  const [lastToolId, setLastToolId] = useState('seedream');
   const [chatHistory, setChatHistory] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatImage, setChatImage] = useState(null);
@@ -101,8 +106,7 @@ export default function Home() {
     });
   }, [activeModelId]);
   const [modelCapabilities] = useState({}); // Store model metadata
-  const [productionDesignRuns, setProductionDesignRuns] = useState([]);
-  
+
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -120,6 +124,11 @@ export default function Home() {
   useEffect(() => {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
+
+  // Remember the most recently used tool so the "Tools" meta tab returns to it.
+  useEffect(() => {
+    if (TOOL_TABS.includes(activeModelId)) setLastToolId(activeModelId);
+  }, [activeModelId]);
 
   const canRun = useMemo(() => apiKey.trim().length > 0, [apiKey]);
 
@@ -145,134 +154,16 @@ export default function Home() {
       });
   };
 
-  const saveProductionDesignRun = useCallback((snapshot) => {
-    if (!snapshot?.runId) return;
-    setProductionDesignRuns((prev) => {
-      const existing = prev.find((item) => item.runId === snapshot.runId);
-      if (existing && JSON.stringify(existing) === JSON.stringify(snapshot)) {
-        return prev;
-      }
-      const nextRuns = [snapshot, ...prev.filter((item) => item.runId !== snapshot.runId)].slice(0, 6);
-      return nextRuns;
-    });
-  }, []);
-
-  const buildProductionDesignContinuation = (run, passKey) => {
-    if (!run) return baseSchemas['production-design'].defaults;
-    const pass = (run.tasks || []).find((item) => item.key === passKey) || run.tasks?.[0];
-    const selectedVideoUrl = pass?.taskStatus?.video_url || '';
-    const baseDefaults = baseSchemas['production-design'].defaults;
-    const inputContext = run.inputContext || {};
-
-    return {
-      ...baseDefaults,
-      model: inputContext.model || run.model || baseDefaults.model,
-      prompt: run.projectSummary || inputContext.prompt || baseDefaults.prompt,
-      sourceMaterials: inputContext.sourceMaterials || baseDefaults.sourceMaterials,
-      designRules: inputContext.designRules || (run.designRules || []).join('\n'),
-      ruleGroups: inputContext.ruleGroups || baseDefaults.ruleGroups,
-      explorationGoal: pass
-        ? `Continue world exploration from ${pass.label} to reveal the next coherent zone, transition, or condition of the same environment.`
-        : inputContext.explorationGoal || baseDefaults.explorationGoal,
-      continuityNotes: [
-        inputContext.continuityNotes,
-        ...(run.continuationHooks || []),
-        pass ? `Continue from ${pass.label}. Preserve the established silhouettes, material language, and spatial logic.` : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
-      sourceImages: inputContext.sourceImages || [],
-      sourceVideos: inputContext.sourceVideos || [],
-      continuationImages: inputContext.continuationImages || [],
-      continuationVideos: [...(inputContext.continuationVideos || []), ...(selectedVideoUrl ? [selectedVideoUrl] : [])],
-      continuedFrom: pass
-        ? {
-            runId: run.runId,
-            passKey: pass.key,
-            passLabel: pass.label,
-            taskId: pass.task?.id || '',
-            prompt: pass.prompt,
-            videoUrl: selectedVideoUrl,
-          }
-        : null,
-      ratio: run.ratio || inputContext.ratio || baseDefaults.ratio,
-      resolution: '1080p',
-      duration: 15,
-    };
-  };
-
-  const handleContinueProductionDesign = (run, pass, status) => {
-    const nextValues = buildProductionDesignContinuation(
-      {
-        ...run,
-        tasks: (run?.tasks || []).map((task) =>
-          task.key === pass?.key ? { ...task, taskStatus: status || task.taskStatus || null } : task
-        ),
-      },
-      pass?.key
-    );
-    setActiveModelId('production-design');
-    const schema = baseSchemas['production-design'];
-    setUiSchema({
-      title: schema.name,
-      description: schema.description,
-      fields: schema.fields,
-      defaults: schema.defaults,
-    });
-    setFormStateByModel((prev) => ({
-      ...prev,
-      'production-design': nextValues,
-    }));
-    setResultStateByModel((prev) => ({
-      ...prev,
-      'production-design': null,
-    }));
-  };
-
-  const handleLoadProductionDesignRun = (run, passKey) => {
-    const nextValues = buildProductionDesignContinuation(run, passKey);
-    setActiveModelId('production-design');
-    const schema = baseSchemas['production-design'];
-    setUiSchema({
-      title: schema.name,
-      description: schema.description,
-      fields: schema.fields,
-      defaults: schema.defaults,
-    });
-    setFormStateByModel((prev) => ({
-      ...prev,
-      'production-design': nextValues,
-    }));
-    setResultStateByModel((prev) => ({
-      ...prev,
-      'production-design': null,
-    }));
-  };
-
-  const handleResetProductionDesignContinuation = () => {
-    const defaults = baseSchemas['production-design'].defaults;
-    setFormValues((prev) => ({
-      ...defaults,
-      model: prev.model || defaults.model,
-      sourceImages: prev.sourceImages || [],
-      sourceVideos: prev.sourceVideos || [],
-      continuationImages: [],
-      continuationVideos: [],
-      continuedFrom: null,
-    }));
-  };
-
   const handleModelChange = (e) => {
     const newModelId = e.target.value;
     setFormValues((prev) => ({
         ...prev,
         model: newModelId,
-        ...((activeModelId === 'seedance' || activeModelId === 'production-design') ? (() => {
+        ...(activeModelId === 'seedance' ? (() => {
           const caps = MODEL_CAPABILITIES[newModelId] || MODEL_CAPABILITIES.default;
           return {
-            reference_images: caps.supports_ref_images ? prev.reference_images : [],
-            reference_image_asset_ids: caps.supports_ref_images ? prev.reference_image_asset_ids : [],
-            reference_videos: caps.supports_ref_videos ? prev.reference_videos : [],
+            reference_image_refs: caps.supports_ref_images ? prev.reference_image_refs : [],
+            reference_video_refs: caps.supports_ref_videos ? prev.reference_video_refs : [],
             reference_audios: caps.supports_ref_audios ? prev.reference_audios : [],
             generate_audio: caps.supports_audio ? prev.generate_audio : false,
           };
@@ -295,18 +186,22 @@ export default function Home() {
 
   const handleStageAssetImageToTos = async () => {
     if (activeModelId !== 'asset-upload') return;
-    if (!formValues.localImageData) {
+    const isVideo = (formValues.assetType || 'Image') === 'Video';
+
+    if (isVideo && !formValues.localVideoData) {
+      Message.warning('Choose a local video first.');
+      return;
+    }
+    if (!isVideo && !formValues.localImageData) {
       Message.warning('Choose a local image first.');
       return;
     }
 
     setAssetTosStagingLoading(true);
     try {
-      const requestBody = {
-        localImageData: formValues.localImageData,
-        localImageName: formValues.localImageName || '',
-        stageOnly: true,
-      };
+      const requestBody = isVideo
+        ? { localVideoData: formValues.localVideoData, localVideoName: formValues.localVideoName || '', stageOnly: true }
+        : { localImageData: formValues.localImageData, localImageName: formValues.localImageName || '', stageOnly: true };
 
       const response = await fetch('/api/asset-upload', {
         method: 'POST',
@@ -321,9 +216,9 @@ export default function Home() {
 
       setFormValues((prev) => ({
         ...prev,
-        imageUrl: data.imageUrl || prev.imageUrl || '',
+        [isVideo ? 'videoUrl' : 'imageUrl']: data.imageUrl || (isVideo ? prev.videoUrl : prev.imageUrl) || '',
       }));
-      Message.success('Uploaded to TOS and filled the Image URL field.');
+      Message.success(`Uploaded to TOS and filled the ${isVideo ? 'Video' : 'Image'} URL field.`);
 
       if (showRequestOutput) {
         setLastRequestPayload({
@@ -356,7 +251,7 @@ export default function Home() {
       RECOMMENDATION POLICY:
       - For IMAGE generation (Seedream), use and recommend only 'seedream-5-0-260128'. Do NOT recommend removed or legacy Seedream variants.
       - For VIDEO generation (Seedance), recommend 'seedance-1-5-pro-251215' as the latest and most capable model.
-      - NOTE: 'seed-2-0-mini-260215' is the model powering YOU (the assistant) for text/image analysis, NOT for generating images.
+      - NOTE: 'seed-2-0-mini-260428' is the model powering YOU (the assistant) for text/image analysis, NOT for generating images.
       - Do NOT recommend random or older model versions unless specifically asked.
       
       Answer user questions about the API capabilities, parameters, and usage.`;
@@ -368,7 +263,7 @@ export default function Home() {
           prompt: chatInput || "Analyze this image",
           apiKey: apiKey.trim(),
           systemPrompt,
-          image: userMessage.image,
+          images: userMessage.image ? [userMessage.image] : [],
         }),
       });
       const data = await response.json();
@@ -415,7 +310,7 @@ export default function Home() {
 
   const handleSeedreamSubmit = async (event) => {
     event.preventDefault();
-    if (activeModelId !== 'asset-upload' && !canRun) {
+    if (activeModelId !== 'asset-upload' && activeModelId !== 'speech' && !canRun) {
       setSeedreamResult({ error: 'Please add your API key first.' });
       setIsSettingsOpen(true);
       return;
@@ -428,23 +323,23 @@ export default function Home() {
       let requestBody;
       let parallelCount = 1;
 
-      if (activeModelId === 'seedance') {
+      if (activeModelId === 'seedream') {
+          parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 5, 1), 5);
+          requestBody = constructWorkflowSeedreamPayload(formValues);
+      } else if (activeModelId === 'seedance') {
           endpoint = '/api/seedance';
           requestBody = constructSeedancePayload(formValues);
-          parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 5);
+          parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 15);
       } else if (activeModelId === 'asset-upload') {
           endpoint = '/api/asset-upload';
           requestBody = constructAssetUploadPayload(formValues);
-      } else if (activeModelId === 'production-design') {
-          endpoint = '/api/production-design';
-          requestBody = constructProductionDesignPayload(formValues);
       } else if (activeModelId === 'llm') {
           endpoint = '/api/seed';
           const llmPayload = constructLLMPayload(formValues);
           requestBody = {
             prompt: llmPayload.prompt,
             modelId: llmPayload.model,
-            image: llmPayload.image,
+            images: llmPayload.images,
             video: llmPayload.video,
             systemPrompt: `You are an expert AI media analyst for the ModelArk platform. 
             Your goal is to analyze the provided image or video and answer the user's prompt.
@@ -454,16 +349,24 @@ export default function Home() {
             2. If the user asks for generation advice, recommend prompts compatible with 'Seedream' (Image Gen) or 'Seedance' (Video Gen).
             3. Do NOT recommend complex workflows, external tools, or features not available in a standard text-to-media generation interface (e.g. do not suggest manual masking, 3D modeling, or post-processing software).`
           };
+      } else if (activeModelId === 'speech') {
+          endpoint = '/api/speech';
+          requestBody = {
+            speaker: formValues.speaker || '',
+            text: formValues.text || '',
+            format: formValues.format || 'mp3',
+            sampleRate: formValues.sampleRate || 24000,
+            speechRate: formValues.speechRate ?? 0,
+            loudnessRate: formValues.loudnessRate ?? 0,
+            contextText: formValues.contextText || '',
+          };
       } else {
           requestBody = constructWorkflowSeedreamPayload(formValues);
       }
 
-      const requestPayload = activeModelId === 'asset-upload'
+      const requestPayload = (activeModelId === 'asset-upload' || activeModelId === 'speech')
         ? requestBody
-        : {
-            ...requestBody,
-            apiKey: apiKey.trim(),
-          };
+        : { ...requestBody, apiKey: apiKey.trim() };
 
       const executeRequest = async (requestIndex) => {
         try {
@@ -491,7 +394,7 @@ export default function Home() {
       };
 
       let nextResult;
-      if (activeModelId === 'seedance' && parallelCount > 1) {
+      if ((activeModelId === 'seedance' || activeModelId === 'seedream') && parallelCount > 1) {
         const batchResponses = await Promise.all(
           Array.from({ length: parallelCount }, (_, index) => executeRequest(index + 1))
         );
@@ -499,30 +402,21 @@ export default function Home() {
           batch: true,
           parallelCount,
           items: batchResponses.map(({ ok, data, requestIndex }) => ({
-            ...(ok ? data : { error: data?.error || 'Request failed', details: data?.details || 'Unknown error' }),
+            ...(ok ? data : { error: data?.error || 'Request failed', details: data?.details }),
             requestIndex,
           })),
         };
       } else {
         const { data } = await executeRequest(1);
-        nextResult = activeModelId === 'production-design' && !data.error
-          ? {
-              ...data,
-              runId: data.runId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              inputContext: requestBody,
-            }
-          : data;
+        nextResult = data;
       }
 
       setSeedreamResult(nextResult);
-      if (activeModelId === 'production-design' && nextResult && !nextResult.error) {
-        saveProductionDesignRun(nextResult);
-      }
       if (showRequestOutput) {
         const debugBody = { ...requestBody, apiKey: 'REDACTED' };
         setLastRequestPayload({
           endpoint,
-          body: activeModelId === 'seedance' && parallelCount > 1
+          body: (activeModelId === 'seedance' || activeModelId === 'seedream') && parallelCount > 1
             ? { parallelCount, request: debugBody }
             : debugBody,
         });
@@ -558,7 +452,7 @@ export default function Home() {
                     <Menu.Item key="seedance">
                         <IconVideoCamera style={{ fontSize: 20 }} />
                     </Menu.Item>
-                    <Menu.Item key="production-design">
+                    <Menu.Item key="film-agent">
                         <IconUser style={{ fontSize: 20 }} />
                     </Menu.Item>
                     <Menu.Item key="asset-upload">
@@ -566,6 +460,9 @@ export default function Home() {
                     </Menu.Item>
                     <Menu.Item key="llm">
                         <IconRobot style={{ fontSize: 20 }} />
+                    </Menu.Item>
+                    <Menu.Item key="speech">
+                        <IconSound style={{ fontSize: 20 }} />
                     </Menu.Item>
                     {/* Settings Tab - explicitly added back */}
                     <Menu.Item key="settings">
@@ -600,58 +497,69 @@ export default function Home() {
         </Sider>
         
         <Content style={{ padding: '24px', background: '#f6f7f9', overflowY: 'auto' }}>
-            <div style={{ maxWidth: activeModelId === 'workflow' ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
+            <div style={{ maxWidth: (activeModelId === 'workflow' || activeModelId === 'film-agent') ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
 
                 <header style={{ marginBottom: 24, textAlign: 'center' }}>
                     <Title heading={2} style={{ margin: 0 }}>{uiSchema.title}</Title>
                     <Text type="secondary">{uiSchema.description}</Text>
                     
-                    <div style={{ marginTop: 16 }}>
-                        <Button.Group>
-                            <Button 
-                                type={activeModelId === 'seedream' ? 'primary' : 'secondary'}
-                                onClick={() => handleModelFamilyChange('seedream')}
-                            >
-                                <IconImage style={{ marginRight: 8 }} />
-                                Image (Seedream)
-                            </Button>
-                            <Button 
-                                type={activeModelId === 'seedance' ? 'primary' : 'secondary'}
-                                onClick={() => handleModelFamilyChange('seedance')}
-                            >
-                                <IconVideoCamera style={{ marginRight: 8 }} />
-                                Video (Seedance)
-                            </Button>
-                            <Button 
-                                type={activeModelId === 'production-design' ? 'primary' : 'secondary'}
-                                onClick={() => handleModelFamilyChange('production-design')}
-                            >
-                                <IconUser style={{ marginRight: 8 }} />
-                                Production Design
-                            </Button>
-                            <Button 
-                                type={activeModelId === 'asset-upload' ? 'primary' : 'secondary'}
-                                onClick={() => handleModelFamilyChange('asset-upload')}
-                            >
-                                <IconPlus style={{ marginRight: 8 }} />
-                                Asset Upload
-                            </Button>
-                            <Button 
-                                type={activeModelId === 'llm' ? 'primary' : 'secondary'}
-                                onClick={() => handleModelFamilyChange('llm')}
-                            >
-                                <IconRobot style={{ marginRight: 8 }} />
-                                AI Analysis
-                            </Button>
-                            <Button 
-                                type={activeModelId === 'workflow' ? 'primary' : 'secondary'}
-                                onClick={() => handleModelFamilyChange('workflow')}
-                            >
-                                <IconMindMapping style={{ marginRight: 8 }} />
-                                Workflow (Beta)
-                            </Button>
-                        </Button.Group>
-                    </div>
+                    {(() => {
+                        const isToolActive = TOOL_TABS.includes(activeModelId);
+                        const selectTool = (id) => { setLastToolId(id); handleModelFamilyChange(id); };
+                        return (
+                            <div style={{ marginTop: 16 }}>
+                                {/* Level 1: primary experience vs. the Tools meta tab */}
+                                <Button.Group>
+                                    <Button
+                                        type={activeModelId === 'film-agent' ? 'primary' : 'secondary'}
+                                        onClick={() => handleModelFamilyChange('film-agent')}
+                                    >
+                                        <IconUser style={{ marginRight: 8 }} />
+                                        Film Agent
+                                    </Button>
+                                    <Button
+                                        type={isToolActive ? 'primary' : 'secondary'}
+                                        onClick={() => selectTool(lastToolId)}
+                                    >
+                                        <IconApps style={{ marginRight: 8 }} />
+                                        Tools
+                                    </Button>
+                                </Button.Group>
+
+                                {/* Level 2: the raw model playgrounds, shown only under Tools */}
+                                {isToolActive && (
+                                    <div style={{ marginTop: 12 }}>
+                                        <Button.Group>
+                                            <Button type={activeModelId === 'seedream' ? 'primary' : 'secondary'} onClick={() => selectTool('seedream')}>
+                                                <IconImage style={{ marginRight: 8 }} />
+                                                Image (Seedream)
+                                            </Button>
+                                            <Button type={activeModelId === 'seedance' ? 'primary' : 'secondary'} onClick={() => selectTool('seedance')}>
+                                                <IconVideoCamera style={{ marginRight: 8 }} />
+                                                Video (Seedance)
+                                            </Button>
+                                            <Button type={activeModelId === 'asset-upload' ? 'primary' : 'secondary'} onClick={() => selectTool('asset-upload')}>
+                                                <IconPlus style={{ marginRight: 8 }} />
+                                                Asset Upload
+                                            </Button>
+                                            <Button type={activeModelId === 'llm' ? 'primary' : 'secondary'} onClick={() => selectTool('llm')}>
+                                                <IconRobot style={{ marginRight: 8 }} />
+                                                AI Analysis
+                                            </Button>
+                                            <Button type={activeModelId === 'speech' ? 'primary' : 'secondary'} onClick={() => selectTool('speech')}>
+                                                <IconSound style={{ marginRight: 8 }} />
+                                                Speech (Seed TTS)
+                                            </Button>
+                                            <Button type={activeModelId === 'workflow' ? 'primary' : 'secondary'} onClick={() => selectTool('workflow')}>
+                                                <IconMindMapping style={{ marginRight: 8 }} />
+                                                Workflow (Beta)
+                                            </Button>
+                                        </Button.Group>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </header>
 
                 <div style={{ display: activeModelId === 'workflow' ? 'block' : 'none', height: '75vh', border: '1px solid #e5e6eb', borderRadius: 8 }}>
@@ -683,20 +591,11 @@ export default function Home() {
                         result={seedreamResult}
                     />
                 </div>
-                <div style={{ display: activeModelId === 'production-design' ? 'block' : 'none' }}>
-                    <ProductionDesignPlayground
-                        schema={uiSchema}
+                <div style={{ display: activeModelId === 'film-agent' ? 'block' : 'none' }}>
+                    <FilmAgentPlayground
                         formValues={formValues}
                         setFormValues={setFormValues}
-                        onSubmit={handleSeedreamSubmit}
-                        loading={seedreamLoading}
-                        handleImageUpload={handleImageUpload}
-                        removeImage={removeImage}
-                        onModelChange={handleModelChange}
-                        runHistory={productionDesignRuns}
-                        onLoadRun={handleLoadProductionDesignRun}
-                        onResetContinuation={handleResetProductionDesignContinuation}
-                        result={seedreamResult}
+                        apiKey={apiKey}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'asset-upload' ? 'block' : 'none' }}>
@@ -725,14 +624,21 @@ export default function Home() {
                         capabilities={modelCapabilities[formValues.model]}
                     />
                 </div>
-                
+                <div style={{ display: activeModelId === 'speech' ? 'block' : 'none' }}>
+                    <SpeechPlayground
+                        formValues={formValues}
+                        setFormValues={setFormValues}
+                        onSubmit={handleSeedreamSubmit}
+                        loading={seedreamLoading}
+                        result={seedreamResult}
+                    />
+                </div>
+
                 <div style={{ marginTop: 24 }}>
-                     {activeModelId !== 'llm' && (
+                     {activeModelId !== 'llm' && activeModelId !== 'speech' && activeModelId !== 'film-agent' && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}
-                          onContinueExploration={handleContinueProductionDesign}
-                          onSnapshotChange={saveProductionDesignRun}
                         />
                       )}
                 </div>

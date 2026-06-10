@@ -10,13 +10,15 @@ export const getDefaultTosEndpoint = (region) => `tos-${region}.bytepluses.com`;
 export const getDefaultTosPublicBaseUrl = ({ endpoint, bucket }) => `https://${endpoint}/${bucket}`;
 
 export const parseDataUrl = (value, label = 'Local file payload') => {
-  const match = String(value || '').match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) {
+  const str = String(value || '');
+  const semiIdx = str.indexOf(';');
+  const commaIdx = str.indexOf(',');
+  if (!str.startsWith('data:') || semiIdx === -1 || commaIdx === -1 || str.slice(semiIdx + 1, commaIdx) !== 'base64') {
     throw new Error(`${label} must be a valid data URL.`);
   }
   return {
-    contentType: match[1],
-    buffer: Buffer.from(match[2], 'base64'),
+    contentType: str.slice(5, semiIdx),
+    buffer: Buffer.from(str.slice(commaIdx + 1), 'base64'),
   };
 };
 
@@ -80,19 +82,23 @@ export async function uploadLocalMediaToTos({
     String(tosPublicBaseUrl || '').trim().replace(/\/+$/, '') ||
     getDefaultTosPublicBaseUrl({ endpoint: resolvedEndpoint, bucket: tosBucket });
   const objectUrl = `${baseUrl}/${objectKey.split('/').map((segment) => encodePathSegment(segment)).join('/')}`;
-  const fetchUrl = String(tosPublicBaseUrl || '').trim()
-    ? objectUrl
-    : client.getPreSignedUrl({
-        bucket: tosBucket,
-        key: objectKey,
-        method: 'GET',
-        expires: 3600,
-      });
+  // A presigned GET URL works even on a PRIVATE bucket — unlike the unsigned
+  // objectUrl, which 403s unless the bucket is public-read. Backend services that
+  // must DOWNLOAD the object (the Assets API ingesting it, Seedance fetching a
+  // reference) need this regardless of whether a public base URL is configured.
+  const signedUrl = client.getPreSignedUrl({
+    bucket: tosBucket,
+    key: objectKey,
+    method: 'GET',
+    expires: 3600,
+  });
+  const fetchUrl = String(tosPublicBaseUrl || '').trim() ? objectUrl : signedUrl;
 
   return {
     objectKey,
     objectUrl,
     fetchUrl,
+    signedUrl,
     contentType,
     size: buffer.length,
   };

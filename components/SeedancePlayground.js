@@ -26,11 +26,14 @@ const SeedancePlayground = ({
   const [referenceImageUri, setReferenceImageUri] = useState('');
   const [referenceImageAssetId, setReferenceImageAssetId] = useState('');
   const [referenceVideoUri, setReferenceVideoUri] = useState('');
+  const [referenceVideoAssetId, setReferenceVideoAssetId] = useState('');
   const [referenceAudioUri, setReferenceAudioUri] = useState('');
 
   const handleInputChange = (key, value) => {
     setFormValues(prev => ({ ...prev, [key]: value }));
   };
+
+  const currentImageRefs = formValues.reference_image_refs || [];
 
   const handleAddReferenceImageUri = () => {
     const nextUri = referenceImageUri.trim();
@@ -38,7 +41,6 @@ const SeedancePlayground = ({
       Message.warning('Please enter an image URI');
       return;
     }
-
     try {
       const parsedUrl = new URL(nextUri);
       if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
@@ -49,19 +51,15 @@ const SeedancePlayground = ({
       Message.warning('Please enter a valid image URI');
       return;
     }
-
-    const currentImages = formValues.reference_images || [];
-    if (currentImages.includes(nextUri)) {
+    if (currentImageRefs.some(r => r.value === nextUri)) {
       Message.info('This image URI is already added');
       return;
     }
-
-    if (currentImages.length >= 7) {
-      Message.warning('Seedance supports up to 7 reference images here');
+    if (currentImageRefs.length >= 9) {
+      Message.warning('Seedance supports up to 9 reference images');
       return;
     }
-
-    handleInputChange('reference_images', [...currentImages, nextUri]);
+    handleInputChange('reference_image_refs', [...currentImageRefs, { type: 'url', value: nextUri }]);
     setReferenceImageUri('');
     Message.success('Reference image URI added');
   };
@@ -72,21 +70,55 @@ const SeedancePlayground = ({
       Message.warning('Please enter an image asset id');
       return;
     }
-
-    const currentValues = formValues.reference_image_asset_ids || [];
-    if (currentValues.includes(nextValue)) {
+    if (currentImageRefs.some(r => r.value === nextValue)) {
       Message.info('This image asset id is already added');
       return;
     }
-
-    if (currentValues.length >= 7) {
-      Message.warning('Seedance supports up to 7 reference image asset ids here');
+    if (currentImageRefs.length >= 9) {
+      Message.warning('Seedance supports up to 9 reference images');
       return;
     }
-
-    handleInputChange('reference_image_asset_ids', [...currentValues, nextValue]);
+    handleInputChange('reference_image_refs', [...currentImageRefs, { type: 'asset', value: nextValue }]);
     setReferenceImageAssetId('');
     Message.success('Reference image asset id added');
+  };
+
+  const removeReferenceImageRef = (index) => {
+    const next = [...currentImageRefs];
+    next.splice(index, 1);
+    handleInputChange('reference_image_refs', next);
+  };
+
+  const currentVideoRefs = formValues.reference_video_refs || [];
+
+  const handleAddReferenceVideoUri = () => {
+    const nextUri = referenceVideoUri.trim();
+    if (!nextUri) { Message.warning('Please enter a video URI'); return; }
+    try {
+      const p = new URL(nextUri);
+      if (!['http:', 'https:'].includes(p.protocol)) { Message.warning('Only http(s) video URIs are supported'); return; }
+    } catch { Message.warning('Please enter a valid video URI'); return; }
+    if (currentVideoRefs.some(r => r.value === nextUri)) { Message.info('This video URI is already added'); return; }
+    if (currentVideoRefs.length >= 1) { Message.warning('Seedance supports 1 reference video'); return; }
+    handleInputChange('reference_video_refs', [...currentVideoRefs, { type: 'url', value: nextUri }]);
+    setReferenceVideoUri('');
+    Message.success('Reference video URI added');
+  };
+
+  const handleAddReferenceVideoAssetId = () => {
+    const nextValue = referenceVideoAssetId.trim();
+    if (!nextValue) { Message.warning('Please enter a video asset id'); return; }
+    if (currentVideoRefs.some(r => r.value === nextValue)) { Message.info('This video asset id is already added'); return; }
+    if (currentVideoRefs.length >= 1) { Message.warning('Seedance supports 1 reference video'); return; }
+    handleInputChange('reference_video_refs', [...currentVideoRefs, { type: 'asset', value: nextValue }]);
+    setReferenceVideoAssetId('');
+    Message.success('Reference video asset id added');
+  };
+
+  const removeReferenceVideoRef = (index) => {
+    const next = [...currentVideoRefs];
+    next.splice(index, 1);
+    handleInputChange('reference_video_refs', next);
   };
 
   const addReferenceMediaUri = (fieldKey, nextUri, label, limit, reset) => {
@@ -121,10 +153,6 @@ const SeedancePlayground = ({
     handleInputChange(fieldKey, [...currentValues, trimmedUri]);
     reset('');
     Message.success(`${label} URI added`);
-  };
-
-  const handleAddReferenceVideoUri = () => {
-    addReferenceMediaUri('reference_videos', referenceVideoUri, 'Video', 1, setReferenceVideoUri);
   };
 
   const handleAddReferenceAudioUri = () => {
@@ -173,12 +201,12 @@ const SeedancePlayground = ({
 
   const handleCopyCode = (type) => {
       const hasLocalReferenceMedia = [
-        ...(formValues.reference_images || []),
-        ...(formValues.reference_videos || []),
+        ...(formValues.reference_image_refs || []).filter(r => r.type === 'url').map(r => r.value),
+        ...(formValues.reference_video_refs || []).filter(r => r.type === 'url').map(r => r.value),
         ...(formValues.reference_audios || []),
-      ]
-        .some((value) => typeof value === 'string' && value.startsWith('data:'));
-      const hasAssetIds = (formValues.reference_image_asset_ids || []).length > 0;
+      ].some((value) => typeof value === 'string' && value.startsWith('data:'));
+      const hasAssetIds = (formValues.reference_image_refs || []).some(r => r.type === 'asset')
+        || (formValues.reference_video_refs || []).some(r => r.type === 'asset');
       if (parallelCount > 1) {
           Message.warning('Copy code exports a single direct API request only. Multi-run mode is handled by this app with parallel requests.');
           return;
@@ -247,7 +275,7 @@ const SeedancePlayground = ({
   const modelOptions = getFieldOptions('model');
   const resolutionOptions = getFieldOptions('resolution');
   const ratioOptions = getFieldOptions('ratio');
-  const parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 5);
+  const parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 15);
 
   return (
     <div className={styles.playgroundContainer}>
@@ -297,36 +325,70 @@ const SeedancePlayground = ({
           {/* Left: Media Inputs */}
           <div className={styles.imageInputs} style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '8px' }}>
             {/* Reference Images */}
-            {!isFieldHidden('reference_images') && (
+            {!isFieldHidden('reference_image_refs') && (
                 <div style={{ position: 'relative' }}>
                     <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>Ref Images</div>
                     <div style={{ fontSize: 12, color: '#86909c', lineHeight: 1.4, marginBottom: 8 }}>
-                        Upload a local image, paste a public image URI, or add an Asset ID from the Asset Upload tab. Local uploads are staged to TOS automatically before the Seedance request.
+                        Upload a local image, paste a public URI, or add an Asset ID. The order here maps directly to <code>[Image 1]</code>, <code>[Image 2]</code>, … in your prompt.
                     </div>
+
+                    {/* Ordered reference list */}
+                    {currentImageRefs.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                            {currentImageRefs.map((ref, index) => (
+                                <div
+                                    key={index}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '4px 8px', background: '#f2f3f5', borderRadius: 6 }}
+                                >
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#165dff', whiteSpace: 'nowrap', minWidth: 60 }}>
+                                        [Image {index + 1}]
+                                    </span>
+                                    {ref.type === 'url' ? (
+                                        <img
+                                            src={ref.value}
+                                            alt=""
+                                            style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }}
+                                        />
+                                    ) : (
+                                        <span style={{ fontSize: 11, color: '#86909c', flexShrink: 0 }}>🏷</span>
+                                    )}
+                                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#4e5969', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {ref.name || (ref.type === 'url' && ref.value.startsWith('data:') ? 'local file' : ref.value)}
+                                    </span>
+                                    <Button size="mini" type="text" onClick={() => removeReferenceImageRef(index)} style={{ padding: '0 4px', flexShrink: 0 }}>×</Button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Local file upload */}
                     <Upload
                         listType="picture-card"
                         multiple
-                        limit={4}
                         accept="image/*"
-                        fileList={(formValues.reference_images || []).map((url, index) => ({
-                            uid: `refimg-${index}`,
-                            url: url,
-                            name: `refimg-${index}.png`
-                        }))}
+                        fileList={[]}
+                        showUploadList={false}
                         beforeUpload={(file) => {
-                            const mockEvent = { target: { files: [file] } };
-                            handleImageUpload(mockEvent, 'reference_images');
+                            if (currentImageRefs.length >= 9) {
+                                Message.warning('Seedance supports up to 9 reference images');
+                                return false;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                setFormValues(prev => ({
+                                    ...prev,
+                                    reference_image_refs: [
+                                        ...(prev.reference_image_refs || []),
+                                        { type: 'url', value: reader.result, name: file.name },
+                                    ],
+                                }));
+                            };
+                            reader.readAsDataURL(file);
                             return false;
                         }}
-                        onRemove={(_, file) => {
-                           const index = parseInt(file.uid.split('-')[1], 10);
-                           removeImage('reference_images', index);
-                        }}
-                        showUploadList={{
-                            removeIcon: <div style={{ color: 'white' }}>x</div>,
-                            previewIcon: null,
-                        }}
                     />
+
+                    {/* Public URI input */}
                     <div style={{ marginTop: 12 }}>
                         <div style={{ display: 'flex', gap: 8 }}>
                             <Input
@@ -336,12 +398,12 @@ const SeedancePlayground = ({
                                 onPressEnter={handleAddReferenceImageUri}
                                 allowClear
                             />
-                            <Button type="secondary" onClick={handleAddReferenceImageUri}>
-                                Add URI
-                            </Button>
+                            <Button type="secondary" onClick={handleAddReferenceImageUri}>Add URI</Button>
                         </div>
                     </div>
-                    <div style={{ marginTop: 12 }}>
+
+                    {/* Asset ID input */}
+                    <div style={{ marginTop: 8 }}>
                         <div style={{ display: 'flex', gap: 8 }}>
                             <Input
                                 placeholder="Paste image Asset ID"
@@ -350,77 +412,95 @@ const SeedancePlayground = ({
                                 onPressEnter={handleAddReferenceImageAssetId}
                                 allowClear
                             />
-                            <Button type="secondary" onClick={handleAddReferenceImageAssetId}>
-                                Add Asset ID
-                            </Button>
-                        </div>
-                        <div style={{ fontSize: 12, color: '#86909c', lineHeight: 1.4, marginTop: 6 }}>
-                            Add an Asset ID created in the Asset Upload tab.
+                            <Button type="secondary" onClick={handleAddReferenceImageAssetId}>Add Asset ID</Button>
                         </div>
                     </div>
-                    {(formValues.reference_image_asset_ids || []).length > 0 && (
-                        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                            {(formValues.reference_image_asset_ids || []).map((assetId, index) => (
-                                <Button
-                                    key={`${assetId}-${index}`}
-                                    size="mini"
-                                    type="secondary"
-                                    onClick={() => {
-                                        const nextValues = [...(formValues.reference_image_asset_ids || [])];
-                                        nextValues.splice(index, 1);
-                                        handleInputChange('reference_image_asset_ids', nextValues);
-                                    }}
-                                >
-                                    {assetId} x
-                                </Button>
-                            ))}
-                        </div>
-                    )}
                 </div>
             )}
 
             {/* Reference Videos */}
-            {!isFieldHidden('reference_videos') && (
+            {!isFieldHidden('reference_video_refs') && (
                 <div style={{ position: 'relative', marginTop: 8 }}>
                     <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>Ref Video</div>
                     <div style={{ fontSize: 12, color: '#86909c', lineHeight: 1.4, marginBottom: 8 }}>
-                        Upload a local video or paste a public video URL. Local uploads are staged to TOS automatically before the Seedance request.
+                        Upload a local video, paste a public URL, or add an Asset ID. Seedance supports 1 reference video.
                     </div>
-                    <Upload
-                        limit={1}
-                        accept="video/*"
-                        fileList={(formValues.reference_videos || []).map((url, index) => ({
-                            uid: `refvid-${index}`,
-                            url: url,
-                            name: `video-${index}.mp4`
-                        }))}
-                        beforeUpload={(file) => {
-                            const mockEvent = { target: { files: [file] } };
-                            handleImageUpload(mockEvent, 'reference_videos');
-                            return false;
-                        }}
-                        onRemove={(_, file) => {
-                           const index = parseInt(file.uid.split('-')[1], 10);
-                           removeImage('reference_videos', index);
-                        }}
-                    />
-                    <div style={{ marginTop: 12 }}>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                            <Input
-                                placeholder="Paste public video URI (https://...)"
-                                value={referenceVideoUri}
-                                onChange={setReferenceVideoUri}
-                                onPressEnter={handleAddReferenceVideoUri}
-                                allowClear
+
+                    {/* Ordered reference list */}
+                    {currentVideoRefs.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                            {currentVideoRefs.map((ref, index) => (
+                                <div
+                                    key={index}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '4px 8px', background: '#f2f3f5', borderRadius: 6 }}
+                                >
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: '#165dff', whiteSpace: 'nowrap', minWidth: 60 }}>
+                                        [Video 1]
+                                    </span>
+                                    <span style={{ fontSize: 11, color: '#86909c', flexShrink: 0 }}>
+                                        {ref.type === 'asset' ? '🏷' : '🎬'}
+                                    </span>
+                                    <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#4e5969', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {ref.name || (ref.type === 'url' && ref.value.startsWith('data:') ? 'local file' : ref.value)}
+                                    </span>
+                                    <Button size="mini" type="text" onClick={() => removeReferenceVideoRef(index)} style={{ padding: '0 4px', flexShrink: 0 }}>×</Button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {currentVideoRefs.length < 1 && (
+                        <>
+                            {/* Local file upload */}
+                            <Upload
+                                accept="video/*"
+                                fileList={[]}
+                                showUploadList={false}
+                                beforeUpload={(file) => {
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                        setFormValues(prev => ({
+                                            ...prev,
+                                            reference_video_refs: [
+                                                ...(prev.reference_video_refs || []),
+                                                { type: 'url', value: reader.result, name: file.name },
+                                            ],
+                                        }));
+                                    };
+                                    reader.readAsDataURL(file);
+                                    return false;
+                                }}
                             />
-                            <Button type="secondary" onClick={handleAddReferenceVideoUri}>
-                                Add URI
-                            </Button>
-                        </div>
-                        <div style={{ fontSize: 12, color: '#86909c', lineHeight: 1.4, marginTop: 6 }}>
-                            Add a public web URL for the reference video.
-                        </div>
-                    </div>
+
+                            {/* Public URI input */}
+                            <div style={{ marginTop: 12 }}>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <Input
+                                        placeholder="Public video URI (https://...)"
+                                        value={referenceVideoUri}
+                                        onChange={setReferenceVideoUri}
+                                        onPressEnter={handleAddReferenceVideoUri}
+                                        allowClear
+                                    />
+                                    <Button type="secondary" onClick={handleAddReferenceVideoUri}>Add URI</Button>
+                                </div>
+                            </div>
+
+                            {/* Asset ID input */}
+                            <div style={{ marginTop: 8 }}>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <Input
+                                        placeholder="Paste video Asset ID"
+                                        value={referenceVideoAssetId}
+                                        onChange={setReferenceVideoAssetId}
+                                        onPressEnter={handleAddReferenceVideoAssetId}
+                                        allowClear
+                                    />
+                                    <Button type="secondary" onClick={handleAddReferenceVideoAssetId}>Add Asset ID</Button>
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -444,7 +524,7 @@ const SeedancePlayground = ({
                             handleImageUpload(mockEvent, 'reference_audios');
                             return false;
                         }}
-                        onRemove={(_, file) => {
+                        onRemove={(file) => {
                            const index = parseInt(file.uid.split('-')[1], 10);
                            removeImage('reference_audios', index);
                         }}
@@ -537,7 +617,7 @@ const SeedancePlayground = ({
                     style={{ width: 80 }}
                     size="small"
                 >
-                    {(getFieldOptions('duration') || [2,3,4,5,6,7,8,9,10,11,12]).map(opt => <Select.Option key={opt} value={opt}>{opt}s</Select.Option>)}
+                    {(getFieldOptions('duration') || [2,3,4,5,6,7,8,9,10,11,12]).map(opt => <Select.Option key={opt} value={opt}>{typeof opt === 'number' ? `${opt}s` : 'Auto'}</Select.Option>)}
                 </Select>
             </div>
           )}
@@ -550,7 +630,7 @@ const SeedancePlayground = ({
                   style={{ width: 88 }}
                   size="small"
               >
-                  {[1, 2, 3, 4, 5].map((opt) => (
+                  {[1, 5, 11, 15].map((opt) => (
                       <Select.Option key={opt} value={opt}>{opt}x</Select.Option>
                   ))}
               </Select>

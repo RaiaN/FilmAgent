@@ -23,10 +23,13 @@ const seedanceModels = getModelsByFilter(m =>
     !m.id.startsWith('seedream') && !m.id.startsWith('seededit')
 );
 
-// LLM Models (Only Seed)
-const llmModels = getModelsByFilter(m => 
-    (m.id.startsWith('seed-2-0') || m.id.startsWith('seed-1-8') )
-);
+// LLM Models — explicit list, newest first
+const LLM_MODEL_IDS = [
+    'seed-2-0-pro-260328',
+    'seed-2-0-mini-260428',
+    'seed-2-0-lite-260428',
+];
+const llmModels = LLM_MODEL_IDS;
 
 export const baseSchemas = {
   seedream: {
@@ -69,6 +72,7 @@ export const baseSchemas = {
       prompt: 'A hero product shot of a premium skincare bottle on a minimal studio set.',
       size: '2K',
       image: [],
+      parallelCount: 5,
     },
   },
   llm: {
@@ -80,10 +84,8 @@ export const baseSchemas = {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: llmModels.length > 0 ? llmModels : [
-            'seed-2-0-mini-260215'
-        ],
-        defaultValue: llmModels.length > 0 ? llmModels[0] : 'seed-2-0-mini-260215',
+        options: llmModels,
+        defaultValue: llmModels[0],
         description: 'LLM model id used for analysis.',
       },
       {
@@ -107,7 +109,7 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: llmModels.length > 0 ? llmModels[0] : 'seed-2-0-mini-260215',
+      model: llmModels[0],
       prompt: 'Describe this content.',
       image: [],
       video: [],
@@ -137,22 +139,16 @@ export const baseSchemas = {
         description: 'Text prompt describing the video content.',
       },
       {
-        key: 'reference_images',
+        key: 'reference_image_refs',
         label: 'Reference Images',
-        type: 'image-list',
-        description: 'Reference images (1-4) for Seedance 1.0 Lite I2V and Seedance 2.0. Use public URLs or local files to be staged via TOS.',
+        type: 'image-ref-list',
+        description: 'Reference images in insertion order. Each entry is either a URL/local file or an Asset ID. Order is preserved in the API payload, so [Image 1] in your prompt maps to the first entry here.',
       },
       {
-        key: 'reference_image_asset_ids',
-        label: 'Reference Image Asset IDs',
-        type: 'text-list',
-        description: 'Seedance 2.0 image references can also come from Asset IDs created in the Asset Upload tab.',
-      },
-      {
-        key: 'reference_videos',
+        key: 'reference_video_refs',
         label: 'Reference Videos',
-        type: 'video-list',
-        description: 'Reference video for Video-to-Video generation (Seedance 2.0). Use a public http(s) URL or upload a local file to be staged via TOS.',
+        type: 'video-ref-list',
+        description: 'Reference videos in insertion order. Each entry is either a URL/local file or an Asset ID.',
       },
       {
         key: 'reference_audios',
@@ -180,9 +176,9 @@ export const baseSchemas = {
         key: 'duration',
         label: 'Duration (seconds)',
         type: 'enum',
-        options: [2, 4, 5, 10, 11, 12],
-        defaultValue: 5,
-        description: 'Video duration in seconds (2-12s). -1 for auto (1.5 pro only).',
+        options: ['auto', 2, 4, 5, 10, 11, 12],
+        defaultValue: 'auto',
+        description: 'Video duration in seconds, or "smart" to let the model decide.',
       },
       {
         key: 'seed',
@@ -211,44 +207,117 @@ export const baseSchemas = {
         ? DEFAULT_SEEDANCE_MODEL
         : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
       prompt: 'A cinematic shot of a futuristic city with flying cars.',
-      reference_images: [],
-      reference_image_asset_ids: [],
-      reference_videos: [],
+      reference_image_refs: [],
+      reference_video_refs: [],
       reference_audios: [],
       resolution: '720p',
       ratio: '16:9',
-      duration: 5,
+      duration: 'auto',
       parallelCount: 1,
       seed: -1,
       generate_audio: true,
       watermark: false,
     },
   },
-  'production-design': {
-    id: 'production-design',
-    name: 'Production Design',
-    description: 'Build an AI-native movie character pipeline: generate a portrait anchor, expand it into close and full-body character sheets, and optionally combine clothing direction.',
+  'film-agent': {
+    id: 'film-agent',
+    name: 'Film Agent',
+    description: 'A freeform canvas for cinematic pre-production. Drop assets, then run agent layers — Inspiration Board, Character & Location Variations — to explore your film.',
     fields: [
       {
-        key: 'model',
-        label: 'Model',
-        type: 'enum',
-        options: seedreamModels.length > 0 ? seedreamModels : [DEFAULT_SEEDREAM_MODEL],
-        defaultValue: DEFAULT_SEEDREAM_MODEL,
-        description: 'Display model for the character-sheet workflow. Generation is locked to the Seedream 5.0 endpoint.',
-      },
-      {
-        key: 'prompt',
-        label: 'Fictional Character Description',
+        key: 'idea',
+        label: 'Film Idea',
         type: 'text',
         required: true,
-        description: 'Describe the fictional character in plain language. Seed 2.0 Pro transforms this into the structured editorial portrait prompt used for step 1.',
+        description: 'One- or two-sentence pitch. Genre, tone, and core conflict are all useful. The agent will expand this into a logline first.',
+      },
+      {
+        key: 'language',
+        label: 'Primary Language',
+        type: 'enum',
+        options: ['en', 'zh-CN', 'es', 'fr', 'de', 'ja', 'ko'],
+        defaultValue: 'en',
+        description: 'Language for dialogue, voice timbre, and on-screen text. Seedance 2.0 native audio renders in this language.',
+      },
+      {
+        key: 'targetMinutes',
+        label: 'Target Length (minutes)',
+        type: 'enum',
+        options: [3, 4, 5],
+        defaultValue: 4,
+        description: 'Total runtime. The shot list scales to fit.',
       },
     ],
     defaults: {
-      model: DEFAULT_SEEDREAM_MODEL,
-      prompt: 'A fictional lead character for an AI-native movie: a young Scandinavian woman in her early 30s with a tall narrow face, sharp cheekbones, a long straight nose, blonde hair, and a direct, composed presence. Fashion editorial realism, photoreal textures, no retouching.',
-      continuedFrom: null,
+      idea: 'A lone radio operator at an Arctic listening post starts hearing her own voice transmitting back from a station that does not exist.',
+      language: 'en',
+      targetMinutes: 4,
+      projectPath: '',
+      projectId: null,
+    },
+  },
+  speech: {
+    id: 'speech',
+    name: 'Seed Speech',
+    description: 'Text-to-speech synthesis with Seed Speech 2.0 via BytePlus Voice API.',
+    fields: [
+      {
+        key: 'speaker',
+        label: 'Speaker (Voice ID)',
+        type: 'text',
+        required: true,
+        description: 'Voice ID for synthesis.',
+      },
+      {
+        key: 'text',
+        label: 'Text',
+        type: 'text',
+        required: true,
+        description: 'Text to synthesize.',
+      },
+      {
+        key: 'format',
+        label: 'Format',
+        type: 'enum',
+        options: ['mp3', 'ogg_opus', 'pcm'],
+        defaultValue: 'mp3',
+      },
+      {
+        key: 'sampleRate',
+        label: 'Sample Rate (Hz)',
+        type: 'enum',
+        options: [8000, 16000, 24000, 48000],
+        defaultValue: 24000,
+      },
+      {
+        key: 'speechRate',
+        label: 'Speech Rate',
+        type: 'number',
+        defaultValue: 0,
+        description: '−50 (slower) to 100 (faster). 0 = natural.',
+      },
+      {
+        key: 'loudnessRate',
+        label: 'Loudness',
+        type: 'number',
+        defaultValue: 0,
+        description: '−50 (quieter) to 100 (louder). 0 = natural.',
+      },
+      {
+        key: 'contextText',
+        label: 'Context / Style Direction',
+        type: 'text',
+        description: 'Natural-language tone/emotion instructions (TTS 2.0).',
+      },
+    ],
+    defaults: {
+      speaker: 'en_female_stokie_uranus_bigtts',
+      text: 'Hello! Welcome to ModelArk, the AI model platform by BytePlus.',
+      format: 'mp3',
+      sampleRate: 24000,
+      speechRate: 0,
+      loudnessRate: 0,
+      contextText: '',
     },
   },
   'asset-upload': {
@@ -284,10 +353,14 @@ export const baseSchemas = {
     ],
     defaults: {
       assetGroupId: generateAssetGroupId(),
+      assetType: 'Image',
       imageUrl: '',
+      videoUrl: '',
       assetName: '',
       localImageData: '',
       localImageName: '',
+      localVideoData: '',
+      localVideoName: '',
       pollUntilReady: true,
     },
   },

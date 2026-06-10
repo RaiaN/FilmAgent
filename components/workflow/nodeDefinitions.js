@@ -41,7 +41,7 @@ export const NODE_DEFINITIONS = {
     defaults: {
       model: 'ep-20260415171928-pdvvr',
       resolution: '720p',
-      duration: 5,
+      duration: 'auto',
       generate_audio: true,
       prompt: 'Generate cinematic video of the main subject in the reference image',
       referenceImages: [],

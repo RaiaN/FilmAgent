@@ -21,18 +21,15 @@ const assertSupportedSeedanceMediaInputs = (values, label) => {
     }
 };
 
-const assertSupportedSeedanceImageInputs = (values) => {
-    const invalidValues = (values || []).filter((value) => !isHttpUrl(value) && !isDataUrl(value));
-    if (invalidValues.length > 0) {
-        throw new Error('Reference images must be public http(s) URLs or local uploaded files. Blob URLs and other unsupported formats are not supported.');
-    }
-};
-
-const assertAssetIds = (values, label) => {
-    const invalidValues = (values || []).filter((value) => typeof value !== 'string' || !value.trim());
-    if (invalidValues.length > 0) {
-        throw new Error(`${label} must be non-empty asset ids.`);
-    }
+const assertReferenceImageRefs = (refs) => {
+    refs.forEach((ref, i) => {
+        if (ref.type === 'url' && !isHttpUrl(ref.value) && !isDataUrl(ref.value)) {
+            throw new Error(`Reference image ${i + 1} must be a public http(s) URL or a local uploaded file.`);
+        }
+        if (ref.type === 'asset' && (!ref.value || !String(ref.value).trim())) {
+            throw new Error(`Reference image ${i + 1} has an empty asset ID.`);
+        }
+    });
 };
 
 const toSeedanceAssetUrl = (value) => {
@@ -67,7 +64,7 @@ export const constructSeedancePayload = (formValues) => {
         ],
         resolution: formValues.resolution,
         ratio: formValues.ratio,
-        duration: Number(formValues.duration),
+        ...(formValues.duration !== 'auto' && { duration: Number(formValues.duration) }),
         watermark: formValues.watermark,
     };
 
@@ -84,35 +81,29 @@ export const constructSeedancePayload = (formValues) => {
     const images = [];
 
     // Only include media inputs that the selected model actually supports.
-    if (caps.supports_ref_images && formValues.reference_images && formValues.reference_images.length > 0) {
-        formValues.reference_images.forEach(img => {
-        assertSupportedSeedanceImageInputs(formValues.reference_images);
+    if (caps.supports_ref_images && formValues.reference_image_refs && formValues.reference_image_refs.length > 0) {
+        assertReferenceImageRefs(formValues.reference_image_refs);
+        formValues.reference_image_refs.forEach(ref => {
             images.push({
                 type: 'image_url',
-                image_url: { url: img },
-                role: 'reference_image'
-            });
-        });
-    }
-
-    if (caps.supports_ref_images && formValues.reference_image_asset_ids && formValues.reference_image_asset_ids.length > 0) {
-        assertAssetIds(formValues.reference_image_asset_ids, 'Reference image asset ids');
-        formValues.reference_image_asset_ids.forEach((assetId) => {
-            images.push({
-                type: 'image_url',
-                image_url: { url: toSeedanceAssetUrl(assetId) },
+                image_url: { url: ref.type === 'asset' ? toSeedanceAssetUrl(ref.value) : ref.value },
                 role: 'reference_image',
             });
         });
     }
 
-    if (caps.supports_ref_videos && formValues.reference_videos && formValues.reference_videos.length > 0) {
-        assertSupportedSeedanceMediaInputs(formValues.reference_videos, 'Reference videos');
-        formValues.reference_videos.forEach(vid => {
+    if (caps.supports_ref_videos && formValues.reference_video_refs && formValues.reference_video_refs.length > 0) {
+        formValues.reference_video_refs.forEach((ref, i) => {
+            if (ref.type === 'url' && !isHttpUrl(ref.value) && !isDataUrl(ref.value)) {
+                throw new Error(`Reference video ${i + 1} must be a public http(s) URL or a local uploaded file.`);
+            }
+            if (ref.type === 'asset' && (!ref.value || !String(ref.value).trim())) {
+                throw new Error(`Reference video ${i + 1} has an empty asset ID.`);
+            }
             images.push({
                 type: 'video_url',
-                video_url: { url: vid },
-                role: 'reference_video'
+                video_url: { url: ref.type === 'asset' ? toSeedanceAssetUrl(ref.value) : ref.value },
+                role: 'reference_video',
             });
         });
     }
@@ -145,12 +136,18 @@ export const constructProductionDesignPayload = (formValues) => {
 };
 
 export const constructAssetUploadPayload = (formValues) => {
+    const assetType = formValues.assetType || 'Image';
+    const isVideo = assetType === 'Video';
     return {
         assetGroupId: formValues.assetGroupId,
-        imageUrl: formValues.imageUrl,
+        assetType,
+        imageUrl: isVideo ? '' : (formValues.imageUrl || ''),
+        videoUrl: isVideo ? (formValues.videoUrl || '') : '',
         assetName: formValues.assetName,
-        localImageData: formValues.localImageData || '',
-        localImageName: formValues.localImageName || '',
+        localImageData: isVideo ? '' : (formValues.localImageData || ''),
+        localImageName: isVideo ? '' : (formValues.localImageName || ''),
+        localVideoData: isVideo ? (formValues.localVideoData || '') : '',
+        localVideoName: isVideo ? (formValues.localVideoName || '') : '',
         pollUntilReady: formValues.pollUntilReady !== false,
     };
 };
@@ -203,10 +200,10 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
             if (f.key === 'draft') {
                 return { ...f, hidden: !caps.supports_draft };
             }
-            if (f.key === 'reference_images') {
+            if (f.key === 'reference_image_refs') {
                 return { ...f, hidden: !caps.supports_ref_images };
             }
-            if (f.key === 'reference_videos') {
+            if (f.key === 'reference_video_refs') {
                 return { ...f, hidden: !caps.supports_ref_videos };
             }
             if (f.key === 'reference_audios') {
@@ -228,7 +225,7 @@ export const constructLLMPayload = (formValues) => {
     return {
         model: formValues.model,
         prompt: formValues.prompt,
-        image: formValues.image && formValues.image.length > 0 ? formValues.image[0] : null,
+        images: formValues.image && formValues.image.length > 0 ? formValues.image : [],
         video: formValues.video && formValues.video.length > 0 ? formValues.video[0] : null,
     };
 };

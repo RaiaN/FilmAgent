@@ -14,9 +14,8 @@ describe('Seedance payload construction', () => {
       watermark: false,
       seed: -1,
       generate_audio: true,
-      reference_images: [],
-      reference_image_asset_ids: [],
-      reference_videos: ['https://example.com/reference.mp4'],
+      reference_image_refs: [],
+      reference_video_refs: [{ type: 'url', value: 'https://example.com/reference.mp4' }],
       reference_audios: ['https://example.com/reference.mp3'],
     });
 
@@ -36,44 +35,66 @@ describe('Seedance payload construction', () => {
     );
   });
 
-  test('keeps local uploaded reference video inputs so the API route can stage them to TOS', () => {
+  test('preserves insertion order: asset ID first, then local image', () => {
     const payload = constructSeedancePayload({
       model: 'seedance-1-5-pro-251215',
-      prompt: 'Animate this clip.',
+      prompt: 'Animate this clip. [Image 1] is the style, [Image 2] is the subject.',
       resolution: '720p',
       ratio: '16:9',
       duration: 5,
       watermark: false,
       seed: -1,
       generate_audio: true,
-      reference_images: ['data:image/png;base64,abc123'],
-      reference_image_asset_ids: ['asset-image-123'],
-      reference_videos: ['data:video/mp4;base64,abc123'],
+      reference_image_refs: [
+        { type: 'asset', value: 'asset-image-123' },
+        { type: 'url', value: 'data:image/png;base64,abc123' },
+      ],
+      reference_video_refs: [],
+      reference_audios: [],
+    });
+
+    const imageEntries = payload.content.filter(c => c.role === 'reference_image');
+    expect(imageEntries).toEqual([
+      {
+        type: 'image_url',
+        image_url: { url: 'asset://asset-image-123' },
+        role: 'reference_image',
+      },
+      {
+        type: 'image_url',
+        image_url: { url: 'data:image/png;base64,abc123' },
+        role: 'reference_image',
+      },
+    ]);
+  });
+
+  test('video asset ID is wrapped in asset:// and placed in reference_video role', () => {
+    const payload = constructSeedancePayload({
+      model: 'seedance-1-5-pro-251215',
+      prompt: 'Use this video as reference.',
+      resolution: '720p',
+      ratio: '16:9',
+      duration: 5,
+      watermark: false,
+      seed: -1,
+      generate_audio: true,
+      reference_image_refs: [],
+      reference_video_refs: [{ type: 'asset', value: 'asset-video-456' }],
       reference_audios: [],
     });
 
     expect(payload.content).toEqual(
       expect.arrayContaining([
         {
-          type: 'image_url',
-          image_url: { url: 'data:image/png;base64,abc123' },
-          role: 'reference_image',
-        },
-        {
-          type: 'image_url',
-          image_url: { url: 'asset://asset-image-123' },
-          role: 'reference_image',
-        },
-        {
           type: 'video_url',
-          video_url: { url: 'data:video/mp4;base64,abc123' },
+          video_url: { url: 'asset://asset-video-456' },
           role: 'reference_video',
         },
       ])
     );
   });
 
-  test('preserves an already-prefixed asset reference for Seedance 2.0', () => {
+  test('preserves an already-prefixed asset:// URL', () => {
     const payload = constructSeedancePayload({
       model: 'seedance-1-5-pro-251215',
       prompt: 'Animate this product shot.',
@@ -83,9 +104,10 @@ describe('Seedance payload construction', () => {
       watermark: false,
       seed: -1,
       generate_audio: true,
-      reference_images: [],
-      reference_image_asset_ids: ['asset://asset-20260225023032-gnzwk'],
-      reference_videos: [],
+      reference_image_refs: [
+        { type: 'asset', value: 'asset://asset-20260225023032-gnzwk' },
+      ],
+      reference_video_refs: [],
       reference_audios: [],
     });
 

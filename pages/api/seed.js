@@ -1,9 +1,10 @@
 import { CONFIG } from '../../utils/config';
+import { ROOT_CONFIG } from '../../utils/film/suiteConfig';
 
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '50mb',
+      sizeLimit: '200mb',
     },
   },
 };
@@ -14,7 +15,8 @@ async function seedHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl, systemPrompt, image, video } = req.body;
+  const { prompt, apiKey, modelId, baseUrl, systemPrompt, images, video } = req.body;
+  const imageList = Array.isArray(images) ? images : (images ? [images] : []);
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -27,20 +29,19 @@ async function seedHandler(req, res) {
 
   // Use config-defined base URL, fallback to passed baseUrl if provided
   const endpointBase = baseUrl || CONFIG.API_BASE_URL;
-  const resolvedModelId = modelId || process.env.SEED_MODEL_ID || 'seed-2-0-mini-260215';
+  // Honor a caller-provided model; default to the suite's reasoner model.
+  const resolvedModelId = modelId || ROOT_CONFIG.models.reasoner;
 
   try {
-    const isPro260328 = resolvedModelId === 'seed-2-0-pro-260328';
+    // Seed 2.0 Pro family uses the /responses API + input formatting.
+    const isPro260328 = resolvedModelId.startsWith('seed-2-0-pro');
     
     // For seed-2-0-pro-260328, we use /responses and input formatting
     if (isPro260328) {
       const inputContent = [{ type: 'input_text', text: prompt }];
-      if (image) {
-          inputContent.push({ 
-              type: 'input_image', 
-              image_url: image
-          });
-      }
+      imageList.forEach(img => {
+          inputContent.push({ type: 'input_image', image_url: img });
+      });
       if (video) {
           inputContent.push({
               type: 'input_video',
@@ -48,15 +49,19 @@ async function seedHandler(req, res) {
           });
       }
 
+      const inputMessages = [];
+      if (systemPrompt) {
+          inputMessages.push({
+              role: 'system',
+              content: [{ type: 'input_text', text: systemPrompt }],
+          });
+      }
+      inputMessages.push({ role: 'user', content: inputContent });
+
       const payload = {
           model: resolvedModelId,
           stream: false, // Stream false for simpler REST handling in StarterKit
-          input: [
-              {
-                  role: "user",
-                  content: inputContent
-              }
-          ]
+          input: inputMessages,
       };
 
       const responsesEndpoint = `${endpointBase}/responses`;
@@ -70,7 +75,11 @@ async function seedHandler(req, res) {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data;
+      try { data = JSON.parse(responseText); } catch {
+        return res.status(502).json({ error: 'API returned a non-JSON response', details: responseText.slice(0, 300) });
+      }
       if (!response.ok) {
         throw new Error(data.error?.message || `API error: ${response.status}`);
       }
@@ -97,11 +106,11 @@ async function seedHandler(req, res) {
       { role: 'system', content: systemPrompt || 'You are a helpful assistant.' }
     ];
 
-    if (image || video) {
+    if (imageList.length > 0 || video) {
       const content = [{ type: 'text', text: prompt }];
-      if (image) {
-        content.push({ type: 'image_url', image_url: { url: image } });
-      }
+      imageList.forEach(img => {
+        content.push({ type: 'image_url', image_url: { url: img } });
+      });
       if (video) {
         content.push({ type: 'video_url', video_url: { url: video } });
       }
@@ -125,7 +134,11 @@ async function seedHandler(req, res) {
       }),
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+    let data;
+    try { data = JSON.parse(responseText); } catch {
+      return res.status(502).json({ error: 'API returned a non-JSON response', details: responseText.slice(0, 300) });
+    }
     if (!response.ok) {
       return res.status(response.status).json({ error: 'Seed request failed', details: data });
     }

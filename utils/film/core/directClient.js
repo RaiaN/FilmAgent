@@ -53,7 +53,7 @@ export const createDirectClient = ({ apiKey, baseUrl }) => {
       return { url, prompt };
     },
 
-    async reason({ prompt, systemPrompt, images, video, modelId }) {
+    async reason({ prompt, systemPrompt, images, video, modelId, reasoningEffort }) {
       const isResponsesApi = String(modelId || '').startsWith('seed-2-0');
       if (isResponsesApi) {
         const userContent = [{ type: 'input_text', text: prompt }];
@@ -62,7 +62,13 @@ export const createDirectClient = ({ apiKey, baseUrl }) => {
         const input = [];
         if (systemPrompt) input.push({ role: 'system', content: [{ type: 'input_text', text: systemPrompt }] });
         input.push({ role: 'user', content: userContent });
-        const res = await fetch(`${base}/responses`, { method: 'POST', headers: authHeaders, body: JSON.stringify({ model: modelId, stream: false, input }) });
+        const payload = { model: modelId, stream: false, input };
+        // Seed 2.0 Pro reasoning depth via `thinking` (the endpoint rejects
+        // `reasoning_effort`). medium/high → enable thinking.
+        if (reasoningEffort && reasoningEffort !== 'low') {
+          payload.thinking = { type: 'enabled' };
+        }
+        const res = await fetch(`${base}/responses`, { method: 'POST', headers: authHeaders, body: JSON.stringify(payload) });
         const data = await res.json();
         if (!res.ok) throw new Error(errMsg(data, 'Reasoning request failed'));
         return { content: extractResponseText(data) };

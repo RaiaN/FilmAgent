@@ -249,7 +249,7 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      idea: 'A lone radio operator at an Arctic listening post starts hearing her own voice transmitting back from a station that does not exist.',
+      idea: '',
       language: 'en',
       targetMinutes: 4,
       projectPath: '',

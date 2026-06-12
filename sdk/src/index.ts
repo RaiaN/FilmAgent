@@ -1,22 +1,68 @@
-// @modelark/film — plug-and-play client for the agentic film suite.
+// @modelark/film — plug-and-play SDK for the agentic film suite.
 //
-//   const film = new FilmSuite({ apiKey, baseUrl });
-//   const refs   = await film.inspiration({ prompt: 'arctic outpost, 16mm' });
-//   const beats  = await film.storyBeats({ idea, steps });
-//   const shot   = await film.animate({ imageUrl, motion: 'slow push-in' },
-//                                     { onEvent: (e) => console.log(e.type) });
+// Two layers:
+//   • Single agents — submit async runs to the Service API:
+//       const film = new FilmSuite({ apiKey, baseUrl });
+//       const refs  = await film.inspiration({ prompt: 'arctic outpost, 16mm' });
+//   • Full production — the whole Auto Director loop, in-process, no Service API:
+//       const result = await produce(
+//         { idea: 'a lonely lighthouse keeper and a stranded whale', targetMinutes: 1 },
+//         { onEvent: (e) => console.log(e.type) },
+//       );
+//       // result.film?.path → the stitched .mp4
 //
-// Every call submits an async run to the Service API and resolves with the final
-// results — streaming lifecycle events via SSE when `onEvent` is supplied,
-// otherwise polling. No UI, no canvas, no orchestration logic on the client.
+// produce() runs understand → plan → generate shots → QC → stitch directly against
+// ModelArk via an injected transport. The agent ops are reused verbatim from the
+// shared core; only the orchestration loop is owned here.
 
 import type {
   AgentId, AgentInput, FilmSuiteOptions, RunOptions, Run, RunEvent,
   InspirationInput, VariationsInput, MixMatchInput, AnimateInput, PromptMuseInput, StoryBeatsInput,
   ImageAsset, VideoAsset, TextAsset, Beat, SuiteConfigOverride,
+  ProduceInput, ProduceOptions, ProduceResult, AutoDirectorInput,
+  Production, ProductionOptions, StitchFn,
 } from './types';
+import { runProduction, createProduction as createProductionCore } from './core';
+import { createDirectTransport } from './transport';
 
 export * from './types';
+export { createDirectTransport } from './transport';
+export { runStep } from './core';
+export type { Transport } from './transport';
+export type { Client, Ctx } from './core';
+
+// The bundled Node ffmpeg stitch, lazy-loaded on first use so browser consumers of
+// the HTTP client never pull in node built-ins, and so createProduction() can stay
+// synchronous. A caller-supplied opts.stitch fn (or `false`) takes precedence.
+const lazyNodeStitch: StitchFn = (shots, o) => import('./stitch').then((m) => m.nodeStitch(shots, o));
+const defaultStitch = (s: StitchFn | false | undefined): StitchFn | undefined =>
+  (s === undefined ? lazyNodeStitch : undefined); // `false` → no stitch; a fn → used via opts by the session
+
+/**
+ * Produce a full film headlessly: understand → plan → generate shots → QC → stitch,
+ * running the entire agentic loop in-process via a direct-to-ModelArk transport —
+ * no Service API required. Node runtime (stitching shells out to ffmpeg).
+ *
+ * `apiKey`/`baseUrl` default to env `MODELARK_API_KEY` / `MODELARK_API_BASE_URL`.
+ */
+export async function produce(input: ProduceInput, opts: ProduceOptions = {}): Promise<ProduceResult> {
+  const transport = createDirectTransport({ apiKey: opts.apiKey, baseUrl: opts.baseUrl, stitch: defaultStitch(opts.stitch) });
+  return runProduction(input, transport, opts);
+}
+
+/**
+ * Open an INTERACTIVE production you drive step by step (understand → plan → runStep →
+ * pick/approve/regenerate/skip → stitch), or call `.runAll()` for the autonomous loop.
+ * Same engine as `produce()`; here you own the control flow — build any UI on top.
+ * Defaults to `mode: 'review'`. `apiKey`/`baseUrl` default to env like `produce()`.
+ */
+export function createProduction(
+  input: ProduceInput,
+  opts: ProductionOptions & { apiKey?: string; baseUrl?: string } = {},
+): Production {
+  const transport = createDirectTransport({ apiKey: opts.apiKey, baseUrl: opts.baseUrl, stitch: defaultStitch(opts.stitch) });
+  return createProductionCore(input, transport, opts);
+}
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -96,6 +142,29 @@ export class FilmSuite {
   animate(input: AnimateInput, opts?: RunOptions) { return this.run<VideoAsset[]>('animate', input, opts); }
   promptMuse(input: PromptMuseInput, opts?: RunOptions) { return this.run<TextAsset[]>('promptMuse', input, opts); }
   storyBeats(input: StoryBeatsInput, opts?: RunOptions) { return this.run<Beat[]>('storyBeats', input, opts); }
+
+  /**
+   * Run the full headless production loop (see standalone `produce`). Uses this
+   * suite's apiKey. Note: this talks to ModelArk directly, NOT the Service API —
+   * set `opts.baseUrl` (or env MODELARK_API_BASE_URL) to the ModelArk endpoint.
+   */
+  produce(input: ProduceInput, opts: ProduceOptions = {}) {
+    return produce(input, { apiKey: this.apiKey, ...opts });
+  }
+
+  /**
+   * Run the full production on the **Service API** (server-side) and resolve with
+   * the finished film — for thin clients that don't run the loop themselves.
+   * Contrast with `produce()`, which runs the loop in *this* process.
+   */
+  autoDirector(input: AutoDirectorInput, opts?: RunOptions) {
+    return this.run<ProduceResult>('autoDirector', input, opts);
+  }
+
+  /** Open an interactive production (in-process engine) using this suite's apiKey. */
+  createProduction(input: ProduceInput, opts: ProductionOptions = {}) {
+    return createProduction(input, { apiKey: this.apiKey, ...opts });
+  }
 }
 
 export default FilmSuite;

@@ -6,7 +6,9 @@
 import { createBrowserClient } from './core/client';
 import * as ops from './core/operations';
 import * as director from './core/director';
-import { VARIANT_POOLS, COVERAGE_POOLS, buildAnimatePrompt, extractMusePrompt } from './core/operations';
+import { buildAnimatePrompt, extractMusePrompt } from './core/operations';
+import { exploreTopic } from './core/explore';
+import { AD_ROLES } from './recipes';
 import { SIZE_TIERS as IMAGE_RESOLUTIONS, ASPECT_RATIOS as IMAGE_RATIOS } from './imageSizes';
 
 // Re-exported so the canvas panels can reuse them.
@@ -22,9 +24,40 @@ export const AGENT_COLORS = {
   animate: '#722ed1',              // purple (video)
   promptMuse: '#0fc6c2',           // teal (read/coach)
   storyDirector: '#f7ba1e',        // gold (interactive story)
+  topicExplorer: '#8bbb11',        // lime (research / exploration)
 };
 
 const browserCtx = (apiKey) => ({ client: createBrowserClient(apiKey) });
+
+// A full browser transport for the interactive production session (createProduction):
+// the app-route client plus a stitch that posts to /api/film/stitch (server ffmpeg +
+// TOS) and resolves to a hosted, playable URL. The canvas drives the shared engine
+// through this instead of reimplementing the loop.
+export const createBrowserTransport = (apiKey) => ({
+  client: createBrowserClient(apiKey),
+  stitch: async (shots, o = {}) => {
+    const res = await fetch('/api/film/stitch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shots, name: o.name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.details || data?.error || 'Stitch failed');
+    return { url: data.url, assetId: data.assetId || null };
+  },
+  // The Filming Loop's continuity capability: the last frame of an approved chunk
+  // seeds the next chunk's keyframe (server ffmpeg → base64 reference image).
+  lastFrame: async (url) => {
+    const res = await fetch('/api/film/last-frame', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.details || data?.error || 'Last-frame extraction failed');
+    return { url: data.url };
+  },
+});
 
 // The reference a Seedream-backed agent should send for a node. Prefer the local
 // bytes (localUrl, a data: URL) when present — that's the case for uploaded files,
@@ -60,8 +93,17 @@ export const suggestShotMotion = ({ apiKey, images }) =>
 // Thin pass-throughs to the director core. Callers pass already-resolved image
 // URLs (use refUrl on the canvas side so uploaded assets send base64).
 
+export const exploreStyles = ({ apiKey, idea = '', images = [], count = 8, onItem }) =>
+  director.exploreStyles({ idea, images, count }, browserCtx(apiKey), onItem);
+
 export const understandAssets = ({ apiKey, images = [], idea = '' }) =>
   director.understandAssets({ images, idea }, browserCtx(apiKey));
+
+// Concierge intake: classify a pile of uploaded images into recipe bible roles, and
+// report which required roles are still missing ("do you have XYZ?"). An injected
+// `client` (e.g. trace-wrapped) wins over the plain browser one.
+export const classifyAssets = ({ apiKey, client, images = [], idea = '', roles = [], requiredRoles = [] }) =>
+  director.classifyAssets({ images, idea, roles, requiredRoles }, client ? { client } : browserCtx(apiKey));
 
 export const buildPlan = ({ apiKey, brief, idea = '', targetMinutes = 4 }) =>
   director.buildPlan({
@@ -85,14 +127,19 @@ export const inspirationAgent = {
   needsSelection: false,
   grouped: true,
   defaultSettings: { count: 6, size: '2K', useSelectionAsRefs: false },
-  describe: 'Generate a grid of reference imagery from a prompt. Seed it with selected images as style references, or a selected Prompt Muse text card as the prompt.',
-  async run({ prompt, selection, settings, apiKey, onAsset, onError }) {
-    const refs = settings.useSelectionAsRefs ? selectedImageUrls(selection) : [];
+  describe: 'Generate a grid of reference imagery. Select multiple assets and it reads each, synthesises them, and plans distinct directions (Seed 2.0 Pro). Or seed from a Prompt Muse text card. Each output is meaningfully different.',
+  // Every agent run accepts an optional injected `ctx` (the canvas passes a
+  // trace-wrapped client so rail runs land in the decision history); without one
+  // it builds the plain browser ctx from the apiKey as before.
+  async run({ prompt, selection, settings, apiKey, ctx, onAsset, onError }) {
+    // All selected images are read by the planner (describe + mix); the checkbox
+    // also feeds them to the image model as visual references.
+    const refs = selectedImageUrls(selection);
     // Typed prompt wins; otherwise fall back to a selected text card (Prompt Muse).
     const effectivePrompt = (prompt && String(prompt).trim()) || selectedText(selection);
     const result = await ops.inspiration(
-      { prompt: effectivePrompt, refs, count: settings.count, size: settings.size },
-      browserCtx(apiKey),
+      { prompt: effectivePrompt, refs, useRefsInGen: !!settings.useSelectionAsRefs, count: settings.count, size: settings.size },
+      ctx || browserCtx(apiKey),
       (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'inspiration', sourceRefs: item.referenceImages, meta: { prompt: item.prompt, ...item.meta } }),
     );
     if (result.errors.length && onError) onError(result.errors);
@@ -108,14 +155,14 @@ export const characterVariationsAgent = {
   consumes: ['image'],
   needsSelection: true,
   grouped: true,
-  defaultSettings: { axis: 'wardrobe', count: 4, size: '2K', notes: '' },
-  describe: 'Select a character image, then spin variations along an axis (wardrobe, age, expression, lighting, pose) with identity preserved.',
-  async run({ selection, settings, apiKey, onAsset, onError }) {
+  defaultSettings: { count: 4, size: '2K', direction: '' },
+  describe: 'Select a character image — Seed 2.0 Pro plans distinct, content-aware variations (identity preserved). Leave Direction blank to let it choose, or steer it (e.g. "different wardrobes", "across ages").',
+  async run({ selection, settings, apiKey, ctx, onAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one character image first');
     const result = await ops.characterVariations(
-      { imageUrl: refUrl(anchor), axis: settings.axis, count: settings.count, notes: settings.notes, size: settings.size },
-      browserCtx(apiKey),
+      { imageUrl: refUrl(anchor), direction: settings.direction, count: settings.count, size: settings.size },
+      ctx || browserCtx(apiKey),
       (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'characterVariations', sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId: anchor.id } }),
     );
     if (result.errors.length && onError) onError(result.errors);
@@ -131,14 +178,14 @@ export const locationVariationsAgent = {
   consumes: ['image'],
   needsSelection: true,
   grouped: true,
-  defaultSettings: { axis: 'angles', count: 4, size: '2K', notes: '' },
-  describe: 'Select a location plate, then generate coverage (angles, time of day, weather, season) with the architecture preserved. No people.',
-  async run({ selection, settings, apiKey, onAsset, onError }) {
+  defaultSettings: { count: 4, size: '2K', direction: '' },
+  describe: 'Select a location plate — Seed 2.0 Pro plans distinct coverage (architecture preserved, no people). Leave Direction blank, or steer it (e.g. "different times of day", "tighter angles").',
+  async run({ selection, settings, apiKey, ctx, onAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one location image first');
     const result = await ops.locationVariations(
-      { imageUrl: refUrl(anchor), axis: settings.axis, count: settings.count, notes: settings.notes, size: settings.size },
-      browserCtx(apiKey),
+      { imageUrl: refUrl(anchor), direction: settings.direction, count: settings.count, size: settings.size },
+      ctx || browserCtx(apiKey),
       (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'locationVariations', sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId: anchor.id } }),
     );
     if (result.errors.length && onError) onError(result.errors);
@@ -153,18 +200,28 @@ export const mixMatchAgent = {
   color: AGENT_COLORS.mixMatch,
   consumes: ['image'],
   needsSelection: true,
-  minSelection: 2,
+  minSelection: 1,
   grouped: true,
   defaultSettings: { prompt: '', count: 4, size: '2K', ratio: '16:9' },
-  describe: 'Select two or more images — characters, locations, props — and combine them into new composite stills. Each subject\'s identity, proportions and the location are preserved. Pick an aspect ratio that suits the shot.',
-  async run({ selection, settings, apiKey, onAsset, onError }) {
-    const refs = selectedImageUrls(selection);
-    if (refs.length < 2) throw new Error('Select at least two images to mix');
-    // Pass the tier + aspect ratio; ops.mixMatch resolves them to the exact W×H
-    // once (Method 2), so the composite renders at the chosen frame shape.
+  describe: 'What might be HAPPENING to your character? Select the character (and optionally locations) — each output is a distinct story moment placing them in a different location, something happening, identity and place preserved. With only the character selected, board locations fill in.',
+  async run({ selection, settings, apiKey, ctx, onAsset, onError }) {
+    // CHARACTER FIRST: the planner treats ref[0] as the character to preserve and
+    // the rest as locations. A tagged talent/character node wins; else selection order.
+    const sel = (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url);
+    const isCast = (n) => n.data?.bibleRole === 'talent' || n.data?.bibleRole === 'character';
+    const character = sel.find(isCast) || sel[0];
+    const others = sel.filter((n) => n !== character);
+    if (!character) throw new Error('Select your character image first');
+    let refs = [refUrl(character), ...others.map(refUrl)];
+    // Only the character selected → the canvas passes the bible's location anchors
+    // via settings.locationUrls as the fallback stage set.
+    if (refs.length < 2 && Array.isArray(settings.locationUrls) && settings.locationUrls.length) {
+      refs = [refs[0], ...settings.locationUrls.slice(0, 3)];
+    }
+    if (refs.length < 2) throw new Error('Select the character plus at least one location (or tag location anchors in the bible)');
     const result = await ops.mixMatch(
       { imageUrls: refs, direction: settings.prompt, count: settings.count, size: settings.size, ratio: settings.ratio },
-      browserCtx(apiKey),
+      ctx || browserCtx(apiKey),
       (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'mixMatch', sourceRefs: item.referenceImages, meta: item.meta }),
     );
     if (result.errors.length && onError) onError(result.errors);
@@ -184,10 +241,10 @@ export const animateAgent = {
     duration: 5, resolution: '720p', ratio: 'adaptive', generateAudio: true,
   },
   describe: 'Select a keyframe image, set the camera, describe the motion, and Seedance turns it into a moving shot with native audio. The still becomes the first frame.',
-  async run({ selection, settings, apiKey, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
+  async run({ selection, settings, apiKey, ctx: injectedCtx, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one image to animate');
-    const ctx = browserCtx(apiKey);
+    const ctx = injectedCtx || browserCtx(apiKey);
 
     // Drop the loading node immediately, then kick off the async task.
     const prompt = buildAnimatePrompt(settings);
@@ -218,6 +275,40 @@ export const animateAgent = {
   },
 };
 
+export const topicExplorerAgent = {
+  id: 'topicExplorer',
+  label: 'Topic Explorer',
+  icon: 'explore',
+  color: AGENT_COLORS.topicExplorer,
+  consumes: ['text'],
+  needsSelection: false,
+  defaultSettings: { topic: '', budget: 12, depth: 2 },
+  describe: 'Researches a topic BEFORE production: discovers its unique key concepts (you don\'t need to know the right taxonomy), explains what makes videos on it good, and fills the board shallow→deep with candidate assets — each carrying a suggested bible role you confirm by tagging.',
+  async run({ prompt, selection, settings, apiKey, ctx, onAsset, onGroup, onError }) {
+    const topic = (prompt && String(prompt).trim()) || (settings.topic || '').trim() || selectedText(selection);
+    if (!topic) throw new Error('Give the explorer a topic first (the panel field, or select a text card)');
+    const groupByConcept = {}; // conceptId -> board group frame id
+    const result = await exploreTopic(
+      { topic, budget: settings.budget, depth: settings.depth, roles: AD_ROLES },
+      ctx || browserCtx(apiKey),
+      {
+        // The craft brief is user-visible knowledge, not buried context.
+        onCraft: (text) => onAsset({ kind: 'text', text: `What makes a video on this topic good:\n\n${text}`, label: 'Topic brief', layerId: 'topicExplorer' }),
+        // One titled group frame per discovered concept — the title IS the concept;
+        // no why-card inside (it ate a cell and left frames looking empty).
+        onConcept: (c) => {
+          const gid = onGroup ? onGroup({ label: c.title }) : null;
+          if (gid) groupByConcept[c.id] = gid;
+        },
+        // Candidates carry a SUGGESTED role (meta) — the user confirms by tagging.
+        onImage: (img) => onAsset({ kind: 'image', url: img.url, label: img.label, layerId: 'topicExplorer', groupId: groupByConcept[img.conceptId] || null, meta: { prompt: img.prompt, suggestedRole: img.role || null } }),
+        onError: (msg) => { if (onError) onError([msg]); },
+      },
+    );
+    return { created: result.images, errors: [] };
+  },
+};
+
 export const promptMuseAgent = {
   id: 'promptMuse',
   label: 'Prompt Muse',
@@ -227,13 +318,13 @@ export const promptMuseAgent = {
   needsSelection: true,
   defaultSettings: { question: '' },
   describe: 'Stuck on how to describe what you want? Select an image or video and Prompt Muse reads the craft back to you — and writes a ready-to-use prompt you can drop into Inspiration or Animate.',
-  async run({ selection, settings, apiKey, onAsset, onError }) {
+  async run({ selection, settings, apiKey, ctx, onAsset, onError }) {
     const sel = selection || [];
     const images = selectedImageUrls(sel);
     // Prefer local bytes for an uploaded video too (its TOS URL isn't fetchable).
     const video = refUrl(sel.find((n) => n.data?.kind === 'video' && n.data?.url)) || undefined;
     try {
-      const { text } = await ops.promptMuse({ images, video, question: settings.question }, browserCtx(apiKey));
+      const { text } = await ops.promptMuse({ images, video, question: settings.question }, ctx || browserCtx(apiKey));
       onAsset({ kind: 'text', text, label: 'Prompt Muse', layerId: 'promptMuse', sourceRefs: [...images, ...(video ? [video] : [])], meta: { question: settings.question || '' } });
       return { created: 1, errors: [] };
     } catch (err) {
@@ -243,38 +334,22 @@ export const promptMuseAgent = {
   },
 };
 
-export const storyDirectorAgent = {
-  id: 'storyDirector',
-  label: 'Story Director',
-  icon: 'story',
-  color: AGENT_COLORS.storyDirector,
-  consumes: ['image'],
-  needsSelection: false,
-  interactive: true, // runs its own loop in a custom panel — no generic Run button
-  defaultSettings: { count: 3, size: '2K' },
-  describe: 'Build your film beat by beat. Start from a frame or your idea; the agent suggests what happens next, you pick, and it generates the keyframe — chaining a timeline you can animate.',
-};
+// Story Director and Auto Director are intentionally GONE from the canvas — their
+// rigid wizard UX is replaced by the Timeline (the spine) + the Bible (lock
+// assets) + Auto-fill (drives the production engine directly). The orchestration
+// engine itself (core/production.js) lives on; the canvas just drives it. (The
+// headless Service-API storyDirector/autoDirector agents are a separate surface.)
 
-export const autoDirectorAgent = {
-  id: 'autoDirector',
-  label: 'Auto Director',
-  icon: 'auto',
-  color: AGENT_COLORS.autoDirector,
-  consumes: ['image'],
-  needsSelection: false,
-  interactive: true, // orchestrates the other agents on a canvas plan element — no generic Run
-  defaultSettings: {},
-  describe: 'Hand it your assets and idea — it understands them, plans a production using every other agent, then runs it step by step. You review, pick and approve each step (AI QC flags issues), and it stitches the final film.',
-};
-
+// Animate is deliberately NOT in the rail: it's a technical capability the engine
+// (and the planned generate→validate→correct→continue flow) configures per shot —
+// not a creative agent a user picks. The op + its settings UI live on for those
+// surfaces; AGENTS is the creative-tools rail only.
 export const AGENTS = [
-  autoDirectorAgent,
+  topicExplorerAgent,
   inspirationAgent,
   characterVariationsAgent,
   locationVariationsAgent,
   mixMatchAgent,
-  storyDirectorAgent,
-  animateAgent,
   promptMuseAgent,
 ];
 
@@ -282,8 +357,3 @@ export const AGENT_MAP = AGENTS.reduce((acc, a) => {
   acc[a.id] = a;
   return acc;
 }, {});
-
-export const AXIS_OPTIONS = {
-  characterVariations: Object.keys(VARIANT_POOLS),
-  locationVariations: Object.keys(COVERAGE_POOLS),
-};

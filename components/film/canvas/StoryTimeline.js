@@ -1,141 +1,557 @@
-import { useState } from 'react';
-import { Typography, Button } from '@arco-design/web-react';
-import { IconUp, IconDown, IconRight, IconBranch, IconPlus } from '@arco-design/web-react/icon';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Typography, Button, Tooltip, Tag, InputNumber, Input, Popover, Select, Modal } from '@arco-design/web-react';
+import {
+  IconUp, IconDown, IconLeft, IconRight, IconBranch, IconPlus, IconClose,
+  IconThunderbolt, IconVideoCamera, IconPlayArrow, IconPause, IconRefresh,
+  IconLock, IconUnlock, IconDelete, IconLoading, IconZoomIn, IconZoomOut, IconCheck,
+} from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
 import { ASSET_DRAG_TYPE, BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
+import { orderedEvents, totalDuration } from '../../../utils/film/timelineModel';
+import { CAMERA_MOVES } from '../../../utils/film/recipes';
 
 const { Text } = Typography;
-const COLOR = AGENT_COLORS.storyDirector;
+const COLOR = AGENT_COLORS.storyDirector; // gold — the timeline's accent
 
-// Foldable storyboard strip along the bottom of the canvas. Shows the ordered
-// story keyframes (thumbnail + beat label); clicking one selects/centers it.
-// Drop a board asset (grip) or a Library item here to append it as a new beat.
-const StoryTimeline = ({ items, collapsed, onToggle, onSelect, selectedId, onAddAsset }) => {
-  const totalSeconds = Math.max(0, (items.length - 1)) * 5; // ~5s per segment, rough
-  const [dragOver, setDragOver] = useState(false);
+// Zoom (pixels per second). 15s fits comfortably at the default; like any video
+// editor, zoom in/out rescales the whole track + ruler.
+const PX_MIN = 8;
+const PX_MAX = 220;
+const PX_DEFAULT = 46;
+const CLIP_MIN_PX = 6;
 
-  const carries = (e) =>
-    e.dataTransfer.types.includes(BOARD_NODE_DRAG_TYPE) || e.dataTransfer.types.includes(ASSET_DRAG_TYPE);
+// Pick a ruler tick interval so labels sit ~54px+ apart at the current zoom.
+const tickSeconds = (pxPerSec) => {
+  for (const s of [1, 2, 5, 10, 15, 30, 60, 120, 300, 600]) if (s * pxPerSec >= 54) return s;
+  return 1200;
+};
 
-  const onDragOver = (e) => {
-    if (!onAddAsset || !carries(e)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-    if (!dragOver) setDragOver(true);
+const STATUS_META = {
+  empty: { label: 'Empty', color: '#c9cdd4' },
+  keyframe: { label: 'Keyframe', color: '#f7ba1e' },
+  rendering: { label: 'Rendering', color: '#165dff' },
+  shot: { label: 'Shot', color: '#00b42a' },
+  failed: { label: 'Failed', color: '#f53f3f' },
+};
+
+const fmt = (s) => {
+  const n = Math.round(Number(s) || 0);
+  if (n < 60) return `${n}s`;
+  return `${Math.floor(n / 60)}m ${String(n % 60).padStart(2, '0')}s`;
+};
+
+// ---- the instant animatic / final-cut player ---------------------------------
+// Zero-generation preview: cycle the keyframes for their durations. Once a stitched
+// film exists, ▶ plays the mp4 instead — a "first cut" in seconds, before any video.
+const AnimaticPlayer = ({ events, film, onClose }) => {
+  const frames = useMemo(() => orderedEvents(events).filter((e) => e.keyframeUrl || e.shotUrl), [events]);
+  const [idx, setIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const isFilm = !!(film && film.url);
+
+  useEffect(() => {
+    if (isFilm || paused || !frames.length) return undefined;
+    const cur = frames[Math.min(idx, frames.length - 1)];
+    const ms = Math.max(700, (Number(cur?.durationSec) || 5) * 1000);
+    const t = setTimeout(() => setIdx((i) => (i + 1) % frames.length), ms);
+    return () => clearTimeout(t);
+  }, [idx, paused, isFilm, frames]);
+
+  const cur = frames[Math.min(idx, Math.max(0, frames.length - 1))];
+  return (
+    <Modal
+      visible
+      onCancel={onClose}
+      footer={null}
+      title={isFilm ? 'Final cut' : `Animatic · ${frames.length} ${frames.length === 1 ? 'shot' : 'shots'} · ${fmt(totalDuration(events))}`}
+      style={{ width: 720, maxWidth: '92vw' }}
+      autoFocus={false}
+    >
+      <div style={{ background: '#000', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+        {isFilm ? (
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          <video src={film.url} controls autoPlay style={{ width: '100%', display: 'block', maxHeight: '60vh' }} />
+        ) : cur ? (
+          <div style={{ position: 'relative' }}>
+            <img src={cur.keyframeUrl || cur.shotUrl} alt={cur.beat} style={{ width: '100%', display: 'block', maxHeight: '60vh', objectFit: 'contain' }} />
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 12px', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
+              <Text style={{ color: '#fff', fontSize: 13 }}>{Math.min(idx, frames.length - 1) + 1}. {cur.beat || 'Shot'}</Text>
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: 40, textAlign: 'center' }}><Text style={{ color: '#fff' }}>No keyframes yet.</Text></div>
+        )}
+      </div>
+      {!isFilm && frames.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+          <Button size="small" shape="circle" icon={paused ? <IconPlayArrow /> : <IconPause />} onClick={() => setPaused((p) => !p)} />
+          <div style={{ flex: 1, display: 'flex', gap: 3 }}>
+            {frames.map((f, i) => (
+              <div key={f.id} style={{ flex: 1, height: 4, borderRadius: 2, background: i === Math.min(idx, frames.length - 1) ? COLOR : '#e5e6eb' }} />
+            ))}
+          </div>
+          <Text type="secondary" style={{ fontSize: 11 }}>cycling keyframes — no generation</Text>
+        </div>
+      )}
+    </Modal>
+  );
+};
+
+// ---- one clip on the time-scaled track ----------------------------------------
+const Clip = ({ event, index, width, selected, onSelect, onTrimStart }) => {
+  const status = STATUS_META[event.status] || STATUS_META.empty;
+  const thumb = event.keyframeUrl || event.shotUrl;
+  const narrow = width < 64;
+  return (
+    <div
+      onClick={() => onSelect(event.id)}
+      title={`${index + 1}. ${event.beat || 'Shot'} · ${fmt(event.durationSec)}`}
+      style={{
+        position: 'relative', width, minWidth: CLIP_MIN_PX, height: 64, flexShrink: 0,
+        borderRadius: 5, overflow: 'hidden', cursor: 'pointer', background: '#0f1115',
+        outline: selected ? `2px solid ${COLOR}` : '1px solid #d9d9e3', outlineOffset: -1,
+        boxShadow: selected ? `0 0 0 2px ${COLOR}55` : 'none',
+      }}
+    >
+      {thumb ? (
+        event.status === 'shot' && event.shotUrl
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          ? <video src={event.shotUrl} muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.92 }} />
+          : <img src={thumb} alt={event.beat} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.92 }} />
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+          {event.status === 'rendering' ? <IconLoading style={{ color: '#fff' }} /> : <Text style={{ fontSize: 9, color: '#86909c' }}>empty</Text>}
+        </div>
+      )}
+      {/* status stripe along the bottom */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 3, background: status.color }} />
+      <span style={{ position: 'absolute', top: 2, left: 2, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 9, borderRadius: 4, padding: '0 4px' }}>{index + 1}</span>
+      {event.locked && <IconLock style={{ position: 'absolute', top: 2, right: 2, color: '#fff', fontSize: 10, background: 'rgba(0,0,0,0.5)', borderRadius: 7, padding: 1 }} />}
+      {event.qc && event.qc.verdict && event.qc.verdict !== 'pass' && !event.locked && (
+        <Tooltip content={(event.qc.issues || []).map((it) => it.message).filter(Boolean).join(' · ') || 'QC flagged this shot — your call.'}>
+          <span style={{ position: 'absolute', top: 2, right: 2, background: event.qc.verdict === 'fail' ? '#f53f3f' : '#ff7d00', color: '#fff', fontSize: 8, borderRadius: 4, padding: '0 3px', cursor: 'help' }}>⚠</span>
+        </Tooltip>
+      )}
+      {!narrow && (
+        <div style={{ position: 'absolute', left: 4, right: 4, bottom: 6 }}>
+          <Text style={{ fontSize: 9, color: '#fff', textShadow: '0 1px 2px #000' }} ellipsis>{fmt(event.durationSec)} · {event.beat || 'Shot'}</Text>
+        </div>
+      )}
+      {/* right-edge trim handle (drag to change duration — the video-editor gesture) */}
+      <div
+        onPointerDown={(e) => { e.stopPropagation(); onTrimStart(event, e); }}
+        title="Drag to trim duration"
+        style={{ position: 'absolute', top: 0, right: 0, width: 8, height: '100%', cursor: 'ew-resize', background: selected ? `${COLOR}cc` : 'rgba(255,255,255,0.25)' }}
+      />
+    </div>
+  );
+};
+
+// ---- the inspector for the selected clip --------------------------------------
+const Inspector = ({ event, index, total, onSetDuration, onToggleLock, onMove, onRegenerate, onRemove }) => {
+  const [note, setNote] = useState('');
+  const [noteOpen, setNoteOpen] = useState(false);
+  useEffect(() => { setNote(''); setNoteOpen(false); }, [event?.id]);
+  if (!event) {
+    return (
+      <div style={{ padding: '8px 12px', borderTop: '1px solid #f0f0f3' }}>
+        <Text type="secondary" style={{ fontSize: 11 }}>Select a clip to trim it, re-order it, lock it, or regenerate it with a note.</Text>
+      </div>
+    );
+  }
+  const canIterate = !!event.stepId && !event.locked;
+  const regenPanel = (
+    <div style={{ width: 250 }}>
+      <Text style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>What&rsquo;s wrong with this shot?</Text>
+      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>Your note steers the next take — the shot&rsquo;s anchors still apply. Locked clips are never touched.</Text>
+      <Input.TextArea autoFocus value={note} onChange={setNote} placeholder="e.g. three characters instead of two, lighting is off, background doesn't match…" autoSize={{ minRows: 2, maxRows: 4 }} />
+      <div style={{ textAlign: 'right', marginTop: 8 }}>
+        <Button size="mini" type="primary" icon={<IconRefresh />} style={{ background: COLOR, borderColor: COLOR }} onClick={() => { onRegenerate(event.id, note.trim()); setNote(''); setNoteOpen(false); }}>Regenerate</Button>
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', borderTop: '1px solid #f0f0f3', overflowX: 'auto' }}>
+      <Tag size="small" color="gold" style={{ flexShrink: 0 }}>Clip {index + 1}/{total}</Tag>
+      <Text style={{ fontSize: 12, fontWeight: 600, flexShrink: 0, maxWidth: 220 }} ellipsis>{event.beat || 'Shot'}</Text>
+
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+        <Text type="secondary" style={{ fontSize: 11 }}>Duration</Text>
+        <InputNumber size="mini" min={1} max={60} value={event.durationSec} onChange={(v) => onSetDuration(event.id, v)} style={{ width: 64 }} suffix="s" />
+      </span>
+
+      <Tooltip content="Move earlier"><Button size="mini" icon={<IconLeft />} disabled={index === 0} onClick={() => onMove(event.id, -1)} /></Tooltip>
+      <Tooltip content="Move later"><Button size="mini" icon={<IconRight />} disabled={index === total - 1} onClick={() => onMove(event.id, 1)} /></Tooltip>
+      <Tooltip content={event.locked ? 'Unlock (allow regeneration)' : 'Lock (freeze — never re-touched)'}>
+        <Button size="mini" type={event.locked ? 'primary' : 'default'} icon={event.locked ? <IconLock /> : <IconUnlock />} style={event.locked ? { background: COLOR, borderColor: COLOR } : undefined} onClick={() => onToggleLock(event.id)} />
+      </Tooltip>
+      <Popover trigger="click" popupVisible={noteOpen} onVisibleChange={setNoteOpen} content={regenPanel} disabled={!canIterate}>
+        <Tooltip content={canIterate ? 'Regenerate with a note' : (event.locked ? 'Unlock to iterate' : 'Auto-fill to enable iteration')}>
+          <Button size="mini" icon={<IconRefresh />} disabled={!canIterate}>Regenerate</Button>
+        </Tooltip>
+      </Popover>
+      <Tooltip content="Remove clip"><Button size="mini" status="danger" icon={<IconDelete />} onClick={() => onRemove(event.id)} /></Tooltip>
+      {event.feedback && <Text type="secondary" style={{ fontSize: 10, fontStyle: 'italic', flexShrink: 0 }}>↻ {event.feedback}</Text>}
+    </div>
+  );
+};
+
+// ---- the Filming Loop inspector (Short Film mode) -------------------------------
+// The DRIVER of film mode: generate 10–15s → validate (QC advisory + human gate) →
+// correct by aspects (re-animate only) → continue (beats proposed from the story so
+// far). The track above is just placement + zoom-out. Always operates on the LAST
+// chunk — earlier ones are approved and chained.
+const FilmingInspector = ({ filming }) => {
+  const { chunks = [], busy, durations = [10, 12, 15], defaultDuration = 12, onPropose, onGenerate, onCorrect, onValidate } = filming || {};
+  const lastChunk = chunks[chunks.length - 1] || null;
+  const working = lastChunk && lastChunk.status !== 'validated' ? lastChunk : null;
+
+  // Composer state (start / continue)
+  const [beat, setBeat] = useState('');
+  const [durationSec, setDurationSec] = useState(defaultDuration);
+  const [camera, setCamera] = useState('auto');
+  const [proposals, setProposals] = useState([]);
+  const [proposing, setProposing] = useState(false);
+  // Correct state (working chunk)
+  const [aspects, setAspects] = useState({ camera: 'auto', action: '', rules: '', note: '' });
+  useEffect(() => {
+    if (working) setAspects({ camera: working.aspects?.camera || 'auto', action: working.aspects?.action || '', rules: working.aspects?.rules || '', note: '' });
+  }, [working?.id, working?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const propose = async () => {
+    setProposing(true);
+    try {
+      const beats = await onPropose();
+      setProposals(beats || []);
+    } finally {
+      setProposing(false);
+    }
+  };
+  const generate = () => {
+    if (!beat.trim()) return;
+    setProposals([]);
+    onGenerate({ beat: beat.trim(), durationSec, aspects: { camera } });
+    setBeat('');
   };
 
-  const onDrop = (e) => {
+  const row = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid #f0f0f3', flexWrap: 'wrap' };
+
+  if (busy) {
+    return (
+      <div style={row}>
+        <IconLoading style={{ color: COLOR }} />
+        <Text style={{ fontSize: 12 }}>Filming… {working ? `“${working.beat}” (${working.durationSec}s)` : ''} — keyframe → motion → last frame. Watch the clip land above.</Text>
+      </div>
+    );
+  }
+
+  // A draft (or failed) working chunk → VALIDATE / CORRECT
+  if (working) {
+    const qc = working.qc;
+    const qcBad = qc && qc.verdict && qc.verdict !== 'pass';
+    if (working.status === 'failed') {
+      return (
+        <div style={row}>
+          <Tag size="small" color="red">take failed</Tag>
+          <Text type="secondary" style={{ fontSize: 11, flex: 1, minWidth: 160 }} ellipsis>{working.error}</Text>
+          <Button size="mini" type="primary" icon={<IconRefresh />} style={{ background: COLOR, borderColor: COLOR }} onClick={() => onCorrect(working.id, { aspects })}>Retry take</Button>
+        </div>
+      );
+    }
+    return (
+      <div style={{ borderTop: '1px solid #f0f0f3', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Tag size="small" color="gold">Chunk {chunks.length} · {working.durationSec}s</Tag>
+          <Text style={{ fontSize: 12, fontWeight: 600, maxWidth: 320 }} ellipsis>{working.beat}</Text>
+          {qc && (
+            <Tooltip content={(qc.issues || []).map((i) => i.message).filter(Boolean).join(' · ') || 'QC saw no issues'}>
+              <Tag size="small" color={qcBad ? 'orange' : 'green'}>QC {qc.verdict || 'pass'}</Tag>
+            </Tooltip>
+          )}
+          <span style={{ flex: 1 }} />
+          <Button size="mini" type="primary" icon={<IconCheck />} style={{ background: '#00b42a', borderColor: '#00b42a' }} onClick={() => onValidate(working.id)}>Approve — continue from here</Button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>Correct this take:</Text>
+          <Select size="mini" value={aspects.camera} onChange={(v) => setAspects((a) => ({ ...a, camera: v }))} options={CAMERA_MOVES.map((c) => ({ label: c, value: c }))} style={{ width: 140 }} triggerProps={{ autoAlignPopupWidth: false }} />
+          <Input size="mini" value={aspects.action} onChange={(v) => setAspects((a) => ({ ...a, action: v }))} placeholder="action — what the subject does" style={{ width: 200 }} />
+          <Input size="mini" value={aspects.rules} onChange={(v) => setAspects((a) => ({ ...a, rules: v }))} placeholder="cinematic rules — light, pacing, continuity" style={{ width: 220 }} />
+          <Input size="mini" value={aspects.note} onChange={(v) => setAspects((a) => ({ ...a, note: v }))} placeholder="note for this retake" style={{ width: 170 }} />
+          <Button size="mini" icon={<IconRefresh />} onClick={() => onCorrect(working.id, { aspects, note: aspects.note })}>Re-animate</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // No working chunk → START or CONTINUE composer
+  const first = chunks.length === 0;
+  return (
+    <div style={{ borderTop: '1px solid #f0f0f3', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <Tag size="small" color="gold">{first ? '🎬 Start filming' : `Continue · ${chunks.length} chunk${chunks.length === 1 ? '' : 's'} approved`}</Tag>
+        <Button size="mini" loading={proposing} icon={<IconBranch />} onClick={propose}>{first ? 'Propose opening beats' : 'Propose what happens next'}</Button>
+        {proposals.map((p) => (
+          <Button key={p.title} size="mini" style={{ borderRadius: 14 }} title={p.prompt} onClick={() => { setBeat(p.prompt); setProposals([]); }}>✨ {p.title}</Button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <Input value={beat} onChange={setBeat} onPressEnter={generate} placeholder={first ? 'The opening beat — what do these first seconds show?' : 'The next beat — what happens now?'} style={{ flex: 1, minWidth: 240 }} />
+        <Select size="small" value={durationSec} onChange={setDurationSec} options={durations.map((d) => ({ label: `${d}s`, value: d }))} style={{ width: 72 }} />
+        <Select size="small" value={camera} onChange={setCamera} options={CAMERA_MOVES.map((c) => ({ label: c, value: c }))} style={{ width: 150 }} triggerProps={{ autoAlignPopupWidth: false }} />
+        <Button size="small" type="primary" disabled={!beat.trim()} icon={<IconVideoCamera />} style={{ background: COLOR, borderColor: COLOR }} onClick={generate}>
+          {first ? `Film first ${durationSec}s` : `Film next ${durationSec}s`}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// The Timeline — placement and order, nothing else: a zoomable, time-scaled
+// track (like any video editor) where shots land and get re-ordered/trimmed.
+// Consistency anchors live on the BOARD as role badges — not down here.
+// ============================================================================
+const StoryTimeline = ({
+  events = [], targetSeconds = 15, film = null,
+  collapsed, onToggle, selectedEventId, apiKeyPresent,
+  onSelectEvent, onSetDuration, onToggleEventLock, onMoveEvent, onRegenerate, onRemoveEvent,
+  onAddAsset, onAutoFill, onRenderMovie, onAddSelectedToTimeline,
+  busy = {}, canAddSelected = false,
+  filmMode = false, filming = null,
+}) => {
+  const [pxPerSec, setPxPerSec] = useState(PX_DEFAULT);
+  const [dragOver, setDragOver] = useState(false);
+  const [playerOpen, setPlayerOpen] = useState(false);
+  const [trim, setTrim] = useState(null); // { id, startX, startDur } while dragging a clip edge
+  const [sel, setSel] = useState(null);   // interval { start, end } in seconds, or null
+  const scrollRef = useRef(null);
+  const selAnchorRef = useRef(null);
+
+  const ordered = useMemo(() => orderedEvents(events), [events]);
+  const sumSeconds = useMemo(() => totalDuration(events), [events]);
+  const shotsReady = useMemo(() => ordered.filter((e) => e.shotUrl).length, [ordered]);
+  const hasFrames = useMemo(() => ordered.some((e) => e.keyframeUrl || e.shotUrl), [ordered]);
+
+  const selectedEvent = useMemo(
+    () => ordered.find((e) => e.id === selectedEventId || e.keyframeNodeId === selectedEventId) || null,
+    [ordered, selectedEventId],
+  );
+  const selectedIndex = selectedEvent ? ordered.indexOf(selectedEvent) : -1;
+
+  const tick = tickSeconds(pxPerSec);
+  const contentSeconds = Math.max(sumSeconds, targetSeconds, 1) + tick;
+  const trackWidth = Math.max(contentSeconds * pxPerSec, 280);
+  const overBudget = sumSeconds > targetSeconds * 1.04;
+
+  // Trim-by-drag: while dragging a clip's right edge, map cursor delta → duration.
+  useEffect(() => {
+    if (!trim) return undefined;
+    const onMove = (e) => {
+      const next = Math.max(1, Math.min(60, Math.round(trim.startDur + (e.clientX - trim.startX) / pxPerSec)));
+      onSetDuration(trim.id, next);
+    };
+    const onUp = () => setTrim(null);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+  }, [trim, pxPerSec, onSetDuration]);
+  const startTrim = (event, e) => setTrim({ id: event.id, startX: e.clientX, startDur: event.durationSec });
+
+  // Interval selection: drag across the ruler to mark a time window [start,end].
+  // "Auto-fill" then fills just that window (~one shot / 5s), contextual to the idea
+  // + assets. A click (tiny drag) clears the selection.
+  const secAt = (clientX) => {
+    const el = scrollRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    return Math.max(0, (clientX - rect.left + el.scrollLeft) / pxPerSec);
+  };
+  const startSel = (e) => { e.preventDefault(); const s = secAt(e.clientX); selAnchorRef.current = s; setSel({ start: s, end: s }); };
+  useEffect(() => {
+    const toSec = (clientX) => {
+      const el = scrollRef.current;
+      if (!el) return 0;
+      const rect = el.getBoundingClientRect();
+      return Math.max(0, (clientX - rect.left + el.scrollLeft) / pxPerSec);
+    };
+    const onMove = (e) => {
+      if (selAnchorRef.current == null) return;
+      const a = selAnchorRef.current;
+      const cur = toSec(e.clientX);
+      setSel({ start: Math.min(a, cur), end: Math.max(a, cur) });
+    };
+    const onUp = () => {
+      if (selAnchorRef.current == null) return;
+      selAnchorRef.current = null;
+      setSel((s) => (s && s.end - s.start >= 0.75 ? s : null));
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+  }, [pxPerSec]);
+  const selWidth = sel ? sel.end - sel.start : 0;
+  const runAutoFill = () => {
+    onAutoFill(sel && selWidth >= 0.75 ? { start: sel.start, end: sel.end } : undefined);
+    setSel(null); // the window was just a target; clear the band once it's firing
+  };
+
+  const zoom = (factor) => setPxPerSec((p) => Math.max(PX_MIN, Math.min(PX_MAX, Math.round(p * factor))));
+
+  const carries = (e) => e.dataTransfer.types.includes(BOARD_NODE_DRAG_TYPE) || e.dataTransfer.types.includes(ASSET_DRAG_TYPE);
+  const onTrackDragOver = (e) => { if (!onAddAsset || !carries(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!dragOver) setDragOver(true); };
+  const onTrackDrop = (e) => {
     setDragOver(false);
     if (!onAddAsset) return;
     const raw = e.dataTransfer.getData(BOARD_NODE_DRAG_TYPE) || e.dataTransfer.getData(ASSET_DRAG_TYPE);
     if (!raw) return;
     e.preventDefault();
-    try {
-      const d = JSON.parse(raw);
-      const url = d.thumb || d.url; // Library uploads expose a loadable thumb; board grips pass a displayable url
-      if (url) onAddAsset({ url, assetId: d.assetId || null, label: d.label || d.name || 'Beat' });
-    } catch { /* ignore malformed payloads */ }
+    try { const d = JSON.parse(raw); const url = d.thumb || d.url; if (url) onAddAsset({ url, assetId: d.assetId || null, label: d.label || d.name || 'Shot' }); } catch { /* ignore */ }
   };
+
+  // ruler ticks
+  const ticks = [];
+  for (let t = 0; t <= contentSeconds + 0.001; t += tick) ticks.push(t);
+
+  const empty = ordered.length === 0;
+
   return (
-    <div
-      style={{
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 6,
-        background: '#fff',
-        borderTop: `2px solid ${COLOR}`,
-        boxShadow: '0 -2px 10px rgba(0,0,0,0.05)',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 6, background: '#fff', borderTop: `2px solid ${COLOR}`, boxShadow: '0 -2px 10px rgba(0,0,0,0.06)' }}>
+      {/* action bar — chrome appears only when it has something to act on: no
+          disabled buttons, no budget math for an empty track. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 12px', gap: 8 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <IconBranch style={{ color: COLOR, fontSize: 14 }} />
           <Text bold style={{ fontSize: 12 }}>Timeline</Text>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            {items.length} {items.length === 1 ? 'beat' : 'beats'}{items.length > 1 ? ` · ~${totalSeconds}s` : ''}
-          </Text>
+          {!empty && <Text type="secondary" style={{ fontSize: 11 }}>{ordered.length} {ordered.length === 1 ? 'shot' : 'shots'}</Text>}
+          {!empty && (filmMode ? (
+            <Tag size="small" color="green" style={{ marginLeft: 2 }}>{fmt(sumSeconds)}</Tag>
+          ) : (
+            <Tooltip content={`Σ duration vs target (${fmt(targetSeconds)})`}>
+              <Tag size="small" color={overBudget ? 'red' : 'green'} style={{ marginLeft: 2 }}>{fmt(sumSeconds)} / {fmt(targetSeconds)}</Tag>
+            </Tooltip>
+          ))}
+          {film?.url && <Tag size="small" color="purple">film ready</Tag>}
         </span>
-        <Button size="mini" type="text" icon={collapsed ? <IconUp /> : <IconDown />} onClick={onToggle}>
-          {collapsed ? 'Show' : 'Hide'}
-        </Button>
+
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {!empty && (
+            <>
+              <Tooltip content="Zoom out"><Button size="mini" type="text" icon={<IconZoomOut />} disabled={pxPerSec <= PX_MIN} onClick={() => zoom(1 / 1.5)} /></Tooltip>
+              <Tooltip content="Zoom in"><Button size="mini" type="text" icon={<IconZoomIn />} disabled={pxPerSec >= PX_MAX} onClick={() => zoom(1.5)} /></Tooltip>
+            </>
+          )}
+          {(hasFrames || film?.url) && (
+            <Tooltip content={film?.url ? 'Play the stitched film' : 'Instant animatic — cycles keyframes, no generation'}>
+              <Button size="mini" type="outline" icon={<IconPlayArrow />} onClick={() => setPlayerOpen(true)}>{film?.url ? 'Play film' : 'Animatic'}</Button>
+            </Tooltip>
+          )}
+          {/* Film mode: the FilmingInspector drives — no Auto-fill (timeline = view). */}
+          {!filmMode && !empty && (
+            <>
+              <Tooltip content={sel && selWidth >= 0.75 ? `Fill just the selected ${Math.round(selWidth)}s — contextual to your idea and tagged assets` : 'Build a first cut autonomously from your idea and tagged assets'}>
+                <Button size="mini" type="primary" icon={busy.autoFill ? <IconLoading /> : <IconThunderbolt />} loading={busy.autoFill} disabled={!apiKeyPresent} style={{ background: apiKeyPresent ? COLOR : undefined, borderColor: apiKeyPresent ? COLOR : undefined }} onClick={runAutoFill}>
+                  {sel && selWidth >= 0.75 ? `Auto-fill ${Math.round(sel.start)}–${Math.round(sel.end)}s` : 'Auto-fill'}
+                </Button>
+              </Tooltip>
+              {sel && selWidth >= 0.75 && (
+                <Tooltip content="Clear interval"><Button size="mini" type="text" icon={<IconClose />} onClick={() => setSel(null)} /></Tooltip>
+              )}
+            </>
+          )}
+          {shotsReady > 0 && (
+            <Tooltip content={`Stitch ${shotsReady} rendered shot(s) into the final cut`}>
+              <Button size="mini" type="outline" icon={busy.render ? <IconLoading /> : <IconVideoCamera />} loading={busy.render} onClick={onRenderMovie}>Render movie</Button>
+            </Tooltip>
+          )}
+          <Button size="mini" type="text" icon={collapsed ? <IconUp /> : <IconDown />} onClick={onToggle}>{collapsed ? 'Show' : 'Hide'}</Button>
+        </span>
       </div>
 
       {!collapsed && (
-        <div
-          onDragOver={onDragOver}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={onDrop}
-          style={{
-            display: 'flex',
-            gap: 0,
-            overflowX: 'auto',
-            padding: '4px 12px 10px',
-            alignItems: 'flex-start',
-            background: dragOver ? 'rgba(247,186,30,0.10)' : 'transparent',
-            outline: dragOver ? `2px dashed ${COLOR}` : 'none',
-            outlineOffset: -4,
-          }}
-        >
-          {items.length === 0 ? (
-            <Text type="secondary" style={{ fontSize: 12, padding: '8px 0', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <IconPlus style={{ color: COLOR }} />
-              {dragOver ? 'Drop to start the story' : 'No story yet — drag a board asset (⋮ grip) or a Library item here, or build beats with Story Director.'}
-            </Text>
-          ) : (
-            <>
-            {items.map((item, i) => (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center' }}>
-                <div
-                  onClick={() => onSelect(item.id)}
-                  style={{
-                    width: 104,
-                    cursor: 'pointer',
-                    border: `2px solid ${item.id === selectedId ? COLOR : '#e5e6eb'}`,
-                    borderRadius: 6,
-                    overflow: 'hidden',
-                    flexShrink: 0,
-                  }}
-                  title={item.event}
-                >
-                  <div style={{ position: 'relative', height: 60, background: '#f2f3f5' }}>
-                    {item.url ? (
-                      <img src={item.url} alt={item.event} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                        <Text type="secondary" style={{ fontSize: 10 }}>…</Text>
-                      </div>
-                    )}
-                    <span style={{ position: 'absolute', top: 2, left: 2, background: COLOR, color: '#fff', fontSize: 9, borderRadius: 6, padding: '0 5px' }}>{i + 1}</span>
-                  </div>
-                  <div style={{ padding: '2px 4px' }}>
-                    <Text style={{ fontSize: 10 }} ellipsis={{ rows: 2 }}>{item.event || 'Beat'}</Text>
-                  </div>
-                </div>
-                {i < items.length - 1 && <IconRight style={{ color: '#c9cdd4', margin: '0 2px', flexShrink: 0 }} />}
+        <>
+          {/* scrollable ruler + track (shared horizontal scroll = aligned) */}
+          <div
+            ref={scrollRef}
+            className="nowheel"
+            onWheel={(e) => e.stopPropagation()}
+            onDragOver={onTrackDragOver}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onTrackDrop}
+            style={{ overflowX: 'auto', overflowY: 'hidden', background: dragOver ? 'rgba(247,186,30,0.10)' : '#fbfbfc', outline: dragOver ? `2px dashed ${COLOR}` : 'none', outlineOffset: -3 }}
+          >
+            {/* EMPTY: one slim call-to-action row — no ruler, no track, no tips wall.
+                (Film mode's empty state is nothing at all: the inspector below leads.) */}
+            {empty ? (filmMode ? null : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
+                <Button size="mini" type="primary" icon={busy.autoFill ? <IconLoading /> : <IconThunderbolt />} loading={busy.autoFill} disabled={!apiKeyPresent} style={{ background: apiKeyPresent ? COLOR : undefined, borderColor: apiKeyPresent ? COLOR : undefined }} onClick={runAutoFill}>Auto-fill a first cut</Button>
+                <Text type="secondary" style={{ fontSize: 12 }}>{dragOver ? 'Drop to add the first shot.' : 'or drag an asset here.'}</Text>
               </div>
-            ))}
-            {/* trailing drop affordance */}
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <IconRight style={{ color: '#c9cdd4', margin: '0 2px', flexShrink: 0 }} />
-              <div
-                title="Drag a board asset or Library item here to add a beat"
-                style={{
-                  width: 104, height: 84, flexShrink: 0,
-                  border: `2px dashed ${dragOver ? COLOR : '#c9cdd4'}`,
-                  borderRadius: 6, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', color: dragOver ? COLOR : '#86909c',
-                }}
-              >
-                <IconPlus style={{ fontSize: 16 }} />
-                <Text type="secondary" style={{ fontSize: 9, textAlign: 'center', marginTop: 2 }}>drop asset</Text>
+            )) : (
+            <div style={{ width: trackWidth, position: 'relative' }}>
+              {/* ruler — drag across it to select a time window for Auto-fill.
+                  Film mode drops it entirely: chunks flow left-to-right; no budget,
+                  no window-fill — the director chat is the driver. */}
+              {!filmMode && (
+                <div onPointerDown={startSel} title="Drag to select a window, then Auto-fill" style={{ position: 'relative', height: 16, borderBottom: '1px solid #ececf0', cursor: 'crosshair' }}>
+                  {ticks.map((t) => (
+                    <div key={t} style={{ position: 'absolute', left: t * pxPerSec, top: 0, height: '100%', borderLeft: '1px solid #e5e6eb', paddingLeft: 3, pointerEvents: 'none' }}>
+                      <Text style={{ fontSize: 9, color: '#a9aebb' }}>{fmt(t)}</Text>
+                    </div>
+                  ))}
+                  {/* target (budget) marker */}
+                  <div style={{ position: 'absolute', left: targetSeconds * pxPerSec, top: 0, height: '100%', borderLeft: `2px solid ${overBudget ? '#f53f3f' : '#86909c'}`, pointerEvents: 'none' }} title={`Target ${fmt(targetSeconds)}`} />
+                </div>
+              )}
+
+              {/* interval selection band (over ruler + track) */}
+              {sel && selWidth >= 0.5 && (
+                <div style={{ position: 'absolute', left: sel.start * pxPerSec, top: 0, width: Math.max(2, selWidth * pxPerSec), height: 90, background: 'rgba(247,186,30,0.20)', borderLeft: `2px solid ${COLOR}`, borderRight: `2px solid ${COLOR}`, pointerEvents: 'none', zIndex: 4 }}>
+                  <span style={{ position: 'absolute', top: 0, left: 2, background: COLOR, color: '#fff', fontSize: 9, borderRadius: 3, padding: '0 3px' }}>{Math.round(sel.start)}–{Math.round(sel.end)}s</span>
+                </div>
+              )}
+
+              {/* track (only rendered when there are clips) */}
+              <div style={{ position: 'relative', height: 74, padding: '5px 0' }}>
+                {/* budget shade beyond target (not a film-mode concept) */}
+                {!filmMode && sumSeconds * pxPerSec > targetSeconds * pxPerSec && (
+                  <div style={{ position: 'absolute', left: targetSeconds * pxPerSec, top: 0, width: Math.max(0, (sumSeconds - targetSeconds) * pxPerSec), height: '100%', background: 'rgba(245,63,63,0.06)' }} />
+                )}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 2, height: '100%' }}>
+                  {ordered.map((event, i) => (
+                    <Clip key={event.id} event={event} index={i} width={Math.max(CLIP_MIN_PX, event.durationSec * pxPerSec)} selected={selectedEvent?.id === event.id} onSelect={onSelectEvent} onTrimStart={startTrim} />
+                  ))}
+                  {!filmMode && canAddSelected && (
+                    <Tooltip content="Add the selected board asset as the next shot">
+                      <div onClick={onAddSelectedToTimeline} style={{ width: 44, height: 64, flexShrink: 0, cursor: 'pointer', border: `2px dashed ${COLOR}`, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLOR }}>
+                        <IconPlus style={{ fontSize: 16 }} />
+                      </div>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
             </div>
-            </>
-          )}
-        </div>
+            )}
+          </div>
+
+          {/* Inspector only when something is selected — no permanent hint row. */}
+          {filmMode && filming ? (
+            <FilmingInspector filming={filming} />
+          ) : selectedEvent ? (
+            <Inspector
+              event={selectedEvent}
+              index={selectedIndex}
+              total={ordered.length}
+              onSetDuration={onSetDuration}
+              onToggleLock={onToggleEventLock}
+              onMove={onMoveEvent}
+              onRegenerate={onRegenerate}
+              onRemove={onRemoveEvent}
+            />
+          ) : null}
+        </>
       )}
+
+      {playerOpen && <AnimaticPlayer events={events} film={film} onClose={() => setPlayerOpen(false)} />}
     </div>
   );
 };

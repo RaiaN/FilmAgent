@@ -36,7 +36,7 @@ const IconBytePlus = ({ style }) => (
 );
 
 const { Sider, Content } = Layout;
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 const getSchemaDefaults = (modelId) => ({ ...(baseSchemas[modelId]?.defaults || {}) });
 
@@ -429,6 +429,10 @@ export default function Home() {
     }
   };
 
+  // Full-canvas tools (Film Agent, Workflow) get a compact header so the canvas
+  // gets the vertical space instead of a big title + description.
+  const isCanvasTool = activeModelId === 'film-agent' || activeModelId === 'workflow';
+
   return (
     <>
       <Head>
@@ -496,20 +500,21 @@ export default function Home() {
             </div>
         </Sider>
         
-        <Content style={{ padding: '24px', background: '#f6f7f9', overflowY: 'auto' }}>
-            <div style={{ maxWidth: (activeModelId === 'workflow' || activeModelId === 'film-agent') ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
+        <Content style={{ padding: isCanvasTool ? '8px 16px 14px' : '12px 24px 16px', background: '#f6f7f9', overflowY: 'auto' }}>
+            <div style={{ maxWidth: isCanvasTool ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
 
-                <header style={{ marginBottom: 24, textAlign: 'center' }}>
-                    <Title heading={2} style={{ margin: 0 }}>{uiSchema.title}</Title>
-                    <Text type="secondary">{uiSchema.description}</Text>
-                    
+                <header style={{ marginBottom: isCanvasTool ? 8 : 10, textAlign: 'center' }}>
+                    {!isCanvasTool && (
+                        <Title heading={6} style={{ margin: '0 0 6px' }}>{uiSchema.title}</Title>
+                    )}
+
                     {(() => {
                         const isToolActive = TOOL_TABS.includes(activeModelId);
                         const selectTool = (id) => { setLastToolId(id); handleModelFamilyChange(id); };
                         return (
-                            <div style={{ marginTop: 16 }}>
+                            <div style={{ marginTop: 0 }}>
                                 {/* Level 1: primary experience vs. the Tools meta tab */}
-                                <Button.Group>
+                                <Button.Group size="small">
                                     <Button
                                         type={activeModelId === 'film-agent' ? 'primary' : 'secondary'}
                                         onClick={() => handleModelFamilyChange('film-agent')}
@@ -528,8 +533,8 @@ export default function Home() {
 
                                 {/* Level 2: the raw model playgrounds, shown only under Tools */}
                                 {isToolActive && (
-                                    <div style={{ marginTop: 12 }}>
-                                        <Button.Group>
+                                    <div style={{ marginTop: 8 }}>
+                                        <Button.Group size="small">
                                             <Button type={activeModelId === 'seedream' ? 'primary' : 'secondary'} onClick={() => selectTool('seedream')}>
                                                 <IconImage style={{ marginRight: 8 }} />
                                                 Image (Seedream)

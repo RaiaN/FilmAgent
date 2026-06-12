@@ -42,11 +42,11 @@ export const createBrowserClient = (apiKey) => ({
     return data;
   },
 
-  async reason({ prompt, systemPrompt, images, video, modelId }) {
+  async reason({ prompt, systemPrompt, images, video, modelId, reasoningEffort }) {
     const res = await fetch('/api/seed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiKey, modelId, prompt, systemPrompt, images: images || [], video: video || undefined }),
+      body: JSON.stringify({ apiKey, modelId, prompt, systemPrompt, images: images || [], video: video || undefined, reasoningEffort }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(errMsg(data, 'Reasoning request failed'));

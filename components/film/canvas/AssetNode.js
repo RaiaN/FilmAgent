@@ -1,10 +1,34 @@
-import { memo, useState } from 'react';
-import { Typography, Tag, Message } from '@arco-design/web-react';
+import { createContext, memo, useContext, useState } from 'react';
+import { Handle, Position } from '@xyflow/react';
+import { Typography, Tag, Message, Select, Button } from '@arco-design/web-react';
 import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamationCircleFill, IconDragDotVertical } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
+import { AD_ROLES, AD_ROLE_META } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
 
 const { Text } = Typography;
+
+// Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
+// can't live in (serializable) node.data, so the tag/untag action travels via
+// context instead — React context passes through ReactFlowProvider unchanged.
+export const AssetNodeContext = createContext({ onTagRole: null });
+
+// The bible IS the board: a tagged node carries data.bibleRole. Each AD role gets a
+// colour for its badge so the brand kit reads at a glance on the board.
+const AD_ROLE_COLOR = {
+  product: '#165dff',
+  brand: '#f5319d',
+  talent: '#722ed1',
+  look: '#0aa8a8',
+  location: '#00b42a',
+  prop: '#ff7d00',
+};
+
+const NONE = '__none__';
+const ROLE_SELECT_OPTIONS = [
+  ...AD_ROLES.map((r) => ({ label: AD_ROLE_META[r].label, value: r })),
+  { label: '— none —', value: NONE },
+];
 
 const copyText = (e, text) => {
   e.stopPropagation();
@@ -31,8 +55,9 @@ const visibilityStyle = (visibility) => {
 };
 
 const AssetNodeInner = ({ id, data, selected }) => {
-  const { kind, url, localUrl, text, label, locked, layerId, loading, visibility, preserved, preserving } = data;
-  const tint = layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4';
+  const { kind, url, localUrl, text, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
+  const { onTagRole } = useContext(AssetNodeContext);
+  const tint = bibleRole ? (AD_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
 
   const isText = kind === 'text';
   // Local uploads keep an in-memory data URL that always renders; prefer it for
@@ -49,17 +74,56 @@ const AssetNodeInner = ({ id, data, selected }) => {
         width: isText ? 280 : 220,
         background: '#fff',
         borderRadius: 10,
-        border: `2px solid ${selected ? '#165dff' : '#e5e6eb'}`,
+        // A bible-tagged node wears its role colour as the border so the brand kit
+        // is legible right on the board (selection still wins for clarity).
+        border: `2px solid ${selected ? '#165dff' : bibleRole ? (AD_ROLE_COLOR[bibleRole] || '#f7ba1e') : '#e5e6eb'}`,
         boxShadow: selected ? '0 0 0 3px rgba(22,93,255,0.12)' : '0 1px 4px rgba(0,0,0,0.08)',
         overflow: 'hidden',
         ...visibilityStyle(visibility),
       }}
     >
+      {/* invisible source handle — lets prerequisite edges (asset → cut card) render */}
+      <Handle type="source" position={Position.Right} style={{ opacity: 0, pointerEvents: 'none' }} />
       {/* Layer tint bar + kind/lock badges */}
       <div style={{ height: 4, background: tint }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', gap: 6 }}>
-        <Tag size="small" color="gray" style={{ fontSize: 10 }}>{KIND_LABEL[kind] || 'TXT'}</Tag>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <Tag size="small" color="gray" style={{ fontSize: 10, flexShrink: 0 }}>{KIND_LABEL[kind] || 'TXT'}</Tag>
+          {/* Suggested role (Topic Explorer candidates) — a PROPOSAL, never auto-canon:
+              one click confirms it as a tagged bible anchor. Hidden once tagged. */}
+          {!bibleRole && data.meta?.suggestedRole && (
+            <Button
+              size="mini"
+              className="nodrag"
+              onClick={(e) => { e.stopPropagation(); onTagRole && onTagRole(id, data.meta.suggestedRole); }}
+              title={`Suggested role — click to tag into the bible as ${AD_ROLE_META[data.meta.suggestedRole]?.label || data.meta.suggestedRole}`}
+              style={{ fontSize: 9, height: 18, lineHeight: '16px', padding: '0 6px', borderStyle: 'dashed', color: AD_ROLE_COLOR[data.meta.suggestedRole] || '#86909c', borderColor: AD_ROLE_COLOR[data.meta.suggestedRole] || '#c9cdd4' }}
+            >
+              + {AD_ROLE_META[data.meta.suggestedRole]?.label || data.meta.suggestedRole}?
+            </Button>
+          )}
+          {/* Role badge + dropdown — present only on a bible-tagged node. nodrag so
+              opening the menu doesn't drag the node; "— none —" untags it. */}
+          {bibleRole && (
+            <span
+              className="nodrag"
+              onClick={(e) => e.stopPropagation()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}
+              title={`Bible · ${AD_ROLE_META[bibleRole]?.label || bibleRole}`}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: AD_ROLE_COLOR[bibleRole] || '#f7ba1e', flexShrink: 0 }} />
+              <Select
+                size="mini"
+                value={bibleRole}
+                onChange={(v) => onTagRole && onTagRole(id, v === NONE ? null : v)}
+                options={ROLE_SELECT_OPTIONS}
+                style={{ width: 92 }}
+                triggerProps={{ autoAlignPopupWidth: false }}
+              />
+            </span>
+          )}
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {kind === 'image' && displaySrc && !expired && (
             // nodrag → React Flow won't treat this as a node-move, so the native
             // HTML5 drag fires. Drop target: the Story Director timeline.

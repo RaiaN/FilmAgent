@@ -10,7 +10,7 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Button, Message, Space, Typography, Tooltip } from '@arco-design/web-react';
+import { Button, Message, Space, Typography, Tooltip, Modal, Dropdown, Menu } from '@arco-design/web-react';
 import {
   IconPlus,
   IconLock,
@@ -20,19 +20,28 @@ import {
   IconCloudDownload,
   IconStorage,
   IconUpload,
+  IconHistory,
 } from '@arco-design/web-react/icon';
-import AssetNode from './AssetNode';
+import AssetNode, { AssetNodeContext } from './AssetNode';
+import CutNode, { CutContext } from './CutNode';
 import GroupNode from './GroupNode';
 import LayerRail from './LayerRail';
 import LayerPanel from './LayerPanel';
 import CanvasContextMenu from './CanvasContextMenu';
 import LibraryPanel from './LibraryPanel';
-import StoryDirectorPanel from './StoryDirectorPanel';
 import StoryTimeline from './StoryTimeline';
-import AutoPlanNode from './AutoPlanNode';
-import AutoDirectorPanel from './AutoDirectorPanel';
-import { AutoDirectorContext } from './AutoDirectorContext';
-import { AGENT_MAP, AGENTS, AGENT_COLORS, suggestNextBeats, understandAssets, buildPlan, qcStep } from '../../../utils/film/agents';
+import ConciergeDock from './ConciergeDock';
+import FilmDock from './FilmDock';
+import HistoryPanel from './HistoryPanel';
+import { AGENT_MAP, AGENTS, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
+import { createProduction, runStep as runAgentOp } from '../../../utils/film/core/production';
+import { createFilmingSession } from '../../../utils/film/core/filming';
+import { readAdIntent, routeStudioAction, AD_ACTIONS } from '../../../utils/film/core/director';
+import { createBrowserClient } from '../../../utils/film/core/client';
+import { createTrace } from '../../../utils/film/core/trace';
+import { emptyTimeline, emptyBible, eventsFromStoryNodes } from '../../../utils/film/projectShape';
+import { bibleEntry, timelineEvent, orderedEvents, renumber, mirrorSessionEvents, resolveBibleUrls } from '../../../utils/film/timelineModel';
+import { AD_ROLES, AD_ROLE_META, ADVERTISEMENT_RECIPE, SHORT_FILM_RECIPE, RECIPES, LOOK_PACKAGES, adShotPlan, lookDirection, gapPrompt, cutPromptSeed } from '../../../utils/film/recipes';
 import {
   createAssetNode,
   originFromSelection,
@@ -44,27 +53,43 @@ import {
   makeThumbnail,
   createGroupNode,
 } from '../../../utils/film/canvasModel';
-import { listLibrary, addToLibrary, removeFromLibrary, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
+import { listLibrary, addToLibrary, deleteFromLibrary, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 
 const { Text } = Typography;
 
-const nodeTypes = { asset: AssetNode, group: GroupNode, autoPlan: AutoPlanNode };
+const nodeTypes = { asset: AssetNode, group: GroupNode, cut: CutNode };
 
-// Restore a persisted Auto Director plan: drop one that never finished planning,
-// and reset any in-flight step (no async task survives a reload) so it can re-run.
-const rehydrateAutoPlan = (auto) => {
-  if (!auto || typeof auto !== 'object') return null;
-  if (auto.status === 'understanding' || auto.status === 'planning') return null;
-  const steps = (auto.steps || []).map((s) => (
-    (s.status === 'running' || s.status === 'qc') ? { ...s, status: 'pending' } : s
-  ));
-  return { ...auto, steps, busy: null, status: auto.status === 'assembling' ? 'running' : auto.status };
-};
+// Agents that can fill a selected timeline clip directly (image agents → the clip's
+// keyframe; animate → its rendered shot). Prompt Muse stays board-only (it reads).
+const CLIP_FILLABLE = new Set(['inspiration', 'mixMatch', 'characterVariations', 'locationVariations', 'animate']);
 
 const CELL_W = 240;
 const CELL_H = 290;
 const GROUP_PAD = 12;
 const GROUP_HEADER = 34;
+
+// The context every CUT card carries into its keyframe prompt (hero + the user's
+// idea verbatim + the look package) — previewed in full on the card, assembled by
+// cutPromptSeed at shoot time. ONE derivation for preview and blueprint alike.
+const sharedFromProject = (p) => ({
+  heroLine: p?.recipe?.subjects?.product ? `The hero of this ad: ${p.recipe.subjects.product}` : '',
+  idea: (p?.idea || '').trim(),
+  lookLine: p?.recipe?.look ? lookDirection(p.recipe.look) : '',
+});
+
+// Map a blueprint session's steps back to their CUT cards. buildStepsFromBlueprint
+// emits one keyframe + one animate step per shot, in card order, so filtering by
+// agent pairs them up positionally.
+const mapCutSteps = (planSteps, cards) => {
+  const m = new Map();
+  const kfs = (planSteps || []).filter((s) => s.agent === 'inspiration');
+  const anims = (planSteps || []).filter((s) => s.agent === 'animate');
+  cards.forEach((c, i) => {
+    if (kfs[i]) m.set(kfs[i].id, { cardId: c.id, kind: 'kf' });
+    if (anims[i]) m.set(anims[i].id, { cardId: c.id, kind: 'anim' });
+  });
+  return m;
+};
 
 // An AssetNode image renders at the card's full width with its natural aspect
 // ratio, so the card's HEIGHT depends on the output ratio. Compute the grid row
@@ -90,6 +115,42 @@ const VIS_CYCLE = { show: 'dim', dim: 'hide', hide: 'show' };
 // passes straight through. Generated assets have no localUrl → use their URL.
 const refUrl = (n) => n?.data?.localUrl || n?.data?.url;
 
+// Shrink a fat base64 reference so several bible refs don't blow the
+// /api/film/imagine 20mb body limit (the suspected "empty shots" cause: uploaded
+// bible anchors are multi-MB base64). http(s) URLs pass through untouched — the
+// server inlines those itself — so only big data: URLs are downscaled (~1024px JPEG).
+const REF_DOWNSCALE_OVER = 700 * 1024; // ~0.7MB of base64 ≈ a >0.5MB source image
+const downscaleRef = async (url) => {
+  if (typeof url !== 'string' || !url.startsWith('data:') || url.length < REF_DOWNSCALE_OVER) return url;
+  try { return await makeThumbnail(url, 1024); } catch { return url; }
+};
+
+// Back-compat: a modal-era project persisted project.bible.entries but its board
+// nodes aren't tagged. Stamp role + lock onto each entry's source node (or, if that
+// node is gone, synthesize a tagged node from the entry) so reconcileBibleFromNodes
+// derives the same bible — nodes are now the source of truth. Idempotent: skips an
+// entry whose node is already tagged, so it's safe to run on every load.
+const seedBibleTags = (nodes, entries) => {
+  if (!entries || !entries.length) return nodes;
+  const list = nodes.slice();
+  const indexById = new Map(list.map((n, i) => [n.id, i]));
+  entries.forEach((e) => {
+    const synthId = `bibnode-${e.id}`;
+    const tagged = list.some((n) => n.data?.bibleRole && (n.id === e.nodeId || n.id === synthId));
+    if (tagged) return;
+    if (e.nodeId && indexById.has(e.nodeId)) {
+      const i = indexById.get(e.nodeId);
+      list[i] = { ...list[i], data: { ...list[i].data, bibleRole: e.role, locked: true } };
+    } else if (e.url && !indexById.has(synthId)) {
+      const node = createAssetNode({ id: synthId, kind: 'image', url: e.url, label: e.name || e.role, position: { x: 60 + (list.length % 6) * 200, y: 20 }, locked: true, preserved: true });
+      node.data.bibleRole = e.role;
+      list.push(node);
+      indexById.set(synthId, list.length - 1);
+    }
+  });
+  return list;
+};
+
 const buildInitialLayerState = (project) => {
   const settings = {};
   const visibility = {};
@@ -103,6 +164,10 @@ const buildInitialLayerState = (project) => {
   if (settings.inspiration && !settings.inspiration.prompt && project.idea) {
     settings.inspiration.prompt = project.idea;
   }
+  // Same for the Topic Explorer — the idea IS a topic to research.
+  if (settings.topicExplorer && !settings.topicExplorer.topic && project.idea) {
+    settings.topicExplorer.topic = project.idea;
+  }
   return { settings, visibility };
 };
 
@@ -115,7 +180,7 @@ const applyVisibility = (nodes, visibility) =>
     return { ...n, data: { ...n.data, visibility: vis } };
   });
 
-const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
+const FilmCanvasInner = ({ project, apiKey, onUpdateProject, conciergeOpen, onOpenConcierge, onCloseConcierge }) => {
   const wrapperRef = useRef(null);
   const fileInputRef = useRef(null);
   const [rfInstance, setRfInstance] = useState(null);
@@ -125,28 +190,107 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const [layerVisibility, setLayerVisibility] = useState(initialLayerState.visibility);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    applyVisibility(project.canvas?.nodes || [], initialLayerState.visibility),
+    // Seed bible tags from any persisted entries up front (first mount skips the
+    // project-switch effect below), so the reconciler derives the same bible.
+    seedBibleTags(applyVisibility(project.canvas?.nodes || [], initialLayerState.visibility), project.bible?.entries || []),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(project.canvas?.edges || []);
 
-  // Default-arm the Inspiration Board so its panel is visible on arrival — the
-  // primary "generate your first references" action is immediately discoverable.
-  const [activeLayerId, setActiveLayerId] = useState('inspiration');
+  // Arrive QUIET — no agent panel until the user picks one from the rail. The front
+  // door is the template launcher + conversational docks, not an auto-opened panel.
+  const [activeLayerId, setActiveLayerId] = useState(null);
   const [running, setRunning] = useState(false);
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y } in wrapper-relative px
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryItems, setLibraryItems] = useState([]);
-  const [storySuggestions, setStorySuggestions] = useState([]);
-  const [storyBusy, setStoryBusy] = useState(null); // 'suggesting' | 'generating' | null
-  const [timelineCollapsed, setTimelineCollapsed] = useState(false);
-  const [autoPlan, setAutoPlan] = useState(() => rehydrateAutoPlan(project.auto)); // Auto Director production plan
+  const [historyOpen, setHistoryOpen] = useState(false); // the decision-history inspector
+  const [traceVersion, setTraceVersion] = useState(0);    // bumped (debounced) on trace change → live panel
+  // Collapsed when there are no shots yet (clean scratch — the action bar still
+  // shows, so the timeline stays "showcased"); expands once it has content.
+  const [timelineCollapsed, setTimelineCollapsed] = useState(() => !(project.timeline?.events?.length));
+  const [selectedEventId, setSelectedEventId] = useState(null);
+  const [autoFillBusy, setAutoFillBusy] = useState(false);
+  const [renderBusy, setRenderBusy] = useState(false);
+  // (The old "What's your film about?" brief card is gone — the idea is captured by
+  // the Concierge's first question; the empty board offers template cards instead.)
 
   const loadedIdRef = useRef(project.id);
   const originOverride = useRef(null); // flow-coords origin captured from a right-click
-  const autoRef = useRef(autoPlan);    // latest plan for the async executor
   const nodesRef = useRef(nodes);      // latest nodes for input resolution
-  useEffect(() => { autoRef.current = autoPlan; }, [autoPlan]);
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  const projectRef = useRef(project);  // latest project for async sessions' live getters
+  useEffect(() => { projectRef.current = project; }, [project]);
+
+  // ---- the spine: timeline + bible (single source of truth = the project) ----
+  const timeline = useMemo(() => project.timeline || emptyTimeline(), [project.timeline]);
+  const bible = useMemo(() => project.bible || emptyBible(), [project.bible]);
+  const timelineEvents = useMemo(() => orderedEvents(timeline.events || []), [timeline.events]);
+  const bibleEntries = useMemo(() => bible.entries || [], [bible.entries]);
+  const bibleRef = useRef(bibleEntries);  // latest bible for the async session/transport
+  useEffect(() => { bibleRef.current = bibleEntries; }, [bibleEntries]);
+
+  // Run trace — agent introspection. Every prompt + action in an Ad run is recorded
+  // here (the transport is wrapped below) so the whole pipeline can be dumped to .txt
+  // and re-assessed. The role resolver tags each reference url with its bible role, so
+  // cross-role leakage (e.g. Talent fed into a Location shot) is obvious in the dump.
+  const traceRef = useRef(createTrace());
+  useEffect(() => {
+    const trace = traceRef.current;
+    trace.setRoleResolver((u) => (bibleRef.current.find((b) => b.url === u) || {}).role || null);
+    // Live panel: coalesce a burst of log writes into ~8 re-renders/sec.
+    let timer = null;
+    const unsub = trace.subscribe(() => {
+      if (timer) return;
+      timer = setTimeout(() => { timer = null; setTraceVersion((v) => v + 1); }, 120);
+    });
+    return () => { if (timer) clearTimeout(timer); unsub(); };
+  }, []);
+  const traceGroups = useMemo(() => traceRef.current.groups(), [traceVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  const clearTrace = useCallback(() => { traceRef.current.clear(); setTraceVersion((v) => v + 1); }, []);
+
+  // The board IS the brand kit: project.bible is DERIVED from role-tagged board nodes
+  // (data.bibleRole + locked), keyed by nodeId. This REPLACES the old bible→board
+  // reconciler (which went the other way) — nodes are now the source of truth. Gated
+  // on seeding (below) so a freshly-loaded project whose entries aren't yet stamped
+  // onto nodes isn't wiped before seedBibleTags runs.
+  const bibleSeededRef = useRef(project.id); // armed once a project's entries are seeded onto nodes (first mount seeds in useNodesState)
+  useEffect(() => {
+    if (bibleSeededRef.current !== project.id) return;
+    const derived = nodes
+      .filter((n) => n.data?.bibleRole && n.data?.locked && n.data?.kind === 'image' && (n.data?.bibleRefUrl || n.data?.localUrl || n.data?.url))
+      .map((n) => bibleEntry({
+        id: `bible-${n.id}`,
+        role: n.data.bibleRole,
+        name: n.data.label || n.data.bibleRole,
+        // Prefer the downscaled ref (set on tag) so the producer's capped bible refs
+        // don't blow the imagine body limit; fall back to the node's raw reference.
+        url: n.data.bibleRefUrl || refUrl(n),
+        nodeId: n.id,
+        locked: true,
+      }));
+    const sig = (es) => es.map((e) => `${e.nodeId}:${e.role}:${e.url}`).join('|');
+    updateBible((cur) => (sig(cur.entries || []) === sig(derived) ? cur : { ...cur, entries: derived }));
+  }, [nodes, project.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Functional updaters that write back into the owned project (guarded to the
+  // currently-loaded project so a late async callback never writes the wrong one).
+  const updateTimeline = useCallback((updater) => {
+    onUpdateProject((prev) => {
+      if (!prev || prev.id !== loadedIdRef.current) return prev;
+      const cur = prev.timeline || emptyTimeline();
+      const next = typeof updater === 'function' ? updater(cur) : updater;
+      return next === cur ? prev : { ...prev, timeline: next };
+    });
+  }, [onUpdateProject]);
+
+  const updateBible = useCallback((updater) => {
+    onUpdateProject((prev) => {
+      if (!prev || prev.id !== loadedIdRef.current) return prev;
+      const cur = prev.bible || emptyBible();
+      const next = typeof updater === 'function' ? updater(cur) : updater;
+      return next === cur ? prev : { ...prev, bible: next };
+    });
+  }, [onUpdateProject]);
 
   // Re-initialize everything when the project actually changes (switch / open).
   useEffect(() => {
@@ -155,9 +299,31 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     const ls = buildInitialLayerState(project);
     setLayerSettings(ls.settings);
     setLayerVisibility(ls.visibility);
-    setNodes(applyVisibility(project.canvas?.nodes || [], ls.visibility));
-    setAutoPlan(rehydrateAutoPlan(project.auto));
-    setActiveLayerId('inspiration');
+    // Seed bible tags onto nodes BEFORE arming the reconciler so a persisted (modal-era)
+    // bible isn't derived-to-empty on the first pass. After this, tagged nodes drive it.
+    setNodes(seedBibleTags(applyVisibility(project.canvas?.nodes || [], ls.visibility), project.bible?.entries || []));
+    bibleSeededRef.current = project.id;
+    sessionRef.current = null;
+    filmingRef.current = null;
+    setFilmChunks(project.filming?.chunks || []);
+    outNodesRef.current = new Map();
+    traceRef.current.clear(); // the run log belongs to one project's session
+    sessionStateRef.current = project.auto || null;
+    // Silently rehydrate the cached production session so per-shot iteration
+    // (regenerate-with-note) survives a reload — no panel, the timeline is the surface.
+    if (project.auto && (project.auto.plan || project.auto.steps || []).length && apiKey?.trim()) {
+      buildSession([], project.auto);
+    }
+    // Every project opens quiet — agents are picked from the rail, not auto-armed.
+    setActiveLayerId(null);
+    setSelectedEventId(null);
+    setTimelineCollapsed(!(project.timeline?.events?.length));
+    // Bring any Story Director beats onto the spine for a project that predates the
+    // timeline (one-time; persisted events take precedence so this never duplicates).
+    if (!(project.timeline?.events || []).length) {
+      const migrated = eventsFromStoryNodes(project.canvas?.nodes || []);
+      if (migrated.length) updateTimeline((cur) => ({ ...cur, events: migrated }));
+    }
   }, [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Push canvas + layer state up to the parent (which debounce-persists to disk).
@@ -178,12 +344,12 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           ...prev,
           canvas: { nodes: serializeNodes(nodes), edges, viewport: prev.canvas?.viewport || null },
           layers,
-          auto: autoPlan,
+          auto: sessionStateRef.current, // cached session snapshot for reload (no UI)
         };
       });
     }, 400);
     return () => clearTimeout(handle);
-  }, [nodes, edges, layerSettings, layerVisibility, autoPlan]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nodes, edges, layerSettings, layerVisibility]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
 
@@ -335,118 +501,44 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     Message.success('Added to board');
   }, [rfInstance, setNodes]);
 
-  const removeLibraryItem = useCallback(async (item) => {
-    setLibraryItems(await removeFromLibrary({ id: item.id, url: item.url }));
-  }, []);
+  // Permanently delete a library asset (TOS object + Assets-API asset + entry).
+  // Irreversible, so confirm first and warn if anything on this board uses it.
+  const deleteLibraryItem = useCallback((item) => {
+    const usedBy = nodes.filter((n) =>
+      n.data?.url === item.url || n.data?.tosUrl === item.url || (item.assetId && n.data?.assetId === item.assetId));
+    Modal.confirm({
+      title: 'Delete asset permanently?',
+      content: (
+        <div style={{ fontSize: 13 }}>
+          This permanently deletes <b>{item.name || 'this asset'}</b> from your TOS bucket and the Assets
+          library. It can&apos;t be undone.
+          {usedBy.length > 0 && (
+            <div style={{ marginTop: 8, color: '#f53f3f' }}>
+              ⚠ {usedBy.length} item{usedBy.length === 1 ? '' : 's'} on this board use it and will break. It may
+              also be referenced in other projects.
+            </div>
+          )}
+        </div>
+      ),
+      okText: 'Delete permanently',
+      okButtonProps: { status: 'danger' },
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          const { items, report } = await deleteFromLibrary({ id: item.id, url: item.url, assetId: item.assetId });
+          setLibraryItems(items);
+          const warn = [report.tos, report.asset].filter((r) => r && /failed|no-key/.test(r));
+          if (warn.length) Message.warning(`Removed from library; storage delete: ${warn.join('; ')}`);
+          else Message.success('Asset deleted permanently');
+        } catch (err) {
+          Message.error(`Delete failed: ${err.message}`);
+        }
+      },
+    });
+  }, [nodes]);
 
-  // ---- Story Director (interactive, linear) ----
-  const STORY_COLOR = AGENT_COLORS.storyDirector;
-
-  const storyNodes = useMemo(
-    () => nodes.filter((n) => n.data?.storyOrder != null).sort((a, b) => a.data.storyOrder - b.data.storyOrder),
-    [nodes],
-  );
-  const storyStarted = storyNodes.length > 0;
-  const storySteps = useMemo(() => storyNodes.map((n) => n.data.event || 'Beat'), [storyNodes]);
-
-  const requestSuggestions = useCallback(async (stepsOverride, lastUrl) => {
-    if (!apiKey?.trim()) return;
-    setStoryBusy('suggesting');
-    setStorySuggestions([]);
-    try {
-      const beats = await suggestNextBeats({
-        apiKey: apiKey.trim(),
-        idea: project.idea,
-        steps: stepsOverride,
-        lastImageUrl: lastUrl || null,
-        count: 3,
-      });
-      setStorySuggestions(beats);
-    } catch (err) {
-      Message.error(err.message);
-    } finally {
-      setStoryBusy(null);
-    }
-  }, [apiKey, project.idea]);
-
-  const appendStoryNode = useCallback(({ url, localUrl, assetId, event, order, prevId, baseline }) => {
-    const pos = { x: baseline.x + order * 300, y: baseline.y };
-    const node = createAssetNode({ kind: 'image', url, label: event, position: pos, layerId: 'storyDirector', preserved: !!assetId });
-    node.data.storyOrder = order;
-    node.data.event = event;
-    // Carry the local bytes for uploaded sources so the keyframe renders (the TOS
-    // URL would 403) and isn't mistaken for an expired generated asset.
-    if (localUrl) node.data.localUrl = localUrl;
-    if (assetId) node.data.assetId = assetId;
-    node.data.visibility = layerVisibility.storyDirector || 'show';
-    setNodes((ns) => ns.concat(node));
-    if (prevId) {
-      setEdges((es) => es.concat({
-        id: `e-${prevId}-${node.id}`,
-        source: prevId,
-        target: node.id,
-        animated: true,
-        style: { stroke: STORY_COLOR, strokeWidth: 2 },
-      }));
-    }
-    return node;
-  }, [setNodes, setEdges, STORY_COLOR, layerVisibility]);
-
-  const generateStoryBeat = useCallback(async (prompt, title) => {
-    if (!apiKey?.trim()) { Message.error('Add your API key first'); return; }
-    const ordered = nodes.filter((n) => n.data?.storyOrder != null).sort((a, b) => a.data.storyOrder - b.data.storyOrder);
-    const prev = ordered[ordered.length - 1];
-    const order = prev ? prev.data.storyOrder + 1 : 0;
-    const node0 = ordered.find((n) => n.data.storyOrder === 0);
-    const baseline = node0
-      ? { x: node0.position.x, y: node0.position.y }
-      : (rfInstance ? rfInstance.screenToFlowPosition({ x: 160, y: 220 }) : { x: 160, y: 220 });
-    setStoryBusy('generating');
-    setStorySuggestions([]);
-    try {
-      const res = await fetch('/api/film/imagine', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKey.trim(), prompt, referenceImages: prev?.data?.url ? [refUrl(prev)] : [], size: '2K' }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || data?.details || 'Keyframe generation failed');
-      appendStoryNode({ url: data.url, event: title, order, prevId: prev?.id, baseline });
-      const nextSteps = [...ordered.map((n) => n.data.event || 'Beat'), title];
-      await requestSuggestions(nextSteps, data.url);
-    } catch (err) {
-      Message.error(err.message);
-    } finally {
-      setStoryBusy(null);
-    }
-  }, [apiKey, nodes, rfInstance, appendStoryNode, requestSuggestions]);
-
-  const startStoryFromSelection = useCallback(async () => {
-    const sel = nodes.find((n) => n.selected && n.data?.kind === 'image' && n.data?.url);
-    if (!sel) { Message.warning('Select an image to start from'); return; }
-    const baseline = rfInstance ? rfInstance.screenToFlowPosition({ x: 160, y: 220 }) : { x: 160, y: 220 };
-    appendStoryNode({ url: sel.data.url, localUrl: sel.data.localUrl, assetId: sel.data.assetId, event: 'Start', order: 0, prevId: null, baseline });
-    // Use the base64 for uploads — the TOS URL would 403 when Seed fetches it.
-    await requestSuggestions(['Start'], refUrl(sel));
-  }, [nodes, rfInstance, appendStoryNode, requestSuggestions]);
-
-  const startStoryFromIdea = useCallback(async () => {
-    await generateStoryBeat(project.idea || 'Establishing opening shot of the film', 'Start');
-  }, [generateStoryBeat, project.idea]);
-
-  // Drop a board asset / Library item onto the timeline → append it as the next beat.
-  const addAssetToStory = useCallback(({ url, assetId, label }) => {
-    if (!url) return;
-    const ordered = nodes.filter((n) => n.data?.storyOrder != null).sort((a, b) => a.data.storyOrder - b.data.storyOrder);
-    const prev = ordered[ordered.length - 1];
-    const order = prev ? prev.data.storyOrder + 1 : 0;
-    const node0 = ordered.find((n) => n.data.storyOrder === 0);
-    const baseline = node0
-      ? { x: node0.position.x, y: node0.position.y }
-      : (rfInstance ? rfInstance.screenToFlowPosition({ x: 160, y: 220 }) : { x: 160, y: 220 });
-    appendStoryNode({ url, assetId: assetId || null, event: label || `Beat ${order + 1}`, order, prevId: prev?.id, baseline });
-    Message.success('Added to timeline');
-  }, [nodes, rfInstance, appendStoryNode]);
+  // (Story Director eliminated — the Timeline is the spine; Auto-fill + per-event
+  // regenerate replace its rigid beat-by-beat wizard.)
 
   const selectAndCenter = useCallback((id) => {
     setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === id })));
@@ -454,11 +546,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       try { rfInstance.fitView({ nodes: [{ id }], duration: 400, maxZoom: 1.1, padding: 0.5 }); } catch { /* noop */ }
     }
   }, [setNodes, rfInstance]);
-
-  const timelineItems = useMemo(
-    () => storyNodes.map((n) => ({ id: n.id, url: n.data.localUrl || n.data.url, event: n.data.event, order: n.data.storyOrder })),
-    [storyNodes],
-  );
 
   // ---- preserve (check-in) ----
   // Re-host a node's expiring URL into TOS and swap data.url to the stable URL,
@@ -495,6 +582,120 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     if (failed.length) Message.warning(`${failed.length} could not be preserved: ${failed[0].reason?.message || ''}`);
     else Message.success('Checked in — these assets are now permanent');
   }, [nodes, preserveNode]);
+
+  // ---- bible = role-tagged board nodes (the board IS the brand kit) ------------
+  // A fat base64 anchor gets a downscaled reference (data.bibleRefUrl) so the
+  // producer's capped bible refs stay under the imagine body limit; computed off the
+  // main thread and patched in when ready (the full-res image still drives display).
+  const scheduleRefDownscale = useCallback((nodeId, sourceUrl) => {
+    if (typeof sourceUrl !== 'string' || !sourceUrl.startsWith('data:') || sourceUrl.length < REF_DOWNSCALE_OVER) return;
+    downscaleRef(sourceUrl)
+      .then((small) => { if (small && small !== sourceUrl) setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, bibleRefUrl: small } } : n))); })
+      .catch(() => { /* keep the full-res ref */ });
+  }, [setNodes]);
+
+  // Tag (or untag) a board node as a bible anchor. Tagging locks it (canonical) and
+  // schedules a downscaled ref; reconcileBibleFromNodes turns tagged nodes into
+  // project.bible. Untag (role = null) releases + unlocks it.
+  const tagNode = useCallback((id, role) => {
+    setNodes((ns) => ns.map((n) => (n.id === id
+      ? { ...n, data: { ...n.data, bibleRole: role || null, locked: !!role } }
+      : n)));
+    if (!role) return;
+    const node = nodesRef.current.find((n) => n.id === id);
+    if (!node) return;
+    scheduleRefDownscale(id, refUrl(node));
+    // A generated/expiring image elevated to canon → preserve so the anchor never
+    // lapses mid-production (uploads keep their local bytes, so skip those).
+    if (node.data?.kind === 'image' && node.data?.url && !node.data?.localUrl && !node.data?.preserved) {
+      preserveNode(node).catch((e) => Message.warning(`Preserve failed: ${e.message}`));
+    }
+  }, [setNodes, scheduleRefDownscale, preserveNode]);
+
+  // "Build brand kit": classify the board's UNTAGGED image nodes into AD roles and
+  // tag each (role + lock) → they flow into project.bible via the reconciler.
+  const classifyBoardAssets = useCallback(async () => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return []; }
+    const targets = nodesRef.current.filter((n) => n.data?.kind === 'image' && (n.data?.localUrl || n.data?.url)
+      && !n.data?.bibleRole && !n.id.startsWith('shot-') && !n.id.startsWith('film-'));
+    if (!targets.length) { Message.warning('No untagged board images to sort — drop a few brand assets on the board first.'); return []; }
+    const images = targets.map(refUrl).filter(Boolean);
+    traceRef.current.startRun({ note: 'Build brand kit' });
+    const rec = traceRef.current.log({ kind: 'bible.classify', note: `${images.length} board image${images.length === 1 ? '' : 's'}`, status: 'running' });
+    try {
+      const { assets } = await classifyAssets({ apiKey: apiKey.trim(), client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())), images, idea: project.idea, roles: AD_ROLES, requiredRoles: ADVERTISEMENT_RECIPE.requiredRoles });
+      rec.status = 'ok';
+      rec.assignments = assets.map((c) => `${c.role || '?'}(${c.confidence != null ? c.confidence.toFixed(2) : '?'})`).join(', ');
+      let tagged = 0;
+      assets.forEach((c) => {
+        const node = targets[c.index];
+        if (!node || !c.role) return;
+        tagNode(node.id, c.role);
+        if (c.name) setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, label: c.name } } : n)));
+        tagged += 1;
+      });
+      Message.success(tagged ? `Sorted ${tagged} asset${tagged === 1 ? '' : 's'} into your brand kit — fix any role on its badge.` : 'Nothing could be sorted — tag roles on the nodes directly.');
+      return assets.filter((c) => c.role).map((c) => c.role);
+    } catch (err) {
+      rec.status = 'error'; rec.error = err.message;
+      Message.error(err.message);
+      return [];
+    }
+  }, [apiKey, project.idea, tagNode, setNodes]);
+
+  // Generate a missing bible role RIGHT on the board: an on-brand, role-correct image
+  // (gapPrompt: role + idea + look) using the existing bible as downscaled style refs
+  // → drops a PRE-TAGGED node, which flows into the bible via the reconciler.
+  // Parallel-safe (functional setNodes); messages on its own, never throws.
+  const generateGapNode = useCallback(async (role, detail = '') => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return null; }
+    const prompt = gapPrompt(role, project.idea, project.recipe?.look, detail);
+    // ONLY same-role references — never cross-inject other anchors. Feeding the whole
+    // bible (e.g. the Talent face) into every gap is what produced "the same girl
+    // everywhere": Seedream treats refs as visual identity. A true gap (missing role)
+    // has no same-role refs → it's generated purely from the idea + look package, which
+    // is what carries on-brand coherence here (not an unrelated anchor's pixels).
+    const refs = bibleRef.current.filter((b) => b.role === role).map((b) => b.url).filter(Boolean).slice(0, 4);
+    const smallRefs = (await Promise.all(refs.map(downscaleRef))).filter(Boolean);
+    // Parallel "Generate all" fires several of these at once — capture this run's id and
+    // stamp the log with it explicitly, so the workflows don't interleave in the trace.
+    const runId = traceRef.current.startRun({ note: `Generate gap · ${AD_ROLE_META[role]?.label || role}` });
+    const rec = traceRef.current.log({ runId, kind: 'bible.generate', role, prompt, refs: refs.length ? [`${role}×${refs.length}`] : [], model: 'seedream', status: 'running' });
+    try {
+      const res = await fetch('/api/film/imagine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: apiKey.trim(), prompt, referenceImages: smallRefs, size: '2K' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || data?.details || 'Generation failed');
+      rec.status = 'ok'; rec.result = data.url;
+      const o = rfInstance ? rfInstance.screenToFlowPosition({ x: 90, y: 130 }) : { x: 90, y: 130 };
+      const node = createAssetNode({ kind: 'image', url: data.url, label: AD_ROLE_META[role]?.label || role, position: { x: o.x + Math.round(Math.random() * 40), y: o.y + Math.round(Math.random() * 40) }, preserved: true });
+      node.data.bibleRole = role;
+      node.data.locked = true;
+      setNodes((ns) => ns.concat(node));
+      Message.success(`Generated a ${(AD_ROLE_META[role]?.label || role).toLowerCase()} → added to your bible`);
+      return role;
+    } catch (err) {
+      rec.status = 'error'; rec.error = err.message;
+      Message.error(`Couldn't generate ${AD_ROLE_META[role]?.label || role}: ${err.message}`);
+      return null;
+    }
+  }, [apiKey, project.idea, project.recipe, rfInstance, setNodes]);
+
+  // A user-supplied file for a specific gap role → a PRE-TAGGED board node, staged to
+  // TOS in the background (so it's usable downstream) with a downscaled bible ref.
+  const addTaggedAsset = useCallback(({ role, dataUrl, name }) => {
+    if (!dataUrl) return;
+    const o = rfInstance ? rfInstance.screenToFlowPosition({ x: 90, y: 130 }) : { x: 90, y: 130 };
+    const node = createAssetNode({ kind: 'image', url: dataUrl, label: name || AD_ROLE_META[role]?.label || role, position: { x: o.x + Math.round(Math.random() * 40), y: o.y + Math.round(Math.random() * 40) } });
+    node.data.bibleRole = role;
+    node.data.locked = true;
+    setNodes((ns) => ns.concat(node));
+    stageNode(node.id, dataUrl, name, 'image');
+    scheduleRefDownscale(node.id, dataUrl);
+  }, [rfInstance, setNodes, stageNode, scheduleRefDownscale]);
 
   // ---- selection actions ----
   const setLockOnSelection = useCallback((locked) => {
@@ -548,7 +749,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       const rows = Math.ceil(count / groupCols);
       const width = GROUP_PAD * 2 + groupCols * CELL_W;
       const height = GROUP_HEADER + GROUP_PAD + rows * cellH;
-      const promptLabel = (groupLabel || settings.prompt || settings.axis || '').toString().slice(0, 36);
+      const promptLabel = (groupLabel || settings.prompt || settings.direction || '').toString().slice(0, 36);
       const group = createGroupNode({
         layerId: layer.id,
         label: promptLabel ? `${layer.label} · ${promptLabel}` : layer.label,
@@ -574,18 +775,67 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       return { position: { x: baseOrigin.x + (i % 4) * 250, y: baseOrigin.y + Math.floor(i / 4) * cellH } };
     };
 
+    // MULTI-group support (Topic Explorer: one titled frame per discovered concept).
+    // An agent calls onGroup({ label }) per concept and stamps its assets with the
+    // returned groupId; assets without one flow through the classic placeNext path.
+    const MG_COLS = 2;
+    const MG_ROWS = 2; // ~4 images per concept — frames sized to what actually lands
+    let mgIndex = 0;
+    const mgGroups = new Map(); // groupId -> { idx }
+    const onGroup = ({ label } = {}) => {
+      const width = GROUP_PAD * 2 + MG_COLS * CELL_W;
+      const height = GROUP_HEADER + GROUP_PAD + MG_ROWS * cellH;
+      const group = createGroupNode({
+        layerId: layer.id,
+        label: `${(label || layer.label)}`.slice(0, 48),
+        position: { x: baseOrigin.x + (mgIndex % 3) * (width + 40), y: baseOrigin.y + 80 + Math.floor(mgIndex / 3) * (height + 60) },
+        width,
+        height,
+      });
+      mgIndex += 1;
+      setNodes((ns) => ns.concat(group));
+      mgGroups.set(group.id, { idx: 0 });
+      return group.id;
+    };
+    const placeInGroup = (gid) => {
+      const g = mgGroups.get(gid);
+      if (!g) return placeNext();
+      const i = g.idx;
+      g.idx += 1;
+      return {
+        position: { x: GROUP_PAD + (i % MG_COLS) * CELL_W, y: GROUP_HEADER + Math.floor(i / MG_COLS) * cellH },
+        parentId: gid,
+        extent: 'parent',
+      };
+    };
+
     const outputs = [];           // [{ id, url, kind, label }] — live, async urls filled on resolve
     const outById = {};
     const pending = [];           // promises for async (video) assets
     const settle = {};            // nodeId -> resolver
 
-    const result = await layer.run({
+    // Every rail/routed agent run is a WORKFLOW in the decision history: open one,
+    // inject a trace-wrapped client (the agents fall back to their own otherwise),
+    // and every model call it makes lands in the History panel like producer runs.
+    traceRef.current.startRun({ note: `Agent · ${layer.label}` });
+    const steer = (settings.prompt || settings.direction || settings.topic || settings.question || settings.motion || '').toString().replace(/\s+/g, ' ').trim();
+    traceRef.current.log({
+      level: 'run', kind: 'inputs',
+      note: `${steer ? `input="${steer.slice(0, 160)}" · ` : ''}selection: ${selectionNodes.length} node(s)`,
+    });
+    const tracedCtx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+
+    let result;
+    try {
+      result = await layer.run({
       prompt: settings.prompt,
       selection: selectionNodes,
       settings,
       apiKey,
+      ctx: tracedCtx,
+      onGroup,
       onAsset: (spec) => {
-        const { position, parentId, extent } = placeNext();
+        const { position, parentId, extent } = spec.groupId ? placeInGroup(spec.groupId) : placeNext();
         const node = createAssetNode({ ...spec, position });
         if (parentId) { node.parentId = parentId; node.extent = extent; }
         node.data.visibility = layerVisibility[spec.layerId] || 'show';
@@ -595,7 +845,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
         return node.id;
       },
       onPendingAsset: (spec) => {
-        const { position, parentId, extent } = placeNext();
+        const { position, parentId, extent } = spec.groupId ? placeInGroup(spec.groupId) : placeNext();
         const node = createAssetNode({ ...spec, position });
         if (parentId) { node.parentId = parentId; node.extent = extent; }
         node.data.loading = true;
@@ -618,266 +868,1008 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
         if (settle[id]) { settle[id]({ id, ok: false, error: message }); delete settle[id]; }
       },
       onError: (errs) => { if (errs?.length) Message.warning(errs[0]); },
-    });
+      });
+    } catch (err) {
+      // Pre-call failures (no selection, empty topic) never hit the wrapped client —
+      // record them so the workflow doesn't sit empty in the history.
+      traceRef.current.log({ level: 'run', kind: 'warning', note: `${layer.label} failed: ${err.message}` });
+      throw err;
+    }
+    traceRef.current.log({ level: 'run', kind: 'outputs', note: `${outputs.length} output${outputs.length === 1 ? '' : 's'} on the board` });
 
     const done = pending.length ? Promise.all(pending) : Promise.resolve([]);
     return { groupId, outputIds: outputs.map((o) => o.id), outputs, result, done };
   }, [rfInstance, apiKey, layerVisibility, setNodes]);
 
+  // ---- clip-scoped agent runs (agents = tools that fill timeline chunks) -------
+  // Drop / reuse a board node for a clip's keyframe (image) or shot (video), so the
+  // result is also on the board — draggable, bible-able, and centerable from the clip.
+  const upsertClipNode = useCallback((existingId, idx, { kind, url, label }) => {
+    if (existingId && nodesRef.current.some((n) => n.id === existingId)) {
+      setNodes((ns) => ns.map((n) => (n.id === existingId ? { ...n, data: { ...n.data, kind, url, label } } : n)));
+      return existingId;
+    }
+    const o = rfInstance ? rfInstance.screenToFlowPosition({ x: 120, y: 120 }) : { x: 120, y: 120 };
+    const node = createAssetNode({ kind, url, label, position: { x: o.x + (idx % 4) * 260, y: o.y + Math.floor(idx / 4) * 300 } });
+    setNodes((ns) => ns.concat(node));
+    return node.id;
+  }, [rfInstance, setNodes]);
+
+  const setClipFields = useCallback((id, patch) => {
+    updateTimeline((cur) => ({ ...cur, events: (cur.events || []).map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
+  }, [updateTimeline]);
+
+  // The rail agent fills the SELECTED clip: image agents → its keyframe (from the
+  // clip's beat + bible + any selected board refs); Animate → its rendered shot.
+  // Reuses the engine's single-agent primitive (runAgentOp) so behavior matches Auto-fill.
+  const fillClipWithAgent = useCallback(async (event, agentId, settings) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    traceRef.current.startRun({ note: `Fill clip · ${event.beat || 'shot'} (${agentId})` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
+    const idx = Math.max(0, timelineEvents.findIndex((e) => e.id === event.id));
+    const boardUrls = nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url).map(refUrl).filter(Boolean);
+    const refs = [...new Set([...boardUrls, ...resolveBibleUrls(event.bibleRefs, bibleRef.current, 4)])];
+
+    if (agentId === 'animate') {
+      if (!event.keyframeUrl) { Message.warning('This clip has no keyframe yet — fill it with Inspiration or Mix & Match first.'); return; }
+      setClipFields(event.id, { status: 'rendering' });
+      try {
+        const outs = await runAgentOp({ agent: 'animate', params: { ...settings, motion: settings.motion || event.beat, duration: event.durationSec }, inputUrls: [event.keyframeUrl], count: 1, intent: event.beat }, ctx);
+        if (!outs[0]?.url) throw new Error('Animate produced no shot');
+        const nodeId = upsertClipNode(event.shotNodeId, idx, { kind: 'video', url: outs[0].url, label: `Shot · ${event.beat || 'clip'}` });
+        setClipFields(event.id, { shotUrl: outs[0].url, shotNodeId: nodeId, status: 'shot' });
+        Message.success('Shot rendered');
+      } catch (err) {
+        Message.error(err.message);
+        setClipFields(event.id, { status: 'keyframe' });
+      }
+      return;
+    }
+
+    if (agentId === 'mixMatch' && refs.length < 2) { Message.warning('Mix & Match needs ≥2 references — select 2+ board images or add bible anchors.'); return; }
+    if ((agentId === 'characterVariations' || agentId === 'locationVariations') && !refs.length) { Message.warning('Select a reference image on the board (or add a bible anchor) for variations.'); return; }
+    setClipFields(event.id, { status: 'rendering' });
+    try {
+      // The clip's BEAT is the prompt (that's the shot description) — it wins over the
+      // panel's idea-seeded prompt. prompt feeds inspiration; direction feeds
+      // mixMatch/variations (Mix & Match's panel field is `prompt`). Bible = the look.
+      // planTask 'adShot': a clip fill is production work — preserve the refs' identity
+      // (only the freeform board Run keeps the exploratory planner persona).
+      const params = { ...settings, prompt: event.beat || settings.prompt, direction: event.beat || settings.direction || settings.prompt, planTask: 'adShot' };
+      const outs = await runAgentOp({ agent: agentId, params, inputUrls: refs, count: 1, intent: event.beat }, ctx);
+      if (!outs[0]?.url) throw new Error('No keyframe generated');
+      const nodeId = upsertClipNode(event.keyframeNodeId, idx, { kind: 'image', url: outs[0].url, label: `Keyframe · ${event.beat || 'clip'}` });
+      setClipFields(event.id, { keyframeUrl: outs[0].url, keyframeNodeId: nodeId, status: 'keyframe' });
+      Message.success(`Keyframe filled for clip ${idx + 1}`);
+    } catch (err) {
+      Message.error(err.message);
+      setClipFields(event.id, { status: event.keyframeUrl ? 'keyframe' : 'empty' });
+    }
+  }, [apiKey, timelineEvents, upsertClipNode, setClipFields]);
+
   const handleRun = useCallback(async () => {
     const layer = AGENT_MAP[activeLayerId];
     if (!layer) return;
-    const selNodes = nodes.filter((n) => n.selected);
-    const origin = originOverride.current || undefined;
-    originOverride.current = null;
+    const clip = timelineEvents.find((e) => e.id === selectedEventId);
     setRunning(true);
     try {
-      const { result } = await runAgent({ agentId: activeLayerId, settings: activeSettings, selectionNodes: selNodes, origin });
-      // Manual run is fire-and-forget for async video — don't block on `done`.
-      Message.success(result?.async
-        ? `${layer.label} started — the shot is cooking on the board`
-        : `${layer.label} finished`);
+      // A timeline clip is selected → the agent fills THAT clip. Otherwise the
+      // classic board run (generate cards from the board selection).
+      if (clip && CLIP_FILLABLE.has(activeLayerId)) {
+        await fillClipWithAgent(clip, activeLayerId, activeSettings);
+      } else {
+        const selNodes = nodes.filter((n) => n.selected);
+        const origin = originOverride.current || undefined;
+        originOverride.current = null;
+        // Mix & Match's story-moments need locations: when only the character is
+        // selected, the bible's location anchors become the stage set.
+        const settings = activeLayerId === 'mixMatch'
+          ? { ...activeSettings, locationUrls: bibleRef.current.filter((b) => b.role === 'location' && b.url).map((b) => b.url) }
+          : activeSettings;
+        const { result } = await runAgent({ agentId: activeLayerId, settings, selectionNodes: selNodes, origin });
+        Message.success(result?.async
+          ? `${layer.label} started — the shot is cooking on the board`
+          : `${layer.label} finished`);
+      }
     } catch (err) {
       Message.error(err.message);
     } finally {
       setRunning(false);
     }
-  }, [activeLayerId, activeSettings, nodes, runAgent]);
+  }, [activeLayerId, activeSettings, nodes, runAgent, timelineEvents, selectedEventId, fillClipWithAgent]);
 
-  // ---- Auto Director (orchestrator) -------------------------------------------
-  const advanceAutoRef = useRef(null);
-  const stitchAutoRef = useRef(null);
+  // ---- the production engine (drives the timeline; no panel) ------------------
+  // The orchestration loop lives in the shared core session (createProduction). The
+  // canvas DRIVES it via Auto-fill / per-event regenerate and renders its state onto
+  // the timeline spine — there is no Auto Director panel or plan node anymore.
+  const sessionRef = useRef(null);
+  const outNodesRef = useRef(new Map());       // stepId -> last rendered url (board dedupe)
+  const sessionStateRef = useRef(project.auto || null); // last snapshot, persisted for reload
 
-  const patchAutoStep = useCallback((id, patch) => {
-    setAutoPlan((p) => (p ? { ...p, steps: p.steps.map((s) => (s.id === id ? { ...s, ...(typeof patch === 'function' ? patch(s) : patch) } : s)) } : p));
-  }, []);
-
-  // Source assets for the plan: selected images, else all image assets on board.
-  const gatherAutoSources = useCallback(() => {
-    const imgs = nodesRef.current.filter((n) => n.data?.kind === 'image' && n.data?.url && n.type !== 'autoPlan');
+  // Source assets for a production: selected images, else all image assets on board.
+  const gatherSources = useCallback(() => {
+    const imgs = nodesRef.current.filter((n) => n.data?.kind === 'image' && n.data?.url);
     const sel = imgs.filter((n) => n.selected);
     return sel.length ? sel : imgs;
   }, []);
 
-  const startAutoDirector = useCallback(async () => {
-    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
-    if (autoRef.current) { Message.info('A plan already exists — discard it first.'); return; }
-    const source = gatherAutoSources();
-    const sourceIds = source.map((n) => n.id);
-    const images = source.map(refUrl).filter(Boolean);
-    const center = rfInstance ? rfInstance.screenToFlowPosition({ x: 60, y: 60 }) : { x: 40, y: 40 };
-    const nodeId = `auto-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    setNodes((ns) => ns.concat({ id: nodeId, type: 'autoPlan', position: center, data: { kind: 'autoPlan' } }));
-    setAutoPlan({ nodeId, status: 'understanding', brief: null, steps: [], cursor: 0, mode: 'review', busy: 'understanding', sourceIds, filmUrl: null, error: null });
-    try {
-      const brief = await understandAssets({ apiKey: apiKey.trim(), images, idea: project.idea });
-      setAutoPlan((p) => (p ? { ...p, brief, status: 'planning', busy: 'planning' } : p));
-      const rawSteps = await buildPlan({ apiKey: apiKey.trim(), brief, idea: project.idea, targetMinutes: project.targetMinutes });
-      if (!rawSteps.length) throw new Error('The planner returned no steps — adjust the idea and try again.');
-      const steps = rawSteps.map((s) => ({ ...s, gated: true, status: 'pending', outputs: [], pickedId: null, qc: null, error: null }));
-      setAutoPlan((p) => (p ? { ...p, steps, status: 'review-plan', busy: null } : p));
-    } catch (err) {
-      setAutoPlan((p) => (p ? { ...p, status: 'error', error: err.message, busy: null } : p));
+  // Project the session's picked step outputs onto the board (keyframes + shots +
+  // the final film), keyed by step id so it's idempotent across regenerate/reload.
+  const reconcileSessionNodes = useCallback((state) => {
+    const seen = outNodesRef.current;
+    const baseX = 80;
+    const baseY = 280; // below the bible row up top
+    const upserts = [];
+    (state.plan || []).forEach((step, i) => {
+      const keeper = (step.outputs || []).find((o) => o.id === step.pickedId) || (step.outputs || [])[0];
+      if (!keeper || !keeper.url || seen.get(step.id) === keeper.url) return;
+      seen.set(step.id, keeper.url);
+      upserts.push({ id: `shot-${step.id}`, kind: keeper.kind, url: keeper.url, label: step.title || step.agent, pos: { x: baseX + (i % 4) * 260, y: baseY + Math.floor(i / 4) * 300 } });
+    });
+    const filmUrl = state.film?.url || state.film?.path;
+    if (filmUrl && seen.get('__film') !== filmUrl) {
+      seen.set('__film', filmUrl);
+      upserts.push({ id: 'film-final-cut', kind: 'video', url: filmUrl, label: 'Film — final cut', preserved: true, pos: { x: baseX, y: baseY + Math.ceil((state.plan?.length || 0) / 4) * 300 + 40 } });
     }
-  }, [apiKey, gatherAutoSources, rfInstance, project.idea, project.targetMinutes, setNodes]);
-
-  const replanAuto = useCallback(async () => {
-    const p0 = autoRef.current;
-    if (!p0 || !apiKey?.trim()) return;
-    setAutoPlan((p) => (p ? { ...p, busy: 'planning', status: 'planning' } : p));
-    try {
-      const rawSteps = await buildPlan({ apiKey: apiKey.trim(), brief: p0.brief, idea: project.idea, targetMinutes: project.targetMinutes });
-      const steps = rawSteps.map((s) => ({ ...s, gated: true, status: 'pending', outputs: [], pickedId: null, qc: null, error: null }));
-      setAutoPlan((p) => (p ? { ...p, steps, status: 'review-plan', busy: null } : p));
-    } catch (err) {
-      setAutoPlan((p) => (p ? { ...p, status: 'review-plan', busy: null } : p));
-      Message.error(err.message);
-    }
-  }, [apiKey, project.idea, project.targetMinutes]);
-
-  // ---- plan editing ----
-  const autoRemoveStep = useCallback((id) => setAutoPlan((p) => (p ? { ...p, steps: p.steps.filter((s) => s.id !== id) } : p)), []);
-  const autoMoveStep = useCallback((id, dir) => setAutoPlan((p) => {
-    if (!p) return p;
-    const i = p.steps.findIndex((s) => s.id === id);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= p.steps.length) return p;
-    const steps = p.steps.slice();
-    [steps[i], steps[j]] = [steps[j], steps[i]];
-    return { ...p, steps };
-  }), []);
-  const autoAddStep = useCallback((agent) => {
-    if (!agent) return;
-    const meta = AGENT_MAP[agent];
-    setAutoPlan((p) => (p ? { ...p, steps: p.steps.concat({
-      id: `st-${Math.random().toString(36).slice(2, 9)}`,
-      agent, title: meta?.label || agent, intent: '', params: { ...(meta?.defaultSettings || {}) },
-      dependsOn: [], gated: true, status: 'pending', outputs: [], pickedId: null, qc: null, error: null,
-    }) } : p));
-  }, []);
-  const autoToggleGate = useCallback((id) => patchAutoStep(id, (s) => ({ gated: !s.gated })), [patchAutoStep]);
-  const autoSetMode = useCallback((mode) => setAutoPlan((p) => (p ? { ...p, mode } : p)), []);
-
-  // Resolve a step's input nodes: approved deps' keepers, else the source assets.
-  const resolveAutoInputs = useCallback((step) => {
-    const p = autoRef.current;
-    if (!p) return [];
-    let ids;
-    if (step.dependsOn?.length) {
-      ids = step.dependsOn.flatMap((depId) => {
-        const dep = p.steps.find((s) => s.id === depId);
-        if (!dep) return [];
-        return dep.pickedId ? [dep.pickedId] : (dep.outputs || []).map((o) => o.id);
+    if (!upserts.length) return;
+    setNodes((ns) => {
+      const byId = new Map(ns.map((n) => [n.id, n]));
+      upserts.forEach((u) => {
+        const existing = byId.get(u.id);
+        if (existing) byId.set(u.id, { ...existing, data: { ...existing.data, kind: u.kind, url: u.url, label: u.label } });
+        else byId.set(u.id, createAssetNode({ id: u.id, kind: u.kind, url: u.url, label: u.label, position: u.pos, preserved: !!u.preserved }));
       });
-    } else {
-      ids = p.sourceIds || [];
-    }
-    return nodesRef.current.filter((n) => ids.includes(n.id));
-  }, []);
-
-  // Run one step's agent + QC; leaves it at 'review'. Returns the QC verdict.
-  const executeAutoStep = useCallback(async (stepId) => {
-    const p = autoRef.current;
-    const step = p?.steps.find((s) => s.id === stepId);
-    if (!step) return null;
-    const inputNodes = resolveAutoInputs(step);
-    const planNode = nodesRef.current.find((n) => n.id === p.nodeId);
-    // Cascade each step's output group down-right of the plan so they don't overlap.
-    const stepIndex = Math.max(0, p.steps.findIndex((s) => s.id === stepId));
-    const origin = planNode ? { x: planNode.position.x + 420 + stepIndex * 120, y: planNode.position.y + stepIndex * 320 } : undefined;
-    patchAutoStep(stepId, { status: 'running', error: null });
-    setAutoPlan((pp) => (pp ? { ...pp, busy: 'running-step' } : pp));
-    try {
-      const { outputs, done } = await runAgent({ agentId: step.agent, settings: step.params, selectionNodes: inputNodes, origin, groupLabel: step.title });
-      await done; // wait for async (video) outputs to finalize
-      const live = outputs.filter((o) => o.url);
-      if (outputs.length && live.length === 0) throw new Error('Outputs failed to generate.');
-      patchAutoStep(stepId, { status: 'qc', outputs: live.map((o) => ({ ...o })) });
-      const references = inputNodes.map(refUrl).filter(Boolean);
-      const imgOuts = live.filter((o) => o.kind !== 'video').map((o) => o.url);
-      const vid = live.find((o) => o.kind === 'video')?.url;
-      const qc = await qcStep({ apiKey: apiKey.trim(), agent: step.agent, intent: step.intent, references, outputs: imgOuts, video: vid });
-      const pickedId = live[qc.best]?.id || live[0]?.id || null;
-      patchAutoStep(stepId, { status: 'review', qc, pickedId, outputs: live.map((o) => ({ ...o })) });
-      setAutoPlan((pp) => (pp ? { ...pp, busy: null } : pp));
-      return qc;
-    } catch (err) {
-      patchAutoStep(stepId, { status: 'failed', error: err.message });
-      setAutoPlan((pp) => (pp ? { ...pp, busy: null } : pp));
-      return null;
-    }
-  }, [apiKey, patchAutoStep, resolveAutoInputs, runAgent]);
-
-  // After a step reaches 'review': pause (gated / review mode / QC fail) or auto-advance.
-  const settleAutoStep = useCallback((step, qc) => {
-    const p = autoRef.current;
-    if (!p) return;
-    const mustPause = p.mode === 'review' || step.gated || !qc || qc.verdict === 'fail';
-    if (mustPause) return; // leave at 'review' for the human
-    patchAutoStep(step.id, { status: 'approved' });
-    if (advanceAutoRef.current) advanceAutoRef.current(step.id);
-  }, [patchAutoStep]);
-
-  const runAutoStep = useCallback(async (stepId) => {
-    const qc = await executeAutoStep(stepId);
-    const step = autoRef.current?.steps.find((s) => s.id === stepId);
-    if (step) settleAutoStep(step, qc);
-  }, [executeAutoStep, settleAutoStep]);
-
-  // Advance past a step: move the cursor to the next one; if none → assemble.
-  const advanceAuto = useCallback((fromId) => {
-    const p = autoRef.current;
-    if (!p) return;
-    const idx = p.steps.findIndex((s) => s.id === fromId);
-    const nextIdx = idx + 1;
-    if (nextIdx >= p.steps.length) {
-      setAutoPlan((pp) => (pp ? { ...pp, status: 'assembling' } : pp));
-      if (stitchAutoRef.current) stitchAutoRef.current();
-      return;
-    }
-    setAutoPlan((pp) => (pp ? { ...pp, cursor: nextIdx } : pp));
-    const next = p.steps[nextIdx];
-    if (p.mode === 'auto' && next.status === 'pending') runAutoStep(next.id);
-  }, [runAutoStep]);
-  useEffect(() => { advanceAutoRef.current = advanceAuto; }, [advanceAuto]);
-
-  const startAutoRun = useCallback(() => {
-    const p = autoRef.current;
-    if (!p || !p.steps.length) return;
-    setAutoPlan((pp) => (pp ? { ...pp, status: 'running', cursor: 0 } : pp));
-    if (p.mode === 'auto') runAutoStep(p.steps[0].id);
-  }, [runAutoStep]);
-
-  const autoPickOutput = useCallback((stepId, outId) => patchAutoStep(stepId, { pickedId: outId }), [patchAutoStep]);
-  const autoApproveStep = useCallback((stepId) => { patchAutoStep(stepId, { status: 'approved' }); advanceAuto(stepId); }, [patchAutoStep, advanceAuto]);
-  const autoRegenStep = useCallback((stepId) => { runAutoStep(stepId); }, [runAutoStep]);
-  const autoSkipStep = useCallback((stepId) => { patchAutoStep(stepId, { status: 'skipped' }); advanceAuto(stepId); }, [patchAutoStep, advanceAuto]);
-
-  const autoTakeOver = useCallback(() => {
-    setAutoPlan(null);
-    setNodes((ns) => ns.filter((n) => n.type !== 'autoPlan'));
-    Message.info('Auto Director off — your assets stay on the board.');
+      return Array.from(byId.values());
+    });
   }, [setNodes]);
 
-  // Stitch the approved animated shots into a final cut (server ffmpeg).
-  const stitchAuto = useCallback(async () => {
-    // Capture the LATEST committed plan via the updater (autoRef can lag a render,
-    // which would drop a just-approved final shot), and flip to 'assembling'.
-    let p = null;
-    setAutoPlan((pp) => { p = pp; return pp ? { ...pp, status: 'assembling', busy: 'stitching' } : pp; });
-    if (!p) return;
-    const shots = [];
-    p.steps.forEach((s) => {
-      if (s.status !== 'approved') return;
-      const keeper = (s.outputs || []).find((o) => o.id === s.pickedId) || (s.outputs || [])[0];
-      if (keeper && keeper.kind === 'video' && keeper.url) shots.push(keeper.url);
+  // Single event sink: cache the snapshot (for reload), project outputs onto the
+  // board, and mirror the session's animate steps onto the timeline spine.
+  const handleSessionEvent = useCallback((e) => {
+    // Fold every decision (plan, phase, per-step status, QC, final cut) into the
+    // run trace so the History panel shows the producer's reasoning, not just calls.
+    traceRef.current.ingestSessionEvent(e);
+    if (e.type === 'state') {
+      sessionStateRef.current = e.state;
+      reconcileSessionNodes(e.state);
+      updateTimeline((cur) => ({ ...cur, events: mirrorSessionEvents(e.state, cur.events) }));
+    } else if (e.type === 'phase') {
+      const LABEL = { understanding: 'Reading your brand kit…', planning: 'Planning the shots…', executing: 'Generating shots…', stitching: 'Assembling the cut…' };
+      if (LABEL[e.phase]) Message.info({ id: 'auto-phase', content: LABEL[e.phase] });
+    } else if (e.type === 'step' && e.status === 'failed') {
+      // Surface failures LOUDLY instead of a silently-empty clip.
+      Message.error(`Shot ${(e.index ?? 0) + 1}/${e.total} (${e.agent}) failed: ${e.message || 'unknown error'}`);
+    } else if (e.type === 'warning') {
+      Message.info(e.message);
+    } else if (e.type === 'film') {
+      Message.success('Final cut assembled');
+      updateTimeline((cur) => ({ ...cur, film: { url: e.url || e.path, assetId: e.assetId || null, builtAt: new Date().toISOString() } }));
+    }
+  }, [reconcileSessionNodes, updateTimeline]);
+
+  // Non-bible board assets the user attached to CUT cards ride along as extra
+  // reference entries (role 'ref') — per-cut picks, never auto-canonized into the
+  // bible. Their ids are deterministic so card refEntryIds resolve against them.
+  const extRefId = (a) => `ext-${a.nodeId || a.url}`;
+  const cutAssetEntries = useCallback(() => {
+    const seen = new Set();
+    const out = [];
+    nodesRef.current.filter((n) => n.type === 'cut').forEach((c) => {
+      (c.data?.assetRefs || []).forEach((a) => {
+        const eid = extRefId(a);
+        if (!a.url || seen.has(eid)) return;
+        seen.add(eid);
+        out.push({ id: eid, role: 'ref', name: a.label || 'asset', url: a.url, locked: true });
+      });
     });
-    if (shots.length === 0) {
-      setAutoPlan((pp) => (pp ? { ...pp, status: 'done', busy: null } : pp));
-      Message.info('No animated shots to stitch — approve some Animate steps first.');
+    return out;
+  }, []);
+
+  // Build a production bound to the browser transport + this canvas's event sink.
+  // The bible travels with the input so EVERY generative step references the look +
+  // cast (the drift-killer) — see resolveInputs in production.js.
+  const buildSession = useCallback((sources, initialState, targetSecondsOverride, blueprintOverride, sessionOpts = {}) => {
+    // Trace-wrap the transport so every model call the producer makes (prompt, refs,
+    // model, result) lands in the run log — without touching the shared engine.
+    const transport = createBrowserTransport(apiKey.trim());
+    const traced = { ...transport, client: traceRef.current.wrapClient(transport.client), stitch: traceRef.current.wrapStitch(transport.stitch) };
+    // AD recipe + a FULL run (not a windowed interval fill) → drive the producer
+    // from the blueprint's shot grammar. Each shot pulls only its beat's bible roles, so
+    // the bible (not raw board sources) is the input — no cross-role identity leak.
+    // (The Short Film recipe NEVER comes through here — the Filming Loop drives it.)
+    const useBlueprint = targetSecondsOverride == null && project.recipe?.id === ADVERTISEMENT_RECIPE.id;
+    const look = project.recipe?.look;
+    // The confirmed intent's hero rides along in every shot prompt — "Hero reveal"
+    // means nothing to the image model unless it knows the hero IS desert wildlife.
+    const heroLine = project.recipe?.subjects?.product ? `The hero of this ad: ${project.recipe.subjects.product}` : '';
+    // An explicit blueprint (the user-reviewed CUT cards) wins verbatim.
+    const blueprint = blueprintOverride || (useBlueprint ? {
+      // Hero refs anchor EVERY shot (consistency of the user's own product/subject
+      // is the #1 requirement) — production.js appends them to each beat's roles.
+      heroRole: 'product',
+      shots: adShotPlan(timeline.targetSeconds).map((b) => ({
+        beat: b.beat,
+        roles: b.roles,
+        camera: b.camera,
+        motion: b.motion,
+        // The per-shot prompt seed the writer expands: beat + hero + the user's idea +
+        // the look package's cinematography. Bible roles condition the image pixels;
+        // this sets the shot's content.
+        promptSeed: [b.beat, heroLine, project.idea, look ? lookDirection(look) : ''].map((s) => (s || '').trim()).filter(Boolean).join('. '),
+      })),
+    } : undefined);
+    const session = createProduction(
+      // targetSeconds drives the shot count — the timeline's budget (15s), or the
+      // selected interval's duration when Auto-filling just part of the timeline.
+      {
+        idea: project.idea,
+        sources: useBlueprint ? [] : sources, // blueprint shots reference the bible only
+        targetSeconds: targetSecondsOverride != null ? targetSecondsOverride : timeline.targetSeconds,
+        bible: [...bibleRef.current, ...cutAssetEntries()],
+        blueprint,
+      },
+      traced,
+      { mode: initialState?.mode || 'auto', onEvent: handleSessionEvent, ...(initialState ? { initialState } : {}), ...sessionOpts },
+    );
+    sessionRef.current = session;
+    return session;
+  }, [apiKey, project.idea, project.recipe, timeline.targetSeconds, handleSessionEvent, cutAssetEntries]);
+
+  // ---- Timeline + Bible actions (the spine the whole UX hangs on) -------------
+
+  // Auto-fill ("do it"): a first cut, autonomously. Seed the production from the
+  // board's images AND the bible anchors (the idea alone is also enough — "here are
+  // my assets, make an ad"). Build (or reuse) the session, run it straight through
+  // (plan → every shot → stitch), and let the event sink mirror it onto the spine.
+  // No panel, no plan node — the timeline IS the UI.
+  const handleAutoFill = useCallback(async (opts) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    const bibleUrls = bibleRef.current.map((b) => b.url).filter(Boolean);
+    const sourceUrls = [...new Set([...gatherSources().map(refUrl).filter(Boolean), ...bibleUrls])];
+    // Auto-fill is always on the bar, so guard the empty case with a friendly nudge
+    // instead of leaking the engine's internal "produce() needs an idea" error.
+    if (!project.idea?.trim() && !sourceUrls.length && !sessionRef.current) {
+      Message.warning('Nothing to build from yet — type an idea up top, or drop in / add a few assets (or bible anchors), then Auto-fill.');
       return;
     }
+    // Interval Auto-fill: a selected window [start,end] only fills that many seconds
+    // (~one shot / 5s), contextual to the same idea + bible. It builds a FRESH session
+    // sized to the window — prior shots freeze onto the spine (mirrorSessionEvents).
+    const windowSeconds = (opts && opts.end > opts.start) ? Math.max(1, Math.round(opts.end - opts.start)) : null;
+    // Open a workflow in the trace and record the inputs it started from (idea + bible
+    // composition), so the History panel reads "here's what I had → here's what I did".
+    const bibleSummary = AD_ROLES.map((r) => { const n = bibleRef.current.filter((b) => b.role === r).length; return n ? `${r}×${n}` : null; }).filter(Boolean).join(' ');
+    traceRef.current.startRun({ note: `Generate the ad · ${windowSeconds != null ? `window ${windowSeconds}s` : `${timeline.targetSeconds}s`}` });
+    traceRef.current.log({ level: 'run', kind: 'inputs', note: `idea="${(project.idea || '').replace(/\s+/g, ' ').trim().slice(0, 160)}" · bible: ${bibleSummary || '(none)'}` });
+    setTimelineCollapsed(false); // expand to show the cut being built
+    let session;
+    if (windowSeconds != null) session = buildSession(sourceUrls, null, windowSeconds);
+    // An AD-recipe run rebuilds a FRESH blueprint-driven session each time (deterministic
+    // plan from the shot grammar + bible); generic runs reuse the live session.
+    else if (project.recipe?.id === ADVERTISEMENT_RECIPE.id) session = buildSession([], null);
+    else session = sessionRef.current || buildSession(sourceUrls);
+    session.setMode('auto');
+    setAutoFillBusy(true);
     try {
-      const res = await fetch('/api/film/stitch', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKey.trim(), shots, name: project.title }),
+      await session.runAll(); // understand + plan if needed, run every step, stitch
+    } catch (err) {
+      Message.error(err.message);
+    } finally {
+      setAutoFillBusy(false);
+    }
+  }, [apiKey, project.idea, project.recipe, gatherSources, buildSession, timeline.targetSeconds]);
+
+  // ---- run-trace export (agent introspection) --------------------------------
+  // Dump every prompt + action of the run to text, so the whole pipeline can be
+  // critically re-assessed (paste it back here, or keep the .txt).
+  const copyTrace = useCallback(() => {
+    const text = traceRef.current.toText();
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(
+        () => Message.success(`Run log copied (${traceRef.current.entries.length} actions) — paste it to re-assess`),
+        () => Message.error('Copy failed — use Download instead'),
+      );
+    } else { Message.error('Clipboard unavailable — use Download instead'); }
+  }, []);
+
+  const downloadTrace = useCallback(() => {
+    const blob = new Blob([traceRef.current.toText()], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ad-run-trace-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.txt`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, []);
+
+  // "Generate the ad" (from the dock): lock the recipe framing + idea + duration onto
+  // the project, then Auto-fill the cut from the now-tagged brand kit. The bible is
+  // already complete (gaps were dropped as tagged nodes), so there's no gap-gen step.
+  // Defer the run via a tick so handleAutoFill sees the just-written idea/targetSeconds
+  // (the project prop updates on the next render, not in this closure).
+  // Write the brief through to the project AS each interview answer lands — not at
+  // the end. Gap generation (and everything else) reads project.idea/recipe, so
+  // deferring the write until "Make the ad" meant every in-interview Generate ran
+  // with an EMPTY idea → Seedream free-associated generic ad clichés (the
+  // craft-beer-logo bug). The project is the single source of truth; keep it current.
+  const handleBriefUpdate = useCallback(({ idea, durationSec, aspect, look, intent } = {}) => {
+    onUpdateProject((prev) => {
+      if (!prev || prev.id !== loadedIdRef.current) return prev;
+      const next = { ...prev };
+      if (idea != null && idea.trim()) next.idea = idea.trim();
+      if (durationSec != null || aspect != null || look != null || intent != null) {
+        next.recipe = {
+          ...(prev.recipe || {}),
+          id: ADVERTISEMENT_RECIPE.id,
+          durationSec: durationSec != null ? durationSec : (prev.recipe?.durationSec ?? ADVERTISEMENT_RECIPE.defaultDuration),
+          aspect: aspect != null ? aspect : (prev.recipe?.aspect ?? ADVERTISEMENT_RECIPE.defaultAspect),
+          look: look != null ? look : (prev.recipe?.look ?? 'warmLifestyle'),
+          // The confirmed intent: what kind of ad, who the hero is, whether brand
+          // belongs. Gap prompts + the producer's shot prompts read these.
+          ...(intent ? { kind: intent.kind, subjects: intent.subjects, brandRelevant: intent.brandRelevant } : {}),
+        };
+      }
+      if (durationSec != null) next.timeline = { ...(prev.timeline || emptyTimeline()), targetSeconds: durationSec };
+      return next;
+    });
+  }, [onUpdateProject]);
+
+  // Read the ad intent from the idea (one cheap classification call), traced so the
+  // decision shows in History. Null on any failure → the interview proceeds plain.
+  const readIntentForIdea = useCallback(async (ideaText) => {
+    if (!apiKey?.trim() || !ideaText?.trim()) return null;
+    const rec = traceRef.current.log({ kind: 'intent.read', prompt: ideaText.replace(/\s+/g, ' ').slice(0, 160), status: 'running' });
+    try {
+      const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
+      const intent = await readAdIntent({ idea: ideaText }, ctx);
+      rec.status = 'ok';
+      rec.result = !intent ? 'no read (fallback to plain interview)'
+        : intent.valid === false ? 'INVALID brief — asked to clarify'
+          : `${intent.kind} · hero: ${intent.subjects?.product || '?'}${intent.brandRelevant === false ? ' · no brand' : ''}`;
+      return intent;
+    } catch (err) {
+      rec.status = 'error'; rec.error = err.message;
+      return null;
+    }
+  }, [apiKey]);
+
+  // ---- CUT cards: the review gate between intent and spend ---------------------
+  // "Make the ad" no longer fires generation — it LAYS OUT one CUT card per beat on
+  // the board (content + camera/motion + duration + asset edges); the user refines
+  // them, shoots any single card with its 🎬, and "🎬 Action" shoots the rest.
+
+  // Dashed prerequisite edges into the card: bible refs (via their board nodes) AND
+  // per-cut attached board assets.
+  const syncCutEdges = useCallback((cutId, refIds, assetRefs) => {
+    setEdges((es) => {
+      const kept = es.filter((e) => !(String(e.id).startsWith('cutedge-') && e.target === cutId));
+      const style = { stroke: '#f7ba1e', strokeDasharray: '4 3', opacity: 0.55 };
+      const fromBible = (refIds || []).map((rid) => {
+        const ent = bibleRef.current.find((b) => b.id === rid);
+        return ent && ent.nodeId ? { id: `cutedge-${cutId}-${rid}`, source: ent.nodeId, target: cutId, style } : null;
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.details || data?.error || 'Stitch failed');
-      const planNode = nodesRef.current.find((n) => n.id === p.nodeId);
-      const pos = planNode ? { x: planNode.position.x, y: planNode.position.y + 560 } : { x: 60, y: 600 };
-      const filmNode = createAssetNode({ kind: 'video', url: data.url, label: 'Film — final cut', position: pos, layerId: 'autoDirector', preserved: !!data.assetId });
-      if (data.assetId) filmNode.data.assetId = data.assetId;
-      setNodes((ns) => ns.concat(filmNode));
-      setAutoPlan((pp) => (pp ? { ...pp, status: 'done', busy: null, filmUrl: data.url } : pp));
+      const fromAssets = (assetRefs || []).map((a) => (
+        a.nodeId && nodesRef.current.some((n) => n.id === a.nodeId)
+          ? { id: `cutedge-${cutId}-${a.nodeId}`, source: a.nodeId, target: cutId, style }
+          : null
+      ));
+      return [...kept, ...[...fromBible, ...fromAssets].filter(Boolean)];
+    });
+  }, [setEdges]);
+
+  const onPatchCut = useCallback((id, p) => {
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)));
+    if (p.refIds || p.assetRefs) {
+      const cur = nodesRef.current.find((n) => n.id === id)?.data || {};
+      syncCutEdges(id, p.refIds || cur.refIds, p.assetRefs || cur.assetRefs);
+    }
+  }, [setNodes, syncCutEdges]);
+
+  // Attach one asset (a board node drop, or a Library item) to a cut. Bible-tagged
+  // nodes toggle their entry on; anything else becomes a per-cut assetRef. This is
+  // the route fresh agent variations take into a shot — and it stays curate-first:
+  // attaching feeds ONE cut, it does not canonize into the bible.
+  const attachRefToCut = useCallback((cutId, payload) => {
+    const card = nodesRef.current.find((n) => n.id === cutId && n.type === 'cut');
+    if (!card || !payload?.url) return;
+    const ent = (payload.nodeId && bibleRef.current.find((b) => b.nodeId === payload.nodeId))
+      || bibleRef.current.find((b) => b.url === payload.url);
+    const refIds = card.data.refIds || [];
+    const assetRefs = card.data.assetRefs || [];
+    if (ent) {
+      if (!refIds.includes(ent.id)) onPatchCut(cutId, { refIds: [...refIds, ent.id] });
+      return;
+    }
+    if (assetRefs.some((a) => a.url === payload.url)) return;
+    onPatchCut(cutId, { assetRefs: [...assetRefs, { nodeId: payload.nodeId || null, url: payload.url, label: payload.label || 'asset' }] });
+  }, [onPatchCut]);
+
+  // "+ board selection" on the card: feed every selected board image to this cut.
+  const attachSelectedToCut = useCallback((cutId) => {
+    const card = nodesRef.current.find((n) => n.id === cutId && n.type === 'cut');
+    if (!card) return;
+    const sel = nodesRef.current.filter((n) => n.selected && n.type !== 'cut' && n.data?.kind === 'image' && (n.data?.url || n.data?.localUrl));
+    if (!sel.length) { Message.warning('Select one or more board images first, then click + board selection'); return; }
+    const refIds = [...(card.data.refIds || [])];
+    const assetRefs = [...(card.data.assetRefs || [])];
+    let added = 0;
+    sel.forEach((n) => {
+      const url = refUrl(n);
+      if (!url) return;
+      const ent = bibleRef.current.find((b) => b.nodeId === n.id) || bibleRef.current.find((b) => b.url === url);
+      if (ent) {
+        if (!refIds.includes(ent.id)) { refIds.push(ent.id); added += 1; }
+      } else if (!assetRefs.some((a) => a.url === url)) {
+        assetRefs.push({ nodeId: n.id, url, label: n.data?.label || 'asset' });
+        added += 1;
+      }
+    });
+    if (!added) { Message.info('Those assets already feed this cut'); return; }
+    onPatchCut(cutId, { refIds, assetRefs });
+    Message.success(`${added} asset${added === 1 ? '' : 's'} now feeding CUT ${(card.data.cut ?? 0) + 1}`);
+  }, [onPatchCut]);
+
+  const layoutCutCards = useCallback(({ targetSeconds }) => {
+    const plan = adShotPlan(targetSeconds);
+    const perShot = Math.min(15, Math.max(10, Math.round(targetSeconds / Math.max(1, plan.length))));
+    const heroIds = bibleRef.current.filter((e) => e.role === 'product').map((e) => e.id);
+    const others = nodesRef.current.filter((n) => n.type !== 'cut');
+    const base = others.length
+      ? { x: Math.min(...others.map((n) => n.position.x)), y: Math.max(...others.map((n) => n.position.y)) + 360 }
+      : { x: 80, y: 80 };
+    const cards = plan.map((b, i) => ({
+      id: `cut-${i}`,
+      type: 'cut',
+      position: { x: base.x + (i % 3) * 330, y: base.y + Math.floor(i / 3) * 340 },
+      data: {
+        cut: i,
+        beat: b.beat,
+        camera: b.camera || 'auto',
+        motion: b.motion || '',
+        durationSec: perShot,
+        // CONTENT starts empty — the user writes the shot's specifics; the card's
+        // full-prompt preview shows what rides along regardless (beat + hero + idea
+        // + look, assembled by cutPromptSeed at shoot time).
+        prompt: '',
+        refIds: [...new Set([...bibleRef.current.filter((e) => (b.roles || []).includes(e.role)).map((e) => e.id), ...heroIds])],
+        assetRefs: [],
+      },
+    }));
+    setNodes((ns) => [...ns.filter((n) => n.type !== 'cut'), ...cards]);
+    cards.forEach((c) => syncCutEdges(c.id, c.data.refIds, []));
+    traceRef.current.log({ kind: 'plan', note: `${cards.length} CUT cards laid out for review`, plan: cards.map((c, i) => `${i + 1}. ${c.data.beat}`).join('  |  ') });
+    return cards.length;
+  }, [setNodes, syncCutEdges]);
+
+  // Lock the framing + lay out the cuts; generation waits for Action.
+  const handleGenerateAd = useCallback(({ idea, durationSec, aspect, look }) => {
+    onUpdateProject((prev) => (prev && prev.id === loadedIdRef.current ? {
+      ...prev,
+      idea: (idea && idea.trim()) || prev.idea,
+      // Spread the previous recipe FIRST so the confirmed intent (kind/subjects/
+      // brandRelevant, written during the interview) survives the final framing.
+      recipe: { ...(prev.recipe || {}), id: ADVERTISEMENT_RECIPE.id, durationSec, aspect, look },
+      timeline: { ...(prev.timeline || emptyTimeline()), targetSeconds: durationSec },
+    } : prev));
+    traceRef.current.startRun({ note: `Lay out cuts · ${durationSec}s` });
+    const n = layoutCutCards({ idea: (idea || '').trim(), targetSeconds: durationSec, look });
+    return n > 0 ? 'review' : 'failed';
+  }, [onUpdateProject, layoutCutCards]);
+
+  // A CUT card → one blueprint shot, verbatim: full seed (content + shared context),
+  // camera template + motion, duration, explicit refs (bible picks + per-cut assets,
+  // resolved against the ext entries buildSession appends). keepTake carries an
+  // existing take along so Action doesn't re-shoot it.
+  const shotFromCard = useCallback((c, { keepTake = true } = {}) => ({
+    beat: c.data.beat,
+    promptSeed: cutPromptSeed({ content: c.data.prompt, beat: c.data.beat, ...sharedFromProject(projectRef.current) }),
+    camera: c.data.camera || 'auto',
+    motion: c.data.motion || '',
+    durationSec: c.data.durationSec || 10,
+    refEntryIds: [...(c.data.refIds || []), ...(c.data.assetRefs || []).map(extRefId)],
+    ...(keepTake && c.data.shotUrl ? { shotUrl: c.data.shotUrl, keyframeUrl: c.data.keyframeUrl || '' } : {}),
+  }), []);
+
+  // Live session → card feedback: running/failed/keyframe/shot land on the cards
+  // (border + status tag) as the mapped steps progress.
+  const wireCutSession = useCallback((session, cardIdByStep) => {
+    session.on((e) => {
+      const hit = e.stepId ? cardIdByStep.get(e.stepId) : null;
+      if (!hit) return;
+      if (e.type === 'step') {
+        if (e.status === 'running' && hit.kind === 'kf') onPatchCut(hit.cardId, { status: 'running' });
+        if (e.status === 'failed') onPatchCut(hit.cardId, { status: 'failed' });
+      } else if (e.type === 'asset') {
+        if (hit.kind === 'kf' && e.kind === 'image') onPatchCut(hit.cardId, { keyframeUrl: e.url });
+        if (hit.kind === 'anim' && e.kind === 'video') onPatchCut(hit.cardId, { shotUrl: e.url, status: 'shot' });
+      }
+    });
+  }, [onPatchCut]);
+
+  // 🎬 on a single card: shoot JUST this cut (keyframe + animate, no stitch) — the
+  // same engine, so retries and History tracing come along. The take lands on the
+  // card, the board and the timeline at the cut's slot; re-clicking re-shoots.
+  const handleShootCut = useCallback(async (cutId) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    const card = nodesRef.current.find((n) => n.id === cutId && n.type === 'cut');
+    if (!card || card.data.status === 'running') return;
+    // A fresh take replaces the old one — drop the previous timeline event.
+    const oldStep = card.data.lastAnimStepId;
+    if (oldStep) updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => e.stepId !== oldStep) }));
+    traceRef.current.startRun({ note: `Shoot CUT ${(card.data.cut ?? 0) + 1} · ${card.data.beat || ''}` });
+    setTimelineCollapsed(false);
+    const session = buildSession([], null, undefined, { shots: [shotFromCard(card, { keepTake: false })] }, { stitch: false });
+    onPatchCut(cutId, { status: 'running', shotUrl: '', keyframeUrl: '' });
+    try {
+      const plan = await session.plan();
+      wireCutSession(session, mapCutSteps(plan, [card]));
+      const anim = plan.find((s) => s.agent === 'animate');
+      if (anim) onPatchCut(cutId, { lastAnimStepId: anim.id });
+      await session.runAll();
+      // Settle from the final session state (belt and braces over the live events).
+      const st = session.state;
+      const animStep = (st.plan || []).find((s) => s.agent === 'animate');
+      const kfStep = (st.plan || []).find((s) => s.agent === 'inspiration');
+      const pick = (s) => s && ((s.outputs || []).find((o) => o.id === s.pickedId) || (s.outputs || [])[0]);
+      const shotOut = pick(animStep);
+      const kfOut = pick(kfStep);
+      onPatchCut(cutId, shotOut?.url
+        ? { status: 'shot', shotUrl: shotOut.url, keyframeUrl: kfOut?.url || '' }
+        : { status: 'failed' });
+      // Slot the take at the cut's position on the spine.
+      if (anim) {
+        const slot = card.data.cut ?? 0;
+        updateTimeline((cur) => ({ ...cur, events: (cur.events || []).map((e) => (e.stepId === anim.id ? { ...e, order: slot } : e)) }));
+      }
+    } catch (err) {
+      onPatchCut(cutId, { status: 'failed' });
+      Message.error(err.message);
+    }
+  }, [apiKey, buildSession, shotFromCard, wireCutSession, onPatchCut, updateTimeline]);
+
+  // 🎬 Action: shoot exactly what the CUT cards say (their content/camera/refs/
+  // durations become the blueprint verbatim). Cuts already shot from their card keep
+  // their takes — Action shoots the rest, then stitches EVERYTHING in card order.
+  const handleAction = useCallback(async () => {
+    const cards = nodesRef.current.filter((n) => n.type === 'cut').sort((a, b) => (a.data?.cut ?? 0) - (b.data?.cut ?? 0));
+    if (!cards.length) { Message.warning('No CUT cards on the board — say “Make the ad” first.'); return; }
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    // Per-cut takes get re-mirrored under the new session's step ids — drop the old events.
+    const oldStepIds = new Set(cards.map((c) => c.data?.lastAnimStepId).filter(Boolean));
+    if (oldStepIds.size) updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => !oldStepIds.has(e.stepId)) }));
+    const kept = cards.filter((c) => c.data?.shotUrl).length;
+    const blueprint = { shots: cards.map((c) => shotFromCard(c)) };
+    traceRef.current.startRun({ note: `Action · ${cards.length} cuts${kept ? ` (${kept} already shot)` : ''}` });
+    setTimelineCollapsed(false);
+    const session = buildSession([], null, undefined, blueprint);
+    session.setMode('auto');
+    setAutoFillBusy(true);
+    try {
+      const plan = await session.plan();
+      wireCutSession(session, mapCutSteps(plan, cards));
+      const anims = plan.filter((s) => s.agent === 'animate');
+      cards.forEach((c, i) => {
+        if (anims[i]) onPatchCut(c.id, { lastAnimStepId: anims[i].id, ...(c.data.shotUrl ? {} : { status: 'running' }) });
+      });
+      await session.runAll();
+    } catch (err) {
+      Message.error(err.message);
+    } finally {
+      setAutoFillBusy(false);
+    }
+  }, [apiKey, buildSession, shotFromCard, wireCutSession, onPatchCut, updateTimeline]);
+
+  // The card context: patching, the shared-context preview, shooting and attaching.
+  const cutShared = useMemo(() => sharedFromProject(project), [project]);
+  const cutCtx = useMemo(() => ({
+    onPatchCut,
+    bibleEntries,
+    shared: cutShared,
+    onShootCut: handleShootCut,
+    onAttachSelected: attachSelectedToCut,
+    onAttachAsset: attachRefToCut,
+  }), [onPatchCut, bibleEntries, cutShared, handleShootCut, attachSelectedToCut, attachRefToCut]);
+
+  // ---- the Filming Loop (Short Film mode) --------------------------------------
+  // generate 10–15s → validate (QC advisory + human gate) → correct by aspects →
+  // continue. The session is the driver; the timeline below is just the view.
+  const filmMode = project.recipe?.id === SHORT_FILM_RECIPE.id;
+  const [filmChunks, setFilmChunks] = useState(() => project.filming?.chunks || []);
+  const [filmBusy, setFilmBusy] = useState(false);
+  const filmingRef = useRef(null);
+
+  // Mirror the chunk chain onto timeline.events (the zoom-out view): chunk ids are
+  // event ids, so manual events coexist and clicks select chunks.
+  const syncFilmingEvents = useCallback((state) => {
+    updateTimeline((cur) => {
+      const others = (cur.events || []).filter((e) => !String(e.id).startsWith('ch-'));
+      const evs = state.chunks.map((c, i) => timelineEvent({
+        id: c.id,
+        order: others.length + i,
+        beat: c.beat,
+        durationSec: c.durationSec,
+        keyframeUrl: c.keyframeUrl,
+        shotUrl: c.shotUrl,
+        status: c.status === 'generating' ? 'rendering'
+          : c.status === 'failed' ? 'failed'
+            : c.shotUrl ? 'shot'
+              : c.keyframeUrl ? 'keyframe' : 'empty',
+        locked: c.status === 'validated',
+        qc: c.qc || null,
+      }));
+      return { ...cur, events: [...others, ...evs] };
+    });
+  }, [updateTimeline]);
+
+  const handleFilmingEvent = useCallback((e) => {
+    traceRef.current.ingestSessionEvent(e.type === 'phase' ? { type: 'phase', phase: e.phase } : null);
+    if (e.type === 'state') {
+      setFilmChunks(e.state.chunks);
+      syncFilmingEvents(e.state);
+      onUpdateProject((prev) => (prev && prev.id === loadedIdRef.current ? { ...prev, filming: e.state } : prev));
+    } else if (e.type === 'warning') {
+      Message.warning(e.message);
+    } else if (e.type === 'film') {
+      updateTimeline((cur) => ({ ...cur, film: { url: e.url, assetId: e.assetId || null, builtAt: new Date().toISOString() } }));
+      Message.success('Film assembled');
+    }
+  }, [syncFilmingEvents, onUpdateProject, updateTimeline]);
+
+  const getFilming = useCallback(() => {
+    if (filmingRef.current) return filmingRef.current;
+    const transport = createBrowserTransport(apiKey.trim());
+    filmingRef.current = createFilmingSession(
+      {},
+      { client: traceRef.current.wrapClient(transport.client), stitch: traceRef.current.wrapStitch(transport.stitch), lastFrame: transport.lastFrame },
+      {
+        // Live getters: a chunk generated later sees the CURRENT idea + bible.
+        getIdea: () => projectRef.current?.idea || '',
+        getBible: () => bibleRef.current,
+        initialState: projectRef.current?.filming || null,
+        onEvent: handleFilmingEvent,
+      },
+    );
+    return filmingRef.current;
+  }, [apiKey, handleFilmingEvent]);
+
+  const filmPropose = useCallback(async () => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return []; }
+    traceRef.current.startRun({ note: 'Filming · propose next beats' });
+    try {
+      return await getFilming().proposeBeats(3);
+    } catch (err) {
+      Message.error(err.message);
+      return [];
+    }
+  }, [apiKey, getFilming]);
+
+  const filmGenerate = useCallback(async ({ beat, durationSec, aspects }) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    traceRef.current.startRun({ note: `Filming · ${filmChunks.length ? 'continue' : 'first chunk'} · ${durationSec}s` });
+    setTimelineCollapsed(false);
+    setFilmBusy(true);
+    try {
+      const chunk = await getFilming().generateNext({ beat, durationSec, aspects });
+      if (chunk?.status === 'failed') Message.error(`Chunk failed: ${chunk.error}`);
+      else Message.success('Chunk ready — review it below, then approve or correct.');
+    } catch (err) {
+      Message.error(err.message);
+    } finally {
+      setFilmBusy(false);
+    }
+  }, [apiKey, getFilming, filmChunks.length]);
+
+  const filmCorrect = useCallback(async (chunkIdToFix, { aspects, note }) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    traceRef.current.startRun({ note: 'Filming · correct (re-animate)' });
+    setFilmBusy(true);
+    try {
+      const chunk = await getFilming().correct(chunkIdToFix, { aspects, note });
+      if (chunk?.status === 'failed') Message.error(`Re-animate failed: ${chunk.error}`);
+      else Message.success('New take ready.');
+    } catch (err) {
+      Message.error(err.message);
+    } finally {
+      setFilmBusy(false);
+    }
+  }, [apiKey, getFilming]);
+
+  const filmValidate = useCallback((chunkIdToApprove) => {
+    try {
+      getFilming().validate(chunkIdToApprove);
+      Message.success('Chunk approved — the story continues from here.');
+    } catch (err) {
+      Message.error(err.message);
+    }
+  }, [getFilming]);
+
+  // Start Short Film mode (the launcher card): lock the recipe and open the
+  // conversational director — the chat IS film mode's front door.
+  const [filmDockOpen, setFilmDockOpen] = useState(false);
+  // Just the chat — no timeline expansion, no agent panel: the director dock is
+  // film mode's only opening surface (the timeline grows on its own when takes land).
+  const startShortFilm = useCallback(() => {
+    onUpdateProject((prev) => (prev && prev.id === loadedIdRef.current
+      ? { ...prev, recipe: { ...(prev.recipe || {}), id: SHORT_FILM_RECIPE.id } }
+      : prev));
+    setActiveLayerId(null);
+    setFilmDockOpen(true);
+  }, [onUpdateProject]);
+
+  // Route one chat message → ONE studio action (LLM interprets, traced; the user
+  // confirms in the dock; dispatch below is deterministic).
+  const routeFilmMessage = useCallback(async (message) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return null; }
+    const roles = AD_ROLES.map((r) => { const n = bibleRef.current.filter((b) => b.role === r).length; return n ? `${r}×${n}` : null; }).filter(Boolean).join(' ');
+    const lastChunk = filmChunks[filmChunks.length - 1];
+    const context = `bible: ${roles || '(empty)'} · chunks filmed: ${filmChunks.length}${lastChunk ? ` (current: ${lastChunk.status})` : ''} · board selection: ${nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image').length} image(s)`;
+    const rec = traceRef.current.log({ kind: 'route', prompt: message.slice(0, 160), status: 'running' });
+    try {
+      const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
+      const routed = await routeStudioAction({ message, context }, ctx);
+      rec.status = 'ok'; rec.result = routed ? routed.action : 'no read';
+      return routed;
+    } catch (err) {
+      rec.status = 'error'; rec.error = err.message;
+      return null;
+    }
+  }, [apiKey, filmChunks]);
+
+  // The image node behind a bible role (the cast/world anchors as chat targets).
+  const nodesForRole = useCallback((role) => bibleRef.current
+    .filter((b) => b.role === role && b.nodeId)
+    .map((b) => nodesRef.current.find((n) => n.id === b.nodeId && n.data?.kind === 'image'))
+    .filter(Boolean), []);
+
+  // Deterministic dispatch of a CONFIRMED chat action to the existing machinery.
+  // Returns the chat's reply line (or a beats array for proposeBeats).
+  const dispatchFilmAction = useCallback(async (action, params = {}) => {
+    const selImages = nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url);
+    const lastChunk = filmChunks[filmChunks.length - 1];
+    switch (action) {
+      case 'filmChunk': {
+        await filmGenerate({ beat: params.beat || params.prompt, durationSec: SHORT_FILM_RECIPE.defaultChunkSeconds, aspects: {} });
+        return 'Rolling — the take lands on the timeline below. Approve it or tell me what to fix.';
+      }
+      case 'correctChunk': {
+        if (!lastChunk || lastChunk.status === 'validated') return 'There is no draft take to correct — film the next chunk first.';
+        await filmCorrect(lastChunk.id, { aspects: {}, note: params.note || params.direction || '' });
+        return 'New take rendered — check the timeline. Say “approve” to lock it and continue, or tell me what still bothers you.';
+      }
+      case 'approveChunk': {
+        if (!lastChunk || lastChunk.status !== 'draft') return 'Nothing to approve right now.';
+        filmValidate(lastChunk.id);
+        return 'Approved — the story continues from here. What happens next?';
+      }
+      case 'proposeBeats':
+        return filmPropose();
+      case 'inspiration': {
+        await runAgent({ agentId: 'inspiration', settings: { ...AGENT_MAP.inspiration.defaultSettings, prompt: params.prompt || params.beat }, selectionNodes: selImages });
+        return 'Inspiration board added — check the canvas. Next: tag anything canonical into the bible (the role dropdown on each card), or describe the opening beat and I\'ll film it.';
+      }
+      case 'characterVariations': {
+        const targets = selImages.length ? selImages : nodesForRole('talent');
+        if (!targets.length) return 'Select your character on the board (or tag one as Talent in the bible) and ask again.';
+        await runAgent({ agentId: 'characterVariations', settings: { ...AGENT_MAP.characterVariations.defaultSettings, direction: params.direction }, selectionNodes: targets });
+        return 'Character variations on the board. Next: tag the take you like as Talent — then ask for story moments across your locations, or describe the opening beat to film.';
+      }
+      case 'locationVariations': {
+        const targets = selImages.length ? selImages : nodesForRole('location');
+        if (!targets.length) return 'Select a location on the board (or tag one in the bible) and ask again.';
+        await runAgent({ agentId: 'locationVariations', settings: { ...AGENT_MAP.locationVariations.defaultSettings, direction: params.direction }, selectionNodes: targets });
+        return 'Location coverage on the board. Next: tag the angles you want as Location anchors — then we can stage story moments or start filming.';
+      }
+      case 'mixMatch': {
+        const character = selImages.find((n) => n.data?.bibleRole === 'talent' || n.data?.bibleRole === 'character') || selImages[0] || nodesForRole('talent')[0];
+        if (!character) return 'I need your character — select them on the board or tag one as Talent.';
+        const locations = selImages.filter((n) => n !== character);
+        const locationUrls = bibleRef.current.filter((b) => b.role === 'location' && b.url).map((b) => b.url);
+        await runAgent({ agentId: 'mixMatch', settings: { ...AGENT_MAP.mixMatch.defaultSettings, prompt: params.direction, locationUrls }, selectionNodes: [character, ...locations] });
+        return 'Story moments staged — see what might be happening to them on the board. Next: if one sings, say “film this: …” and I\'ll shoot it as the opening take.';
+      }
+      case 'exploreTopic': {
+        await runAgent({ agentId: 'topicExplorer', settings: { ...AGENT_MAP.topicExplorer.defaultSettings, topic: params.prompt || projectRef.current?.idea || '' }, selectionNodes: [] });
+        return 'Topic explored — concepts and candidates are on the board. Next: click the dashed “+ Hero?” / “+ Location?” chip on your favorite cards to lock them into the bible (your cast and world), then ask me “what could happen next?” — or describe the opening beat and I\'ll film the first 12 seconds.';
+      }
+      case 'classify': {
+        const roles = await classifyBoardAssets();
+        return roles.length
+          ? `Sorted — ${roles.length} image${roles.length === 1 ? '' : 's'} tagged (${[...new Set(roles)].join(', ')}). Fix any role on its node badge.`
+          : 'Nothing to sort — drop a few untagged images on the board first.';
+      }
+      default:
+        return "I don't know that move yet.";
+    }
+  }, [filmChunks, filmGenerate, filmCorrect, filmValidate, filmPropose, runAgent, nodesForRole, classifyBoardAssets]);
+
+  // ---- the Ad concierge's routed chat (same router, ad catalogue) ---------------
+  // Free text typed BETWEEN the interview's own questions (gaps-idle / cuts-review /
+  // done) routes here: "generate me X" → the right agent armed and proposed back;
+  // a question → answered from the studio context. The dock confirms before any
+  // generation runs; commands (makeAd/action/relayCuts) dispatch inside the dock.
+  const routeConciergeMessage = useCallback(async (message, stageHint = '') => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return null; }
+    const roles = AD_ROLES.map((r) => { const n = bibleRef.current.filter((b) => b.role === r).length; return n ? `${r}×${n}` : null; }).filter(Boolean).join(' ');
+    const cuts = nodesRef.current.filter((n) => n.type === 'cut');
+    const shotCuts = cuts.filter((c) => c.data?.shotUrl).length;
+    const boardImages = nodesRef.current.filter((n) => n.data?.kind === 'image').length;
+    const looks = Object.entries(LOOK_PACKAGES).map(([id, l]) => `${id} (${l.grade}; camera ${l.camera})`).join(' · ');
+    const context = [
+      `ad idea: ${(projectRef.current?.idea || '').replace(/\s+/g, ' ').trim().slice(0, 200) || '(none yet)'}`,
+      `stage: ${stageHint || 'idle'}`,
+      `brand kit (bible): ${roles || '(empty)'}`,
+      cuts.length ? `CUT cards: ${cuts.length} laid${shotCuts ? `, ${shotCuts} already shot` : ''}` : 'CUT cards: none laid yet',
+      `board: ${boardImages} image${boardImages === 1 ? '' : 's'}`,
+      `selection: ${nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image').length} image(s)`,
+      `available looks: ${looks}`,
+    ].join(' · ');
+    const rec = traceRef.current.log({ kind: 'route', prompt: message.slice(0, 160), status: 'running' });
+    try {
+      const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
+      const routed = await routeStudioAction({ message, context, actions: AD_ACTIONS }, ctx);
+      rec.status = 'ok'; rec.result = routed ? routed.action : 'no read';
+      return routed;
+    } catch (err) {
+      rec.status = 'error'; rec.error = err.message;
+      return null;
+    }
+  }, [apiKey]);
+
+  // Deterministic dispatch of a CONFIRMED concierge generation. Same resolution as
+  // the film dispatch (selection first, then the matching bible anchor) but the
+  // replies speak ad: outputs are candidates — tag a keeper, or feed it to a cut.
+  const dispatchAdAction = useCallback(async (action, params = {}) => {
+    const selImages = nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url);
+    switch (action) {
+      case 'inspiration': {
+        await runAgent({ agentId: 'inspiration', settings: { ...AGENT_MAP.inspiration.defaultSettings, prompt: params.prompt || params.direction }, selectionNodes: selImages });
+        return 'Fresh candidates on the board. Tag a keeper with a role badge, or drop one straight onto a CUT card to feed that shot.';
+      }
+      case 'characterVariations': {
+        const targets = selImages.length ? selImages : nodesForRole('talent');
+        if (!targets.length) return 'I need a person to vary — select one on the board, or tag one as Talent first.';
+        await runAgent({ agentId: 'characterVariations', settings: { ...AGENT_MAP.characterVariations.defaultSettings, direction: params.direction }, selectionNodes: targets });
+        return 'Variations on the board — same person, new takes. Tag the one you want, or drop it onto a CUT card.';
+      }
+      case 'locationVariations': {
+        const targets = selImages.length ? selImages : nodesForRole('location');
+        if (!targets.length) return 'I need a place to vary — select one on the board, or tag one as Location first.';
+        await runAgent({ agentId: 'locationVariations', settings: { ...AGENT_MAP.locationVariations.defaultSettings, direction: params.direction }, selectionNodes: targets });
+        return 'Location takes on the board. Tag the angles you want, or drop one onto a CUT card.';
+      }
+      case 'mixMatch': {
+        const character = selImages.find((n) => n.data?.bibleRole === 'talent') || selImages[0] || nodesForRole('talent')[0];
+        if (!character) return 'I need the person first — select them on the board, or tag one as Talent.';
+        const locations = selImages.filter((n) => n !== character);
+        const locationUrls = bibleRef.current.filter((b) => b.role === 'location' && b.url).map((b) => b.url);
+        await runAgent({ agentId: 'mixMatch', settings: { ...AGENT_MAP.mixMatch.defaultSettings, prompt: params.direction, locationUrls }, selectionNodes: [character, ...locations] });
+        return 'Staged moments on the board — your person in your places. Drop a winner onto a CUT card to use it.';
+      }
+      case 'exploreTopic': {
+        await runAgent({ agentId: 'topicExplorer', settings: { ...AGENT_MAP.topicExplorer.defaultSettings, topic: params.prompt || projectRef.current?.idea || '' }, selectionNodes: [] });
+        return 'Topic explored — concepts and candidate images are on the board, each with a suggested role chip. Your click makes them canon.';
+      }
+      case 'classify': {
+        const roles = await classifyBoardAssets();
+        return roles.length
+          ? `Sorted — ${roles.length} image${roles.length === 1 ? '' : 's'} tagged (${[...new Set(roles)].join(', ')}). Fix any role on its node badge.`
+          : 'Nothing to sort — drop a few untagged images on the board first.';
+      }
+      default:
+        return "I don't know that move yet.";
+    }
+  }, [runAgent, nodesForRole, classifyBoardAssets]);
+
+  // Render movie: stitch the timeline's rendered shots IN EVENT ORDER (so reorders
+  // and trims are honored) into the final cut — same server ffmpeg + TOS as the engine.
+  const handleRenderMovie = useCallback(async () => {
+    const shots = orderedEvents(timelineEvents).filter((e) => e.shotUrl).map((e) => e.shotUrl);
+    if (!shots.length) { Message.warning('No rendered shots yet — Auto-fill or animate the keyframes first.'); return; }
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    setRenderBusy(true);
+    try {
+      const out = await createBrowserTransport(apiKey.trim()).stitch(shots, { name: (project.title || 'film').slice(0, 40) });
+      updateTimeline((cur) => ({ ...cur, film: { url: out.url, assetId: out.assetId || null, builtAt: new Date().toISOString() } }));
       Message.success('Final cut assembled');
     } catch (err) {
-      setAutoPlan((pp) => (pp ? { ...pp, status: 'done', busy: null } : pp));
-      Message.error(`Stitch failed: ${err.message}`);
+      Message.error(`Render failed: ${err.message}`);
+    } finally {
+      setRenderBusy(false);
     }
-  }, [apiKey, project.title, setNodes]);
-  useEffect(() => { stitchAutoRef.current = stitchAuto; }, [stitchAuto]);
+  }, [timelineEvents, apiKey, project.title, updateTimeline]);
 
-  const autoActions = useMemo(() => ({
-    replan: replanAuto,
-    editStep: patchAutoStep,
-    removeStep: autoRemoveStep,
-    moveStep: autoMoveStep,
-    addStep: autoAddStep,
-    toggleGate: autoToggleGate,
-    setMode: autoSetMode,
-    start: startAutoRun,
-    runStep: runAutoStep,
-    pickOutput: autoPickOutput,
-    approveStep: autoApproveStep,
-    regenStep: autoRegenStep,
-    skipStep: autoSkipStep,
-    stitch: stitchAuto,
-    takeOver: autoTakeOver,
-    discard: autoTakeOver,
-  }), [replanAuto, patchAutoStep, autoRemoveStep, autoMoveStep, autoAddStep, autoToggleGate, autoSetMode, startAutoRun, runAutoStep, autoPickOutput, autoApproveStep, autoRegenStep, autoSkipStep, stitchAuto, autoTakeOver]);
+  // Drag a board asset / Library item onto the spine → a new manual keyframe event.
+  const addAssetToTimeline = useCallback(({ url, label }) => {
+    if (!url) return;
+    updateTimeline((cur) => {
+      const evs = cur.events || [];
+      const nextOrder = evs.length ? Math.max(...evs.map((e) => e.order || 0)) + 1 : 0;
+      return { ...cur, events: [...evs, timelineEvent({ order: nextOrder, beat: label || `Shot ${nextOrder + 1}`, keyframeUrl: url, status: 'keyframe' })] };
+    });
+    Message.success('Added to timeline');
+  }, [updateTimeline]);
 
-  const autoContextValue = useMemo(() => ({ plan: autoPlan, actions: autoActions, apiKey }), [autoPlan, autoActions, apiKey]);
+  const addSelectedToTimeline = useCallback(() => {
+    const sel = nodesRef.current.find((n) => n.selected && n.data?.kind === 'image' && n.data?.url);
+    if (!sel) { Message.warning('Select a board image first'); return; }
+    addAssetToTimeline({ url: refUrl(sel), assetId: sel.data.assetId || null, label: sel.data.label });
+  }, [addAssetToTimeline]);
+
+  const setEventDuration = useCallback((id, sec) => {
+    const secs = Math.max(1, Math.min(60, Number(sec) || 5));
+    updateTimeline((cur) => ({ ...cur, events: (cur.events || []).map((e) => (e.id === id ? { ...e, durationSec: secs } : e)) }));
+    const ev = timelineEvents.find((e) => e.id === id);
+    if (ev?.stepId && sessionRef.current) {
+      const step = sessionRef.current.state.plan.find((s) => s.id === ev.stepId);
+      sessionRef.current.editStep(ev.stepId, { params: { ...(step?.params || {}), duration: secs } });
+    }
+  }, [updateTimeline, timelineEvents]);
+
+  const toggleEventLock = useCallback((id) => {
+    const ev = timelineEvents.find((e) => e.id === id);
+    updateTimeline((cur) => ({ ...cur, events: (cur.events || []).map((e) => (e.id === id ? { ...e, locked: !e.locked } : e)) }));
+    if (ev?.stepId) sessionRef.current?.editStep(ev.stepId, { locked: !ev.locked });
+  }, [updateTimeline, timelineEvents]);
+
+  // Reordering on the spine is THE re-ordering gesture for cuts too: after the
+  // swap, CUT cards renumber to match the new event order, so the next Action /
+  // stitch follows what the timeline shows. Cards without a take keep their
+  // relative slot (ranked between shot ones by their current number).
+  const moveEvent = useCallback((id, dir) => {
+    const list = orderedEvents(timelineEvents);
+    const i = list.findIndex((e) => e.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    const next = renumber(list);
+    updateTimeline((cur) => ({ ...cur, events: next }));
+    const orderByStep = new Map(next.filter((e) => e.stepId).map((e) => [e.stepId, e.order]));
+    setNodes((ns) => {
+      const cuts = ns.filter((n) => n.type === 'cut');
+      if (!cuts.length || !cuts.some((c) => orderByStep.has(c.data?.lastAnimStepId))) return ns;
+      const rank = (c) => (orderByStep.has(c.data?.lastAnimStepId) ? orderByStep.get(c.data.lastAnimStepId) : (c.data?.cut ?? 0) + 0.5);
+      const ranked = [...cuts].sort((a, b) => rank(a) - rank(b));
+      const cutById = new Map(ranked.map((n, k) => [n.id, k]));
+      return ns.map((n) => (n.type === 'cut' && cutById.get(n.id) !== (n.data?.cut ?? 0) ? { ...n, data: { ...n.data, cut: cutById.get(n.id) } } : n));
+    });
+  }, [timelineEvents, updateTimeline, setNodes]);
+
+  const removeEvent = useCallback((id) => {
+    const ev = timelineEvents.find((e) => e.id === id);
+    if (ev?.stepId) sessionRef.current?.removeStep(ev.stepId); // engine event → drop the step (mirror removes it)
+    updateTimeline((cur) => ({ ...cur, events: renumber((cur.events || []).filter((e) => e.id !== id)) }));
+    if (ev?.keyframeNodeId) { // a Story Director beat → also clear its board node + edges
+      setNodes((ns) => ns.filter((n) => n.id !== ev.keyframeNodeId));
+      setEdges((es) => es.filter((e) => e.source !== ev.keyframeNodeId && e.target !== ev.keyframeNodeId));
+    }
+    if (selectedEventId === id) setSelectedEventId(null);
+  }, [timelineEvents, updateTimeline, setNodes, setEdges, selectedEventId]);
+
+  // Regenerate a shot, steered by the user's note (the human-in-the-loop filter).
+  // Phase A iterates at the clip altitude: re-run the animate step (the keyframe —
+  // already bible-consistent — is untouched), so the result stays consistent.
+  const regenerateEvent = useCallback((id, note) => {
+    const ev = timelineEvents.find((e) => e.id === id);
+    if (!ev?.stepId) { Message.info('Auto-fill the timeline to iterate on shots.'); return; }
+    const s = sessionRef.current;
+    // A shot frozen from an EARLIER fill isn't in the live session — say so rather
+    // than silently doing nothing (an interval Auto-fill starts a fresh session).
+    if (!s || !s.state.plan.some((step) => step.id === ev.stepId)) {
+      Message.info('This shot is from an earlier fill — Auto-fill the whole timeline to iterate it.');
+      return;
+    }
+    s.regenerate(ev.stepId, { note });
+    if (s.state.mode === 'auto') s.resume().catch((err) => Message.error(err.message));
+  }, [timelineEvents]);
+
+  const selectEventOnBoard = useCallback((eventId) => {
+    setSelectedEventId(eventId);
+    const ev = timelineEvents.find((e) => e.id === eventId);
+    if (!ev) return;
+    const url = ev.keyframeUrl || ev.shotUrl;
+    const node = nodesRef.current.find((n) => n.id === ev.keyframeNodeId || n.id === ev.shotNodeId || n.data?.url === url);
+    if (node) selectAndCenter(node.id);
+  }, [timelineEvents, selectAndCenter]);
 
   // ---- context menu (appears on area-select release, or right-click) ----
   const selStart = useRef(null);
@@ -910,6 +1902,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const onSelectionStart = useCallback((event) => {
     selStart.current = { x: event.clientX, y: event.clientY };
     setCtxMenu(null);
+    setSelectedEventId(null); // marquee = working on the board → leave clip mode
   }, []);
 
   // …and when the mouse is released, pop the agent menu at the release point —
@@ -932,10 +1925,23 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   }, []);
 
   const selectionCount = selectedNodes.length;
+  const canAddSelected = useMemo(() => selectedNodes.some((n) => n.data?.kind === 'image' && n.data?.url), [selectedNodes]);
+  // When a timeline clip is selected and the active agent can fill it, the panel
+  // switches to "fill this clip" mode (Run targets the clip, not the board).
+  const focusedClip = useMemo(() => timelineEvents.find((e) => e.id === selectedEventId) || null, [timelineEvents, selectedEventId]);
+  const clipMode = !!focusedClip && CLIP_FILLABLE.has(activeLayerId);
+  const clipLabel = focusedClip ? `clip ${timelineEvents.indexOf(focusedClip) + 1}${focusedClip.beat ? ` · ${focusedClip.beat}` : ''}` : '';
+
+  // Board images not yet tagged into the bible — what "Build brand kit" classifies.
+  const untaggedImageCount = useMemo(() => nodes.filter((n) => n.data?.kind === 'image' && (n.data?.localUrl || n.data?.url)
+    && !n.data?.bibleRole && !n.id.startsWith('shot-') && !n.id.startsWith('film-')).length, [nodes]);
+  // Pass tagNode to board AssetNodes through context (functions can't live in node.data).
+  const tagCtx = useMemo(() => ({ onTagRole: tagNode }), [tagNode]);
 
   return (
-    <AutoDirectorContext.Provider value={autoContextValue}>
-    <div style={{ display: 'flex', height: '72vh', border: '1px solid #e5e6eb', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+    <AssetNodeContext.Provider value={tagCtx}>
+    <CutContext.Provider value={cutCtx}>
+    <div style={{ display: 'flex', height: '82vh', border: '1px solid #e5e6eb', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
       <LayerRail
         activeLayerId={activeLayerId}
         onActivate={setActiveLayerId}
@@ -949,7 +1955,18 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           onClose={() => setLibraryOpen(false)}
           onRefresh={refreshLibrary}
           onAddToBoard={addLibraryItemToBoard}
-          onRemove={removeLibraryItem}
+          onRemove={deleteLibraryItem}
+        />
+      )}
+
+      {historyOpen && (
+        <HistoryPanel
+          groups={traceGroups}
+          actionCount={traceRef.current.entries.length}
+          onClose={() => setHistoryOpen(false)}
+          onCopy={copyTrace}
+          onDownload={downloadTrace}
+          onClear={clearTrace}
         />
       )}
 
@@ -962,6 +1979,9 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
             </Tooltip>
             <Tooltip content="Library — your checked-in assets (drag onto the board)">
               <Button size="small" type={libraryOpen ? 'primary' : 'default'} icon={<IconStorage />} onClick={() => setLibraryOpen((v) => !v)}>Library</Button>
+            </Tooltip>
+            <Tooltip content="Decision history — every prompt, reference & decision each agent made (fully transparent)">
+              <Button size="small" type={historyOpen ? 'primary' : 'default'} icon={<IconHistory />} onClick={() => setHistoryOpen((v) => !v)}>History</Button>
             </Tooltip>
             <Button size="small" icon={<IconPlus />} onClick={addNote}>Note</Button>
             <Tooltip content="Lock selected (use as canonical reference)">
@@ -982,6 +2002,84 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           </Space>
         </div>
 
+        {/* The Concierge as an on-canvas DOCK (not a modal — modals fight the canvas).
+            "New ad" toggles it; it's board-driven: classify tags board nodes, gaps drop
+            pre-tagged nodes, Generate kicks the existing Auto-fill path. */}
+        {conciergeOpen && (
+          <ConciergeDock
+            apiKey={apiKey}
+            idea={project.idea}
+            recipe={project.recipe}
+            bibleEntries={bibleEntries}
+            untaggedImageCount={untaggedImageCount}
+            producing={autoFillBusy}
+            onClose={onCloseConcierge}
+            onClassify={classifyBoardAssets}
+            onGenerateGap={generateGapNode}
+            onUploadGap={addTaggedAsset}
+            onUpdateBrief={handleBriefUpdate}
+            onReadIntent={readIntentForIdea}
+            onGenerateAd={handleGenerateAd}
+            onAction={handleAction}
+            onRoute={routeConciergeMessage}
+            onDispatchRouted={dispatchAdAction}
+            traceCount={traceRef.current.entries.length}
+            onCopyTrace={copyTrace}
+            onDownloadTrace={downloadTrace}
+          />
+        )}
+
+        {/* Film mode's conversational director — say it, confirm it, it runs. */}
+        {filmMode && filmDockOpen && (
+          <FilmDock
+            onClose={() => setFilmDockOpen(false)}
+            onRoute={routeFilmMessage}
+            onDispatch={dispatchFilmAction}
+            filming={{ busy: filmBusy }}
+          />
+        )}
+        {filmMode && !filmDockOpen && (
+          <Button
+            size="small"
+            type="primary"
+            style={{ position: 'absolute', top: 12, right: 12, zIndex: 8, background: '#b06f10', borderColor: '#b06f10' }}
+            onClick={() => setFilmDockOpen(true)}
+          >
+            🎬 Director
+          </Button>
+        )}
+        {/* Ad projects get the same reopen affordance (the header "New ad" button is
+            gone — the launcher card starts a project; this resumes its concierge). */}
+        {!filmMode && project.recipe?.id === ADVERTISEMENT_RECIPE.id && !conciergeOpen && (
+          <Button
+            size="small"
+            type="primary"
+            style={{ position: 'absolute', top: 12, right: 12, zIndex: 8, background: '#5a3df0', borderColor: '#5a3df0' }}
+            onClick={() => onOpenConcierge && onOpenConcierge()}
+          >
+            ⚡ Concierge
+          </Button>
+        )}
+        {/* The third path: the user brought their OWN assets first (board not empty,
+            no recipe chosen, no dock open) — the launcher cards are gone, so this is
+            the conversational entry that would otherwise not exist anywhere. */}
+        {!project.recipe && !conciergeOpen && !filmDockOpen && nodes.length > 0 && (
+          <Dropdown
+            position="br"
+            droplist={(
+              <Menu onClickMenuItem={(key) => (key === 'shortFilm' ? startShortFilm() : (onOpenConcierge && onOpenConcierge()))}>
+                {Object.values(RECIPES).map((r) => (
+                  <Menu.Item key={r.id}>{r.emoji} {r.label}</Menu.Item>
+                ))}
+              </Menu>
+            )}
+          >
+            <Button size="small" type="primary" style={{ position: 'absolute', top: 12, right: 12, zIndex: 8, background: '#5a3df0', borderColor: '#5a3df0' }}>
+              ✨ What are we making?
+            </Button>
+          </Dropdown>
+        )}
+
         <input
           ref={fileInputRef}
           type="file"
@@ -991,24 +2089,36 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           onChange={onPickFiles}
         />
 
-        {/* Empty-state hint */}
-        {nodes.length === 0 && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 1 }}>
-            <div style={{ textAlign: 'center', maxWidth: 420 }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🎬</div>
-              <Text style={{ fontSize: 15, fontWeight: 600, display: 'block', marginBottom: 6 }}>
-                Your board is empty
-              </Text>
-              <Text type="secondary" style={{ display: 'block' }}>
-                Bring your own assets with <b style={{ color: '#165dff' }}>Add</b> (top-left) or just drag files in —
-                or run the <b style={{ color: '#ff7d00' }}>Inspiration Board</b> on the right to generate references.
-              </Text>
-              <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-                Then <b>select</b> any asset and <b>drag a box</b> + release (or right-click) to run an agent on it.
+        {/* Template launcher — the empty board IS the front door (Higgsfield/Luma
+            style): pick a recipe card → the concierge agent opens and interviews you.
+            One door, not two — no separate "what's your film about?" card. Hidden as
+            soon as anything is on the board or the dock is already open. */}
+        {/* Hidden the moment either dock is open OR a recipe is already chosen —
+            "what are we making?" is an answered question then. */}
+        {nodes.length === 0 && !conciergeOpen && !filmDockOpen && !project.recipe ? (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 6 }}>
+            <div style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, maxWidth: 720, padding: '0 16px' }}>
+              <Text style={{ fontSize: 17, fontWeight: 700 }}>What are we making?</Text>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+                {Object.values(RECIPES).map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => (r.id === SHORT_FILM_RECIPE.id ? startShortFilm() : (onOpenConcierge && onOpenConcierge()))}
+                    style={{ width: 250, background: '#fff', border: '1px solid #e5e6eb', borderRadius: 12, boxShadow: '0 4px 18px rgba(0,0,0,0.08)', padding: 18, cursor: 'pointer' }}
+                  >
+                    <div style={{ fontSize: 26, marginBottom: 6 }}>{r.emoji || '🎬'}</div>
+                    <Text style={{ fontSize: 14, fontWeight: 700, display: 'block', marginBottom: 4 }}>{r.label}</Text>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 10 }}>{r.description || ''}</Text>
+                    <Button type="primary" size="small" style={{ background: '#5a3df0', borderColor: '#5a3df0' }}>Start →</Button>
+                  </div>
+                ))}
+              </div>
+              <Text type="secondary" style={{ fontSize: 12, textAlign: 'center' }}>
+                Or work freeform: <b style={{ color: '#165dff' }}>Add</b> / drag files onto the board and run Agents!
               </Text>
             </div>
           </div>
-        )}
+        ) : null}
 
         <ReactFlow
           nodes={nodes}
@@ -1021,9 +2131,12 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           minZoom={0.1}
           maxZoom={2}
           deleteKeyCode={['Backspace', 'Delete']}
-          selectionOnDrag
+          // Empty board → left-drag PANS (so you can actually navigate). Once there
+          // are assets, left-drag selects (the marquee that runs an agent), and you
+          // pan with middle-mouse / trackpad-scroll. Right-click always opens the menu.
+          selectionOnDrag={nodes.length > 0}
           selectionMode={SelectionMode.Partial}
-          panOnDrag={[1]}
+          panOnDrag={nodes.length > 0 ? [1] : [0, 1]}
           panOnScroll
           onSelectionStart={onSelectionStart}
           onSelectionEnd={onSelectionEnd}
@@ -1031,10 +2144,12 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           onPaneContextMenu={openContextMenu}
           onNodeContextMenu={(e) => openContextMenu(e)}
           onSelectionContextMenu={(e) => openContextMenu(e)}
-          onPaneClick={() => setCtxMenu(null)}
+          onPaneClick={() => { setCtxMenu(null); setSelectedEventId(null); }}
         >
           <Background gap={20} />
-          <Controls />
+          {/* Top-left (below the toolbar) so the always-on timeline can't bury the
+              zoom / fit / pan-lock buttons. */}
+          <Controls position="top-left" style={{ top: 50, left: 10 }} showInteractive={false} />
           <MiniMap position="top-right" pannable zoomable nodeColor={(n) => (n.data?.layerId ? (AGENT_MAP[n.data.layerId]?.color || '#c9cdd4') : '#c9cdd4')} />
         </ReactFlow>
 
@@ -1049,44 +2164,43 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           />
         )}
 
-        {(storyStarted || activeLayerId === 'storyDirector') && (
-          <StoryTimeline
-            items={timelineItems}
-            collapsed={timelineCollapsed}
-            onToggle={() => setTimelineCollapsed((v) => !v)}
-            onSelect={selectAndCenter}
-            selectedId={selectedNodes[0]?.id}
-            onAddAsset={addAssetToStory}
-          />
-        )}
+        {/* The Timeline is the fundamental layer — always on, whatever agent (if
+            any) is selected. It's the spine the whole UX hangs on. */}
+        <StoryTimeline
+          events={timelineEvents}
+          targetSeconds={timeline.targetSeconds}
+          film={timeline.film}
+          collapsed={timelineCollapsed}
+          onToggle={() => setTimelineCollapsed((v) => !v)}
+          selectedEventId={selectedEventId || selectedNodes[0]?.id}
+          apiKeyPresent={!!apiKey?.trim()}
+          canAddSelected={canAddSelected}
+          busy={{ autoFill: autoFillBusy, render: renderBusy }}
+          onSelectEvent={selectEventOnBoard}
+          onSetDuration={setEventDuration}
+          onToggleEventLock={toggleEventLock}
+          onMoveEvent={moveEvent}
+          onRegenerate={regenerateEvent}
+          onRemoveEvent={removeEvent}
+          onAddAsset={addAssetToTimeline}
+          onAutoFill={handleAutoFill}
+          onRenderMovie={handleRenderMovie}
+          onAddSelectedToTimeline={addSelectedToTimeline}
+          filmMode={filmMode}
+          filming={filmMode ? {
+            chunks: filmChunks,
+            busy: filmBusy,
+            durations: SHORT_FILM_RECIPE.chunkSeconds,
+            defaultDuration: SHORT_FILM_RECIPE.defaultChunkSeconds,
+            onPropose: filmPropose,
+            onGenerate: filmGenerate,
+            onCorrect: filmCorrect,
+            onValidate: filmValidate,
+          } : null}
+        />
       </div>
 
-      {activeLayerId === 'storyDirector' ? (
-        <StoryDirectorPanel
-          started={storyStarted}
-          stepCount={storyNodes.length}
-          steps={storySteps}
-          suggestions={storySuggestions}
-          busy={storyBusy}
-          canStartFromSelection={selectedNodes.some((n) => n.data?.kind === 'image' && n.data?.url)}
-          apiKeyPresent={!!apiKey?.trim()}
-          onStartFromSelection={startStoryFromSelection}
-          onStartFromIdea={startStoryFromIdea}
-          onReroll={() => requestSuggestions(storySteps, refUrl(storyNodes[storyNodes.length - 1]))}
-          onPick={(beat) => generateStoryBeat(beat.prompt, beat.title)}
-          onPickCustom={(text) => generateStoryBeat(text, text.slice(0, 48))}
-          onEnd={() => setActiveLayerId(null)}
-          onClose={() => setActiveLayerId(null)}
-        />
-      ) : activeLayerId === 'autoDirector' ? (
-        <AutoDirectorPanel
-          plan={autoPlan}
-          apiKeyPresent={!!apiKey?.trim()}
-          onCreate={startAutoDirector}
-          onTakeOver={autoTakeOver}
-          onClose={() => setActiveLayerId(null)}
-        />
-      ) : activeLayerId ? (
+      {activeLayerId ? (
         <LayerPanel
           layerId={activeLayerId}
           settings={activeSettings}
@@ -1097,10 +2211,14 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           onClose={() => setActiveLayerId(null)}
           apiKeyPresent={!!apiKey?.trim()}
           apiKey={apiKey}
+          clipMode={clipMode}
+          clipLabel={clipLabel}
+          onClearClip={() => setSelectedEventId(null)}
         />
       ) : null}
     </div>
-    </AutoDirectorContext.Provider>
+    </CutContext.Provider>
+    </AssetNodeContext.Provider>
   );
 };
 

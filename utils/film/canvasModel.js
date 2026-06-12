@@ -11,6 +11,7 @@ const randomId = () => {
 };
 
 export const createAssetNode = ({
+  id,
   kind = 'image',
   url = '',
   text = '',
@@ -22,7 +23,9 @@ export const createAssetNode = ({
   meta = {},
   preserved = false,
 } = {}) => ({
-  id: `a-${randomId()}`,
+  // A caller-supplied id enables idempotent reconciliation (e.g. the Auto Director
+  // upserts one node per step, keyed by step id); otherwise a fresh random id.
+  id: id || `a-${randomId()}`,
   type: 'asset',
   position,
   data: { kind, url, text, label, locked, layerId, sourceRefs, meta, preserved, createdAt: Date.now() },

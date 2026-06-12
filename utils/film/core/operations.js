@@ -3,27 +3,13 @@
 // The canvas and the headless SDK both call these; only the injected `client`
 // differs. Prompts/models resolve through suiteConfig (root ← client ← per-call).
 
-import { renderTemplate, getModel } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
+import { withRetry } from './retry';
 
-// ---- variant descriptor pools -------------------------------------------------
+// Variation "axes" and styles are no longer hardcoded pools — the agentic
+// planner (planPrompts, below) generates distinct, content-aware descriptors.
 
-export const VARIANT_POOLS = {
-  wardrobe: ['rugged cold-weather field outfit', 'formal tailored attire', 'layered casual streetwear', 'utilitarian work uniform', 'weatherproof rain gear', 'worn vintage clothing'],
-  age: ['as a teenager', 'in their twenties', 'in their forties', 'in their sixties', 'as a young child', 'as an elder'],
-  expression: ['neutral and composed', 'subtle worry', 'quiet determination', 'exhausted and drawn', 'guarded suspicion', 'faint relief'],
-  lighting: ['hard low-key side light', 'soft overcast daylight', 'warm practical tungsten glow', 'cold blue moonlight', 'harsh overhead fluorescent', 'golden-hour rim light'],
-  pose: ['frontal portrait', 'three-quarter turn', 'clean profile', 'looking back over the shoulder', 'low-angle hero framing', 'candid mid-action'],
-};
-
-export const COVERAGE_POOLS = {
-  angles: ['wide establishing shot', 'medium coverage', 'tight detail insert', 'high-angle overview', 'low-angle dramatic framing', 'doorway / threshold view'],
-  timeOfDay: ['cold dawn light', 'flat midday', 'golden hour', 'blue-hour dusk', 'deep night', 'overcast grey'],
-  weather: ['clear and still', 'heavy snowfall', 'thick fog', 'driving rain', 'violent storm', 'shimmering aurora'],
-  season: ['deep winter', 'spring thaw', 'high summer', 'late autumn'],
-};
-
-const pickN = (pool, n) => Array.from({ length: n }, (_, i) => pool[i % pool.length]);
 const clamp = (v, lo, hi, dflt) => Math.min(Math.max(Number(v) || dflt, lo), hi);
 
 // ---- beat parsing (Story Director) --------------------------------------------
@@ -78,7 +64,12 @@ export const extractMusePrompt = (text) => {
 
 const runImagineBatch = async ({ specs, size, model }, ctx, onItem) => {
   const results = await Promise.allSettled(specs.map(async (spec) => {
-    const data = await ctx.client.generateImage({ prompt: spec.prompt, referenceImages: spec.referenceImages, size, model });
+    // Transient Seedream errors (overload/429/timeouts) get backoff retries — the
+    // batch runs in parallel, so without this one shed request = one lost image.
+    const data = await withRetry(
+      () => ctx.client.generateImage({ prompt: spec.prompt, referenceImages: spec.referenceImages, size, model }),
+      { tries: 3, baseMs: 2500 },
+    );
     const item = { url: data.url, prompt: data.prompt || spec.prompt, label: spec.label, referenceImages: spec.referenceImages || [], meta: spec.meta || {} };
     if (onItem) onItem(item);
     return item;
@@ -87,55 +78,95 @@ const runImagineBatch = async ({ specs, size, model }, ctx, onItem) => {
   return { created: results.filter((r) => r.status === 'fulfilled').length, errors };
 };
 
+// ---- agentic prompt planner ---------------------------------------------------
+// Seed 2.0 Pro plans N substantially-different, content-aware prompts (reading any
+// reference images = describe+mix). Structured JSON; retries once, then throws —
+// NO hardcoded fallback: creative exploration is fully agentic.
+const parsePromptSet = (text) => {
+  const cleaned = String(text || '').replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+  const toItems = (val) => {
+    const arr = Array.isArray(val) ? val : (val && typeof val === 'object' ? Object.values(val).find(Array.isArray) : null);
+    return (arr || []).map((o) => {
+      if (typeof o === 'string') return { label: o.slice(0, 48), prompt: o };
+      const prompt = o?.prompt || o?.description || o?.text || '';
+      return { label: String(o?.label || o?.title || o?.name || prompt).slice(0, 48), prompt: String(prompt) };
+    }).filter((x) => x.prompt);
+  };
+  try { const i = toItems(JSON.parse(cleaned)); if (i.length) return i; } catch { /* */ }
+  const m = cleaned.match(/[[{][\s\S]*[\]}]/);
+  if (m) { try { const i = toItems(JSON.parse(m[0])); if (i.length) return i; } catch { /* */ } }
+  return [];
+};
+
+export const planPrompts = async ({ task, count = 4, idea = '', direction = '', references = [], config } = {}, ctx) => {
+  const n = clamp(count, 1, 12, 4);
+  let items = [];
+  let lastErr = null;
+  // A task may ship its own user instruction (the preservation-first adShot does —
+  // the generic one's "what to explore / substantially different" is exploration
+  // language that fights fidelity); otherwise the shared exploratory instruction.
+  const userVars = {
+    idea: idea || '(none given)',
+    direction: direction || '(your call — choose the most interesting dimensions)',
+    count: n,
+  };
+  const userPrompt = renderTemplate(`creativePlanner.${task}.user`, userVars) || renderTemplate('creativePlanner.user', userVars);
+  for (let attempt = 0; attempt < 2 && items.length < n; attempt += 1) {
+    try {
+      const { content } = await ctx.client.reason({
+        prompt: userPrompt,
+        systemPrompt: renderTemplate(`creativePlanner.${task}.system`, { count: n }),
+        images: references,
+        modelId: getModel('reasoner', config),
+        reasoningEffort: getRuntime(config).reasoningEffort,
+      });
+      const parsed = parsePromptSet(content);
+      if (parsed.length) items = parsed;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!items.length) throw new Error(`Creative planner returned no usable prompts${lastErr ? `: ${lastErr.message}` : ''}`);
+  return items.slice(0, n);
+};
+
 // ---- agent operations ---------------------------------------------------------
 
-export const inspiration = ({ prompt, refs = [], count = 6, size = '2K', config } = {}, ctx, onItem) => {
+// Inspiration: plan N distinct directions (reading selected refs = describe+mix),
+// then render. `refs` are always read for ideas; `useRefsInGen` also feeds them to
+// the image model as visual references.
+export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, count = 6, size = '2K', planTask = 'inspiration', config } = {}, ctx, onItem) => {
   const n = clamp(count, 1, 12, 6);
-  const specs = Array.from({ length: n }, (_, i) => ({
-    prompt: (prompt || '').trim() || renderTemplate('inspiration.fallback'),
-    referenceImages: refs,
-    label: `Inspiration ${i + 1}`,
-    meta: { axis: 'inspiration' },
-  }));
+  // planTask selects the planner persona: 'inspiration' explores (the freeform
+  // board); 'adShot' preserves (production shots — refs are canonical assets).
+  const items = await planPrompts({ task: planTask, count: n, idea: prompt, references: refs, config }, ctx);
+  const genRefs = useRefsInGen ? refs : [];
+  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: genRefs, label: it.label || `Inspiration ${i + 1}`, meta: { planLabel: it.label } }));
   return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
 };
 
-export const characterVariations = ({ imageUrl, axis = 'wardrobe', count = 4, notes = '', size = '2K', config } = {}, ctx, onItem) => {
+export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', config } = {}, ctx, onItem) => {
   if (!imageUrl) throw new Error('characterVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
-  const descriptors = pickN(VARIANT_POOLS[axis] || VARIANT_POOLS.wardrobe, n);
-  const notesText = notes ? `Director notes: ${notes}.` : '';
-  const specs = descriptors.map((desc) => ({
-    prompt: renderTemplate('characterVariations.instruction', { axis, descriptor: desc, notes: notesText }),
-    referenceImages: [imageUrl],
-    label: `${axis}: ${desc}`,
-    meta: { axis, descriptor: desc },
-  }));
+  const items = await planPrompts({ task: 'characterVariations', count: n, direction, references: [imageUrl], config }, ctx);
+  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label } }));
   return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
 };
 
-export const locationVariations = ({ imageUrl, axis = 'angles', count = 4, notes = '', size = '2K', config } = {}, ctx, onItem) => {
+export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', config } = {}, ctx, onItem) => {
   if (!imageUrl) throw new Error('locationVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
-  const descriptors = pickN(COVERAGE_POOLS[axis] || COVERAGE_POOLS.angles, n);
-  const notesText = notes ? `Director notes: ${notes}.` : '';
-  const specs = descriptors.map((desc) => ({
-    prompt: renderTemplate('locationVariations.instruction', { axis, descriptor: desc, notes: notesText }),
-    referenceImages: [imageUrl],
-    label: `${axis}: ${desc}`,
-    meta: { axis, descriptor: desc },
-  }));
+  const items = await planPrompts({ task: 'locationVariations', count: n, direction, references: [imageUrl], config }, ctx);
+  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label } }));
   return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
 };
 
-export const mixMatch = ({ imageUrls = [], direction = '', count = 4, size = '2K', ratio = '16:9', config } = {}, ctx, onItem) => {
+export const mixMatch = async ({ imageUrls = [], direction = '', count = 4, size = '2K', ratio = '16:9', config } = {}, ctx, onItem) => {
   if (imageUrls.length < 2) throw new Error('mixMatch requires at least two imageUrls');
   const n = clamp(count, 1, 8, 4);
-  const dir = direction ? `Direction: ${direction}.` : '';
-  const prompt = renderTemplate('mixMatch.instruction', { direction: dir });
-  const specs = Array.from({ length: n }, (_, i) => ({ prompt, referenceImages: imageUrls, label: `Mix ${i + 1}`, meta: { refCount: imageUrls.length, ratio } }));
-  // Resolve tier + aspect ratio → exact WxH so the composite frame matches the
-  // intended shot and subject proportions hold.
+  const items = await planPrompts({ task: 'mixMatch', count: n, direction, references: imageUrls, config }, ctx);
+  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: imageUrls, label: it.label || `Mix ${i + 1}`, meta: { refCount: imageUrls.length, planLabel: it.label } }));
+  // Resolve tier + aspect ratio → exact WxH so the composite frame matches the shot.
   return runImagineBatch({ specs, size: resolveImageSize(size, ratio), model: getModel('seedream', config) }, ctx, onItem);
 };
 
@@ -153,13 +184,19 @@ export const buildAnimatePrompt = ({ motion, camera, lens, focalLength, aperture
 };
 
 // Kicks off the async video task; caller polls via ctx.client.pollVideo({ taskId }).
-export const animate = async ({ imageUrl, assetId, motion, camera, lens, focalLength, aperture, duration = 5, resolution = '720p', ratio = 'adaptive', generateAudio = true, config } = {}, ctx) => {
+// Duration is HARD-CLAMPED to 10–15s (the quality bar): an LLM plan that says 5 — or
+// a stale persisted setting — can't undercut it, no matter which path called us.
+export const animate = async ({ imageUrl, assetId, motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, config } = {}, ctx) => {
   if (!imageUrl && !assetId) throw new Error('animate requires an imageUrl or assetId');
+  duration = Math.min(15, Math.max(10, Math.round(Number(duration) || 10)));
   const prompt = buildAnimatePrompt({ motion, camera, lens, focalLength, aperture });
   const content = [{ type: 'text', text: prompt }];
   if (assetId) content.push({ type: 'image_asset_id', asset_id: assetId, role: 'reference_image' });
   else content.push({ type: 'image_url', image_url: { url: imageUrl }, role: 'reference_image' });
-  const { taskId } = await ctx.client.startVideo({ content, model: getModel('seedance', config), resolution, ratio, duration, generateAudio });
+  const { taskId } = await withRetry(
+    () => ctx.client.startVideo({ content, model: getModel('seedance', config), resolution, ratio, duration, generateAudio }),
+    { tries: 3, baseMs: 3000 },
+  );
   return { taskId, prompt };
 };
 
@@ -169,7 +206,7 @@ export const promptMuse = async ({ images = [], video, question, config } = {}, 
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('promptMuse.user', { focus }),
     systemPrompt: renderTemplate('promptMuse.system'),
-    images, video, modelId: getModel('reasoner', config),
+    images, video, modelId: getModel('reasoner', config), reasoningEffort: getRuntime(config).reasoningEffort,
   });
   if (!content) throw new Error('Prompt Muse returned an empty response');
   return { text: content };
@@ -181,7 +218,7 @@ export const suggestNextBeats = async ({ idea, steps = [], lastImageUrl, count =
     prompt: renderTemplate('storyDirector.user', { idea: idea || '(none given)', steps: storySoFar, count }),
     systemPrompt: renderTemplate('storyDirector.system', { count }),
     images: lastImageUrl ? [lastImageUrl] : [],
-    modelId: getModel('reasoner', config),
+    modelId: getModel('reasoner', config), reasoningEffort: getRuntime(config).reasoningEffort,
   });
   const beats = parseBeats(content);
   if (!beats.length) throw new Error('Story Director returned no usable beats — try again');
@@ -194,7 +231,8 @@ const suggestLine = async ({ images, systemId, userId, config }, ctx) => {
     prompt: renderTemplate(userId),
     systemPrompt: renderTemplate(systemId),
     images: images || [],
-    modelId: getModel('reasoner', config),
+    // One-liner — keep it snappy, don't spend deep thinking budget.
+    modelId: getModel('reasoner', config), reasoningEffort: 'low',
   });
   return (content || '').trim().replace(/^["']|["']$/g, '');
 };

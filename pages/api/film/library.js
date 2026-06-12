@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
+import { deleteTosObject, tosObjectKeyFromUrl } from '../../../utils/server/tosUpload';
+import { callAssetApi } from '../../../utils/server/assetApi';
 
 // Persistent index of checked-in (preserved) assets, shared across all projects.
 // Stored alongside the recent-projects list in the user's home config dir.
@@ -56,10 +58,54 @@ export default async function libraryHandler(req, res) {
     }
 
     if (req.method === 'POST' && action === 'remove') {
+      // List-only: drop the entry; the underlying TOS object + asset are kept.
       const { id, url } = req.body || {};
       const next = readIndex().filter((it) => it.id !== id && it.url !== url);
       writeIndex(next);
       return res.status(200).json({ items: next });
+    }
+
+    if (req.method === 'POST' && action === 'delete') {
+      // Permanent: delete the TOS object + the Assets-API asset, THEN drop the
+      // index entry. Each storage delete is best-effort so a partial failure
+      // (e.g. permissions) still removes the entry and reports what happened.
+      const { id, url, assetId, objectKey: bodyKey } = req.body || {};
+      const accessKey = process.env.MODELARK_ASSET_ACCESS_KEY;
+      const secretKey = process.env.MODELARK_ASSET_SECRET_KEY;
+      const tosBucket = process.env.MODELARK_TOS_BUCKET;
+      const report = { tos: 'skipped', asset: 'skipped' };
+
+      if (accessKey && secretKey && tosBucket) {
+        const objectKey = bodyKey || tosObjectKeyFromUrl(url, {
+          tosPublicBaseUrl: process.env.MODELARK_TOS_PUBLIC_BASE_URL,
+          tosEndpoint: process.env.MODELARK_TOS_ENDPOINT,
+          tosRegion: process.env.MODELARK_TOS_REGION,
+          tosBucket,
+        });
+        if (objectKey) {
+          try {
+            await deleteTosObject({ accessKey, secretKey, tosBucket, tosRegion: process.env.MODELARK_TOS_REGION, tosEndpoint: process.env.MODELARK_TOS_ENDPOINT, objectKey });
+            report.tos = 'deleted';
+          } catch (err) {
+            report.tos = `failed: ${err.message}`;
+          }
+        } else {
+          report.tos = 'no-key (url not in this bucket)';
+        }
+      }
+
+      if (assetId && accessKey && secretKey) {
+        try {
+          await callAssetApi({ action: 'DeleteAsset', payload: { Id: assetId, ProjectName: 'default' }, accessKey, secretKey });
+          report.asset = 'deleted';
+        } catch (err) {
+          report.asset = `failed: ${err.message}`;
+        }
+      }
+
+      const next = readIndex().filter((it) => it.id !== id && it.url !== url);
+      writeIndex(next);
+      return res.status(200).json({ items: next, report });
     }
 
     return res.status(400).json({ error: `Unknown action: ${action || '(none)'}` });

@@ -8,7 +8,8 @@ export const config = {
   api: { bodyParser: { sizeLimit: '25mb' } },
 };
 
-const AGENTS = new Set(['inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'animate', 'promptMuse', 'storyBeats']);
+// Single agents + the full-production orchestrator (autoDirector = idea → film).
+const AGENTS = new Set(['inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'animate', 'promptMuse', 'storyBeats', 'autoDirector']);
 
 const resolveApiKey = (req) => {
   const header = req.headers.authorization || '';

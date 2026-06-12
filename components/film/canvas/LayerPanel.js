@@ -12,7 +12,8 @@ import {
   Message,
 } from '@arco-design/web-react';
 import { IconPlayArrow, IconClose, IconBulb } from '@arco-design/web-react/icon';
-import { AGENT_MAP, AXIS_OPTIONS, suggestCompositionDirection, suggestShotMotion, extractMusePrompt, IMAGE_RESOLUTIONS, IMAGE_RATIOS } from '../../../utils/film/agents';
+import { AGENT_MAP, suggestCompositionDirection, suggestShotMotion, extractMusePrompt, IMAGE_RESOLUTIONS, IMAGE_RATIOS } from '../../../utils/film/agents';
+import { CAMERA_MOVES } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
 const { Text, Title, Paragraph } = Typography;
@@ -22,6 +23,7 @@ const { Text, Title, Paragraph } = Typography;
 const PRIMARY_TEXT_FIELD = {
   inspiration: 'prompt',   // the generation prompt
   promptMuse: 'question',  // the focus directive
+  topicExplorer: 'topic',  // the topic to research
 };
 
 // Combine every selected text card into one string. For a Prompt Muse card we
@@ -40,7 +42,8 @@ const RESOLUTION_OPTIONS = ['480p', '720p', '1080p'];
 const RATIO_OPTIONS = ['adaptive', '16:9', '9:16', '4:3', '1:1', '21:9'];
 const DURATION_OPTIONS = ['auto', 2, 4, 5, 10];
 
-const CAMERA_OPTIONS = ['auto', 'static lock-off', 'slow push-in', 'slow pull-out', 'pan left', 'pan right', 'tilt up', 'tilt down', 'handheld follow', 'dolly in', 'crane up', 'orbit around subject'];
+// Camera moves come from the suite-wide template registry (recipes.CAMERA_MOVES) —
+// the Animate panel, the CUT cards and the Filming Loop share one vocabulary.
 const LENS_OPTIONS = ['auto', 'clean spherical', 'anamorphic (oval bokeh + flares)', 'vintage uncoated', 'macro'];
 const FOCAL_OPTIONS = ['auto', '14mm', '24mm', '35mm', '50mm', '85mm', '135mm'];
 const APERTURE_OPTIONS = ['auto', 'f/1.4', 'f/2', 'f/2.8', 'f/4', 'f/5.6', 'f/8'];
@@ -155,7 +158,36 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
           </div>
         </Space>
         <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Tip: pick an <b>Aspect</b> that matches the intended shot (e.g. 16:9 or 21:9 for a wide film still, 9:16 for vertical) — the frame is rendered at that exact shape, so bodies aren't squashed to fit. All selected images are used as references.
+          <b>Story moments:</b> select your <b>character</b> (+ optionally locations) — each output places them in a different location with something <i>happening</i>, identity and place preserved. Only the character selected? The bible&rsquo;s location anchors fill in. Pick an <b>Aspect</b> that matches the shot.
+        </Paragraph>
+      </Space>
+    );
+  }
+
+  if (layer.id === 'topicExplorer') {
+    return (
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>Topic / idea / problem</Text>
+          <Input.TextArea
+            value={settings.topic || ''}
+            onChange={(value) => update({ topic: value })}
+            placeholder='e.g. "Saudi desert and its wildlife" · "ad of someone running in trainers" · "short 1-min AI film"'
+            autoSize={{ minRows: 2, maxRows: 4 }}
+          />
+        </div>
+        <Space wrap>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Images</Text>
+            <Select value={settings.budget || 12} onChange={(v) => update({ budget: v })} style={{ width: 80 }} options={[8, 12, 20].map((b) => ({ label: `${b}`, value: b }))} />
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Depth</Text>
+            <Select value={settings.depth || 2} onChange={(v) => update({ depth: v })} style={{ width: 110 }} options={[{ label: 'Shallow', value: 1 }, { label: 'Deep', value: 2 }]} />
+          </div>
+        </Space>
+        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
+          Researches the topic before production: discovers its unique key concepts (you don&rsquo;t need to know the right taxonomy), then fills the board shallow→deep — a brief on what makes such videos good, one group per concept, and candidate images each carrying a <b>suggested role</b>. Click the suggestion on a card to tag it into the bible.
         </Paragraph>
       </Space>
     );
@@ -198,7 +230,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
         <div>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Camera &amp; lens</Text>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            <MiniSelect label="Camera" value={settings.camera} onChange={(v) => update({ camera: v })} options={CAMERA_OPTIONS} />
+            <MiniSelect label="Camera" value={settings.camera} onChange={(v) => update({ camera: v })} options={CAMERA_MOVES} />
             <MiniSelect label="Lens" value={settings.lens} onChange={(v) => update({ lens: v })} options={LENS_OPTIONS} />
             <MiniSelect label="Focal length" value={settings.focalLength} onChange={(v) => update({ focalLength: v })} options={FOCAL_OPTIONS} />
             <MiniSelect label="Aperture" value={settings.aperture} onChange={(v) => update({ aperture: v })} options={APERTURE_OPTIONS} />
@@ -287,12 +319,18 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
   }
 
   // character / location variations share the same control shape
-  const axes = AXIS_OPTIONS[layer.id] || [];
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="small">
       <div>
-        <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Axis</Text>
-        <Select value={settings.axis} onChange={(v) => update({ axis: v })} style={{ width: 180 }} options={axes.map((a) => ({ label: a, value: a }))} />
+        <Text type="secondary" style={{ fontSize: 12 }}>Direction (optional)</Text>
+        <Input.TextArea
+          value={settings.direction || ''}
+          onChange={(value) => update({ direction: value })}
+          placeholder={layer.id === 'locationVariations'
+            ? "what to explore… e.g. 'different times of day', 'tighter angles', 'in winter' — or leave blank and the agent decides"
+            : "what to explore… e.g. 'different wardrobes', 'across ages', 'range of expressions' — or leave blank and the agent decides"}
+          autoSize={{ minRows: 2, maxRows: 4 }}
+        />
       </div>
       <Space>
         <div>
@@ -304,27 +342,23 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
           <Select value={settings.size} onChange={(v) => update({ size: v })} style={{ width: 90 }} options={SIZE_OPTIONS.map((s) => ({ label: s, value: s }))} />
         </div>
       </Space>
-      <div>
-        <Text type="secondary" style={{ fontSize: 12 }}>Director notes (optional)</Text>
-        <Input.TextArea
-          value={settings.notes || ''}
-          onChange={(value) => update({ notes: value })}
-          placeholder="constraints to hold across variations…"
-          autoSize={{ minRows: 1, maxRows: 3 }}
-        />
-      </div>
+      <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
+        Each variation is planned to be distinct by Seed 2.0 Pro, with identity{layer.id === 'locationVariations' ? '/architecture' : ''} preserved.
+      </Paragraph>
     </Space>
   );
 };
 
-const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun, onClose, apiKeyPresent, apiKey }) => {
+const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun, onClose, apiKeyPresent, apiKey, clipMode, clipLabel, onClearClip }) => {
   const layer = AGENT_MAP[layerId];
   if (!layer) return null;
 
   const usableSelection = (selection || []).filter((n) => (layer.consumes || []).includes(n.data?.kind) && n.data?.url);
   const needsSelection = layer.needsSelection;
   const minSelection = layer.minSelection || 1;
-  const selectionOk = !needsSelection || usableSelection.length >= minSelection;
+  // In clip mode the clip's beat + bible provide the context, so a board selection
+  // isn't required (any selected images just become extra references).
+  const selectionOk = clipMode || !needsSelection || usableSelection.length >= minSelection;
   const canRun = apiKeyPresent && selectionOk && !running;
   const consumesVideo = (layer.consumes || []).includes('video');
 
@@ -341,9 +375,22 @@ const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun,
       </div>
       <div style={{ padding: '0 14px', flex: 1, overflowY: 'auto' }}>
         <Paragraph type="secondary" style={{ fontSize: 12 }}>{layer.describe}</Paragraph>
+
+        {clipMode && (
+          <div style={{ padding: 8, borderRadius: 6, background: '#fffdf5', border: '1px solid #f7ba1e', marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: 600, color: '#b8860b' }}>🎬 Filling {clipLabel}</Text>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+              {layerId === 'animate'
+                ? 'Renders this clip from its keyframe (its beat steers the motion).'
+                : "Generates this clip's keyframe — its beat is the prompt, the bible its references."}
+            </Text>
+            <Button size="mini" type="text" onClick={onClearClip} style={{ padding: 0, height: 'auto', fontSize: 11 }}>← run on the board instead</Button>
+          </div>
+        )}
+
         <Divider style={{ margin: '8px 0' }} />
 
-        {needsSelection && (
+        {needsSelection && !clipMode && (
           <div style={{ marginBottom: 10 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>Selected: </Text>
             {selectionOk && usableSelection.length > 0 ? (
@@ -373,7 +420,7 @@ const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun,
           onClick={onRun}
           style={{ background: canRun ? layer.color : undefined, borderColor: canRun ? layer.color : undefined }}
         >
-          {running ? 'Generating…' : `Run ${layer.label}`}
+          {running ? (clipMode ? 'Filling clip…' : 'Generating…') : (clipMode ? 'Fill this clip' : `Run ${layer.label}`)}
         </Button>
       </div>
     </div>

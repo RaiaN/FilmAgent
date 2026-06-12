@@ -103,3 +103,38 @@ export async function uploadLocalMediaToTos({
     size: buffer.length,
   };
 }
+
+// Recover the TOS object key from a stored url (public objectUrl or presigned),
+// by stripping the bucket's base url prefix and decoding. Returns null if the url
+// doesn't belong to this bucket (so we never delete something we don't own).
+export const tosObjectKeyFromUrl = (url, { tosPublicBaseUrl, tosEndpoint, tosRegion, tosBucket } = {}) => {
+  const u = String(url || '').trim();
+  if (!u) return null;
+  const resolvedRegion = tosRegion || DEFAULT_TOS_REGION;
+  const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
+  const candidates = [
+    String(tosPublicBaseUrl || '').trim().replace(/\/+$/, ''),
+    getDefaultTosPublicBaseUrl({ endpoint: resolvedEndpoint, bucket: tosBucket }),
+  ].filter(Boolean);
+  for (const base of candidates) {
+    if (u.startsWith(`${base}/`)) {
+      const tail = u.slice(base.length + 1).split('?')[0]; // drop any presigned query
+      try { return decodeURIComponent(tail); } catch { return tail; }
+    }
+  }
+  return null;
+};
+
+// Permanently delete one object from the bucket.
+export async function deleteTosObject({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, objectKey }) {
+  if (!objectKey) return;
+  const resolvedRegion = tosRegion || DEFAULT_TOS_REGION;
+  const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
+  const client = new TosClient({
+    accessKeyId: accessKey,
+    accessKeySecret: secretKey,
+    region: resolvedRegion,
+    endpoint: resolvedEndpoint,
+  });
+  await client.deleteObject({ bucket: tosBucket, key: objectKey });
+}

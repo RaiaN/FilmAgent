@@ -30,17 +30,24 @@ export const ROOT_CONFIG = {
     pollIntervalMs: 4000,    // Seedance task polling cadence
     timeoutMs: 360000,       // max wait for an async (video) task
     defaultImageSize: '2K',
+    reasoningEffort: 'high', // Seed 2.0 Pro thinking depth for the heavy reasoning
+                             // calls (plan, QC, style curation, brief). 'low' |
+                             // 'medium' | 'high' | null (off). One-liner helpers
+                             // override to 'low'.
   },
   // Per-agent default parameters (the headless equivalent of the UI's defaultSettings).
   defaults: {
+    topicExplorer: { budget: 12, depth: 2 },
     inspiration: { count: 6, size: '2K' },
-    characterVariations: { axis: 'wardrobe', count: 4, size: '2K' },
-    locationVariations: { axis: 'angles', count: 4, size: '2K' },
+    characterVariations: { count: 4, size: '2K', direction: '' },
+    locationVariations: { count: 4, size: '2K', direction: '' },
     mixMatch: { count: 4, size: '2K' },
     storyDirector: { count: 3, size: '2K' },
     animate: {
       camera: 'slow push-in', lens: 'auto', focalLength: '35mm', aperture: 'f/2.8',
-      duration: 5, resolution: '720p', ratio: 'adaptive', generateAudio: true,
+      // Quality bar: 10s @ 1080p per shot (was 5s @ 720p) — long enough to trim,
+      // sharp enough to ship.
+      duration: 10, resolution: '1080p', ratio: 'adaptive', generateAudio: true,
     },
   },
 };

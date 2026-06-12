@@ -33,3 +33,22 @@ asset-20260528232502-j7jj5
 
 Prop:
 asset-20260528232549-ff6s6
+
+
+Next to-do list / refined vision:
+
+Outcome is always a story told via video. This means our UX must speak this language. Timeline (what we have in Story Director) is great example UX primitive and allows to mark-up the sequence of events and run whole video generation on top of that immediately. Each agent must contribute to this vision (have direct way to add to the timeline (concept)). 
+To map storytelling to timeline UX, we have to unify both assets and story pieces wrt time dimension / timeline. Basically, the critical path is, given <output video duration>, to populate corresponding timeline / time axis with creative inputs (whether user's or generated) to produce a final video. Feedback loop: if result is not good enough, user can go back and recorrect certain elements. CAN YOU PLAN THIS?
+
+Story Director -> it works but tends to repeat visual keyframes (generates very similar keyframes) so no good story development happens, camera is also static viewpoint. After I end storybeat, there is no UX to act on these keyframes LOL. How do we even launch the shots generation and get final movie? Also it seems like Story director must be helping to create a story but offering a sneak peak (by lets say 10 keyframes over 1 min) or even multiple sneak peaks (again: CREATIVE EXPLORATION is CORE PILLAR)
+
+Remove Animate Agent (it shouldn't be exposed to end user). Reason: it should be an internal API call, not smth that user must tweak for each shot!
+
+We can have only Variations agent. It will produce variations of the asset depending on its type (character, location, monster, prop, etc. etc.) and specified goal (face, expression, weather, vibe, camera, etc etc. etc.). We don't need two variants like Character and Location I think. Best way to approach this?
+
+Make sure CREATIVE EXPLORATION is a CORE PILLAR that ALL our agents follow internally. Main principle -> Offer choice -> Take user input -> Continue. In case of Auto mode: Seed 2.0 VLM provides user input (unless users needs manual review steps etc.)
+
+Carefully implement these changes without breaking Agentic premise of our solution.
+
+Start from the end:
+- Timeline (can watch whole video) -> set of events (each event / piece is generated from assets) -> produce assets for each event -> go into feedback mode -> weak points identified -> regenerate assets

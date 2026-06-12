@@ -1,7 +1,7 @@
 {
   "name": "@modelark/film",
-  "version": "0.1.0",
-  "description": "Plug-and-play SDK for the ModelArk agentic film suite (Inspiration, Variations, Mix & Match, Animate, Prompt Muse, Story Director).",
+  "version": "0.2.0",
+  "description": "Plug-and-play SDK for the ModelArk agentic film suite — single agents (Inspiration, Variations, Mix & Match, Animate, Prompt Muse, Story Director) plus produce(): the full headless Auto Director loop (idea → plan → shots → stitch).",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -14,11 +14,19 @@
   },
   "files": ["dist", "src"],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsup src/index.ts --format esm --dts --clean --platform node --target node18 --external ffmpeg-static",
+    "build:js": "tsup src/index.ts --format esm --clean --platform node --target node18 --external ffmpeg-static",
+    "pretest": "npm run build",
+    "test": "node --test test/",
+    "example": "node examples/produce.mjs"
   },
   "engines": { "node": ">=18" },
   "license": "UNLICENSED",
   "devDependencies": {
+    "tsup": "^8.0.0",
     "typescript": "^5.4.0"
+  },
+  "optionalDependencies": {
+    "ffmpeg-static": "^5.2.0"
   }
 }

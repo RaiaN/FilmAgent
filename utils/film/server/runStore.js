@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import { CONFIG } from '../../config';
 import { createDirectClient } from '../core/directClient';
 import * as ops from '../core/operations';
+import { runProduction } from '../core/orchestrator';
 
 // Singleton across hot reloads.
 const store = globalThis.__filmRunStore || (globalThis.__filmRunStore = {
@@ -51,6 +52,34 @@ const runAgent = async (agent, input, ctx, onEvent) => {
     case 'storyBeats': {
       const beats = await ops.suggestNextBeats(input, ctx);
       return { results: beats, usage: { created: beats.length } };
+    }
+    case 'autoDirector': {
+      // The full production loop, server-side. Reuses ctx.client and injects a
+      // server stitch (ffmpeg + TOS) so the result is a hosted, playable film URL.
+      const serverStitch = async (shotUrls, o = {}) => {
+        const { stitchShots } = await import('./stitch');
+        const out = await stitchShots({ shots: shotUrls, name: o.name });
+        return { url: out.url };
+      };
+      const result = await runProduction(
+        { idea: input.idea, sources: input.sources, targetMinutes: input.targetMinutes },
+        { client: ctx.client, stitch: serverStitch },
+        {
+          config: input.config,
+          perStepCount: input.perStepCount,
+          explore: input.explore,
+          qc: input.qc,
+          // Map production events into the run trace; picked outputs grow `results`.
+          onEvent: (e) => {
+            if (e.type === 'asset') onEvent('asset', { kind: e.kind, url: e.url, stepId: e.stepId });
+            else onEvent(e.type, e);
+          },
+        },
+      );
+      return {
+        results: result, // { brief, plan, shots, assets, film? }
+        usage: { steps: result.plan.length, shots: result.shots.length, film: result.film ? 1 : 0 },
+      };
     }
     default:
       throw new Error(`Unknown agent: ${agent}`);

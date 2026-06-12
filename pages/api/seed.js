@@ -15,7 +15,7 @@ async function seedHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl, systemPrompt, images, video } = req.body;
+  const { prompt, apiKey, modelId, baseUrl, systemPrompt, images, video, reasoningEffort } = req.body;
   const imageList = Array.isArray(images) ? images : (images ? [images] : []);
 
   if (!prompt) {
@@ -63,17 +63,31 @@ async function seedHandler(req, res) {
           stream: false, // Stream false for simpler REST handling in StarterKit
           input: inputMessages,
       };
+      // Seed 2.0 Pro reasoning depth is controlled by `thinking` — this endpoint
+      // rejects `reasoning_effort` as an unknown field. 'low'/unset → leave
+      // default (fast — chat assistant + one-liner helpers); 'medium'/'high' →
+      // enable thinking.
+      if (reasoningEffort && reasoningEffort !== 'low') {
+        payload.thinking = { type: 'enabled' };
+      }
 
       const responsesEndpoint = `${endpointBase}/responses`;
-      
-      const response = await fetch(responsesEndpoint, {
+      const callResponses = (body) => fetch(responsesEndpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
       });
+
+      let response = await callResponses(payload);
+      // If the reasoning params (thinking / reasoning_effort) tripped the request,
+      // retry once WITHOUT them so the suite still works even if the depth-control
+      // shape is wrong for this endpoint. Log the real reason so the correct shape
+      // is diagnosable in the dev terminal.
+      if (!response.ok && payload.thinking) {
+        const firstErr = await response.text().catch(() => '');
+        console.warn(`[seed] thinking param rejected (${response.status}) — retrying without it. Reason: ${firstErr.slice(0, 400)}`);
+        response = await callResponses({ model: payload.model, stream: payload.stream, input: payload.input });
+      }
 
       const responseText = await response.text();
       let data;
@@ -81,7 +95,12 @@ async function seedHandler(req, res) {
         return res.status(502).json({ error: 'API returned a non-JSON response', details: responseText.slice(0, 300) });
       }
       if (!response.ok) {
-        throw new Error(data.error?.message || `API error: ${response.status}`);
+        // Surface the ACTUAL ModelArk message, not a generic 'Request failed'.
+        const apiMsg = data?.error?.message
+          || data?.message
+          || (typeof data?.error === 'string' ? data.error : null)
+          || `Seed API error (${response.status})`;
+        return res.status(response.status).json({ error: apiMsg, details: data });
       }
       
       // Adapt /responses output to match standard /chat/completions for frontend.

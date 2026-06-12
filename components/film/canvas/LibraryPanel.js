@@ -66,7 +66,9 @@ const LibraryPanel = ({ items, onClose, onRefresh, onAddToBoard, onRemove }) => 
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 4px' }}>
                 <Button size="mini" type="text" onClick={() => onAddToBoard(item)} style={{ padding: '0 4px', fontSize: 11 }}>＋ Add</Button>
-                <Button size="mini" type="text" status="danger" icon={<IconDelete style={{ fontSize: 11 }} />} onClick={() => onRemove(item)} />
+                <Tooltip content="Delete permanently (TOS + Assets library)">
+                  <Button size="mini" type="text" status="danger" icon={<IconDelete style={{ fontSize: 11 }} />} onClick={() => onRemove(item)} />
+                </Tooltip>
               </div>
             </div>
           ))}

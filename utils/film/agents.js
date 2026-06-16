@@ -297,7 +297,7 @@ export const storyboardAgent = {
   consumes: ['text'],
   needsSelection: false,
   defaultSettings: { lengthSec: 90 },
-  describe: 'Breaks your film into 5–15s shots, like a real storyboard: one SHOT card per shot — what happens, framing, camera move — drawn around your tagged cast and places. The sketches plan; your REAL assets feed the video when you shoot.',
+  describe: 'Breaks your film into 5–15s shots, like a real storyboard: one SHOT card per shot — what happens, the camera template, duration — with a photoreal frame that places your real cast in the location. The frame and your real plates both feed the video when you shoot.',
   // The canvas injects settings.idea + settings.bibleEntries (the real anchors) and
   // an onPanel callback that lays each panel as a CUT card on the board.
   async run({ prompt, settings, apiKey, ctx, onPanel, onPlan, onError }) {

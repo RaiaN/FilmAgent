@@ -1898,13 +1898,13 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject, conciergeOpen, onOp
             next: { action: 'castDraft', prompt: params.prompt, say: 'Draft the cast' },
           };
         }
-        pushFilmNote('Reading your cast and breaking the film into shots — the cards appear first, then each sketch draws in.');
+        pushFilmNote('Reading your cast and breaking the film into shots — the cards appear first, then each photoreal frame composes in.');
         await runAgent({
           agentId: 'storyboard',
           settings: { ...AGENT_MAP.storyboard.defaultSettings, idea: params.prompt || projectRef.current?.idea || '', genre: projectRef.current?.genre?.line || '', bibleEntries: bibleRef.current },
           selectionNodes: [],
         });
-        return 'Storyboard on the board — one sketch card per shot: what happens, framing, camera, and the real assets feeding it. Edit anything, shoot one card with its 🎬, or say “action” to shoot them all.';
+        return 'Storyboard on the board — one SHOT card per shot: what happens, the camera template, a photoreal frame, and the real assets feeding it. Edit anything, shoot one card with its 🎬, or say “action” to shoot them all.';
       }
       case 'detectGenre': {
         // The genre detector: read genre & tone from the premise FIRST, surface it

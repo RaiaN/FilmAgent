@@ -110,7 +110,7 @@ export const ACTION_DESCRIBE = {
   locationVariations: 'coverage variations of a location/place: angle, time of day, weather',
   mixMatch: 'compose a character into locations — story moments of what might happen to them there',
   exploreTopic: 'research a topic before production — fills the board with its key concepts as candidate images',
-  storyboard: 'break the film into 10–15s shots — one sketch card per shot (what happens, framing, camera) drawn around the tagged cast and places',
+  storyboard: 'break the film into 5–15s shots — one SHOT card per shot (what happens, the camera template, duration) with a photoreal frame placing the cast in the location',
   detectGenre: 'the message is a fresh film PREMISE/idea and no genre is locked yet — read its genre & tone first (the user confirms, then casting runs in that genre). Pick this for an opening idea like "cowboys vs a grizzly" when idea is NOT set',
   castDraft: 'generate the cast & location plates from the idea — pick ONLY when a genre is already set/confirmed (otherwise detectGenre comes first)',
   nextStep: 'they ask to continue or what to do next ("continue", "next", "what now", "go on") — advance the pipeline to its next concrete step',

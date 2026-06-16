@@ -206,7 +206,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
           />
         </div>
         <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Reads your idea and your tagged cast &amp; places, breaks the film into 5–15s shots, and lays one SHOT card per shot on the board — what happens, framing, camera. The sketches are planning drawings; <b>your real tagged assets feed the video</b> when you shoot. Tag at least one cast or place image first.
+          Reads your idea and your tagged cast &amp; places, breaks the film into 5–15s shots, and lays one SHOT card per shot on the board — what happens, the camera template, a photoreal frame placing your cast in the location. <b>The frame and your real tagged assets feed the video</b> when you shoot. Tag at least one cast or place image first.
         </Paragraph>
       </Space>
     );

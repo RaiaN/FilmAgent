@@ -2650,17 +2650,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject, conciergeOpen, onOp
           onRenderMovie={handleRenderMovie}
           onAddSelectedToTimeline={addSelectedToTimeline}
           filmMode={filmMode}
-          filming={filmMode ? {
-            chunks: filmChunks,
-            busy: filmBusy,
-            stage: filmStage,
-            durations: SHORT_FILM_RECIPE.chunkSeconds,
-            defaultDuration: SHORT_FILM_RECIPE.defaultChunkSeconds,
-            onPropose: filmPropose,
-            onGenerate: filmGenerate,
-            onCorrect: filmCorrect,
-            onValidate: filmValidate,
-          } : null}
         />
       </div>
 

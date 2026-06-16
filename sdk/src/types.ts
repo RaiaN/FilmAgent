@@ -83,8 +83,9 @@ export interface RunOptions {
 }
 
 // ---- self-contained production (the agentic harness) ------------------------
-// produce() runs the full Auto Director loop in-process (understand → plan →
-// execute shots → QC → stitch) over an injected transport — no Service API hop.
+// produce() runs the full pipeline in-process (cast → storyboard → direct-to-video
+// shots → QC → stitch) over an injected transport — no Service API hop. The engine
+// is blueprint-only: nothing invents a shot list outside the storyboard.
 
 /** Role of a bible (global, atemporal) asset. */
 export type BibleRole = 'style' | 'character' | 'location' | 'prop' | 'brand';
@@ -112,6 +113,13 @@ export interface ProduceInput {
    * consistent across shots — the mechanism that kills cross-shot drift.
    */
   bible?: BibleEntry[];
+  /**
+   * The shot plan `createProduction` executes. The engine is blueprint-only — it
+   * never invents a shot list. Build one from a storyboard read:
+   * `{ shots: panels.map((p) => panelToShot(p, anchors, genre)) }`. (`produce()`
+   * builds its own and ignores this.)
+   */
+  blueprint?: Blueprint;
 }
 
 /** Input for the Service-API `autoDirector` run (ProduceInput + headless knobs). */
@@ -121,18 +129,52 @@ export interface AutoDirectorInput extends ProduceInput {
 }
 
 /**
- * One storyboard panel = one 10–15s shot: what happens, how it's framed, how the
- * camera moves, and which real bible anchors appear. The ONLY shot-planning
- * artifact in the suite.
+ * One storyboard panel = one 5–15s shot: what happens, the chosen shot template
+ * (one of the 50 in the cinematography library — angle/framing/move), how long, and
+ * which real bible anchors appear. The ONLY shot-planning artifact in the suite.
  */
 export interface Panel {
   index: number;
   title: string;
   action: string;
+  /** Id of the chosen shot template (recipes.SHOT_TEMPLATES). */
+  shotTemplate: string;
   framing: string;
+  angle: string;
+  /** Camera move lives in the template's cinematography line; cards send 'auto'. */
   camera: string;
   durationSec: number;
   refEntryIds: string[];
+}
+
+/** One shot in a production blueprint — what `panelToShot` emits. */
+export interface BlueprintShot {
+  beat: string;
+  /** Direct-to-video (storyboard) shot: real refs + composed prompt, no keyframe. */
+  direct?: boolean;
+  /** The composed Seedance 2.0 prompt sent as the motion. */
+  motion: string;
+  camera: string;
+  durationSec: number;
+  /** Bible entry ids this shot references (resolved to images at run time). */
+  refEntryIds?: string[];
+  /** Explicit ordered reference urls ([Image1..N], matching the composed prompt). */
+  refUrls?: string[];
+}
+
+/** The deterministic shot list `createProduction` executes (never auto-invented). */
+export interface Blueprint {
+  shots: BlueprintShot[];
+  /** Optional bible role whose anchors ride on every shot (the hero). */
+  heroRole?: string;
+}
+
+/** What `detectGenre` reads from a premise — the genre gate before any spend. */
+export interface GenreRead {
+  genre: string;
+  tone: string;
+  treatment: string;
+  alternatives: string[];
 }
 
 /** One planned production step, mapped to an agent. */

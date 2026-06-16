@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Typography, Button, Tooltip, Tag, InputNumber, Input, Popover, Select, Modal } from '@arco-design/web-react';
+import { Typography, Button, Tooltip, Tag, InputNumber, Input, Popover, Modal } from '@arco-design/web-react';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBranch, IconPlus, IconClose,
   IconThunderbolt, IconVideoCamera, IconPlayArrow, IconPause, IconRefresh,
-  IconLock, IconUnlock, IconDelete, IconLoading, IconZoomIn, IconZoomOut, IconCheck,
+  IconLock, IconUnlock, IconDelete, IconLoading, IconZoomIn, IconZoomOut,
 } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
 import { ASSET_DRAG_TYPE, BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import { orderedEvents, totalDuration } from '../../../utils/film/timelineModel';
-import { CAMERA_MOVES } from '../../../utils/film/recipes';
 
 const { Text } = Typography;
 const COLOR = AGENT_COLORS.storyDirector; // gold — the timeline's accent
@@ -196,77 +195,9 @@ const Inspector = ({ event, index, total, onSetDuration, onToggleLock, onMove, o
   );
 };
 
-// ---- the Filming Loop inspector (Short Film mode) -------------------------------
-// The DRIVER of film mode: generate 10–15s → validate (QC advisory + human gate) →
-// correct by aspects (re-animate only) → continue (beats proposed from the story so
-// far). The track above is just placement + zoom-out. Always operates on the LAST
-// chunk — earlier ones are approved and chained.
-const FilmingInspector = ({ filming }) => {
-  const { chunks = [], busy, stage = '', onCorrect, onValidate } = filming || {};
-  const lastChunk = chunks[chunks.length - 1] || null;
-  const working = lastChunk && lastChunk.status !== 'validated' ? lastChunk : null;
-
-  // Correct state (working chunk)
-  const [aspects, setAspects] = useState({ camera: 'auto', action: '', rules: '', note: '' });
-  useEffect(() => {
-    if (working) setAspects({ camera: working.aspects?.camera || 'auto', action: working.aspects?.action || '', rules: working.aspects?.rules || '', note: '' });
-  }, [working?.id, working?.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const row = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid #f0f0f3', flexWrap: 'wrap' };
-
-  if (busy) {
-    return (
-      <div style={row}>
-        <IconLoading style={{ color: COLOR }} />
-        <Text style={{ fontSize: 12 }}>Filming… {working ? `“${working.beat}” (${working.durationSec}s)` : ''} — {stage || 'rolling'}. Watch the clip land above.</Text>
-      </div>
-    );
-  }
-
-  // A draft (or failed) working chunk → VALIDATE / CORRECT
-  if (working) {
-    const qc = working.qc;
-    const qcBad = qc && qc.verdict && qc.verdict !== 'pass';
-    if (working.status === 'failed') {
-      return (
-        <div style={row}>
-          <Tag size="small" color="red">take failed</Tag>
-          <Text type="secondary" style={{ fontSize: 11, flex: 1, minWidth: 160 }} ellipsis>{working.error}</Text>
-          <Button size="mini" type="primary" icon={<IconRefresh />} style={{ background: COLOR, borderColor: COLOR }} onClick={() => onCorrect(working.id, { aspects })}>Retry take</Button>
-        </div>
-      );
-    }
-    return (
-      <div style={{ borderTop: '1px solid #f0f0f3', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Tag size="small" color="gold">Chunk {chunks.length} · {working.durationSec}s</Tag>
-          <Text style={{ fontSize: 12, fontWeight: 600, maxWidth: 320 }} ellipsis>{working.beat}</Text>
-          {qc && (
-            <Tooltip content={(qc.issues || []).map((i) => i.message).filter(Boolean).join(' · ') || 'QC saw no issues'}>
-              <Tag size="small" color={qcBad ? 'orange' : 'green'}>QC {qc.verdict || 'pass'}</Tag>
-            </Tooltip>
-          )}
-          <span style={{ flex: 1 }} />
-          <Button size="mini" type="primary" icon={<IconCheck />} style={{ background: '#00b42a', borderColor: '#00b42a' }} onClick={() => onValidate(working.id)}>Approve — continue from here</Button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>Correct this take:</Text>
-          <Select size="mini" value={aspects.camera} onChange={(v) => setAspects((a) => ({ ...a, camera: v }))} options={CAMERA_MOVES.map((c) => ({ label: c, value: c }))} style={{ width: 140 }} triggerProps={{ autoAlignPopupWidth: false }} />
-          <Input size="mini" value={aspects.action} onChange={(v) => setAspects((a) => ({ ...a, action: v }))} placeholder="action — what the subject does" style={{ width: 200 }} />
-          <Input size="mini" value={aspects.rules} onChange={(v) => setAspects((a) => ({ ...a, rules: v }))} placeholder="cinematic rules — light, pacing, continuity" style={{ width: 220 }} />
-          <Input size="mini" value={aspects.note} onChange={(v) => setAspects((a) => ({ ...a, note: v }))} placeholder="note for this retake" style={{ width: 170 }} />
-          <Button size="mini" icon={<IconRefresh />} onClick={() => onCorrect(working.id, { aspects, note: aspects.note })}>Re-animate</Button>
-        </div>
-      </div>
-    );
-  }
-
-  // No working chunk → render NOTHING: in the idle state the timeline shows only its
-  // track (user: "just keep the timeline"). The busy + working-chunk branches above
-  // still appear ONLY while a take is actively rolling — that's the sole place to
-  // approve/correct a take (incl. chat-filmed ones), so it stays.
-  return null;
-};
+// (The Filming-Loop inspector — busy status + the take-review gate Approve / Correct /
+// Retry — was removed: shooting and re-shooting happen on each SHOT card's 🎬 button,
+// so the timeline carries no filming controls. It is placement and order, nothing else.)
 
 // ============================================================================
 // The Timeline — placement and order, nothing else: a zoomable, time-scaled
@@ -279,7 +210,7 @@ const StoryTimeline = ({
   onSelectEvent, onSetDuration, onToggleEventLock, onMoveEvent, onRegenerate, onRemoveEvent,
   onAddAsset, onAutoFill, onRenderMovie, onAddSelectedToTimeline,
   busy = {}, canAddSelected = false,
-  filmMode = false, filming = null,
+  filmMode = false,
 }) => {
   const [pxPerSec, setPxPerSec] = useState(PX_DEFAULT);
   const [dragOver, setDragOver] = useState(false);
@@ -407,7 +338,7 @@ const StoryTimeline = ({
               <Button size="mini" type="outline" icon={<IconPlayArrow />} onClick={() => setPlayerOpen(true)}>{film?.url ? 'Play film' : 'Animatic'}</Button>
             </Tooltip>
           )}
-          {/* Film mode: the FilmingInspector drives — no Auto-fill (timeline = view). */}
+          {/* Film mode: no Auto-fill (timeline = view; shooting is on the SHOT cards). */}
           {!filmMode && !empty && (
             <>
               <Tooltip content={sel && selWidth >= 0.75 ? `Fill just the selected ${Math.round(selWidth)}s — contextual to your idea and tagged assets` : 'Build a first cut autonomously from your idea and tagged assets'}>
@@ -495,10 +426,9 @@ const StoryTimeline = ({
             )}
           </div>
 
-          {/* Inspector only when something is selected — no permanent hint row. */}
-          {filmMode && filming ? (
-            <FilmingInspector filming={filming} />
-          ) : selectedEvent ? (
+          {/* Clip inspector only in edit (non-film) mode when a clip is selected.
+              Film mode = just the track; shooting/re-shooting is on the SHOT cards. */}
+          {!filmMode && selectedEvent ? (
             <Inspector
               event={selectedEvent}
               index={selectedIndex}

@@ -29,7 +29,12 @@ import { createDirectTransport } from './transport';
 
 export * from './types';
 export { createDirectTransport } from './transport';
-export { runStep } from './core';
+// The shared step primitive + the storyboard builders (plan a blueprint from an
+// idea) + a direct ModelArk client to give them a Ctx.
+export {
+  runStep, createDirectClient,
+  detectGenre, castFromIdea, readStoryboard, panelToShot,
+} from './core';
 export type { Transport } from './transport';
 export type { Client, Ctx } from './core';
 

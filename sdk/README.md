@@ -5,10 +5,11 @@ Plug‑and‑play SDK for the ModelArk **agentic film suite**. Two layers:
 - **Single agents** — `inspiration`, `characterVariations`, `locationVariations`,
   `mixMatch`, `animate`, `promptMuse`, `storyBeats`. Each submits an async run to
   the Service API and resolves with finished results (streaming events optional).
-- **Full production** — `produce()` runs the *entire* Auto Director loop in‑process
-  (`idea → understand → plan → generate shots → QC → stitch`) directly against
+- **Full production** — `produce()` runs the *entire* pipeline in‑process
+  (`cast → storyboard → direct‑to‑video shots → QC → stitch`) directly against
   ModelArk via an injected transport. **No Service API, no UI, no canvas** — the
-  orchestration that used to live in the app is now in the SDK.
+  orchestration that used to live in the app is now in the SDK. Nothing invents a
+  shot list outside the storyboard; the engine is **blueprint‑only**.
 
 ## Install
 
@@ -56,9 +57,10 @@ const beats = await film.storyBeats({ idea: 'a radio operator hears her own voic
 
 ## Produce a whole film (headless)
 
-`produce()` is the built‑in harness — hand it an idea, get a plan, shots, and a
-stitched final cut. It talks to ModelArk **directly**, so you don't need the
-Service API running.
+`produce()` is the built‑in harness — hand it an idea, and it walks the pipeline:
+casting (your real `bible`, or the minimum anchors generated once) → storyboard →
+direct‑to‑video shots → stitched final cut. It talks to ModelArk **directly**, so
+you don't need the Service API running.
 
 ```ts
 import { produce } from '@modelark/film';
@@ -71,11 +73,13 @@ const result = await produce(
   },
 );
 
-console.log(result.brief.logline);
-console.log(result.plan.length, 'steps');
-console.log(result.shots.length, 'shots');
-console.log(result.film?.path);            // the stitched .mp4 (when ffmpeg is available)
+console.log(result.bible.length, 'anchors'); // the cast/locations it generated (or yours)
+console.log(result.panels.length, 'shots');  // the storyboard plan
+console.log(result.shots.length, 'rendered'); // the animated clips
+console.log(result.film?.path);              // the stitched .mp4 (when ffmpeg is available)
 ```
+
+`produce()` resolves with a `PipelineResult`: `{ bible, panels, plan, shots, assets, film? }`.
 
 **Environment:** set `MODELARK_API_KEY` and `MODELARK_API_BASE_URL` (the ModelArk
 endpoint), or pass `{ apiKey, baseUrl }` in options.
@@ -88,18 +92,32 @@ returns the ordered `shots`; it just won't produce `result.film`. Override with
 > Node ≥ 18 only — `produce()` shells out to ffmpeg. The single‑agent HTTP methods
 > work in the browser too.
 
-### Interactive / step-by-step (build your own UI)
+### Interactive / step-by-step (drive a blueprint)
 
-`produce()` is the autonomous shortcut. For a human‑in‑the‑loop experience — review
-each step, pick an output, regenerate or skip, then advance — open a **production
-session**. It's the same engine our canvas runs on, exposed for your UI.
+`produce()` is the autonomous shortcut. The **same engine** is exposed as a
+production session you drive yourself — review each step, pick an output, regenerate
+or skip, then advance. One caveat: the engine is **blueprint‑only**. It *executes* a
+shot plan; it never *invents* one (the storyboard is the only thing that plans
+shots). So first **plan a blueprint** from the idea with the exposed storyboard
+builders (`castFromIdea → readStoryboard → panelToShot`), then step through it.
 
 ```ts
-import { createProduction } from '@modelark/film';
+import {
+  createProduction, createDirectClient,
+  castFromIdea, readStoryboard, panelToShot,
+} from '@modelark/film';
 
-const p = createProduction({ idea: 'a desert town wakes at dawn', targetMinutes: 1 });
+// The builders take a Ctx with a direct ModelArk client.
+const ctx = { client: createDirectClient({ apiKey, baseUrl }) };
+const idea = 'a desert town wakes at dawn';
 
-await p.plan();            // understand + build the plan → p.state.plan
+const bible = await castFromIdea({ idea }, ctx);                                  // or pass your own anchors
+const { anchors, panels } = await readStoryboard({ idea, targetSeconds: 60, bible }, ctx);
+const blueprint = { shots: panels.map((p) => panelToShot(p, anchors)) };         // the only shot-planning artifact
+
+const p = createProduction({ idea, bible, blueprint }, { apiKey, baseUrl, mode: 'review' });
+
+await p.plan();            // build the step plan FROM the blueprint → p.state.plan
 p.start();
 
 for (const step of p.state.plan) {
@@ -113,11 +131,15 @@ p.on((e) => {/* 'state' carries a full snapshot for re-render; also phase|step|a
 const { shots, film } = p.result();
 ```
 
+Don't want to plan at all? `produce()` (above) and `film.autoDirector()` (Service
+API) do the casting + storyboard for you and run the whole thing. See
+[`examples/interactive.mjs`](examples/interactive.mjs).
+
 Plan editing (`editStep` / `addStep` / `removeStep` / `moveStep` / `toggleGate`),
 `setMode('auto')` + `resume()` (auto-run, pausing only at gated steps), and `runAll()`
 (fully autonomous — what `produce()` calls) are all on the session. There's also a
 low-level `runStep({ agent, params, inputUrls }, ctx)` primitive if you want to
-compose agents with no session at all. See [`examples/interactive.mjs`](examples/interactive.mjs).
+compose agents with no session at all.
 
 ### Or run it on the Service API (thin clients)
 
@@ -132,17 +154,16 @@ const result = await film.autoDirector(
   { idea: 'a desert town wakes at dawn', targetMinutes: 1 },
   { onEvent: (e) => console.log(e.type) },     // queued → running → asset… → succeeded
 );
-// result: { brief, plan, shots, assets, film? }  (film.url is a hosted mp4)
+// result: { bible, panels, plan, shots, assets, film? }  (PipelineResult; film.url is a hosted mp4)
 ```
 
 `produce()` (in‑process, direct to ModelArk) and `film.autoDirector()` (Service API)
-run the **same** loop — pick based on where you want the compute and the ffmpeg.
+run the **same** pipeline — pick based on where you want the compute and the ffmpeg.
 
 ### Headless tests
 
-The three reference productions live in [`test/produce.e2e.mjs`](test/produce.e2e.mjs)
-(cartoon, a Saudi‑Arabia cinematic trailer, a Saudi‑Arabia advertisement). They make
-real, paid calls, so they skip unless the env vars are set:
+The reference productions live in [`test/produce.e2e.mjs`](test/produce.e2e.mjs).
+They make real, paid calls, so they skip unless the env vars are set:
 
 ```bash
 MODELARK_API_KEY=…  MODELARK_API_BASE_URL=https://…  npm test
@@ -152,8 +173,8 @@ MODELARK_API_KEY=…  MODELARK_API_BASE_URL=https://…  node examples/produce.m
 
 ## Build your own loop (custom control)
 
-Prefer to drive the loop yourself (your UI / your gating)? The agents are stateless,
-so *your* harness can compose them — this is exactly what `produce()` does internally:
+Prefer to drive a loop yourself with the stateless single agents? They compose freely
+— here, propose beats then realise each as a frame:
 
 ```ts
 let steps: string[] = [];
@@ -175,7 +196,7 @@ Override the suite's models / prompts / defaults globally or per call:
 ```ts
 const film = new FilmSuite({
   apiKey, baseUrl,
-  config: { models: { seedream: 'ep-your-endpoint' }, prompts: { 'storyDirector.system': '…house style…' } },
+  config: { models: { seedream: 'ep-your-endpoint' }, prompts: { 'storyboard.read.system': '…house style…' } },
 });
 
 await film.inspiration({ prompt }, { config: { defaults: { inspiration: { count: 12 } } } });
@@ -194,7 +215,7 @@ await film.inspiration({ prompt }, { config: { defaults: { inspiration: { count:
 | `animate(input, opts?)` | `VideoAsset[]` |
 | `promptMuse(input, opts?)` | `TextAsset[]` |
 | `storyBeats(input, opts?)` | `Beat[]` |
-| `autoDirector(input, opts?)` | `ProduceResult` (full film, via Service API) |
+| `autoDirector(input, opts?)` | `PipelineResult` (full film, via Service API) |
 | `run(agent, input, opts?)` | generic |
 | `getRun(id)` | `Run` |
 
@@ -205,11 +226,17 @@ connection to keep open).
 
 ### Full production
 
-- `produce(input, opts?) → Promise<ProduceResult>` (also `FilmSuite#produce`) — autonomous.
-- `createProduction(input, opts?) → Production` (also `FilmSuite#createProduction`) — interactive session.
+- `produce(input, opts?) → Promise<PipelineResult>` (also `FilmSuite#produce`) — autonomous pipeline.
+- `createProduction(input, opts?) → Production` (also `FilmSuite#createProduction`) — interactive session over a **blueprint**.
 - `runStep({ agent, params, inputUrls, count?, intent?, config? }, ctx) → outputs[]` — the low-level step primitive.
+- `createDirectClient({ apiKey?, baseUrl? }) → Client` — a direct ModelArk client (the `ctx.client` the builders need).
+- **Storyboard builders** — plan a blueprint from an idea; each takes `ctx = { client }`:
+  - `detectGenre({ idea }, ctx) → GenreRead`
+  - `castFromIdea({ idea, genre? }, ctx) → BibleEntry[]`
+  - `readStoryboard({ idea, genre?, targetSeconds?, bible? }, ctx) → { anchors, panels }`
+  - `panelToShot(panel, anchors?, genre?) → BlueprintShot`
 
-Shared shapes: `input` = `{ idea, sources?, targetMinutes? }`; `opts` = `{ apiKey?, baseUrl?, config?, explore?, qc?, perStepCount?, stitch?, outPath?, onEvent? }` (plus `mode?` for `createProduction`); `ProduceResult` = `{ brief, plan, shots, assets, film? }`. The `Production` session exposes `understand/plan/start/runStep/pick/approve/regenerate/skip/editStep/addStep/removeStep/moveStep/toggleGate/setMode/resume/stitch/runAll/result` + `on()` and `state`.
+Shared shapes: `input` = `{ idea, sources?, targetSeconds?, targetMinutes?, bible? }` (plus a `blueprint` for `createProduction`); `opts` = `{ apiKey?, baseUrl?, config?, qc?, perStepCount?, stitch?, outPath?, onEvent? }` (plus `mode?` for `createProduction`); `PipelineResult` = `{ bible, panels, plan, shots, assets, film? }`. The `Production` session exposes `plan/start/runStep/pick/approve/regenerate/skip/editStep/addStep/removeStep/moveStep/toggleGate/setMode/resume/stitch/runAll/result` + `on()` and `state`.
 
 Single‑agent methods require Node ≥ 18 (global `fetch`) or a modern browser.
 `produce()` / `createProduction()` are **Node‑oriented** (stitching shells out to ffmpeg; pass your own `stitch` to run elsewhere).

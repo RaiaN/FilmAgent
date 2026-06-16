@@ -10,12 +10,17 @@ import * as directorJs from '../../utils/film/core/director.js';
 import * as opsJs from '../../utils/film/core/operations.js';
 import { runProduction as runProductionJs } from '../../utils/film/core/orchestrator.js';
 import { createProduction as createProductionJs, runStep as runStepJs } from '../../utils/film/core/production.js';
+import {
+  detectGenre as detectGenreJs, castFromIdea as castFromIdeaJs,
+  readStoryboard as readStoryboardJs, panelToShot as panelToShotJs,
+} from '../../utils/film/core/storyboard.js';
 import { createDirectClient as createDirectClientJs } from '../../utils/film/core/directClient.js';
 import { getAgentDefaults as getAgentDefaultsJs, getModel as getModelJs } from '../../utils/film/suiteConfig.js';
 
 import type {
   PipelineResult, ProduceInput, ProduceOptions, StitchFn,
   Production, ProductionOptions, RunStepInput, StepOutput,
+  BibleEntry, Panel, BlueprintShot, GenreRead,
 } from './types';
 
 /**
@@ -58,6 +63,23 @@ export const createProduction = createProductionJs as unknown as
   (input: ProduceInput, transport: { client: Client; stitch?: StitchFn }, opts?: ProductionOptions) => Production;
 export const runStep = runStepJs as unknown as
   (input: RunStepInput, ctx: Ctx) => Promise<Array<Omit<StepOutput, 'id'>>>;
+
+// ---- the storyboard builders (plan a blueprint from an idea) ----
+// The pipeline's planning stages, exposed so you can build a blueprint yourself
+// (e.g. to drive an INTERACTIVE createProduction from an idea). The order is:
+// detectGenre? → castFromIdea → readStoryboard → panelToShot. Each takes a Ctx
+// ({ client, config }) — get a client from createDirectClient. Frame rendering
+// (createStoryboard) is intentionally NOT exposed: it's a UI-review artifact.
+export const detectGenre = detectGenreJs as unknown as
+  (input: { idea: string; config?: unknown }, ctx: Ctx) => Promise<GenreRead>;
+export const castFromIdea = castFromIdeaJs as unknown as
+  (input: { idea: string; genre?: string; config?: unknown }, ctx: Ctx,
+   hooks?: { onPlan?: (plates: Array<{ role: string; name: string }>) => void; onEntry?: (entry: BibleEntry, i: number) => void }) => Promise<BibleEntry[]>;
+export const readStoryboard = readStoryboardJs as unknown as
+  (input: { idea: string; genre?: string; targetSeconds?: number; bible?: BibleEntry[]; config?: unknown }, ctx: Ctx)
+    => Promise<{ anchors: BibleEntry[]; panels: Panel[] }>;
+export const panelToShot = panelToShotJs as unknown as
+  (panel: Panel, anchors?: BibleEntry[], genre?: string) => BlueprintShot;
 
 // ---- config + transport ----
 export const getAgentDefaults = getAgentDefaultsJs as unknown as (agentId: string, perCall?: unknown) => Record<string, unknown>;

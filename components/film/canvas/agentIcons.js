@@ -11,6 +11,7 @@ import {
   IconBranch,
   IconThunderbolt,
   IconCompass,
+  IconApps,
 } from '@arco-design/web-react/icon';
 
 export const AGENT_ICONS = {
@@ -23,6 +24,7 @@ export const AGENT_ICONS = {
   story: IconBranch,     // Story Director
   auto: IconThunderbolt, // Auto Director (orchestrator)
   explore: IconCompass,  // Topic Explorer (pre-production research)
+  board: IconApps,       // Storyboard (the panel grid)
 };
 
 export const agentIcon = (key) => AGENT_ICONS[key] || IconStar;

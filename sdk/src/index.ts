@@ -11,15 +11,17 @@
 //       );
 //       // result.film?.path → the stitched .mp4
 //
-// produce() runs understand → plan → generate shots → QC → stitch directly against
-// ModelArk via an injected transport. The agent ops are reused verbatim from the
-// shared core; only the orchestration loop is owned here.
+// produce() runs the PIPELINE: cast (provided or generated once) → storyboard →
+// direct-to-video shots → stitch, directly against ModelArk via an injected
+// transport. The agent ops are reused verbatim from the shared core; only the
+// orchestration loop is owned here. Nothing invents a shot list outside the
+// storyboard.
 
 import type {
   AgentId, AgentInput, FilmSuiteOptions, RunOptions, Run, RunEvent,
   InspirationInput, VariationsInput, MixMatchInput, AnimateInput, PromptMuseInput, StoryBeatsInput,
   ImageAsset, VideoAsset, TextAsset, Beat, SuiteConfigOverride,
-  ProduceInput, ProduceOptions, ProduceResult, AutoDirectorInput,
+  ProduceInput, ProduceOptions, PipelineResult, AutoDirectorInput,
   Production, ProductionOptions, StitchFn,
 } from './types';
 import { runProduction, createProduction as createProductionCore } from './core';
@@ -39,20 +41,21 @@ const defaultStitch = (s: StitchFn | false | undefined): StitchFn | undefined =>
   (s === undefined ? lazyNodeStitch : undefined); // `false` → no stitch; a fn → used via opts by the session
 
 /**
- * Produce a full film headlessly: understand → plan → generate shots → QC → stitch,
- * running the entire agentic loop in-process via a direct-to-ModelArk transport —
- * no Service API required. Node runtime (stitching shells out to ffmpeg).
+ * Produce a full film headlessly through the pipeline: cast (input.bible, or
+ * auto-generated once) → storyboard → direct-to-video shots → stitch, running
+ * in-process via a direct-to-ModelArk transport — no Service API required.
+ * Node runtime (stitching shells out to ffmpeg).
  *
  * `apiKey`/`baseUrl` default to env `MODELARK_API_KEY` / `MODELARK_API_BASE_URL`.
  */
-export async function produce(input: ProduceInput, opts: ProduceOptions = {}): Promise<ProduceResult> {
+export async function produce(input: ProduceInput, opts: ProduceOptions = {}): Promise<PipelineResult> {
   const transport = createDirectTransport({ apiKey: opts.apiKey, baseUrl: opts.baseUrl, stitch: defaultStitch(opts.stitch) });
   return runProduction(input, transport, opts);
 }
 
 /**
- * Open an INTERACTIVE production you drive step by step (understand → plan → runStep →
- * pick/approve/regenerate/skip → stitch), or call `.runAll()` for the autonomous loop.
+ * Open an INTERACTIVE production you drive step by step (plan from a blueprint →
+ * runStep → pick/approve/regenerate/skip → stitch), or call `.runAll()` for the loop.
  * Same engine as `produce()`; here you own the control flow — build any UI on top.
  * Defaults to `mode: 'review'`. `apiKey`/`baseUrl` default to env like `produce()`.
  */
@@ -158,7 +161,7 @@ export class FilmSuite {
    * Contrast with `produce()`, which runs the loop in *this* process.
    */
   autoDirector(input: AutoDirectorInput, opts?: RunOptions) {
-    return this.run<ProduceResult>('autoDirector', input, opts);
+    return this.run<PipelineResult>('autoDirector', input, opts);
   }
 
   /** Open an interactive production (in-process engine) using this suite's apiKey. */

@@ -5,19 +5,9 @@
 // parseBeats in operations.js. No canvas, no browser, no network here.
 
 import { renderTemplate, getModel, getRuntime } from '../suiteConfig';
-import { planPrompts } from './operations';
 
 // Seed 2.0 Pro thinking depth for these (heavy) reasoning calls.
 const effort = (config) => getRuntime(config).reasoningEffort;
-
-// Agents the planner is allowed to compose into a production (storyDirector is
-// interactive, promptMuse is a helper — both excluded from auto-planning).
-export const PLANNABLE_AGENTS = ['inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'animate'];
-
-const randomId = () => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '').slice(0, 10);
-  return Math.random().toString(36).slice(2, 10);
-};
 
 // Tolerant JSON: strip code fences, try a direct parse, else grab the first
 // balanced object/array. Returns null when nothing parses. (Exported — the
@@ -29,26 +19,6 @@ export const parseJson = (text) => {
   const m = cleaned.match(/[[{][\s\S]*[\]}]/);
   if (m) { try { return JSON.parse(m[0]); } catch { /* */ } }
   return null;
-};
-
-// ---- understand: VLM reads the source assets + idea → a production brief -------
-
-export const understandAssets = async ({ images = [], idea = '', config } = {}, ctx) => {
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('autoDirector.understand.user', { idea: idea || '(none given)' }),
-    systemPrompt: renderTemplate('autoDirector.understand.system'),
-    images,
-    modelId: getModel('reasoner', config), reasoningEffort: effort(config),
-  });
-  const b = parseJson(content) || {};
-  return {
-    logline: String(b.logline || idea || '').slice(0, 240),
-    genre: String(b.genre || '').slice(0, 80),
-    mood: String(b.mood || '').slice(0, 120),
-    palette: String(b.palette || '').slice(0, 160),
-    subjects: Array.isArray(b.subjects) ? b.subjects.slice(0, 8).map((s) => ({ name: String(s?.name || '').slice(0, 60), description: String(s?.description || '').slice(0, 200) })) : [],
-    locations: Array.isArray(b.locations) ? b.locations.slice(0, 8).map((l) => ({ name: String(l?.name || '').slice(0, 60), description: String(l?.description || '').slice(0, 200) })) : [],
-  };
 };
 
 // ---- intake: VLM classifies a pile of uploaded assets into bible roles ----------
@@ -140,6 +110,11 @@ export const ACTION_DESCRIBE = {
   locationVariations: 'coverage variations of a location/place: angle, time of day, weather',
   mixMatch: 'compose a character into locations — story moments of what might happen to them there',
   exploreTopic: 'research a topic before production — fills the board with its key concepts as candidate images',
+  storyboard: 'break the film into 10–15s shots — one sketch card per shot (what happens, framing, camera) drawn around the tagged cast and places',
+  detectGenre: 'the message is a fresh film PREMISE/idea and no genre is locked yet — read its genre & tone first (the user confirms, then casting runs in that genre). Pick this for an opening idea like "cowboys vs a grizzly" when idea is NOT set',
+  castDraft: 'generate the cast & location plates from the idea — pick ONLY when a genre is already set/confirmed (otherwise detectGenre comes first)',
+  nextStep: 'they ask to continue or what to do next ("continue", "next", "what now", "go on") — advance the pipeline to its next concrete step',
+  stitch: 'assemble the rendered shots into the final cut — pick when they say stitch / render / assemble the film',
   classify: 'sort the board\'s untagged images into roles — pick when they ask to tag / sort / organize what they have',
   makeAd: 'lay the ad\'s CUT cards out for review — pick when they say make the ad / build it / plan the shots',
   action: 'shoot the laid-out CUT cards — pick when they say action / roll / shoot the cuts',
@@ -148,7 +123,7 @@ export const ACTION_DESCRIBE = {
   unknown: 'none of the above fit and it is not answerable',
 };
 
-export const FILM_ACTIONS = ['filmChunk', 'correctChunk', 'approveChunk', 'proposeBeats', 'inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'exploreTopic', 'classify', 'answer', 'unknown'];
+export const FILM_ACTIONS = ['filmChunk', 'correctChunk', 'approveChunk', 'proposeBeats', 'inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'exploreTopic', 'storyboard', 'detectGenre', 'castDraft', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
 export const AD_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'exploreTopic', 'classify', 'makeAd', 'action', 'relayCuts', 'answer', 'unknown'];
 
 export const routeStudioAction = async ({ message = '', context = '', actions = FILM_ACTIONS, config } = {}, ctx) => {
@@ -178,44 +153,6 @@ export const routeStudioAction = async ({ message = '', context = '', actions = 
 
 // Back-compat alias — the film dock's original entry point (defaults FILM_ACTIONS).
 export const routeFilmAction = (args = {}, ctx) => routeStudioAction(args, ctx);
-
-// ---- plan: brief → ordered steps mapped to existing agents ---------------------
-
-export const buildPlan = async ({ brief, idea = '', targetSeconds, targetMinutes = 4, shotCount, agents = [], config } = {}, ctx) => {
-  const catalogue = (agents.length ? agents : PLANNABLE_AGENTS.map((id) => ({ id, describe: '' })))
-    .map((a) => `- ${a.id}: ${a.describe || ''}`).join('\n');
-  const allowed = agents.length ? agents.map((a) => a.id) : PLANNABLE_AGENTS;
-  const briefText = typeof brief === 'string' ? brief : JSON.stringify(brief || {}, null, 2);
-  // The film is a sequence of 10–15s shots; derive how many from the target length.
-  const secs = Math.round(targetSeconds != null ? targetSeconds : (targetMinutes || 4) * 60);
-  const shots = shotCount != null ? shotCount : Math.max(2, Math.min(8, Math.round(secs / 10)));
-
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('autoDirector.plan.user', { idea: idea || '(none given)', brief: briefText, targetSeconds: secs, shotCount: shots }),
-    systemPrompt: renderTemplate('autoDirector.plan.system', { agents: catalogue, shotCount: shots }),
-    modelId: getModel('reasoner', config), reasoningEffort: effort(config),
-  });
-
-  const raw = parseJson(content);
-  const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.steps) ? raw.steps : []);
-  // Assign ids by original index first so dependsOn (0-based indexes from the
-  // model) can be remapped to ids before we drop any invalid steps.
-  const ids = arr.map(() => `st-${randomId()}`);
-  return arr
-    .map((s, i) => ({
-      id: ids[i],
-      agent: s?.agent,
-      title: String(s?.title || s?.agent || `Step ${i + 1}`).slice(0, 60),
-      intent: String(s?.intent || '').slice(0, 320),
-      params: (s?.params && typeof s.params === 'object') ? s.params : {},
-      // Only depend on EARLIER steps (a DAG) — a forward/self reference would
-      // resolve to a step that hasn't produced outputs yet and starve this one.
-      dependsOn: (Array.isArray(s?.dependsOn) ? s.dependsOn : [])
-        .filter((n) => Number.isInteger(n) && n >= 0 && n < i)
-        .map((n) => ids[n]),
-    }))
-    .filter((s) => allowed.includes(s.agent));
-};
 
 // ---- QC: VLM reviews a step's outputs vs intent + references --------------------
 
@@ -248,19 +185,3 @@ export const qcStep = async ({ agent = '', intent = '', references = [], outputs
   return { verdict, issues, best };
 };
 
-// ---- Phase 0: creative exploration --------------------------------------------
-
-// Fully agentic: the planner (planPrompts) reads the concept + reference images
-// and returns N DISTINCT, tone-appropriate style prompts — no hardcoded pool. We
-// then render one key still per style. Source images are passed as references so
-// a subject is restyled, not replaced. Streams each result via onItem.
-export const exploreStyles = async ({ idea = '', images = [], count = 8, config } = {}, ctx, onItem) => {
-  const items = await planPrompts({ task: 'styles', count, idea, references: images, config }, ctx);
-  const results = await Promise.allSettled(items.map(async (it) => {
-    const data = await ctx.client.generateImage({ prompt: it.prompt, referenceImages: images, size: '2K', model: getModel('seedream', config) });
-    const item = { url: data.url, style: it.label, prompt: data.prompt || it.prompt };
-    if (onItem) onItem(item);
-    return item;
-  }));
-  return results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
-};

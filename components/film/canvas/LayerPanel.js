@@ -36,7 +36,7 @@ const combineSelectedText = (selection) =>
     .filter(Boolean)
     .join('\n\n');
 
-const SIZE_OPTIONS = ['1K', '2K', '4K'];
+const SIZE_OPTIONS = IMAGE_RESOLUTIONS; // the tiers the API actually accepts (2K/3K/4K) — never a bare '1K', which it rejects
 
 const RESOLUTION_OPTIONS = ['480p', '720p', '1080p'];
 const RATIO_OPTIONS = ['adaptive', '16:9', '9:16', '4:3', '1:1', '21:9'];
@@ -188,6 +188,25 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
         </Space>
         <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
           Researches the topic before production: discovers its unique key concepts (you don&rsquo;t need to know the right taxonomy), then fills the board shallow→deep — a brief on what makes such videos good, one group per concept, and candidate images each carrying a <b>suggested role</b>. Click the suggestion on a card to tag it into the bible.
+        </Paragraph>
+      </Space>
+    );
+  }
+
+  if (layer.id === 'storyboard') {
+    return (
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Film length</Text>
+          <Select
+            value={settings.lengthSec || 90}
+            onChange={(v) => update({ lengthSec: v })}
+            style={{ width: 110 }}
+            options={[60, 90, 120, 150, 180].map((s) => ({ label: `${s}s`, value: s }))}
+          />
+        </div>
+        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
+          Reads your idea and your tagged cast &amp; places, breaks the film into 5–15s shots, and lays one SHOT card per shot on the board — what happens, framing, camera. The sketches are planning drawings; <b>your real tagged assets feed the video</b> when you shoot. Tag at least one cast or place image first.
         </Paragraph>
       </Space>
     );

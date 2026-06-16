@@ -183,15 +183,27 @@ export const buildAnimatePrompt = ({ motion, camera, lens, focalLength, aperture
   return [cine, motionText].filter(Boolean).join('. ');
 };
 
+// The dominant LIVE failure mode (observed 2026-06-11/12): the OUTPUT-AUDIO policy
+// rejects an otherwise good shot ("output audio may contain sensitive information").
+// Callers catch this and retake the shot once with generateAudio:false — a silent
+// shot beats a hole in the final cut.
+export const isAudioPolicyError = (err) => /output audio may contain sensitive/i.test((err && err.message) || '');
+
 // Kicks off the async video task; caller polls via ctx.client.pollVideo({ taskId }).
-// Duration is HARD-CLAMPED to 10–15s (the quality bar): an LLM plan that says 5 — or
-// a stale persisted setting — can't undercut it, no matter which path called us.
-export const animate = async ({ imageUrl, assetId, motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, config } = {}, ctx) => {
-  if (!imageUrl && !assetId) throw new Error('animate requires an imageUrl or assetId');
-  duration = Math.min(15, Math.max(10, Math.round(Number(duration) || 10)));
+// Duration is HARD-CLAMPED to 5–15s (a SHOT's range; it breaks into cuts of ≤5–6s):
+// a stale setting or stray LLM number can't push outside it, no matter the caller.
+// Two source modes: a single imageUrl/assetId (the classic keyframe → first frame),
+// or `refUrls` — SEVERAL real reference images (direct-to-video: the storyboard's
+// cast/place assets, untouched, so the video model preserves the subjects itself).
+export const animate = async ({ imageUrl, assetId, refUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, config } = {}, ctx) => {
+  if (!imageUrl && !assetId && !refUrls.length) throw new Error('animate requires an imageUrl, assetId or refUrls');
+  duration = Math.min(15, Math.max(5, Math.round(Number(duration) || 10)));
   const prompt = buildAnimatePrompt({ motion, camera, lens, focalLength, aperture });
   const content = [{ type: 'text', text: prompt }];
-  if (assetId) content.push({ type: 'image_asset_id', asset_id: assetId, role: 'reference_image' });
+  // Seedance 2.0 accepts up to 9 reference images (plus reference video ≤15s and
+  // audio — not wired yet) — slice, never fail.
+  if (refUrls.length) refUrls.slice(0, 9).forEach((u) => content.push({ type: 'image_url', image_url: { url: u }, role: 'reference_image' }));
+  else if (assetId) content.push({ type: 'image_asset_id', asset_id: assetId, role: 'reference_image' });
   else content.push({ type: 'image_url', image_url: { url: imageUrl }, role: 'reference_image' });
   const { taskId } = await withRetry(
     () => ctx.client.startVideo({ content, model: getModel('seedance', config), resolution, ratio, duration, generateAudio }),

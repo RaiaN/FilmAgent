@@ -12,6 +12,9 @@ export const emptyProject = ({ id, title, language, targetMinutes, idea }) => ({
   language: language || 'en',
   targetMinutes: targetMinutes || 4,
   idea: idea || '',
+  // The detected/confirmed genre + tone — set at the Idea stage, drives the cast
+  // style and the storyboard's shot grammar. { label, tone, line } or null.
+  genre: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 

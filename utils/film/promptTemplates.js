@@ -54,6 +54,76 @@ export const DEFAULT_TEMPLATES = {
     text: '{focus}Read the attached reference(s) and help me describe them so I can prompt for more like this.',
   },
 
+  // ---- Storyboard (the plan between casting and filming) ----
+  'storyboard.read.system': {
+    agent: 'Storyboard',
+    label: 'Break the film into shots (system)',
+    vars: ['{count}', '{templates}'],
+    text: 'You are a film storyboard artist and cinematographer. Study the attached reference images — the film\'s REAL cast, places and look, numbered in order — and the film idea, then break the film into exactly {count} shots of 5–15 seconds that tell one coherent story start to finish.\n\nFor EACH shot, choose the single best-fit camera setup from this SHOT TEMPLATE LIBRARY (reference it by its exact id):\n{templates}\n\nReturn ONLY a JSON array of {count} objects — no prose, no code fences: {"title": a 2–4 word shot name, "action": ONE plain present-tense sentence of what happens on screen (name the actual people/places from the references), "shotTemplate": the exact id of the chosen template, "durationSec": an integer 5–15, "refs": an array of the 1-based numbers of the reference images appearing in this shot}. Vary the templates across the film like a real cinematographer: establish wide, punch in for emotion, change angle and movement to serve each moment, and keep geography and light continuous.',
+  },
+  'storyboard.read.user': {
+    agent: 'Storyboard',
+    label: 'Break the film into shots (instruction)',
+    vars: ['{idea}', '{genre}', '{seconds}', '{count}', '{refList}'],
+    text: 'Film idea: {idea}\nGenre & tone: {genre}\n\nFavor templates that match this genre\'s grammar (e.g. westerns: wide vistas + slow pushes; horror: tight framing + handheld; noir: low angles).\n\nTarget length: about {seconds} seconds → {count} shots.\nReference images, in order: {refList}\n\nReturn the JSON array of shots.',
+  },
+  'genre.detect.system': {
+    agent: 'Storyboard',
+    label: 'Genre & tone detector (system)',
+    vars: [],
+    text: `You are a film's creative director reading a premise to lock its GENRE and TONE — the one decision that drives look, casting and shot grammar. Return ONLY JSON, no prose or code fences:
+{"genre": "<primary genre, 1–3 words; hybrids welcome, e.g. 'survival western', 'cosmic horror'>",
+ "tone": "<2–4 words: emotional register / era / texture, e.g. 'gritty, naturalistic, 1970s'>",
+ "treatment": "<ONE sentence: how this premise plays as that genre>",
+ "alternatives": ["<2–3 other plausible genre+tone takes, each 1–4 words, that a director might reasonably prefer>"]}
+Be specific and cinematic. Avoid bare 'drama' unless nothing else fits.`,
+  },
+  'genre.detect.user': {
+    agent: 'Storyboard',
+    label: 'Genre & tone detector (instruction)',
+    vars: ['{idea}'],
+    text: 'Premise: {idea}\n\nRead its genre and tone.',
+  },
+  'storyboard.cast.system': {
+    agent: 'Storyboard',
+    label: 'Draft the production — cast & places (system)',
+    vars: [],
+    text: `You are a film's pre-production department — casting and location scouting. From the film idea, derive the MINIMUM real assets that anchor every shot: 1–2 characters and 1–2 locations. A "character" is anything recurring that gets close-ups — people, animals, an antagonist creature. Decide the film's ONE visual style first (medium, palette, light, grade); every asset shares it.
+
+Each CHARACTER needs BOTH a close-up FACE and a full-body sheet — the film has close-ups, so a face must be rendered at portrait fidelity, not cropped from a distant plate.
+
+Return ONLY a JSON object — no prose, no code fences:
+{
+  "style": "<ONE sentence: the shared visual style — medium, palette, light, grade>",
+  "cast": [
+    {
+      "role": "character",
+      "name": "<2–3 word label>",
+      "facePrompt": "[MEDIUM] Cinematic film still, close-up, shot with intention. [SUBJECT] <age, build, ethnicity or species, distinctive bone structure / markings>. [CAMERA] cinematic prime lens, <key-light direction>, shallow depth of field. [SKIN_REFLECTANCE] real skin — semi-matte, visible pores and texture, weathering / scars / freckles as fitting; no dewy glow, no frequency separation. [HAIR] <natural, real, a few stray strands>. [EXPRESSION] <in character; eyes doing the work, mouth relaxed>. [FORBIDDEN] no over-retouched skin, no plastic or porcelain finish, no AI beauty mode, no soft-focus glow, no render — real, photographed.",
+      "bodyPrompt": "<full-body CHARACTER SHEET of the SAME subject head-to-toe, natural standing stance, wardrobe / coat / markings, plain neutral-grey background, even full-length light; identity and face match the reference exactly; same realism rules — real texture, no AI beauty; no on-image text>"
+    },
+    {
+      "role": "location",
+      "name": "<2–3 word label>",
+      "prompt": "<establishing view of the place, no people, neutral motivated light, no on-image text>"
+    }
+  ]
+}
+Max 5 entries total. Keep the [SECTION] tags in every facePrompt exactly as shown. For ANIMAL characters, adapt [SKIN_REFLECTANCE] to fur / hide / feather texture and [HAIR] accordingly. Make every asset specific, distinctive and faithful to the idea. NEVER put text, captions or watermarks in any image.`,
+  },
+  'storyboard.cast.user': {
+    agent: 'Storyboard',
+    label: 'Draft the production (instruction)',
+    vars: ['{idea}', '{genre}'],
+    text: 'Film idea: {idea}\nGenre & tone: {genre}\n\nThe shared visual style MUST embody that genre & tone, and the cast must fit it. Return the JSON object: the shared style + the cast (characters with facePrompt + bodyPrompt) and locations.',
+  },
+  'storyboard.frame': {
+    agent: 'Storyboard',
+    label: 'Photoreal storyboard frame',
+    vars: ['{framing}', '{angle}', '{action}'],
+    text: 'Photorealistic cinematic film still, {framing}, {angle}. The subjects from the attached reference images — keep their exact identity, face, wardrobe, build and markings — placed inside the attached location, {action}. Natural motivated lighting, real photographic skin and texture, cinematic depth of field, subtle film grain. NOT a sketch, NOT an illustration, NOT a 3D render — a photographed frame. No on-image text, captions or watermarks.',
+  },
+
   // ---- Story Director (headless Service API ONLY) ----
   // The canvas Story-Director agent was removed; these still power the Service API's
   // storyBeats agent (server-side via runStore.js), so they stay registered but are
@@ -172,7 +242,7 @@ export const DEFAULT_TEMPLATES = {
     agent: 'Concierge',
     label: 'Studio chat — route a message to an action, or answer it (system)',
     vars: ['{actions}'],
-    text: 'You are a studio assistant handling one chat message from the user. Either route it to exactly ONE studio action, or — when the message is a question or asks for advice — answer it yourself. Available actions: {actions}. Rules: when the message ASKS something (a question, a "which/what/how/why", a request for recommendation), pick "answer" and put the full answer in "say" — 1 to 4 plain sentences, grounded ONLY in the studio context provided; if the context doesn\'t cover it, say so honestly. When the message ASKS FOR WORK, pick the one action that does it, and extract the user\'s own wording into the fields VERBATIM — never rewrite or embellish their words. Pick "unknown" only when nothing fits and it isn\'t answerable. Return ONLY a JSON object — no prose, no code fences: {"action": one id, "beat": for filmChunk — ONE vivid sentence of what happens on screen, "prompt": for inspiration/exploreTopic — the user\'s description in their words, "direction": for characterVariations/locationVariations/mixMatch — what to vary or stage, in their words, "note": for correctChunk — the critique as a retake note, "say": for "answer" the answer itself; for actions ONE short plain sentence proposing it back, e.g. "I\'ll make 4 night versions of your downtown street." Plain language; name actual things; never the words "hero" or "star".}',
+    text: 'You are a studio assistant handling one chat message from the user. Either route it to exactly ONE studio action, or — when the message is a question or asks for advice — answer it yourself. Available actions: {actions}. Rules: when the message ASKS something (a question, a "which/what/how/why", a request for recommendation), pick "answer" and put the full answer in "say" — 1 to 4 plain sentences, grounded ONLY in the studio context provided; if the context doesn\'t cover it, say so honestly. When the message ASKS FOR WORK, pick the one action that does it, and extract the user\'s own wording into the fields VERBATIM — never rewrite or embellish their words. Pick "unknown" only when nothing fits and it isn\'t answerable. Return ONLY a JSON object — no prose, no code fences: {"action": one id, "beat": for filmChunk — ONE vivid sentence of what happens on screen, "prompt": for inspiration / exploreTopic / storyboard / castDraft — the user\'s premise or description, VERBATIM in their words (when the message contains one; a bare command like "continue" or "draft the cast" leaves it empty), "direction": for characterVariations/locationVariations/mixMatch — what to vary or stage, in their words, "note": for correctChunk — the critique as a retake note, "say": for "answer" the answer itself; for actions ONE short plain sentence proposing it back, e.g. "I\'ll make 4 night versions of your downtown street." Plain language; name actual things; never the words "hero" or "star".}',
   },
   'concierge.route.user': {
     agent: 'Concierge',
@@ -193,31 +263,7 @@ export const DEFAULT_TEMPLATES = {
     text: 'Ad idea: {idea}\n\nThe {count} attached images are the client\'s uploaded assets, in order. Classify each into exactly one of: {roles}. Return the specified JSON array — one entry per image, in the same order.',
   },
 
-  // ---- Producer (the brief→film orchestrator behind Auto-fill; was "Auto Director") ----
-  'autoDirector.understand.system': {
-    agent: 'Producer',
-    label: 'Understand assets (system)',
-    vars: [],
-    text: 'You are a film director\'s assistant. Study the provided reference image(s) and the user\'s idea, then summarize what there is to work with as a production brief. Return ONLY a JSON object — no prose, no code fences: {"logline": one vivid sentence, "genre": short, "mood": short, "palette": short colour/lighting description, "subjects": [{"name": short label, "description": who or what they are}], "locations": [{"name": short label, "description": the setting}]}. Infer sensibly from the images; fold in any detail from the idea. Keep every field concise.',
-  },
-  'autoDirector.understand.user': {
-    agent: 'Producer',
-    label: 'Understand assets (instruction)',
-    vars: ['{idea}'],
-    text: 'Idea / pitch: {idea}\n\nThe attached images are the source assets. Produce the production brief as the specified JSON object.',
-  },
-  'autoDirector.plan.system': {
-    agent: 'Producer',
-    label: 'Build production plan (system)',
-    vars: ['{agents}', '{shotCount}'],
-    text: 'You are a film director turning a brief into a SHORT FILM that is a SEQUENCE OF {shotCount} DISTINCT SHOTS played back-to-back, using ONLY these agent ids:\n{agents}\n\nPlan it as ordered steps. FIRST, 1–3 setup steps that establish the shared look and the key subjects/locations (inspiration / characterVariations / locationVariations). THEN, for EACH of the {shotCount} shots in story order: compose that shot\'s keyframe with mixMatch or inspiration (using the setup outputs + any reference images), and add exactly ONE `animate` step that animates THAT keyframe. The plan MUST contain EXACTLY {shotCount} `animate` steps — they ARE the film\'s timeline, in order.\n\nRules:\n- Title each `animate` step by WHAT HAPPENS in that shot (e.g. "Hero steps onto the platform", "Wide reveal of the city at dusk"). NEVER use the words "final", "sequence", "footage", "clip" or "animation" as a shot title.\n- Each `animate` step must dependsOn the keyframe step that feeds it.\n- Make the {shotCount} shots genuinely different — vary framing, action, location, time and beat so together they tell the story.\n- params per agent, e.g. inspiration {"prompt":"…"}; mixMatch {"prompt":"…","ratio":"16:9"}; animate {"motion":"…","camera":"slow push-in","duration":10}. Shots are 10–15 seconds each (duration 10–15, never less).\n\nReturn ONLY a JSON array of steps — no prose, no code fences. Each step: {"agent": one id, "title": 2–6 words, "intent": one sentence, "params": object, "dependsOn": array of earlier 0-based step indexes}.',
-  },
-  'autoDirector.plan.user': {
-    agent: 'Producer',
-    label: 'Build production plan (instruction)',
-    vars: ['{idea}', '{brief}', '{targetSeconds}', '{shotCount}'],
-    text: 'Idea: {idea}\n\nBrief:\n{brief}\n\nMake a ~{targetSeconds}-second film told in {shotCount} shots (10–15 seconds each — set "duration" to 10–15 on every animate step, never 5). Plan it now as the specified JSON array — exactly {shotCount} `animate` steps, one per shot, in story order, each titled by what happens in it.',
-  },
+  // ---- Producer QC (the per-step reviewer) ----
   'autoDirector.qc.system': {
     agent: 'Producer',
     label: 'Per-step QC review (system)',

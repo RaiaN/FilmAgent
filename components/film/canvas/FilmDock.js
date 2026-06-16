@@ -11,7 +11,7 @@ const { Text } = Typography;
 // (film chunk / correct / approve / variations / inspiration / mix&match story
 // moments / topic explorer), proposes it back in plain words, and a single tap
 // dispatches it deterministically. LLM interprets; the user confirms; tools run.
-const FilmDock = ({ onClose, onRoute, onDispatch, filming }) => {
+const FilmDock = ({ onReset, onRoute, onDispatch, filming, progress }) => {
   const scrollRef = useRef(null);
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
@@ -19,6 +19,7 @@ const FilmDock = ({ onClose, onRoute, onDispatch, filming }) => {
   const [working, setWorking] = useState(false);
   const [pending, setPending] = useState(null);   // { action, params, say } awaiting Do it
   const [beatChips, setBeatChips] = useState([]); // proposed next beats
+  const [choices, setChoices] = useState([]); // one-tap choices (e.g. genre picks) → { label, action, params }
   const [collapsed, setCollapsed] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const dragRef = useRef(null);
@@ -26,25 +27,50 @@ const FilmDock = ({ onClose, onRoute, onDispatch, filming }) => {
   const midRef = useRef(0);
   const say = (from, text) => setMessages((m) => [...m, { id: (midRef.current += 1), from, text }]);
 
-  useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages, pending, beatChips]);
+  useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages, pending, beatChips, choices]);
 
   const started = useRef(false);
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    say('agent', "🎬 I'm your director. Tell me what you want in plain words — “shoot the fox slipping into the cave”, “show me wardrobe options for the guide”, “what could happen next?”, “stage story moments of her across our locations” — and I'll line up the right tool. You confirm, I roll.");
-  }, []);
+    // The strip up top already shows the stages and the next step, so the dock
+    // doesn't repeat them — it just says what the chat is FOR. The one thing worth
+    // surfacing here is an unapproved take waiting on a decision.
+    const draftNote = filming && filming.draft ? ` A draft take (“${filming.draft}”) is waiting — say “approve” to lock it, or tell me what to fix.` : '';
+    say('agent', `🎬 Director here. The strip up top tracks the stages and runs the next step. In here, just tell me what you want — corrections, questions, “film this: …”.${draftNote}`);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Live narration from the engine (keyframe ready / QC verdicts / take landed /
+  // failures) — printed the moment each stage actually happens.
+  const progSeqRef = useRef(0);
+  useEffect(() => {
+    if (progress && progress.seq > progSeqRef.current) {
+      progSeqRef.current = progress.seq;
+      say('agent', progress.text);
+    }
+  }, [progress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const busy = routing || working || (filming && filming.busy);
 
   const dispatch = async (action, params) => {
     setPending(null);
+    setBeatChips([]);
+    setChoices([]);
     setWorking(true);
     try {
       const out = await onDispatch(action, params);
       if (Array.isArray(out)) { // proposeBeats → pickable chips
         setBeatChips(out);
-        say('agent', out.length ? 'Here’s what could happen next — pick one, or describe your own:' : "I couldn't come up with beats — describe the next moment yourself.");
+        say('agent', out.length ? 'Here’s what could happen next — pick one, or describe your own:' : "I couldn't come up with anything — describe the next moment yourself.");
+      } else if (out && typeof out === 'object' && Array.isArray(out.choices)) {
+        // One-tap choices (genre detector): say the read, then the picks as chips.
+        say('agent', out.say || 'Pick one:');
+        setChoices(out.choices);
+      } else if (out && typeof out === 'object' && out.say) {
+        // Guided next step: the dispatch explains AND offers the follow-up action
+        // as the pending one-tap (e.g. storyboard with nothing cast → draft a cast).
+        say('agent', out.say);
+        if (out.next) { setPending(out.next); say('agent', `${out.next.say || out.next.action} — go?`); }
       } else {
         say('agent', out || 'Done.');
       }
@@ -61,17 +87,21 @@ const FilmDock = ({ onClose, onRoute, onDispatch, filming }) => {
     say('user', text);
     setDraft('');
     setBeatChips([]);
+    setChoices([]);
     setPending(null);
     setRouting(true);
     try {
       const routed = await onRoute(text);
       if (!routed || routed.action === 'unknown') {
-        say('agent', "I didn't catch which tool that needs. Try: a beat to shoot, a critique of the take, “variations of <character>”, “story moments across locations”, “explore <topic>” — or just ask me a question.");
+        say('agent', "I didn't catch which tool that needs. Try: what to shoot next, a critique of the take, “variations of <character>”, “story moments across locations”, “explore <topic>” — or just ask me a question. The strip up top always has the next step.");
         return;
       }
       // A question → the router answered it directly; no tool, no confirmation.
       if (routed.action === 'answer') { say('agent', routed.say || "I don't have a good answer for that — try asking differently."); return; }
       if (routed.action === 'proposeBeats') { await dispatch('proposeBeats', routed); return; }
+      // A fresh premise → read the genre right away and present the picks (the gate)
+      // — no intermediate "Do it" before the choice that matters.
+      if (routed.action === 'detectGenre') { await dispatch('detectGenre', routed); return; }
       // Everything else: propose in plain words, act on one tap.
       setPending(routed);
       say('agent', routed.say || `I'll run ${routed.action}. Go?`);
@@ -87,6 +117,13 @@ const FilmDock = ({ onClose, onRoute, onDispatch, filming }) => {
     setPending({ action: 'filmChunk', beat: b.prompt, say: `I'll film: ${b.prompt}` });
     say('user', b.title);
     say('agent', `I'll film: ${b.prompt} — go?`);
+  };
+
+  // A one-tap choice (e.g. a genre pick) → echo it and run its action immediately.
+  const pickChoice = (c) => {
+    setChoices([]);
+    say('user', c.label);
+    dispatch(c.action, c.params);
   };
 
   // ---- drag (bail on buttons so × works) ----
@@ -107,7 +144,7 @@ const FilmDock = ({ onClose, onRoute, onDispatch, filming }) => {
         <Tooltip content={collapsed ? 'Expand' : 'Collapse'}>
           <Button size="mini" type="text" style={{ color: '#fff' }} icon={collapsed ? <IconDown /> : <IconUp />} onClick={() => setCollapsed((v) => !v)} />
         </Tooltip>
-        <Tooltip content="Close"><Button size="mini" type="text" style={{ color: '#fff' }} icon={<IconClose />} onClick={onClose} /></Tooltip>
+        <Tooltip content="Reset — back to “What are we making?”"><Button size="mini" type="text" style={{ color: '#fff' }} icon={<IconClose />} onClick={() => onReset && onReset()} /></Tooltip>
       </div>
 
       {!collapsed && (
@@ -121,6 +158,13 @@ const FilmDock = ({ onClose, onRoute, onDispatch, filming }) => {
             {beatChips.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                 {beatChips.map((b) => <Button key={b.title} size="mini" style={{ borderRadius: 14 }} title={b.prompt} onClick={() => pickBeat(b)}>✨ {b.title}</Button>)}
+              </div>
+            )}
+            {choices.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {choices.map((c, i) => (
+                  <Button key={c.label} size="small" type={i === 0 ? 'primary' : 'outline'} disabled={working} style={{ borderRadius: 14, ...(i === 0 ? { background: '#b06f10', borderColor: '#b06f10' } : { borderColor: '#b06f10', color: '#b06f10' }) }} onClick={() => pickChoice(c)}>{c.label}</Button>
+                ))}
               </div>
             )}
             {pending && (
@@ -140,7 +184,7 @@ const FilmDock = ({ onClose, onRoute, onDispatch, filming }) => {
               autoSize={{ minRows: 1, maxRows: 4 }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-              <Text type="secondary" style={{ fontSize: 10 }}>{busy ? (routing ? 'Reading…' : 'Working…') : 'Routes to: shoot · correct · approve · beats · variations · story moments · inspiration · explore · sort — or just ask'}</Text>
+              <Text type="secondary" style={{ fontSize: 10 }}>{busy ? (routing ? 'Reading…' : (filming && filming.stage ? `Working… ${filming.stage}` : 'Working…')) : 'Routes to: shoot · correct · approve · variations · story moments · storyboard · cast · stitch · inspiration · explore · sort — or just ask'}</Text>
               <Button size="small" type="primary" icon={busy && !pending ? <IconLoading /> : <IconRight />} disabled={!draft.trim() || (busy && !pending)} style={{ background: '#b06f10', borderColor: '#b06f10' }} onClick={send}>Send</Button>
             </div>
           </div>

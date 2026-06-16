@@ -117,18 +117,22 @@ export interface ProduceInput {
 /** Input for the Service-API `autoDirector` run (ProduceInput + headless knobs). */
 export interface AutoDirectorInput extends ProduceInput {
   perStepCount?: number;
-  explore?: boolean;
   qc?: boolean;
 }
 
-/** The VLM's reading of the idea + any sources. */
-export interface Brief {
-  logline: string;
-  genre: string;
-  mood: string;
-  palette: string;
-  subjects: { name: string; description: string }[];
-  locations: { name: string; description: string }[];
+/**
+ * One storyboard panel = one 10–15s shot: what happens, how it's framed, how the
+ * camera moves, and which real bible anchors appear. The ONLY shot-planning
+ * artifact in the suite.
+ */
+export interface Panel {
+  index: number;
+  title: string;
+  action: string;
+  framing: string;
+  camera: string;
+  durationSec: number;
+  refEntryIds: string[];
 }
 
 /** One planned production step, mapped to an agent. */
@@ -149,7 +153,6 @@ export interface Shot { stepId: string; url: string; prompt?: string }
 export interface ProducedAsset { stepId: string; kind: 'image' | 'video'; url: string; prompt?: string }
 
 export interface ProduceResult {
-  brief: Brief;
   /** Full plan with each step's status, outputs and pick. */
   plan: ProductionStep[];
   /** Ordered video shots (the final cut, before/after stitching). */
@@ -160,9 +163,15 @@ export interface ProduceResult {
   film?: { path?: string; url?: string; shots: number };
 }
 
+/** What a headless pipeline run returns: the anchors + storyboard ride along. */
+export interface PipelineResult extends ProduceResult {
+  bible: BibleEntry[];
+  panels: Panel[];
+}
+
 /** Lifecycle events streamed during a production. */
 export type ProductionEvent =
-  | { type: 'phase'; phase: 'understanding' | 'planning' | 'executing' | 'stitching' | 'done'; data?: unknown }
+  | { type: 'phase'; phase: 'casting' | 'storyboard' | 'planning' | 'executing' | 'stitching' | 'done'; data?: unknown }
   | { type: 'plan'; plan: ProductionStep[] }
   | { type: 'step'; stepId: string; agent: string; index: number; total: number; status: StepStatus; message?: string }
   | { type: 'asset'; stepId: string; kind: 'image' | 'video'; url: string }
@@ -180,8 +189,6 @@ export interface ProduceOptions {
   /** ModelArk API base; defaults to env MODELARK_API_BASE_URL. */
   baseUrl?: string;
   config?: SuiteConfigOverride;
-  /** Phase 0 creative style exploration. Default false (cheaper, deterministic). */
-  explore?: boolean;
   /** Run QC to pick the best of multiple outputs. Default true (no-op when 1 output). */
   qc?: boolean;
   /** Outputs generated per generative step. Default 1. */
@@ -198,7 +205,7 @@ export interface ProduceOptions {
 
 export type ProductionMode = 'review' | 'auto';
 export type ProductionStatus =
-  | 'idle' | 'understanding' | 'planning' | 'review-plan' | 'running' | 'assembling' | 'done' | 'error';
+  | 'idle' | 'planning' | 'review-plan' | 'running' | 'assembling' | 'done' | 'error';
 export type StepStatus = 'pending' | 'running' | 'review' | 'approved' | 'skipped' | 'failed';
 
 export interface StepOutput { id: string; url: string; kind: 'image' | 'video'; prompt?: string; label?: string }
@@ -221,7 +228,6 @@ export interface ProductionStep extends PlanStep {
 
 export interface ProductionState {
   status: ProductionStatus;
-  brief: Brief | null;
   cursor: number;
   film: { path?: string; url?: string; shots: number } | null;
   error: string | null;
@@ -252,9 +258,8 @@ export interface RunStepInput {
 export interface Production {
   readonly state: ProductionState;
   on(listener: (event: ProductionEvent) => void): () => void;
-  understand(): Promise<Brief>;
+  /** Build the steps from the blueprint (the storyboard/cards) — required. */
   plan(): Promise<ProductionStep[]>;
-  replan(): Promise<ProductionStep[]>;
   start(): void;
   runStep(stepId?: string): Promise<ProductionStep | null>;
   pick(stepId: string, outputId: string): void;
@@ -271,7 +276,7 @@ export interface Production {
   /** Auto-run from the cursor, pausing at the next gated step (canvas "auto" mode). */
   resume(): Promise<void>;
   stitch(): Promise<ProduceResult['film'] | null>;
-  /** Fully autonomous: understand → plan → run every step → stitch. */
+  /** Fully autonomous: plan from the blueprint → run every step → stitch. */
   runAll(): Promise<ProduceResult>;
   result(): ProduceResult;
 }

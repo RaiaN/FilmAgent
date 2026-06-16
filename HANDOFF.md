@@ -1,88 +1,116 @@
-# Hand-off — ModelArk Film Agent · Calivision PoC
+# Hand-off — ModelArk Film Agent · current state
 
-> For the next Claude session. Read §1, §2 and §8 first. The project memory dir (auto-loaded `MEMORY.md`) carries the durable design rules — this file is the deep context. Everything is **parse/build-verified; only items marked LIVE ✅ were run against real models.**
+> For the next Claude session. This is a STATE snapshot (no action list). The project
+> memory dir (auto-loaded `MEMORY.md`, esp. `film-pipeline-vertical-slice.md`) carries the
+> blow-by-blow history. **Everything below is build/lint-verified; only items marked
+> LIVE ✅ were run against real models — and the LIVE runs PREDATE this session's UI work
+> (genre gate, SHOT cards, face→body cast, 4K, 5–15s, Seedance 2.0 prompt format), which
+> is build-verified only.**
 
 ---
 
-## 1. Environment & constraints (READ FIRST — changed since the last hand-off)
+## 1. Environment & constraints
 
-- **Node/npm EXISTS** (the old "no Node" constraint is dead): Trae's bundled toolchain at `~/.trae/binaries/node/versions/24.13.1/bin` (node 24.13.1, npm 11.8.0). It is hidden from the sandboxed shell — you need BOTH `export PATH="$HOME/.trae/binaries/node/versions/24.13.1/bin:$PATH"` AND `dangerouslyDisableSandbox: true` on the Bash call.
-- **Best verification = `npx next build`** (compiles every page/route, prerenders `/` → the whole React tree renders). Use deno (`/opt/homebrew/bin/deno`) for fast iteration: `cp file.js /tmp/x.jsx && deno lint /tmp/x.jsx` for JSX, `deno run` throwaway proof scripts for pure modules (recipes, timelineModel, trace, retry, parallel; core files with extensionless imports don't `deno run` — replicate their logic in the proof instead).
-- **Ignore deno-only noise:** `no-window`, `require-await`, `no-node-globals` (on API routes), and the pre-existing `setFormValues`/`err` unused-vars in FilmAgentPlayground.
-- **Bash harness ~`set -e` + pipefail**: a failing grep/ls or a `| head` SIGPIPE kills the whole compound command and hides output. Guard every potentially-failing stage with `|| true` / avoid piping `find` to `head`.
-- **Stack:** Next 16.2.9 (Pages Router) · React 18.3.1 (19 = deliberate hold) · eslint 9.39.4 (10 drops `.eslintrc.json`) · ffmpeg-static installed. `npm audit`: 5 vulns left, all `@volcengine/tos-sdk`→axios, **no fix published**. `npm run lint` (`next lint`) may be broken under Next 16 — not blocking, migrate to ESLint CLI if needed.
-- **The user usually has `npm run dev` running on :3000** with `MODELARK_API_KEY` + TOS creds in `.env.local` (server-side fallback — headless API calls need no key in the body). Check `curl localhost:3000` before booting your own.
-- **NEVER claim something works at runtime without a live run.** Separate "parse/build-verified" from "needs browser + key". The **History panel / run trace is the verification instrument** — ask the user to export the `.txt` and analyze it (this loop caught every major bug).
-- **Do NOT `git commit` without asking.** The working tree has been uncommitted all along (last commit `131f3e6`).
+- **Node/npm** = Trae's bundled toolchain at `~/.trae/binaries/node/versions/24.13.1/bin`. Hidden from the sandbox — needs BOTH `export PATH="$HOME/.trae/binaries/node/versions/24.13.1/bin:$PATH"` AND `dangerouslyDisableSandbox: true` on the Bash call.
+- **Best verification = `npx next build`** (compiles every route). Fast iteration: `cp file.js /tmp/x.jsx && /opt/homebrew/bin/deno lint /tmp/x.jsx`; pure modules via throwaway `node /tmp/x.mjs` proofs (core files with extensionless imports don't import cleanly — replicate their logic in the proof).
+- **Ignore deno-only noise:** `no-window`, `require-await`, `no-node-globals`, and pre-existing destructure-to-drop unused-vars (e.g. `serializeNodes`).
+- **NEVER claim runtime works without a live run.** The History panel `.txt` export is the verification instrument — ask the user to export it. A **stale browser bundle** has bitten repeatedly: after edits, the dev server recompiles but the open tab may run old code → hard-refresh (Cmd-Shift-R). Confirm code reached the server with `grep -rl "<new string>" .next`.
+- **Can't drive the app here:** a 2nd `next dev` collides on `.next`; no Chrome extension connected. So UI changes are build-verified, not click-tested by Claude.
+- **Do NOT `git commit` without asking.** Tree uncommitted since `131f3e6`.
 
-## 2. Design rules (the user enforces these hard — also in memory files)
+## 2. Design rules (user-enforced — also in memory)
 
-1. **Consistency obsession**: what the user provided must appear EXACTLY in the output. Production prompt-writing uses the **preservation persona** (`creativePlanner.adShot.*`, via `planTask:'adShot'`); exploration personas are for the freeform board ONLY. Hero bible refs anchor every ad shot. Prompt and refs must never disagree.
-2. **Conversational, turn-by-turn UX** for intake/control (ask one thing at a time); free text is first-class; **garbage gate** — an invalid input is never wrapped in a confirmation (`valid:false` + `clarify` in the intent schema; nothing commits to the project until the brief passes).
-3. **Review gate between intent and spend**: "Make the ad" lays out **CUT cards** (editable prompt/duration/motion/asset-toggles + dashed prerequisite edges); **🎬 Action** shoots exactly what the cards say. Never launch multi-shot generation without an editable plan surface.
-4. **Curate-first**: exploration output (Topic Explorer, variations) is candidates with *suggested* role chips — the user's click canonizes; never auto-tag into the bible.
-5. **Quiet arrival / earned chrome**: no auto-opened panels; timeline controls appear only when actionable; launcher cards hide once a recipe is chosen or a dock is open.
-6. **Plain language** in agent speech (no "star"/"hero" in copy; name actual things). **Suggestion chips in the gap interview were built and REVERTED** — don't reintroduce without asking.
-7. **Quality bar**: shots 10–15s @1080p (hard-clamped in `operations.animate`), shot count = targetSeconds/10.
+1. **Consistency obsession** — user input appears EXACTLY in the output; prompt and refs never disagree.
+2. **Conversational, turn-by-turn** intake; **garbage gate** (invalid input is re-asked, never wrapped in a confirmation; nothing commits until it passes).
+3. **Review gate before spend** — SHOT cards are the editable plan surface; 🎬 shoots exactly what the card says.
+4. **Curate-first** — exploration/cast output is candidates with *suggested* role chips; the user's tag canonizes. Never auto-tag the bible.
+5. **Quiet arrival / earned chrome**; **plain language** (no "hero"/"star" in copy; "beat" banned from user-visible copy).
+6. **No auto-planner** — `createProduction` is blueprint-only; do not reintroduce LLM shot-invention.
+7. **No hardcoded creative prompts** as defaults/fallbacks — default empty, rely on templates.
+8. **Shots are 5–15s** @1080p (hard-clamped in `operations.animate`); a shot = a sequence of CUTs (≤5–6s each).
+9. **Only pass size tiers that exist in `SEEDREAM_SIZES`** (2K/3K/4K). A bare `'1K'` falls through `resolveImageSize` to the literal `"1K"` → API rejects → silent failure.
+10. **The storyboard frame is now a PHOTOREAL still** (the real cast plates + location plate condition a photographed film still that PLACES the cast in the location, at 4K) and is FED to Seedance as a composition reference — **alongside** the real cast/location plates (`shotReferences` puts the plates first, the frame last). This updates rule "no generated stills between assets and video": there IS a generated still now, but it's generated FROM the real plates AND the plates still ride to the video model, so identity is never sourced from a generated image alone. (Pencil sketches are gone.)
 
-## 3. Product surfaces (as built)
+## 3. The Film pipeline (as built)
 
-- **Front door**: empty board → "What are we making?" recipe cards (registry-driven from `RECIPES`): 📣 Cinematic Advertisement, 🎞️ Short Film. Assets-first path → floating "✨ What are we making?" dropdown. Closed docks → floating ⚡ Concierge / 🎬 Director reopen buttons. Header has NO workflow buttons anymore.
-- **Ad flow (ConciergeDock chat)**: idea (garbage-gated) → intent read+confirm (kind/hero/subjects/brandRelevant; `readAdIntent`) → aspect/length/look chips → inventory ("Sort what I have" = classify board images into role-tagged nodes) → per-role gap interview (Upload / Generate-with-description / Skip; subject-steered; brand skipped when `brandRelevant:false`) → ready (+pre-shoot note) → **cuts-review (CUT cards on board) → 🎬 Action** → blueprint-driven production → timeline.
-- **Film flow (FilmDock chat = router)**: free text → `routeFilmAction` (LLM interprets → one plain-sentence proposal → `[Do it]` → deterministic dispatch): filmChunk / correctChunk / approveChunk / proposeBeats / inspiration / characterVariations / locationVariations / mixMatch / exploreTopic. Engine = `createFilmingSession` (generate 10–15s → QC-advisory + human Approve → correct = re-animate only → continue via last-frame + cast-first bible refs). Timeline in film mode = minimal view (no rail/ruler/budget); FilmingInspector = structured alternative.
-- **Bible = role-tagged board nodes** (`data.bibleRole`+locked; `project.bible` DERIVED via `reconcileBibleFromNodes`, keyed by nodeId, seed-gated for old projects). AssetNode shows role badge/dropdown + dashed `+ Role?` suggested chip.
-- **Topic Explorer** (rail agent, lime/compass): LLM-discovered taxonomy shallow→deep (3 concepts × ~4 images, breadth-first, budget≤24, depth-2 deepen), craft-brief card + one tight 2×2 frame per concept, candidates carry suggested roles.
-- **Mix&Match = story moments**: ref[0] = character (tagged talent wins), rest = locations (bible location anchors fill in via `settings.locationUrls`); outputs = "what might be HAPPENING to them there".
-- **History panel** (toolbar): full decision tree workflow→step→action, role-annotated refs (orange = identity anchors), Copy/.txt export. Trace wraps the transport; producer/concierge/filming flows traced; **rail-agent runs are NOT traced (known gap)**.
+Explicit, ordered data in `utils/film/pipeline.js` (`FILM_PIPELINE` + `pipelineStatus()` which DERIVES each stage's status from artifacts, never a stored checklist):
 
-## 4. Engine (shared core, SDK-owned)
+**Launcher → Idea (+ genre gate) → Cast & World → Storyboard → Filming → Final cut.**
 
-- `core/production.js` — `createProduction`: blueprint-driven planning (`input.blueprint.shots[]`: beat/promptSeed/motion/durationSec/roles or **explicit `refEntryIds` from CUT cards which win verbatim**; `heroRole` anchoring), generic LLM path for non-recipe runs, wave-parallel `runAll` (deps-ready waves, concurrency 3), full animate retry (start+poll, fresh task), per-step QC skipped when count=1.
-- `core/filming.js` — `createFilmingSession`: append-only chunk chain, live `getIdea`/`getBible` getters, `transport.lastFrame` (browser → `/api/film/last-frame`, ffmpeg `-sseof`, base64; falls back to keyframe), persisted at `project.filming`, chunk ids = timeline event ids.
-- `core/operations.js` — ops + `planTask` persona switch + `withRetry` on Seedream/startVideo + animate clamp 10–15s/1080p. `core/retry.js` (transient matcher built from REAL observed errors), `core/parallel.js` (pool + readySteps), `core/explore.js`, `core/trace.js`, `core/director.js` (classifyAssets, `readAdIntent` w/ valid+clarify, `routeFilmAction`, qcStep, exported `parseJson`).
-- **Headless Service API works** LIVE ✅: `POST /api/v1/runs {agent:'autoDirector', input:{idea,targetMinutes,perStepCount}}` → poll `GET /api/v1/runs/:id` (status: queued/running/succeeded/failed — read the FIRST `"status"` in the body; step statuses appear later in it). Note: its serverStitch discards `assetId` → headless films don't land in the in-app Library (gap).
+- **Launcher** ("What are we making?"): Cinematic Advertisement / Short Film. Picking Short Film sets `project.recipe`, opens the director chat + the pipeline strip.
+- **Pipeline strip** (`PipelineStrip.js`, top-center, film mode): the FORWARD path — five stages with live status, the current stage carrying its one action button (Idea→Describe the idea/opens chat · Cast→Draft the production [+ optional "Explore the look"] · Storyboard→Storyboard it · Filming→Shoot the cards · Final cut→Stitch). The chat is NOT required to advance.
+- **Director chat** (`FilmDock.js`): free-form only — corrections, questions, "film this: …". A premise auto-routes to genre detection. `✕` = **full reset** → wipes board/idea/genre/recipe → back to the launcher (no confirm; `resetFilm` in FilmCanvas).
+- **Idea + genre gate**: a fresh premise → `detectGenre` (one cheap read, `storyboard.js`) → one-tap genre chips (primary + alternatives) in the dock → picking one locks `project.genre = {line}` and runs the cast draft IN that genre. Genre is threaded into the cast read AND the storyboard read.
 
-## 5. Live-validated (real runs, 2026-06-11/12)
+## 4. Cast & World (`castFromIdea`, `utils/film/core/storyboard.js`)
 
-- 3 example films generated headlessly end-to-end (Sheikh&boy drama, cartoon sand-fox pilot, desert nature ad) — final cuts in TOS `film_asset_/*-final-cut.mp4`; presigned links expire (final-cut 1h, Seedream/Seedance 24h); fresh links: presign via `@volcengine/tos-sdk` `getPreSignedUrl` with `.env.local` creds.
-- Parallel waves + retries work; runs ≈12–25 min; **Seedance accepts duration 10 @1080p (~4.5 min/shot) — 15 untested**.
-- **Content filters are the dominant failure mode now**: i2v "input image may contain real person" (photoreal humans — cartoon passes) and "output audio may contain sensitive information". Pending task chip: retry such shots with `generateAudio:false`.
+- ONE reasoning read → `{ style, cast[] }`: a shared style sentence (appended to every plate) + characters and locations, in the chosen genre.
+- **Characters = face→body two-step**: a cinematic **face plate** (4K **3:4** portrait, sectioned photoreal prompt — `[MEDIUM]/[SUBJECT]/[CAMERA]/[SKIN_REFLECTANCE]/[HAIR]/[EXPRESSION]/[FORBIDDEN]`, anti-AI-beauty) renders first, then a **full-body sheet** (4K **2:3**) generated with that face as a referenceImage (same identity for close-ups AND wides). Animals/antagonists are characters too.
+- **Locations** = single plate (4K 16:9). The old "look" slot is dropped (the style sentence carries the look).
+- **Placeholders stream**: `onPlan` drops a loading card per planned plate the instant the read returns; `onEntry(entry, i)` fills each slot (or removes it on failure). Per-plate resilient.
+- Results land as candidates with suggested-role chips. The user tags keepers → the bible. Each character = **2 candidate cards** (`Name · face`, `Name · body`); tag both → both feed Seedance.
 
-## 6. Known issues / gaps
+## 5. SHOT cards (`CutNode.js`; node type still `'cut'` internally)
 
-- Audio-policy shot loss (chip pending) · 12 stale legacy workflow-node tests failing (chip pending) · rail-agent runs untraced · film chat can't classify assets ("tag these" not a routed action) · serverStitch drops assetId · BibleRail shows generic role labels for ad roles (cosmetic) · CUT-card on-canvas editing ergonomics untested live (fallback idea: click-card→edit-in-dock focus mode) · untagged generated candidates die with their 24h URLs (tagging preserves).
+A SHOT card = one shot's spec (5–15s), the director's slate, decomposed into Blueprint-style **input pins**:
 
-## 7. Prompts UI (all editable, localStorage overrides; server uses defaults)
+- **REFERENCES** → `[Image1…N]` = the toggleable cast/location chips + the photoreal storyboard frame (resolved by `shotReferences(data, bible)` in recipes.js, frame last).
+- **SHOT DESCRIPTION** → an editable **cut list** (each cut ≤6s + seconds picker, `+ cut`/`×`, total readout); cuts are joined by `CUT` markers.
+- **CINEMATOGRAPHY** → the **50-shot template library** (`SHOT_TEMPLATES` in recipes.js) as a dropdown grouped by category (Scale·Angle·Movement·Composition·Specialty) OR hand-typed (lens·DOF·light·grain·grade·movement). Each template is a complete standalone line; the Shot agent selects one per shot (genre biases the pick). `CINEMATOGRAPHY_PRESETS`/`cinematographyForGenre` remain only as the fallback.
+- **AUDIO** → optional (dialogue·ambient·foley·score).
+- **STORYBOARD FRAME** → a PHOTOREAL still (cast placed in the location, **4K**) fed as a composition reference (NOT identity — the real plates carry that). Failed frames currently render nothing (known gap).
+- **→ SEEDANCE 2.0 (composed)** preview = exactly what's sent.
 
-Groups: Mix & Match (story-moments persona) · Animate · Prompt Muse · Creative Planner (exploration personas + **adShot preservation**) · Concierge (intent w/ valid+clarify · route · classify) · Producer (generic planner, 10–15s rule) · Topic Explorer (read/deepen). Story Director templates are service-only (`surface:'service'`, hidden from UI — do NOT delete; Service API uses them).
+`composeSeedancePrompt({references, cuts, cinematography, audio})` (recipes.js, proven) assembles `REFERENCES → SHOT DESCRIPTION (CUT-delimited) → CINEMATOGRAPHY → AUDIO`. `shotFromCard` (FilmCanvas) sends that as `motion`, with the SAME ordered images as explicit `refUrls` (cast plates + photoreal frame), `camera:'auto'`, duration = Σ cuts (5–15). Storyboard seeds ONE cut + the chosen template's cinematography per card; the user splits/edits (reasoner-authored multi-cut/audio is NOT built).
 
-## 8. ⭐ Where to pick up
+## 6. Engine & key files
 
-1. **Live-test the CUT-cards flow** (Make the ad → edit cards → Action) — newest surface, zero live runs. Then the FilmDock router phrasing quality (tune `concierge.route.*` against real History exports).
-2. **Apply the audio-retry chip** before batch testing.
-3. **The PoV goal: validate the ONE ad blueprint × 10 different ads** — use History exports per run; check beats/refs/no-leaks/coherence. Intent read quality across product/service/brand-story ideas.
-4. Candidates from §6 as the user directs. The user drives priorities turn-by-turn — propose, confirm scope, build, verify (deno lint → proof → `npx next build`), and always state verified-vs-untested honestly.
+- `core/production.js` — **blueprint-only** engine (no auto-planner). Direct (SHOT) shots carry explicit `params.refUrls`; the animate case prefers them (`p.refUrls || inputUrls`). Audio-policy retake fallback (`generateAudio:false`). `perShot` clamp 5–15.
+- `core/operations.js` — `animate` (duration hard-clamped 5–15s/1080p; `refUrls` ≤9; `isAudioPolicyError`), `buildAnimatePrompt`.
+- `core/storyboard.js` — `detectGenre`, `castFromIdea` (face→body, 4K, onPlan/onEntry), `readStoryboard` (idea+bible+genre → 5–15s shots, each picking a `shotTemplate` id from the 50-shot library, retried), `renderFrames` (PHOTOREAL storyboard frames — cast placed in location, 4K, location-guaranteed refs; was `sketchPanels`), `createStoryboard`, `panelToShot` (cinematography from the chosen template).
+- `core/orchestrator.js` — headless pipeline (`castFromIdea → readStoryboard → panelToShot → stitch`). `panelToShot(panel, anchors, genre)` composes the SAME Seedance-2.0 prompt the UI cards send (via `composeSeedancePrompt`: REFERENCES from the real anchors + ONE cut + the chosen template's cinematography) — ONE shot-composition format across both callers. Headless still skips photoreal frames (no human review) — intentional.
+- `utils/film/recipes.js` — `composeSeedancePrompt`, `shotReferences`, **`SHOT_TEMPLATES` (the 50-shot library)** + `SHOT_TEMPLATE_BY_ID`/`SHOT_TEMPLATES_BY_CATEGORY`/`shotTemplateCatalog`/`shotTemplateCinematography`, `CINEMATOGRAPHY_PRESETS`/`cinematographyForGenre` (fallback only), `adShotPlan`, registries. (`directShotText`/`composeShotPrompt` deleted.)
+- `utils/film/imageSizes.js` — `SEEDREAM_SIZES` = **2K/3K/4K only**; `resolveImageSize(tier, ratio)`.
+- `components/film/canvas/FilmCanvas.js` — the hub: `runAgent`, `dispatchFilmAction` (genre gate, castDraft, storyboard, action, stitch, nextStep…), `shotFromCard`, `storyboardPanelRef`, `resetFilm`, collision-aware placement (`findFreeOrigin`/`nodeRect`, `CUT_ROW_H=760`, `freeOrigin`), preserve/heal (`healNodeUrl`).
+- `components/film/canvas/{PipelineStrip,FilmDock,CutNode,AssetNode,StoryTimeline,LayerPanel}.js`.
+- `pages/api/film/preserve.js` (probes the public URL, falls back to presigned) + `resign.js` (fresh presign for owned objects). `utils/server/tosUpload.js` (7-day presign).
+
+## 7. Verification status
+
+- **LIVE ✅ (2026-06-12, headless API):** the headless pipeline ran end-to-end twice — snow leopard (5/5 shots, multi-ref direct-to-video confirmed) and turtle take 3 (5/5 shots, 60s film, audio-retake survived). These ran the old FLAT shot-text composer (`directShotText`, now deleted); `castFromIdea` is the same shared function (an earlier revision). The headless shot composer has since been unified onto `composeSeedancePrompt` (§6) — build-verified, not yet re-run live.
+- **BUILD-VERIFIED ONLY (this session, the UI Short-Film path):** genre gate + chips, face→body 4K cast, SHOT-card pins, `composeSeedancePrompt` Seedance-2.0 format, sketch-as-reference, 5–15s durations, placeholder streaming, preserve/heal, collision placement. None of these has been clicked/run against real models. The composer + placement math have unit-style proofs; everything has `npx next build` + deno lint.
+
+## 8. Current limitations / known gaps (state, not a to-do)
+
+- The UI Short-Film path (§7) is not live-tested; a real run is the open validation.
+- Storyboard reasoner authors one cut per shot + picks ONE of the 50 cinematography templates (no reasoner multi-cut/audio).
+- Headless `panelToShot` composes the Seedance-2.0 format (unified with the UI), incl. the 50-template cinematography; it still skips photoreal frames by design (no human review). Headless path is BUILD-VERIFIED ONLY — the LIVE ✅ runs (§7) predate it.
+- **NEW (build-verified only): photoreal storyboard frames (cast placed in location, 4K) + the 50-shot cinematography library + the Shot agent selecting a template per shot.** Not yet live-run — the open validation is eyeballing that frames are photoreal cast-in-location stills (not sketches) and that the agent varies templates sensibly.
+- A failed storyboard FRAME renders nothing on the card (no "failed/retry" state).
+- SHOT-card placement uses a fixed 760px row pitch; very tall cards (many cuts) could still overlap; re-running storyboard re-lays existing cards (pitch change only affects newly-laid cards).
+- 4K frames × 6–18 shots is the slowest/priciest stage (placeholders stream so the board isn't dead; expect minutes).
+- 9-ref Seedance cap: cast(face+body) + location + frame can exceed 9 on a crowded shot; `shotReferences` `.slice(0,9)` with the frame last (first to drop).
+- Library copies of preserved assets can keep dead URLs (only board nodes self-heal).
+- Whether Seedance accepts the multi-cut `CUT` prompt + the photoreal frame-as-ref is unconfirmed (needs a live shot).
+- ~12 stale legacy workflow-node tests fail (pre-existing).
+- Ad flow (ConciergeDock) still exists and shares the engine + (legacy two-prompt) cards.
 
 ## 9. Verification recipes
 
 ```bash
-# lint JSX (filter the known noise)
-export PATH="/opt/homebrew/bin:$PATH"
+# lint JSX (filter known noise)
 cp components/film/canvas/X.js /tmp/X.jsx
-deno lint /tmp/X.jsx 2>&1 | grep -iE "error\[" | grep -ivE "no-window|require-await" | cat
+/opt/homebrew/bin/deno lint /tmp/X.jsx 2>&1 | grep -E "error\[no-unused|error\[no-undef" | grep -vE "no-window|require-await|no-node-globals"
 
-# pure-module proof: write _proof.mjs importing utils/film/{recipes,timelineModel}.js
-# or core/{trace,retry,parallel}.js, assert, `deno run --allow-read _proof.mjs`, delete.
-
-# THE build check (needs sandbox off)
+# THE build check (needs PATH + sandbox off)
 export PATH="$HOME/.trae/binaries/node/versions/24.13.1/bin:$PATH"
-npx next build 2>&1 | grep -E "✓|Error|Failed"
+npx next build 2>&1 | grep -E "Compiled|Failed|error "
+
+# confirm new code reached the running dev server (stale-bundle check)
+grep -rl "<a string from your change>" .next
 
 # headless generation (user's dev server on :3000, key from .env.local)
 curl -s -X POST localhost:3000/api/v1/runs -H 'Content-Type: application/json' \
   -d '{"agent":"autoDirector","input":{"idea":"…","targetMinutes":0.5,"perStepCount":1}}'
 curl -s localhost:3000/api/v1/runs/<id> | grep -o '"status":"[a-z]*"' | head -1
-
-# icons exist before importing
-grep "export declare const IconX:" node_modules/@arco-design/web-react/icon/index.d.ts
 ```

@@ -80,7 +80,8 @@ export const makeThumbnail = (dataUrl, max = 256) =>
   });
 
 // Re-host a (still-valid) expiring asset URL into the user's TOS bucket and
-// catalogue it in the Assets library. Returns { url (stable), assetId | null }.
+// catalogue it in the Assets library. Returns { url (stable), assetId | null,
+// objectKey } — the objectKey is what makes the asset re-signable forever.
 export const preserveAsset = async (url, name) => {
   const response = await fetch('/api/film/preserve', {
     method: 'POST',
@@ -91,19 +92,44 @@ export const preserveAsset = async (url, name) => {
   if (!response.ok) {
     throw new Error(data?.details || data?.error || `Preserve failed (HTTP ${response.status})`);
   }
-  return { url: data.url, assetId: data.assetId || null };
+  return { url: data.url, assetId: data.assetId || null, objectKey: data.objectKey || null };
 };
 
-// Lay out a batch of new assets in a grid anchored near an origin point,
-// skipping positions that collide with existing nodes.
-export const gridPositions = ({ count, origin = { x: 0, y: 0 }, cols = 4, cellW = 260, cellH = 300 }) => {
-  const positions = [];
-  for (let i = 0; i < count; i += 1) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    positions.push({ x: origin.x + col * cellW, y: origin.y + row * cellH });
+// Fresh signed link for a preserved asset whose stored url stopped loading
+// (private bucket, or a lapsed presign). The bytes never moved — only the link.
+export const resignAsset = async ({ url, objectKey }) => {
+  const response = await fetch('/api/film/resign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, objectKey }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.details || data?.error || `Re-sign failed (HTTP ${response.status})`);
   }
-  return positions;
+  return { url: data.url, objectKey: data.objectKey || null };
+};
+
+// Axis-aligned rectangle overlap, with an optional gap treated as a margin
+// around each rect (so blocks land with breathing room, not edge-to-edge).
+export const rectsOverlap = (a, b, gap = 0) =>
+  a.x < b.x + b.w + gap &&
+  a.x + a.w + gap > b.x &&
+  a.y < b.y + b.h + gap &&
+  a.y + a.h + gap > b.y;
+
+// Find an origin where a w×h block clears every existing rect. Scans straight
+// down from the preferred point (one block-height per step) so a new batch
+// stacks into open space below instead of piling onto the same spot — the
+// recurring cause of overlapping cards/plates. Falls back to "far below" if the
+// board is somehow full for maxRows steps.
+export const findFreeOrigin = ({ rects = [], w, h, preferred = { x: 80, y: 80 }, gap = 56, maxRows = 400 }) => {
+  const dy = h + gap;
+  for (let r = 0; r < maxRows; r += 1) {
+    const cand = { x: preferred.x, y: preferred.y + r * dy, w, h };
+    if (!rects.some((rect) => rectsOverlap(cand, rect, gap))) return { x: cand.x, y: cand.y };
+  }
+  return { x: preferred.x, y: preferred.y + maxRows * dy };
 };
 
 // Find a sensible origin for new assets: just below/right of the current selection,

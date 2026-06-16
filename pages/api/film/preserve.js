@@ -67,8 +67,19 @@ export default async function preserveHandler(req, res) {
       dataLabel: 'Preserved asset',
     });
 
-    // objectUrl is the stable public URL when a public base URL is configured.
-    const stableUrl = staged.objectUrl || staged.fetchUrl;
+    // A configured public base URL is a CLAIM that the bucket is public-read —
+    // verify it. On a private bucket the unsigned objectUrl 403s, and swapping
+    // it into a board node breaks the image the moment it's "preserved" (the
+    // exact opposite of what check-in promises). When the probe fails, hand out
+    // the presigned GET instead; board nodes re-sign on error (/api/film/resign),
+    // so the link never dies for good — the bytes are already safe either way.
+    let stableUrl = staged.objectUrl;
+    try {
+      const probe = await fetch(stableUrl, { method: 'HEAD' });
+      if (!probe.ok) stableUrl = staged.signedUrl;
+    } catch {
+      stableUrl = staged.signedUrl;
+    }
 
     // Catalogue it in the Assets library for asset:// references + the Library.
     // Register via the PRESIGNED url so the Assets backend can download it on a

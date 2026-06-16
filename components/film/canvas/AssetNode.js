@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useRef, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Tag, Message, Select, Button } from '@arco-design/web-react';
 import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamationCircleFill, IconDragDotVertical } from '@arco-design/web-react/icon';
@@ -11,7 +11,7 @@ const { Text } = Typography;
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null });
+export const AssetNodeContext = createContext({ onTagRole: null, onImgError: null });
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each AD role gets a
 // colour for its badge so the brand kit reads at a glance on the board.
@@ -56,7 +56,7 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, text, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole } = useContext(AssetNodeContext);
+  const { onTagRole, onImgError } = useContext(AssetNodeContext);
   const tint = bibleRole ? (AD_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
 
   const isText = kind === 'text';
@@ -64,9 +64,15 @@ const AssetNodeInner = ({ id, data, selected }) => {
   // display so the thumbnail never breaks even if the remote/TOS URL is unreachable.
   const displaySrc = localUrl || url;
   const [imgError, setImgError] = useState(false);
+  // A healed/changed url deserves a fresh load attempt (and may heal again later).
+  const healAskedRef = useRef(false);
+  useEffect(() => { setImgError(false); healAskedRef.current = false; }, [displaySrc]);
   // "Expired" only applies to a generated (Seedream) signed URL that lapsed and
   // was never checked in — never to a local upload (which has localUrl).
   const expired = imgError && !preserved && !localUrl;
+  // A PRESERVED image that fails to load is a dead LINK, not lost bytes — ask
+  // the canvas for a fresh signed url (self-heal) and show a quiet refresh state.
+  const healing = imgError && preserved && !localUrl;
 
   return (
     <div
@@ -101,6 +107,21 @@ const AssetNodeInner = ({ id, data, selected }) => {
             >
               + {AD_ROLE_META[data.meta.suggestedRole]?.label || data.meta.suggestedRole}?
             </Button>
+          )}
+          {/* Untagged, no suggestion → a quiet tag picker, so ANY image (e.g. an
+              Inspiration result) can be locked into the bible right on its card. */}
+          {!bibleRole && !data.meta?.suggestedRole && kind === 'image' && (
+            <span className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', minWidth: 0 }} title="Tag this image into the bible — tagged assets anchor every shot">
+              <Select
+                size="mini"
+                placeholder="+ tag role"
+                value={undefined}
+                onChange={(v) => onTagRole && onTagRole(id, v)}
+                options={ROLE_SELECT_OPTIONS.filter((o) => o.value !== NONE)}
+                style={{ width: 92 }}
+                triggerProps={{ autoAlignPopupWidth: false }}
+              />
+            </span>
           )}
           {/* Role badge + dropdown — present only on a bible-tagged node. nodrag so
               opening the menu doesn't drag the node; "— none —" untags it. */}
@@ -163,14 +184,28 @@ const AssetNodeInner = ({ id, data, selected }) => {
             <IconLoading style={{ fontSize: 24, color: '#165dff' }} />
           </div>
         )}
-        {kind === 'image' && displaySrc && !expired && (
+        {kind === 'image' && displaySrc && !expired && !healing && (
           <img
             src={displaySrc}
             alt={label}
             style={{ width: '100%', display: 'block' }}
             draggable={false}
-            onError={() => setImgError(true)}
+            onError={() => {
+              setImgError(true);
+              if (preserved && !localUrl && onImgError && !healAskedRef.current) {
+                healAskedRef.current = true;
+                onImgError(id);
+              }
+            }}
           />
+        )}
+        {kind === 'image' && healing && (
+          <div style={{ padding: 16, textAlign: 'center' }}>
+            <IconLoading style={{ color: '#0fc6c2', fontSize: 18 }} />
+            <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 6 }}>
+              Refreshing the stored copy…
+            </Text>
+          </div>
         )}
         {kind === 'image' && expired && (
           <div style={{ padding: 16, textAlign: 'center' }}>

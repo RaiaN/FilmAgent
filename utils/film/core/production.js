@@ -3,7 +3,7 @@
 // (operations.js / director.js) + an injected transport. You drive it step by step:
 //
 //   const p = createProduction({ idea }, transport, { onEvent });
-//   await p.plan();                 // understand + build the plan → 'review-plan'
+//   await p.plan();                 // blueprint → steps → 'review-plan'
 //   p.start();                      // → 'running'
 //   const step = await p.runStep(); // run current step → outputs, paused at 'review'
 //   p.pick(step.id, outputId);      // human decisions
@@ -17,22 +17,12 @@
 // (executeAutoStep / advanceAuto / resolveAutoInputs / stitchAuto). Step outputs and
 // picks live on the step objects; the canvas mirrors them to board nodes via events.
 
-import { understandAssets, buildPlan, qcStep } from './director';
-import { inspiration, characterVariations, locationVariations, mixMatch, animate } from './operations';
+import { qcStep } from './director';
+import { inspiration, characterVariations, locationVariations, mixMatch, animate, isAudioPolicyError } from './operations';
 import { withRetry } from './retry';
 import { readySteps, runWithConcurrency, isTerminalStatus } from './parallel';
 import { getAgentDefaults } from '../suiteConfig';
 import { resolveBibleUrls, BIBLE_REF_CAP, EXPLICIT_REF_CAP } from '../timelineModel';
-
-// Short agent descriptions for the planner's catalogue (guidance only — not creative
-// content). Mirrors the canvas's AGENT describe fields.
-const AGENT_CATALOGUE = [
-  { id: 'inspiration', describe: 'Generate fresh key images / references from a text prompt (and optional reference images).' },
-  { id: 'characterVariations', describe: 'Given one character image, produce consistent variations (wardrobe, expression, angle).' },
-  { id: 'locationVariations', describe: 'Given one location image, produce coverage variations (angle, time of day, weather).' },
-  { id: 'mixMatch', describe: 'Compose two or more images into one new framed shot (subject + place + style).' },
-  { id: 'animate', describe: 'Turn one still image into a short video clip with camera move + motion. Produces a shot of the final cut.' },
-];
 
 const isVideoAgent = (agent) => agent === 'animate';
 
@@ -71,20 +61,36 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
       await mixMatch({ imageUrls: inputUrls, direction: p.direction || intent, count, size: p.size, ratio: p.ratio, config }, ctx, collect);
       return outs;
     case 'animate': {
-      if (!inputUrls[0]) return [];
-      // Retry the WHOLE start+poll once on any failure (fresh task — a lapsed poll
-      // can't be resumed). A ~5s shot re-render is cheap; a hole in the final cut
-      // is not (the 2026-06-11 run lost 2 of 6 shots to one-shot failures).
-      const { videoUrl, prompt } = await withRetry(async () => {
+      // A direct (SHOT-card) shot may carry an EXPLICIT ordered ref list (cast +
+      // storyboard frame, [Image1..N] matching the prompt); else fall back to the
+      // bible-resolved inputs. Non-direct uses its keyframe dep as before.
+      const refs = (p.direct && Array.isArray(p.refUrls) && p.refUrls.length) ? p.refUrls.slice(0, 9) : inputUrls;
+      if (!refs.length) return [];
+      const animateOnce = async (genAudio) => {
         const { taskId, prompt: animPrompt } = await animate({
-          imageUrl: inputUrls[0],
+          // direct = storyboard shooting: ALL inputs ride as reference images (the
+          // REAL cast/place assets + the sketch — no generated keyframe in between).
+          imageUrl: p.direct ? null : inputUrls[0],
+          refUrls: p.direct ? refs : [],
           motion: p.motion || intent,
           camera: p.camera, lens: p.lens, focalLength: p.focalLength, aperture: p.aperture,
-          duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: p.generateAudio,
+          duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: genAudio,
           config,
         }, ctx);
         const polled = await ctx.client.pollVideo({ taskId });
         return { videoUrl: polled.videoUrl, prompt: animPrompt };
+      };
+      // Retry the WHOLE start+poll once on any failure (fresh task — a lapsed poll
+      // can't be resumed). A re-render is cheap; a hole in the final cut is not.
+      // The audio policy gets its own fallback: retake the shot WITHOUT audio —
+      // re-rolling with audio on just fails again (lost 2/5 shots, 2026-06-12).
+      const { videoUrl, prompt } = await withRetry(async () => {
+        try {
+          return await animateOnce(p.generateAudio);
+        } catch (err) {
+          if (isAudioPolicyError(err)) return animateOnce(false);
+          throw err;
+        }
       }, { tries: 2, baseMs: 4000, shouldRetry: () => true });
       outs.push({ url: videoUrl, kind: 'video', prompt });
       return outs;
@@ -99,22 +105,22 @@ export { runAgentStep as runStep };
 // ---- the session ------------------------------------------------------------
 
 export const createProduction = (input = {}, transport = {}, opts = {}) => {
-  const idea = (input.idea || '').trim();
+  // (input.idea is accepted for callers' symmetry but the blueprint carries all
+  // creative content — the engine never writes prompts itself.)
   const sources = (input.sources || []).filter(Boolean);
-  // Length drives the SHOT COUNT (shots are 10–15s each — the quality bar). Prefer
-  // an explicit targetSeconds (the timeline's budget); fall back to targetMinutes.
+  // Length only sizes per-shot durations now (shots are 10–15s each — the quality
+  // bar); the shot COUNT comes from the blueprint itself.
   const targetSeconds = Math.round(
     input.targetSeconds != null ? input.targetSeconds
       : (input.targetMinutes != null ? input.targetMinutes * 60 : 15),
   );
-  const shotCount = Math.max(2, Math.min(8, Math.round(targetSeconds / 10)));
   // The bible — global, atemporal anchors ([{ id, role, url, locked }]) every
   // generative step references so chunks stay consistent (the drift-killer).
   const bible = (input.bible || []).filter((e) => e && e.url);
   const bibleIds = bible.map((e) => e.id);
-  // Optional recipe blueprint: a DETERMINISTIC shot grammar. shots = [{ beat, roles,
-  // motion, promptSeed }]. When present, the plan is built straight from it (no LLM
-  // inventing the shot list) and each shot references ONLY its beat's bible roles.
+  // The blueprint: a DETERMINISTIC shot list — REQUIRED. shots = [{ beat, roles,
+  // camera, motion, promptSeed | direct }]. Plans come from the Storyboard's
+  // panels, the CUT cards or the ad grammar; this engine only executes them.
   const blueprint = input.blueprint && Array.isArray(input.blueprint.shots) ? input.blueprint : null;
   const config = opts.config;
   // When set, perStepCount fixes the outputs per step (headless/produce uses 1 for
@@ -125,7 +131,6 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   const ctx = { client: transport.client, config };
 
   let status = 'idle';
-  let brief = null;
   let steps = [];
   let cursor = 0;
   let film = null;
@@ -138,7 +143,6 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   // running states are reset so a reload doesn't leave a step stuck mid-flight.
   if (opts.initialState) {
     const s0 = opts.initialState;
-    if (s0.brief) brief = s0.brief;
     const savedSteps = Array.isArray(s0.plan) ? s0.plan : (Array.isArray(s0.steps) ? s0.steps : null);
     if (savedSteps) steps = savedSteps.map((s) => ({ ...s, status: s.status === 'running' ? 'pending' : s.status }));
     if (s0.status) status = s0.status === 'assembling' ? 'running' : s0.status;
@@ -163,7 +167,7 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
     outputs: (s.outputs || []).map((o) => ({ ...o })), pickedId: s.pickedId, qc: s.qc, error: s.error,
     bibleRefs: s.bibleRefs || [], refCap: s.refCap, locked: !!s.locked, feedback: s.feedback || '',
   });
-  const snapshot = () => ({ status, brief, cursor, film, error, mode, plan: steps.map(cloneStep) });
+  const snapshot = () => ({ status, cursor, film, error, mode, plan: steps.map(cloneStep) });
   const emitState = () => emit({ type: 'state', state: snapshot() });
 
   const setStatus = (s, phase) => { status = s; if (phase) emit({ type: 'phase', phase }); emitState(); };
@@ -197,27 +201,6 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
     .map((s) => ({ stepId: s.id, url: picked(s).url, prompt: picked(s).prompt }));
 
   // ---- phases ----
-  const understand = async () => {
-    if (brief) return brief;
-    setStatus('understanding', 'understanding');
-    brief = await understandAssets({ images: sources, idea, config }, ctx);
-    emitState();
-    return brief;
-  };
-
-  const buildSteps = async () => {
-    setStatus('planning', 'planning');
-    const raw = await buildPlan({ brief, idea, targetSeconds, shotCount, agents: AGENT_CATALOGUE, config }, ctx);
-    if (!raw.length) { error = 'The planner returned no steps — adjust the idea and try again.'; setStatus('error'); throw new Error(error); }
-    // Decompose assigns every step the bible (resolveInputs bounds it to ~4,
-    // style/brand first) so each chunk is generated honoring the look + cast.
-    steps = raw.map((s) => ({ ...s, gated: true, status: 'pending', outputs: [], pickedId: null, qc: null, error: null, bibleRefs: bibleIds.slice(), locked: false, feedback: '' }));
-    cursor = 0;
-    setStatus('review-plan');
-    emit({ type: 'plan', plan: steps.map(cloneStep) });
-    return steps.map(cloneStep);
-  };
-
   // Recipe-aware planning: build the plan straight from the blueprint's shot grammar.
   // Per beat → a keyframe step (an image written from the beat + idea + look, conditioned
   // on ONLY that beat's bible roles) + an animate step (the beat's camera motion). The
@@ -226,10 +209,9 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   const buildStepsFromBlueprint = () => {
     setStatus('planning', 'planning');
     const shots = blueprint.shots || [];
-    // HIGH-QUALITY shots: 10–15s each (the timeline can always trim a long shot;
-    // a 5s shot can't be extended). The total may exceed the nominal target — the
-    // spine is allowed to run over budget.
-    const perShot = Math.min(15, Math.max(10, Math.round(targetSeconds / Math.max(1, shots.length))));
+    // Shots are 5–15s each. The total may exceed the nominal target — the spine is
+    // allowed to run over budget; the timeline can always trim.
+    const perShot = Math.min(15, Math.max(5, Math.round(targetSeconds / Math.max(1, shots.length))));
     // The hero must look IDENTICAL across the ad — and every shot prompt names it
     // (promptSeed's hero line), so EVERY keyframe gets the hero's bible refs in
     // addition to its beat's roles. Without this, a beat whose roles have no bible
@@ -246,6 +228,24 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
         : [...new Set([...bible.filter((e) => (shot.roles || []).includes(e.role)).map((e) => e.id), ...heroIds])];
       const kfId = stepId();
       const animId = stepId();
+      // Direct-to-video (storyboard cards): NO keyframe step — the animate step
+      // gets the card's REAL reference assets + the storyboard frame (the SHOT
+      // card resolves them into shot.refUrls, in [Image1..N] order matching the
+      // composed prompt); falls back to bible-resolved refIds when not provided.
+      if (shot.direct) {
+        const base = {
+          id: animId, agent: 'animate', title: shot.beat, intent: shot.beat,
+          params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto', direct: true, refUrls: shot.refUrls || [] },
+          dependsOn: [], gated: true, qc: null, error: null,
+          // Seedance 2.0 takes up to 9 reference images — same cap as Seedream.
+          bibleRefs: refIds, refCap: EXPLICIT_REF_CAP, locked: false, feedback: '',
+        };
+        if (shot.shotUrl) {
+          const shotOut = [{ id: outId(), url: shot.shotUrl, kind: 'video', prompt: shot.motion || '' }];
+          return [{ ...base, status: 'approved', outputs: shotOut, pickedId: shotOut[0].id, locked: true }];
+        }
+        return [{ ...base, status: 'pending', outputs: [], pickedId: null }];
+      }
       // A shot the user already shot from its CUT card keeps its take: both steps
       // arrive approved with their outputs, so Action shoots only the remaining
       // cuts and the final stitch still assembles EVERYTHING in card order.
@@ -272,24 +272,19 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   };
 
   const plan = async () => {
-    if (!idea && !sources.length && !blueprint) throw new Error('produce() needs an idea (or at least one source image).');
+    // Blueprint-only: the shot list comes from the Storyboard's panels, the CUT
+    // cards, or the ad grammar — this engine never writes one itself.
     try {
-      // Blueprint present → deterministic plan from the shot grammar (skip understand +
-      // the generic LLM planner). Otherwise the generic idea→brief→plan path.
-      if (blueprint && blueprint.shots.length) return buildStepsFromBlueprint();
-      if (!brief) await understand();
-      return await buildSteps();
+      if (!blueprint || !blueprint.shots.length) {
+        throw new Error('No shot plan — storyboard the film (🎬 Storyboard) or lay out the ad\'s cuts first.');
+      }
+      return buildStepsFromBlueprint();
     } catch (err) {
       // Surface failures as an error state so a UI shows "Try again", not a spinner.
       error = err.message;
       setStatus('error');
       throw err;
     }
-  };
-
-  const replan = async () => {
-    if (!brief) return [];
-    return buildSteps();
   };
 
   const start = () => { status = 'running'; cursor = 0; markExecuting(); emitState(); };
@@ -493,7 +488,6 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   };
 
   const result = () => ({
-    brief,
     plan: steps.map(cloneStep),
     shots: approvedShots(),
     assets: steps.filter((s) => picked(s)).map((s) => ({ stepId: s.id, kind: picked(s).kind, url: picked(s).url, prompt: picked(s).prompt })),
@@ -503,7 +497,7 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   return {
     get state() { return snapshot(); },
     on(listener) { listeners.add(listener); return () => listeners.delete(listener); },
-    understand, plan, replan, start,
+    plan, start,
     runStep, pick, approve, regenerate, skip,
     editStep, addStep, removeStep, moveStep, toggleGate, setMode,
     resume, stitch, runAll, result,

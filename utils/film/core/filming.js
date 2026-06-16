@@ -16,7 +16,7 @@
 // same faces, same world, chunk after chunk. The timeline is just a view; this
 // session is the driver. Node-free; canvas and SDK inject the transport.
 
-import { inspiration, animate, suggestNextBeats } from './operations';
+import { inspiration, animate, suggestNextBeats, isAudioPolicyError } from './operations';
 import { qcStep } from './director';
 import { withRetry } from './retry';
 
@@ -80,17 +80,27 @@ export const createFilmingSession = (input = {}, transport = {}, opts = {}) => {
   const renderShot = async (chunk) => {
     const a = chunk.aspects || {};
     const motion = [a.action, a.rules, a.note].map((s) => (s || '').trim()).filter(Boolean).join('. ');
-    const { videoUrl } = await withRetry(async () => {
+    const renderOnce = async (genAudio) => {
       const { taskId } = await animate({
         imageUrl: chunk.keyframeUrl,
         motion,
         camera: a.camera || 'auto',
         duration: chunk.durationSec,
         resolution: '1080p',
-        generateAudio: true,
+        generateAudio: genAudio,
         config,
       }, ctx);
       return ctx.client.pollVideo({ taskId });
+    };
+    // The audio policy kills otherwise-good takes — retake once WITHOUT audio
+    // rather than lose the shot (re-rolling with audio on just fails again).
+    const { videoUrl } = await withRetry(async () => {
+      try {
+        return await renderOnce(true);
+      } catch (err) {
+        if (isAudioPolicyError(err)) return renderOnce(false);
+        throw err;
+      }
     }, { tries: 2, baseMs: 4000, shouldRetry: () => true });
     chunk.shotUrl = videoUrl;
     // Extract the final frame NOW so Continue is instant. The injected capability

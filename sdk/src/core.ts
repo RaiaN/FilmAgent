@@ -14,7 +14,7 @@ import { createDirectClient as createDirectClientJs } from '../../utils/film/cor
 import { getAgentDefaults as getAgentDefaultsJs, getModel as getModelJs } from '../../utils/film/suiteConfig.js';
 
 import type {
-  Brief, PlanStep, ProduceInput, ProduceOptions, ProduceResult, StitchFn,
+  PipelineResult, ProduceInput, ProduceOptions, StitchFn,
   Production, ProductionOptions, RunStepInput, StepOutput,
 } from './types';
 
@@ -36,13 +36,8 @@ type Item = { url: string; prompt?: string; label?: string };
 type ImageOp = (input: Record<string, unknown>, ctx: Ctx, onItem?: (i: Item) => void) => Promise<{ created: number; errors: string[] }>;
 
 // ---- director (reasoning) ----
-export const understandAssets = directorJs.understandAssets as unknown as
-  (input: { images?: string[]; idea?: string; config?: unknown }, ctx: Ctx) => Promise<Brief>;
-export const buildPlan = directorJs.buildPlan as unknown as
-  (input: { brief: unknown; idea?: string; targetMinutes?: number; agents?: { id: string; describe?: string }[]; config?: unknown }, ctx: Ctx) => Promise<PlanStep[]>;
 export const qcStep = directorJs.qcStep as unknown as
   (input: { agent?: string; intent?: string; references?: string[]; outputs?: string[]; video?: string; config?: unknown }, ctx: Ctx) => Promise<{ verdict: 'pass' | 'warn' | 'fail'; issues: unknown[]; best: number }>;
-export const PLANNABLE_AGENTS = directorJs.PLANNABLE_AGENTS as unknown as string[];
 
 // ---- per-agent operations ----
 export const inspiration = opsJs.inspiration as unknown as ImageOp;
@@ -53,8 +48,10 @@ export const animate = opsJs.animate as unknown as
   (input: Record<string, unknown>, ctx: Ctx) => Promise<{ taskId: string; prompt: string }>;
 
 // ---- the orchestration loop (shared core; bundled into the SDK) ----
+// Headless = the PIPELINE: cast (provided or generated once) → storyboard →
+// direct-to-video → stitch. Nothing invents a shot list outside the storyboard.
 export const runProduction = runProductionJs as unknown as
-  (input: ProduceInput, transport: { client: Client; stitch?: StitchFn }, opts?: ProduceOptions) => Promise<ProduceResult>;
+  (input: ProduceInput, transport: { client: Client; stitch?: StitchFn }, opts?: ProduceOptions) => Promise<PipelineResult>;
 
 // Interactive session + the shared step primitive.
 export const createProduction = createProductionJs as unknown as

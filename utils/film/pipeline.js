@@ -1,0 +1,92 @@
+// The Film pipeline — the EXPLICIT, ordered production plan. One readable list
+// (like RECIPES / CAMERA_MOVES): each stage names the agents that serve it, the
+// human gate that closes it, and what it produces. This file IS the answer to
+// "what order do the agents run in?" — no flow logic buried in components.
+//
+// The end goal it drives: a VERTICAL SLICE — a 1–3 minute finished film pilot
+// produced by walking every stage, judged on five artifacts: the bible, the
+// storyboard cards, the shot plan, the stitched film, and the History export.
+//
+// Pure data + a derivation helper; no React, no network. Stage status is DERIVED
+// from what actually exists in the project (same philosophy as the bible
+// reconciler) — a stored checklist could lie, the artifacts can't.
+
+export const FILM_PIPELINE = [
+  {
+    id: 'ideation',
+    label: 'Idea',
+    agents: ['topicExplorer', 'inspiration', 'promptMuse'],
+    gate: 'none — diverging is cheap',
+    produces: 'the premise + (optional) inspiration & mood imagery on the board',
+  },
+  {
+    id: 'casting',
+    label: 'Casting & World',
+    agents: ['characterVariations', 'locationVariations', 'mixMatch'],
+    gate: 'tag the keepers into the bible',
+    produces: 'locked cast + places (the real assets every shot will use)',
+  },
+  {
+    id: 'storyboard',
+    label: 'Storyboard',
+    agents: ['storyboard'],
+    gate: 'review the cards — every prompt visible',
+    produces: 'one SHOT card per 5–15s shot: what happens, framing, camera',
+  },
+  {
+    id: 'filming',
+    label: 'Filming',
+    agents: ['animate'],
+    gate: 'approve or re-shoot each take',
+    produces: 'shots on the timeline, direct from your real assets',
+  },
+  {
+    id: 'finalCut',
+    label: 'Final cut',
+    agents: [],
+    gate: 'watch it',
+    produces: 'the stitched film + the decision-history export',
+  },
+];
+
+const CAST_ROLES = ['talent', 'character'];
+const PLACE_ROLES = ['location'];
+
+// Derive each stage's status from the project's actual artifacts.
+// Inputs are substrate-free so this is provable without a browser:
+//   idea          — the project idea string
+//   bibleEntries  — [{ role }] tagged anchors
+//   cutCards      — [{ shotUrl? }] the storyboard/CUT cards on the board
+//   filmUrl       — the stitched final cut, if any
+//   candidates    — count of untagged board images (ideation output)
+export const pipelineStatus = ({ idea = '', bibleEntries = [], cutCards = [], filmUrl = '', candidates = 0 } = {}) => {
+  const hasIdea = !!String(idea).trim();
+  const hasCast = bibleEntries.some((e) => CAST_ROLES.includes(e?.role));
+  const hasPlace = bibleEntries.some((e) => PLACE_ROLES.includes(e?.role));
+  const shot = cutCards.filter((c) => c && c.shotUrl).length;
+  const total = cutCards.length;
+
+  const status = {
+    ideation: hasIdea ? 'done' : (candidates > 0 ? 'inProgress' : 'todo'),
+    casting: (hasCast && hasPlace) ? 'done' : (bibleEntries.length ? 'inProgress' : 'todo'),
+    storyboard: total > 0 ? 'done' : 'todo',
+    filming: total > 0 && shot >= total ? 'done' : (shot > 0 ? 'inProgress' : 'todo'),
+    finalCut: filmUrl ? 'done' : 'todo',
+  };
+  const note = {
+    ideation: hasIdea ? 'idea set' : (candidates ? `${candidates} candidate(s), no idea yet` : 'no idea yet'),
+    casting: [hasCast ? 'cast ✓' : 'no cast', hasPlace ? 'places ✓' : 'no places'].join(' · '),
+    storyboard: total ? `${total} card(s) laid` : 'no cards yet',
+    filming: total ? `${shot}/${total} shot` : '—',
+    finalCut: filmUrl ? 'film ready' : 'not stitched',
+  };
+
+  return FILM_PIPELINE.map((stage) => ({
+    ...stage,
+    status: status[stage.id] || 'todo',
+    note: note[stage.id] || '',
+  }));
+};
+
+// The next stage worth working on (first not-done, in order).
+export const nextStage = (statusList) => (statusList || []).find((s) => s.status !== 'done') || null;

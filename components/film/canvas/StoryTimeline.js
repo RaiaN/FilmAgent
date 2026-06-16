@@ -202,37 +202,15 @@ const Inspector = ({ event, index, total, onSetDuration, onToggleLock, onMove, o
 // far). The track above is just placement + zoom-out. Always operates on the LAST
 // chunk — earlier ones are approved and chained.
 const FilmingInspector = ({ filming }) => {
-  const { chunks = [], busy, durations = [10, 12, 15], defaultDuration = 12, onPropose, onGenerate, onCorrect, onValidate } = filming || {};
+  const { chunks = [], busy, stage = '', onCorrect, onValidate } = filming || {};
   const lastChunk = chunks[chunks.length - 1] || null;
   const working = lastChunk && lastChunk.status !== 'validated' ? lastChunk : null;
 
-  // Composer state (start / continue)
-  const [beat, setBeat] = useState('');
-  const [durationSec, setDurationSec] = useState(defaultDuration);
-  const [camera, setCamera] = useState('auto');
-  const [proposals, setProposals] = useState([]);
-  const [proposing, setProposing] = useState(false);
   // Correct state (working chunk)
   const [aspects, setAspects] = useState({ camera: 'auto', action: '', rules: '', note: '' });
   useEffect(() => {
     if (working) setAspects({ camera: working.aspects?.camera || 'auto', action: working.aspects?.action || '', rules: working.aspects?.rules || '', note: '' });
   }, [working?.id, working?.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const propose = async () => {
-    setProposing(true);
-    try {
-      const beats = await onPropose();
-      setProposals(beats || []);
-    } finally {
-      setProposing(false);
-    }
-  };
-  const generate = () => {
-    if (!beat.trim()) return;
-    setProposals([]);
-    onGenerate({ beat: beat.trim(), durationSec, aspects: { camera } });
-    setBeat('');
-  };
 
   const row = { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid #f0f0f3', flexWrap: 'wrap' };
 
@@ -240,7 +218,7 @@ const FilmingInspector = ({ filming }) => {
     return (
       <div style={row}>
         <IconLoading style={{ color: COLOR }} />
-        <Text style={{ fontSize: 12 }}>Filming… {working ? `“${working.beat}” (${working.durationSec}s)` : ''} — keyframe → motion → last frame. Watch the clip land above.</Text>
+        <Text style={{ fontSize: 12 }}>Filming… {working ? `“${working.beat}” (${working.durationSec}s)` : ''} — {stage || 'rolling'}. Watch the clip land above.</Text>
       </div>
     );
   }
@@ -283,27 +261,11 @@ const FilmingInspector = ({ filming }) => {
     );
   }
 
-  // No working chunk → START or CONTINUE composer
-  const first = chunks.length === 0;
-  return (
-    <div style={{ borderTop: '1px solid #f0f0f3', padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <Tag size="small" color="gold">{first ? '🎬 Start filming' : `Continue · ${chunks.length} chunk${chunks.length === 1 ? '' : 's'} approved`}</Tag>
-        <Button size="mini" loading={proposing} icon={<IconBranch />} onClick={propose}>{first ? 'Propose opening beats' : 'Propose what happens next'}</Button>
-        {proposals.map((p) => (
-          <Button key={p.title} size="mini" style={{ borderRadius: 14 }} title={p.prompt} onClick={() => { setBeat(p.prompt); setProposals([]); }}>✨ {p.title}</Button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <Input value={beat} onChange={setBeat} onPressEnter={generate} placeholder={first ? 'The opening beat — what do these first seconds show?' : 'The next beat — what happens now?'} style={{ flex: 1, minWidth: 240 }} />
-        <Select size="small" value={durationSec} onChange={setDurationSec} options={durations.map((d) => ({ label: `${d}s`, value: d }))} style={{ width: 72 }} />
-        <Select size="small" value={camera} onChange={setCamera} options={CAMERA_MOVES.map((c) => ({ label: c, value: c }))} style={{ width: 150 }} triggerProps={{ autoAlignPopupWidth: false }} />
-        <Button size="small" type="primary" disabled={!beat.trim()} icon={<IconVideoCamera />} style={{ background: COLOR, borderColor: COLOR }} onClick={generate}>
-          {first ? `Film first ${durationSec}s` : `Film next ${durationSec}s`}
-        </Button>
-      </div>
-    </div>
-  );
+  // No working chunk → render NOTHING: in the idle state the timeline shows only its
+  // track (user: "just keep the timeline"). The busy + working-chunk branches above
+  // still appear ONLY while a take is actively rolling — that's the sole place to
+  // approve/correct a take (incl. chat-filmed ones), so it stays.
+  return null;
 };
 
 // ============================================================================

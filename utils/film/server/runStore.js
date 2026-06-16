@@ -54,20 +54,21 @@ const runAgent = async (agent, input, ctx, onEvent) => {
       return { results: beats, usage: { created: beats.length } };
     }
     case 'autoDirector': {
-      // The full production loop, server-side. Reuses ctx.client and injects a
-      // server stitch (ffmpeg + TOS) so the result is a hosted, playable film URL.
+      // The headless PIPELINE: cast → storyboard → direct-to-video → stitch.
+      // Callers may pass their own real anchors as input.bible [{ role, url,
+      // name }]; otherwise the minimum cast is generated once. Server stitch
+      // (ffmpeg + TOS) makes the result a hosted film URL.
       const serverStitch = async (shotUrls, o = {}) => {
         const { stitchShots } = await import('./stitch');
         const out = await stitchShots({ shots: shotUrls, name: o.name });
         return { url: out.url };
       };
       const result = await runProduction(
-        { idea: input.idea, sources: input.sources, targetMinutes: input.targetMinutes },
+        { idea: input.idea, bible: input.bible, targetSeconds: input.targetSeconds, targetMinutes: input.targetMinutes },
         { client: ctx.client, stitch: serverStitch },
         {
           config: input.config,
           perStepCount: input.perStepCount,
-          explore: input.explore,
           qc: input.qc,
           // Map production events into the run trace; picked outputs grow `results`.
           onEvent: (e) => {
@@ -77,8 +78,8 @@ const runAgent = async (agent, input, ctx, onEvent) => {
         },
       );
       return {
-        results: result, // { brief, plan, shots, assets, film? }
-        usage: { steps: result.plan.length, shots: result.shots.length, film: result.film ? 1 : 0 },
+        results: result, // { bible, panels, plan, shots, assets, film? }
+        usage: { panels: result.panels.length, steps: result.plan.length, shots: result.shots.length, film: result.film ? 1 : 0 },
       };
     }
     default:

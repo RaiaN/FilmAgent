@@ -86,11 +86,13 @@ export async function uploadLocalMediaToTos({
   // objectUrl, which 403s unless the bucket is public-read. Backend services that
   // must DOWNLOAD the object (the Assets API ingesting it, Seedance fetching a
   // reference) need this regardless of whether a public base URL is configured.
+  // 7 days (the presign maximum): on a private bucket this is also the DISPLAY
+  // url preserve falls back to, and board nodes re-sign on error when it lapses.
   const signedUrl = client.getPreSignedUrl({
     bucket: tosBucket,
     key: objectKey,
     method: 'GET',
-    expires: 3600,
+    expires: 604800,
   });
   const fetchUrl = String(tosPublicBaseUrl || '').trim() ? objectUrl : signedUrl;
 

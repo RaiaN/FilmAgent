@@ -8,12 +8,12 @@ import * as ops from './core/operations';
 import * as director from './core/director';
 import { buildAnimatePrompt, extractMusePrompt } from './core/operations';
 import { exploreTopic } from './core/explore';
+import { createStoryboard } from './core/storyboard';
 import { AD_ROLES } from './recipes';
 import { SIZE_TIERS as IMAGE_RESOLUTIONS, ASPECT_RATIOS as IMAGE_RATIOS } from './imageSizes';
 
 // Re-exported so the canvas panels can reuse them.
 export { extractMusePrompt, IMAGE_RESOLUTIONS, IMAGE_RATIOS };
-export const PLANNABLE_AGENTS = director.PLANNABLE_AGENTS;
 
 export const AGENT_COLORS = {
   autoDirector: '#5a3df0',         // electric indigo (orchestrator)
@@ -25,6 +25,7 @@ export const AGENT_COLORS = {
   promptMuse: '#0fc6c2',           // teal (read/coach)
   storyDirector: '#f7ba1e',        // gold (interactive story)
   topicExplorer: '#8bbb11',        // lime (research / exploration)
+  storyboard: '#4e5969',           // graphite (the pencil plan)
 };
 
 const browserCtx = (apiKey) => ({ client: createBrowserClient(apiKey) });
@@ -89,32 +90,11 @@ export const suggestCompositionDirection = ({ apiKey, images }) =>
 export const suggestShotMotion = ({ apiKey, images }) =>
   ops.suggestMotion({ images }, browserCtx(apiKey));
 
-// ---- Auto Director adapters (orchestrator) ------------------------------------
-// Thin pass-throughs to the director core. Callers pass already-resolved image
-// URLs (use refUrl on the canvas side so uploaded assets send base64).
-
-export const exploreStyles = ({ apiKey, idea = '', images = [], count = 8, onItem }) =>
-  director.exploreStyles({ idea, images, count }, browserCtx(apiKey), onItem);
-
-export const understandAssets = ({ apiKey, images = [], idea = '' }) =>
-  director.understandAssets({ images, idea }, browserCtx(apiKey));
-
 // Concierge intake: classify a pile of uploaded images into recipe bible roles, and
 // report which required roles are still missing ("do you have XYZ?"). An injected
 // `client` (e.g. trace-wrapped) wins over the plain browser one.
 export const classifyAssets = ({ apiKey, client, images = [], idea = '', roles = [], requiredRoles = [] }) =>
   director.classifyAssets({ images, idea, roles, requiredRoles }, client ? { client } : browserCtx(apiKey));
-
-export const buildPlan = ({ apiKey, brief, idea = '', targetMinutes = 4 }) =>
-  director.buildPlan({
-    brief,
-    idea,
-    targetMinutes,
-    agents: AGENTS.filter((a) => PLANNABLE_AGENTS.includes(a.id)).map((a) => ({ id: a.id, describe: a.describe })),
-  }, browserCtx(apiKey));
-
-export const qcStep = ({ apiKey, agent, intent, references = [], outputs = [], video }) =>
-  director.qcStep({ agent, intent, references, outputs, video }, browserCtx(apiKey));
 
 // ---- agents -------------------------------------------------------------------
 
@@ -309,6 +289,32 @@ export const topicExplorerAgent = {
   },
 };
 
+export const storyboardAgent = {
+  id: 'storyboard',
+  label: 'Storyboard',
+  icon: 'board',
+  color: AGENT_COLORS.storyboard,
+  consumes: ['text'],
+  needsSelection: false,
+  defaultSettings: { lengthSec: 90 },
+  describe: 'Breaks your film into 5–15s shots, like a real storyboard: one SHOT card per shot — what happens, framing, camera move — drawn around your tagged cast and places. The sketches plan; your REAL assets feed the video when you shoot.',
+  // The canvas injects settings.idea + settings.bibleEntries (the real anchors) and
+  // an onPanel callback that lays each panel as a CUT card on the board.
+  async run({ prompt, settings, apiKey, ctx, onPanel, onPlan, onError }) {
+    const result = await createStoryboard(
+      {
+        idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(),
+        genre: settings.genre || '',
+        targetSeconds: settings.lengthSec || 90,
+        bible: settings.bibleEntries || [],
+      },
+      ctx || browserCtx(apiKey),
+      { onPanel, onPlan, onError: (msg) => { if (onError) onError([msg]); } },
+    );
+    return { created: result.panels, errors: [] };
+  },
+};
+
 export const promptMuseAgent = {
   id: 'promptMuse',
   label: 'Prompt Muse',
@@ -350,6 +356,7 @@ export const AGENTS = [
   characterVariationsAgent,
   locationVariationsAgent,
   mixMatchAgent,
+  storyboardAgent,
   promptMuseAgent,
 ];
 

@@ -4,7 +4,6 @@
 // differs. Prompts/models resolve through suiteConfig (root ← client ← per-call).
 
 import { renderTemplate, getModel, getRuntime } from '../suiteConfig';
-import { resolveImageSize } from '../imageSizes';
 import { withRetry } from './retry';
 
 // Variation "axes" and styles are no longer hardcoded pools — the agentic
@@ -40,25 +39,6 @@ export const parseBeats = (text) => {
   return [];
 };
 
-// Prompt Muse emits two labelled parts — "What I see: <craft read>" then
-// "Prompt: <ready-to-use prompt>". When that text feeds another agent we want
-// ONLY the prompt, not the analysis. Pull everything after the "Prompt:" label
-// (tolerating a leading bullet / markdown bold and :/-/– separators). Falls back
-// to the full text when there's no label (a plain note), so a hand-typed card
-// still works as a prompt.
-export const extractMusePrompt = (text) => {
-  const raw = String(text || '').trim();
-  if (!raw) return '';
-  // Prefer a line-anchored "Prompt:" label (the well-formed two-part output);
-  // fall back to an inline one (model put both parts on a single line).
-  const label = raw.match(/(^|\n)[\s>*_-]*prompt[\s*_]*[:\-–—]\s*/i)
-    || raw.match(/\bprompt[\s*_]*[:\-–—]\s*/i);
-  if (label) {
-    const after = raw.slice(label.index + label[0].length).trim();
-    if (after) return after.replace(/^["'`*_\s]+|["'`*_\s]+$/g, '').trim();
-  }
-  return raw;
-};
 
 // ---- image batch (parallel, incremental) --------------------------------------
 
@@ -161,15 +141,6 @@ export const locationVariations = async ({ imageUrl, direction = '', count = 4, 
   return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
 };
 
-export const mixMatch = async ({ imageUrls = [], direction = '', count = 4, size = '2K', ratio = '16:9', config } = {}, ctx, onItem) => {
-  if (imageUrls.length < 2) throw new Error('mixMatch requires at least two imageUrls');
-  const n = clamp(count, 1, 8, 4);
-  const items = await planPrompts({ task: 'mixMatch', count: n, direction, references: imageUrls, config }, ctx);
-  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: imageUrls, label: it.label || `Mix ${i + 1}`, meta: { refCount: imageUrls.length, planLabel: it.label } }));
-  // Resolve tier + aspect ratio → exact WxH so the composite frame matches the shot.
-  return runImagineBatch({ specs, size: resolveImageSize(size, ratio), model: getModel('seedream', config) }, ctx, onItem);
-};
-
 // Compose the camera/lens preamble + motion into a single Seedance prompt.
 export const buildAnimatePrompt = ({ motion, camera, lens, focalLength, aperture }) => {
   const notAuto = (v) => v && v !== 'auto';
@@ -189,39 +160,52 @@ export const buildAnimatePrompt = ({ motion, camera, lens, focalLength, aperture
 // shot beats a hole in the final cut.
 export const isAudioPolicyError = (err) => /output audio may contain sensitive/i.test((err && err.message) || '');
 
+// The OUTPUT-IMAGE content filter ("the output image may contain sensitive
+// information") rejects a generated still. Like the audio filter it's an OUTPUT-side,
+// PER-SAMPLE check — so a re-roll usually produces a different image that passes
+// (softening the prompt helps stubborn cases). Drives the cast-plate + storyboard-
+// frame retries so a flagged frame self-heals instead of leaving a blank card.
+export const isImagePolicyError = (err) => /image may contain sensitive/i.test((err && err.message) || '');
+
 // Kicks off the async video task; caller polls via ctx.client.pollVideo({ taskId }).
 // Duration is HARD-CLAMPED to 5–15s (a SHOT's range; it breaks into cuts of ≤5–6s):
 // a stale setting or stray LLM number can't push outside it, no matter the caller.
 // Two source modes: a single imageUrl/assetId (the classic keyframe → first frame),
 // or `refUrls` — SEVERAL real reference images (direct-to-video: the storyboard's
 // cast/place assets, untouched, so the video model preserves the subjects itself).
-export const animate = async ({ imageUrl, assetId, refUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, config } = {}, ctx) => {
-  if (!imageUrl && !assetId && !refUrls.length) throw new Error('animate requires an imageUrl, assetId or refUrls');
+export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], firstFrameUrl = null, motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, config } = {}, ctx) => {
+  // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
+  // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
+  if (!imageUrl && !assetId && !refUrls.length && !firstFrameUrl && !String(motion || '').trim()) throw new Error('animate requires a prompt, imageUrl, assetId, refUrls or firstFrameUrl');
   duration = Math.min(15, Math.max(5, Math.round(Number(duration) || 10)));
   const prompt = buildAnimatePrompt({ motion, camera, lens, focalLength, aperture });
   const content = [{ type: 'text', text: prompt }];
+  // CONTINUITY: the previous shot's FINAL FRAME becomes the literal FIRST FRAME of this
+  // video (role 'first_frame' — Seedance's "consecutive videos" pattern), so the shot
+  // picks up EXACTLY where the last ended. Sent first, before the subject references.
+  if (firstFrameUrl) content.push({ type: 'image_url', image_url: { url: firstFrameUrl }, role: 'first_frame' });
   // Seedance 2.0 accepts up to 9 reference images (plus reference video ≤15s and
-  // audio — not wired yet) — slice, never fail.
-  if (refUrls.length) refUrls.slice(0, 9).forEach((u) => content.push({ type: 'image_url', image_url: { url: u }, role: 'reference_image' }));
-  else if (assetId) content.push({ type: 'image_asset_id', asset_id: assetId, role: 'reference_image' });
-  else content.push({ type: 'image_url', image_url: { url: imageUrl }, role: 'reference_image' });
+  // audio — not wired yet) — slice, never fail. A ref WITH a portrait-library id
+  // (refAssetIds, aligned by index) rides as image_asset_id (the TRUSTED asset://
+  // path) so a photoreal person plate isn't screened as a raw url ("input image may
+  // contain real person"); refs without an id (the clay frame, anything un-preserved)
+  // stay image_url.
+  if (refUrls.length) {
+    refUrls.slice(0, 9).forEach((u, i) => {
+      const aid = refAssetIds[i];
+      if (aid) content.push({ type: 'image_asset_id', asset_id: aid, role: 'reference_image' });
+      else content.push({ type: 'image_url', image_url: { url: u }, role: 'reference_image' });
+    });
+  } else if (assetId) content.push({ type: 'image_asset_id', asset_id: assetId, role: 'reference_image' });
+  else if (imageUrl) content.push({ type: 'image_url', image_url: { url: imageUrl }, role: 'reference_image' });
+  // else: text-to-video — the prompt is the only content (no reference media).
+  // seed (sequence-level, optional): held constant across re-shoots it isolates the
+  // prompt as the only changed variable; null lets the model roll its own each time.
   const { taskId } = await withRetry(
-    () => ctx.client.startVideo({ content, model: getModel('seedance', config), resolution, ratio, duration, generateAudio }),
+    () => ctx.client.startVideo({ content, model: getModel('seedance', config), resolution, ratio, duration, generateAudio, seed }),
     { tries: 3, baseMs: 3000 },
   );
   return { taskId, prompt };
-};
-
-export const promptMuse = async ({ images = [], video, question, config } = {}, ctx) => {
-  if (images.length === 0 && !video) throw new Error('promptMuse requires an image or video');
-  const focus = question && question.trim() ? `Focus on: ${question.trim()}.\n\n` : '';
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('promptMuse.user', { focus }),
-    systemPrompt: renderTemplate('promptMuse.system'),
-    images, video, modelId: getModel('reasoner', config), reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  if (!content) throw new Error('Prompt Muse returned an empty response');
-  return { text: content };
 };
 
 export const suggestNextBeats = async ({ idea, steps = [], lastImageUrl, count = 3, config } = {}, ctx) => {
@@ -237,20 +221,3 @@ export const suggestNextBeats = async ({ idea, steps = [], lastImageUrl, count =
   return beats;
 };
 
-// One-line suggestion helpers (Mix & Match / Animate "Suggest with Prompt Muse").
-const suggestLine = async ({ images, systemId, userId, config }, ctx) => {
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate(userId),
-    systemPrompt: renderTemplate(systemId),
-    images: images || [],
-    // One-liner — keep it snappy, don't spend deep thinking budget.
-    modelId: getModel('reasoner', config), reasoningEffort: 'low',
-  });
-  return (content || '').trim().replace(/^["']|["']$/g, '');
-};
-
-export const suggestComposition = ({ images, config } = {}, ctx) =>
-  suggestLine({ images, systemId: 'mixMatch.suggestSystem', userId: 'mixMatch.suggestUser', config }, ctx);
-
-export const suggestMotion = ({ images, config } = {}, ctx) =>
-  suggestLine({ images, systemId: 'animate.suggestSystem', userId: 'animate.suggestUser', config }, ctx);

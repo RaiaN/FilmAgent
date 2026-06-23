@@ -59,7 +59,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
   const [pathPicker, setPathPicker] = useState({ visible: false, mode: 'open', value: '' });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [promptsOpen, setPromptsOpen] = useState(false);
-  const [conciergeOpen, setConciergeOpen] = useState(false); // the on-canvas Concierge dock
   const [saving, setSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
   // The idea/pitch is the creative seed every agent uses, so it lives in the
@@ -210,10 +209,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
   };
 
   const patchProject = (patch) => setProject((prev) => ({ ...prev, ...patch }));
-
-  // The Concierge now lives ON the canvas as a dock (ConciergeDock in FilmCanvas):
-  // the board IS the brand kit, so framing/classify/gaps/generate all happen there.
-  // This header just toggles the dock's visibility.
 
   const dialogs = (
     <>
@@ -382,9 +377,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
         project={project}
         apiKey={apiKey}
         onUpdateProject={setProject}
-        conciergeOpen={conciergeOpen}
-        onOpenConcierge={() => setConciergeOpen(true)}
-        onCloseConcierge={() => setConciergeOpen(false)}
       />
 
       {!isScratch ? null : (

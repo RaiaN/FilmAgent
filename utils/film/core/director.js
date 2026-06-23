@@ -11,7 +11,7 @@ const effort = (config) => getRuntime(config).reasoningEffort;
 
 // Tolerant JSON: strip code fences, try a direct parse, else grab the first
 // balanced object/array. Returns null when nothing parses. (Exported — the
-// Topic Explorer reuses it.)
+// core reads reuse it.)
 export const parseJson = (text) => {
   const cleaned = String(text || '').replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
   if (!cleaned) return null;
@@ -54,43 +54,6 @@ export const classifyAssets = async ({ images = [], idea = '', roles = [], requi
   return { assets, gaps };
 };
 
-// Read the AD INTENT from the user's one-line idea: what KIND of ad (product /
-// service / brand-story), who/what the HERO is, suggested talent/location, and
-// whether a brand identity even belongs. The Concierge confirms this with the user
-// in one bubble, then the interview + gap prompts adapt to it — so a cause/place
-// spot is never forced through "do you have a Product?". Returns null on any
-// failure (callers fall back to the plain product-ad interview).
-export const readAdIntent = async ({ idea = '', config } = {}, ctx) => {
-  if (!String(idea).trim()) return null;
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('concierge.intent.user', { idea }),
-    systemPrompt: renderTemplate('concierge.intent.system'),
-    // Classification, not creation — keep it snappy.
-    modelId: getModel('reasoner', config), reasoningEffort: 'low',
-  });
-  const j = parseJson(content);
-  if (!j || typeof j !== 'object' || Array.isArray(j)) return null;
-  // Garbage gate: when the model judges the text isn't a readable brief, surface
-  // its clarifying question instead of a confirmable (and meaningless) intent.
-  if (j.valid === false) {
-    return { valid: false, clarify: String(j.clarify || '').slice(0, 220) };
-  }
-  const kind = ['product', 'service', 'brand-story'].includes(j.kind) ? j.kind : 'product';
-  return {
-    valid: true,
-    kind,
-    brandRelevant: j.brandRelevant !== false,
-    // Keyed by BIBLE ROLE (the hero lives under the 'product' role id) so the
-    // interview and gap generation can look subjects up directly.
-    subjects: {
-      product: String(j.hero || '').slice(0, 120),
-      talent: j.talent ? String(j.talent).slice(0, 120) : '',
-      location: j.location ? String(j.location).slice(0, 120) : '',
-    },
-    summary: String(j.summary || '').slice(0, 220),
-  };
-};
-
 // Route ONE chat message to a studio action — the conversational front door.
 // The LLM only INTERPRETS (which agent, with what params, said back in plain words);
 // the user confirms with one tap and the dispatch itself is deterministic. Returns
@@ -108,23 +71,18 @@ export const ACTION_DESCRIBE = {
   inspiration: 'generate fresh reference imagery from a description they give',
   characterVariations: 'variations of a person/character: wardrobe, expression, angle',
   locationVariations: 'coverage variations of a location/place: angle, time of day, weather',
-  mixMatch: 'compose a character into locations — story moments of what might happen to them there',
-  exploreTopic: 'research a topic before production — fills the board with its key concepts as candidate images',
-  storyboard: 'break the film into 5–15s shots — one SHOT card per shot (what happens, the camera template, duration) with a photoreal frame placing the cast in the location',
+  story: 'write/shape the STORY — pick this whenever the message is about the narrative: a premise to expand, a concept to develop, or their own script/treatment to structure. Produces a whole editable story (beats shaped by a story-arc) that the user then breaks into shots',
   detectGenre: 'the message is a fresh film PREMISE/idea and no genre is locked yet — read its genre & tone first (the user confirms, then casting runs in that genre). Pick this for an opening idea like "cowboys vs a grizzly" when idea is NOT set',
   castDraft: 'generate the cast & location plates from the idea — pick ONLY when a genre is already set/confirmed (otherwise detectGenre comes first)',
   nextStep: 'they ask to continue or what to do next ("continue", "next", "what now", "go on") — advance the pipeline to its next concrete step',
   stitch: 'assemble the rendered shots into the final cut — pick when they say stitch / render / assemble the film',
   classify: 'sort the board\'s untagged images into roles — pick when they ask to tag / sort / organize what they have',
-  makeAd: 'lay the ad\'s CUT cards out for review — pick when they say make the ad / build it / plan the shots',
-  action: 'shoot the laid-out CUT cards — pick when they say action / roll / shoot the cuts',
-  relayCuts: 're-lay the CUT cards from scratch',
+  action: 'shoot the laid-out SHOT cards — pick when they say action / roll / shoot the shots',
   answer: 'the message is a QUESTION or asks for advice — answer it yourself from the studio context',
   unknown: 'none of the above fit and it is not answerable',
 };
 
-export const FILM_ACTIONS = ['filmChunk', 'correctChunk', 'approveChunk', 'proposeBeats', 'inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'exploreTopic', 'storyboard', 'detectGenre', 'castDraft', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
-export const AD_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'exploreTopic', 'classify', 'makeAd', 'action', 'relayCuts', 'answer', 'unknown'];
+export const FILM_ACTIONS = ['filmChunk', 'correctChunk', 'approveChunk', 'proposeBeats', 'inspiration', 'characterVariations', 'locationVariations', 'story', 'detectGenre', 'castDraft', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
 
 export const routeStudioAction = async ({ message = '', context = '', actions = FILM_ACTIONS, config } = {}, ctx) => {
   if (!String(message).trim()) return null;

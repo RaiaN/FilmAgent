@@ -160,7 +160,7 @@ export const baseSchemas = {
         key: 'resolution',
         label: 'Resolution',
         type: 'enum',
-        options: ['480p', '720p', '1080p'],
+        options: ['480p', '720p', '1080p', '4k'],
         defaultValue: '720p',
         description: 'Resolution of the output video.',
       },

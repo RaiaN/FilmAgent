@@ -3,8 +3,8 @@
 Plug‑and‑play SDK for the ModelArk **agentic film suite**. Two layers:
 
 - **Single agents** — `inspiration`, `characterVariations`, `locationVariations`,
-  `mixMatch`, `animate`, `promptMuse`, `storyBeats`. Each submits an async run to
-  the Service API and resolves with finished results (streaming events optional).
+  `animate`, `storyBeats`. Each submits an async run to the Service API and resolves
+  with finished results (streaming events optional).
 - **Full production** — `produce()` runs the *entire* pipeline in‑process
   (`cast → storyboard → direct‑to‑video shots → QC → stitch`) directly against
   ModelArk via an injected transport. **No Service API, no UI, no canvas** — the
@@ -40,18 +40,16 @@ const film = new FilmSuite({
 // One-shot agents → arrays of assets
 const refs   = await film.inspiration({ prompt: 'cold-war arctic outpost, 16mm, desaturated teal', count: 6 });
 const vars   = await film.characterVariations({ imageUrl: refs[0].url, axis: 'wardrobe', count: 4 });
-const combo  = await film.mixMatch({ imageUrls: [vars[0].url, refs[2].url], direction: 'she stands at the console, dawn light' });
 
 // Long-running video — await the result, or watch progress events (poll-fed)
 const [shot] = await film.animate(
-  { imageUrl: combo[0].url, motion: 'slow push-in', camera: 'dolly in', focalLength: '35mm' },
+  { imageUrl: vars[0].url, motion: 'slow push-in', camera: 'dolly in', focalLength: '35mm' },
   { onEvent: (e) => console.log(e.type) },   // queued → running → video.queued → asset → succeeded
 );
 console.log(shot.url); // mp4
 // Prefer push? Pass { webhookUrl } and your endpoint gets the final run on completion.
 
-// Reasoning agents
-const muse  = await film.promptMuse({ images: [refs[0].url], question: 'how is the lighting done?' });
+// Reasoning agent
 const beats = await film.storyBeats({ idea: 'a radio operator hears her own voice', steps: ['She keys the mic'] });
 ```
 
@@ -211,9 +209,7 @@ await film.inspiration({ prompt }, { config: { defaults: { inspiration: { count:
 | `inspiration(input, opts?)` | `ImageAsset[]` |
 | `characterVariations(input, opts?)` | `ImageAsset[]` |
 | `locationVariations(input, opts?)` | `ImageAsset[]` |
-| `mixMatch(input, opts?)` | `ImageAsset[]` |
 | `animate(input, opts?)` | `VideoAsset[]` |
-| `promptMuse(input, opts?)` | `TextAsset[]` |
 | `storyBeats(input, opts?)` | `Beat[]` |
 | `autoDirector(input, opts?)` | `PipelineResult` (full film, via Service API) |
 | `run(agent, input, opts?)` | generic |

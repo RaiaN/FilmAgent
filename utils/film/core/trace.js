@@ -80,7 +80,7 @@ export const createTrace = () => {
   };
 
   // Annotate reference urls with their bible role so leaks read clearly:
-  // "talent:face.jpg" feeding a location shot is the smell we're hunting.
+  // "character:face.jpg" feeding a location shot is the smell we're hunting.
   const refsWithRoles = (urls) => (urls || []).filter(Boolean).map((u) => {
     const role = resolveRole ? resolveRole(u) : null;
     return role ? `${role}:${abbrevUrl(u)}` : abbrevUrl(u);

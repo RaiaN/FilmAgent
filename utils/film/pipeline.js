@@ -15,23 +15,23 @@ export const FILM_PIPELINE = [
   {
     id: 'ideation',
     label: 'Idea',
-    agents: ['topicExplorer', 'inspiration', 'promptMuse'],
+    agents: ['inspiration'],
     gate: 'none — diverging is cheap',
     produces: 'the premise + (optional) inspiration & mood imagery on the board',
   },
   {
     id: 'casting',
     label: 'Casting & World',
-    agents: ['characterVariations', 'locationVariations', 'mixMatch'],
+    agents: ['cast', 'characterVariations', 'locationVariations'],
     gate: 'tag the keepers into the bible',
     produces: 'locked cast + places (the real assets every shot will use)',
   },
   {
     id: 'storyboard',
-    label: 'Storyboard',
-    agents: ['storyboard'],
-    gate: 'review the cards — every prompt visible',
-    produces: 'one SHOT card per 5–15s shot: what happens, framing, camera',
+    label: 'Story',
+    agents: ['story'],
+    gate: 'write the story, then break it into shot cards',
+    produces: 'an editable arc-structured story → one SHOT card per 5–15s shot: what happens, framing, camera',
   },
   {
     id: 'filming',
@@ -49,7 +49,7 @@ export const FILM_PIPELINE = [
   },
 ];
 
-const CAST_ROLES = ['talent', 'character'];
+const CAST_ROLES = ['character'];
 const PLACE_ROLES = ['location'];
 
 // Derive each stage's status from the project's actual artifacts.

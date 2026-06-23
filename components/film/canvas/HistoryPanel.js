@@ -16,12 +16,12 @@ const KIND_LABEL = {
   'run.start': 'workflow', plan: 'plan', phase: 'phase',
   'step.running': 'step', 'step.approved': 'approved', 'step.failed': 'failed', 'step.skipped': 'skipped',
   qc: 'QC', reason: 'reason', generateImage: 'image', startVideo: 'video', pollVideo: 'poll',
-  stitch: 'stitch', film: 'film', warning: 'warning', 'bible.classify': 'classify', 'bible.generate': 'generate',
+  stitch: 'stitch', film: 'film', warning: 'warning', decision: 'decision', 'bible.classify': 'classify', 'bible.generate': 'generate',
 };
 
-// Identity anchors (talent/product) fed into a shot are the cross-role leak we hunt —
+// Identity anchors (a character) fed into a shot are the cross-role leak we hunt —
 // highlight them so a leak is obvious at a glance in the refs list.
-const isIdentityRef = (r) => /^(talent|product):/.test(r);
+const isIdentityRef = (r) => /^character:/.test(r);
 
 const ActionRow = ({ e }) => {
   const color = STATUS_COLOR[e.status] || '#86909c';

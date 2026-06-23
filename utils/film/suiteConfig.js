@@ -37,11 +37,9 @@ export const ROOT_CONFIG = {
   },
   // Per-agent default parameters (the headless equivalent of the UI's defaultSettings).
   defaults: {
-    topicExplorer: { budget: 12, depth: 2 },
     inspiration: { count: 6, size: '2K' },
     characterVariations: { count: 4, size: '2K', direction: '' },
     locationVariations: { count: 4, size: '2K', direction: '' },
-    mixMatch: { count: 4, size: '2K' },
     storyDirector: { count: 3, size: '2K' },
     animate: {
       camera: 'slow push-in', lens: 'auto', focalLength: '35mm', aperture: 'f/2.8',

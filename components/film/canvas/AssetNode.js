@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Tag, Message, Select, Button } from '@arco-design/web-react';
 import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamationCircleFill, IconDragDotVertical } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
-import { AD_ROLES, AD_ROLE_META } from '../../../utils/film/recipes';
+import { BIBLE_ROLES, BIBLE_ROLE_META } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
 
 const { Text } = Typography;
@@ -13,20 +13,18 @@ const { Text } = Typography;
 // context instead — React context passes through ReactFlowProvider unchanged.
 export const AssetNodeContext = createContext({ onTagRole: null, onImgError: null });
 
-// The bible IS the board: a tagged node carries data.bibleRole. Each AD role gets a
-// colour for its badge so the brand kit reads at a glance on the board.
-const AD_ROLE_COLOR = {
-  product: '#165dff',
-  brand: '#f5319d',
-  talent: '#722ed1',
-  look: '#0aa8a8',
+// The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
+// colour for its badge so the cast & world read at a glance on the board.
+const BIBLE_ROLE_COLOR = {
+  character: '#722ed1',
   location: '#00b42a',
   prop: '#ff7d00',
+  look: '#0aa8a8',
 };
 
 const NONE = '__none__';
 const ROLE_SELECT_OPTIONS = [
-  ...AD_ROLES.map((r) => ({ label: AD_ROLE_META[r].label, value: r })),
+  ...BIBLE_ROLES.map((r) => ({ label: BIBLE_ROLE_META[r].label, value: r })),
   { label: '— none —', value: NONE },
 ];
 
@@ -57,9 +55,13 @@ const visibilityStyle = (visibility) => {
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, text, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
   const { onTagRole, onImgError } = useContext(AssetNodeContext);
-  const tint = bibleRole ? (AD_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
+  const tint = bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
 
   const isText = kind === 'text';
+  // Locations are 16:9 (wide) — at the default 220px width they render only ~124px
+  // tall, much smaller than portrait cast plates. Give them a wider node so the place
+  // reads at a comparable size on the board.
+  const isLocation = bibleRole === 'location' || data.meta?.suggestedRole === 'location' || layerId === 'locationVariations';
   // Local uploads keep an in-memory data URL that always renders; prefer it for
   // display so the thumbnail never breaks even if the remote/TOS URL is unreachable.
   const displaySrc = localUrl || url;
@@ -77,12 +79,12 @@ const AssetNodeInner = ({ id, data, selected }) => {
   return (
     <div
       style={{
-        width: isText ? 280 : 220,
+        width: isText ? 280 : (isLocation ? 360 : 220),
         background: '#fff',
         borderRadius: 10,
-        // A bible-tagged node wears its role colour as the border so the brand kit
-        // is legible right on the board (selection still wins for clarity).
-        border: `2px solid ${selected ? '#165dff' : bibleRole ? (AD_ROLE_COLOR[bibleRole] || '#f7ba1e') : '#e5e6eb'}`,
+        // A bible-tagged node wears its role colour as the border so the cast & world
+        // are legible right on the board (selection still wins for clarity).
+        border: `2px solid ${selected ? '#165dff' : bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : '#e5e6eb'}`,
         boxShadow: selected ? '0 0 0 3px rgba(22,93,255,0.12)' : '0 1px 4px rgba(0,0,0,0.08)',
         overflow: 'hidden',
         ...visibilityStyle(visibility),
@@ -95,17 +97,17 @@ const AssetNodeInner = ({ id, data, selected }) => {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', gap: 6 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <Tag size="small" color="gray" style={{ fontSize: 10, flexShrink: 0 }}>{KIND_LABEL[kind] || 'TXT'}</Tag>
-          {/* Suggested role (Topic Explorer candidates) — a PROPOSAL, never auto-canon:
+          {/* Suggested role (cast-draft candidates) — a PROPOSAL, never auto-canon:
               one click confirms it as a tagged bible anchor. Hidden once tagged. */}
           {!bibleRole && data.meta?.suggestedRole && (
             <Button
               size="mini"
               className="nodrag"
               onClick={(e) => { e.stopPropagation(); onTagRole && onTagRole(id, data.meta.suggestedRole); }}
-              title={`Suggested role — click to tag into the bible as ${AD_ROLE_META[data.meta.suggestedRole]?.label || data.meta.suggestedRole}`}
-              style={{ fontSize: 9, height: 18, lineHeight: '16px', padding: '0 6px', borderStyle: 'dashed', color: AD_ROLE_COLOR[data.meta.suggestedRole] || '#86909c', borderColor: AD_ROLE_COLOR[data.meta.suggestedRole] || '#c9cdd4' }}
+              title={`Suggested role — click to tag into the bible as ${BIBLE_ROLE_META[data.meta.suggestedRole]?.label || data.meta.suggestedRole}`}
+              style={{ fontSize: 9, height: 18, lineHeight: '16px', padding: '0 6px', borderStyle: 'dashed', color: BIBLE_ROLE_COLOR[data.meta.suggestedRole] || '#86909c', borderColor: BIBLE_ROLE_COLOR[data.meta.suggestedRole] || '#c9cdd4' }}
             >
-              + {AD_ROLE_META[data.meta.suggestedRole]?.label || data.meta.suggestedRole}?
+              + {BIBLE_ROLE_META[data.meta.suggestedRole]?.label || data.meta.suggestedRole}?
             </Button>
           )}
           {/* Untagged, no suggestion → a quiet tag picker, so ANY image (e.g. an
@@ -130,9 +132,9 @@ const AssetNodeInner = ({ id, data, selected }) => {
               className="nodrag"
               onClick={(e) => e.stopPropagation()}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}
-              title={`Bible · ${AD_ROLE_META[bibleRole]?.label || bibleRole}`}
+              title={`Bible · ${BIBLE_ROLE_META[bibleRole]?.label || bibleRole}`}
             >
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: AD_ROLE_COLOR[bibleRole] || '#f7ba1e', flexShrink: 0 }} />
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e', flexShrink: 0 }} />
               <Select
                 size="mini"
                 value={bibleRole}

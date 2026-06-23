@@ -6,26 +6,23 @@
 import { createBrowserClient } from './core/client';
 import * as ops from './core/operations';
 import * as director from './core/director';
-import { buildAnimatePrompt, extractMusePrompt } from './core/operations';
-import { exploreTopic } from './core/explore';
-import { createStoryboard } from './core/storyboard';
-import { AD_ROLES } from './recipes';
+import { buildAnimatePrompt } from './core/operations';
+import { castFromIdea, writeKeyEvents } from './core/storyboard';
 import { SIZE_TIERS as IMAGE_RESOLUTIONS, ASPECT_RATIOS as IMAGE_RATIOS } from './imageSizes';
 
 // Re-exported so the canvas panels can reuse them.
-export { extractMusePrompt, IMAGE_RESOLUTIONS, IMAGE_RATIOS };
+export { IMAGE_RESOLUTIONS, IMAGE_RATIOS };
 
 export const AGENT_COLORS = {
   autoDirector: '#5a3df0',         // electric indigo (orchestrator)
   inspiration: '#ff7d00',          // orange
   characterVariations: '#165dff',  // blue
   locationVariations: '#00b42a',   // green
-  mixMatch: '#f5319d',             // magenta (composite)
   animate: '#722ed1',              // purple (video)
-  promptMuse: '#0fc6c2',           // teal (read/coach)
   storyDirector: '#f7ba1e',        // gold (interactive story)
-  topicExplorer: '#8bbb11',        // lime (research / exploration)
-  storyboard: '#4e5969',           // graphite (the pencil plan)
+  cast: '#9a5b13',                 // bronze (pre-production: cast & world)
+  story: '#f7ba1e',                // gold (the narrative spine: key events)
+  storyboard: '#4e5969',           // graphite (the shot plan)
 };
 
 const browserCtx = (apiKey) => ({ client: createBrowserClient(apiKey) });
@@ -71,24 +68,16 @@ const selectedImageUrls = (selection) =>
   (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url).map(refUrl);
 const firstImageNode = (selection) =>
   (selection || []).find((n) => n.data?.kind === 'image' && n.data?.url);
-// The prompt to use from a selected text card (e.g. a Prompt Muse suggestion).
-// Prompt Muse cards carry a craft analysis + a "Prompt:" section — we extract
-// just the prompt, never the analysis. A plain note returns its full text.
+// The prompt to use from a selected text card (a board Note) — its full text.
 const selectedText = (selection) => {
   const t = (selection || []).find((n) => n.data?.kind === 'text' && (n.data?.text || '').trim());
-  return t ? extractMusePrompt(t.data.text) : '';
+  return t ? String(t.data.text).trim() : '';
 };
 
 // ---- exported suggestion helpers (used by the panels) -------------------------
 
 export const suggestNextBeats = ({ apiKey, idea, steps, lastImageUrl, count = 3 }) =>
   ops.suggestNextBeats({ idea, steps, lastImageUrl, count }, browserCtx(apiKey));
-
-export const suggestCompositionDirection = ({ apiKey, images }) =>
-  ops.suggestComposition({ images }, browserCtx(apiKey));
-
-export const suggestShotMotion = ({ apiKey, images }) =>
-  ops.suggestMotion({ images }, browserCtx(apiKey));
 
 // Concierge intake: classify a pile of uploaded images into recipe bible roles, and
 // report which required roles are still missing ("do you have XYZ?"). An injected
@@ -107,7 +96,7 @@ export const inspirationAgent = {
   needsSelection: false,
   grouped: true,
   defaultSettings: { count: 6, size: '2K', useSelectionAsRefs: false },
-  describe: 'Generate a grid of reference imagery. Select multiple assets and it reads each, synthesises them, and plans distinct directions (Seed 2.0 Pro). Or seed from a Prompt Muse text card. Each output is meaningfully different.',
+  describe: 'Generate a grid of reference imagery. Select multiple assets and it reads each, synthesises them, and plans distinct directions (Seed 2.0 Pro). Or seed from a selected Note. Each output is meaningfully different.',
   // Every agent run accepts an optional injected `ctx` (the canvas passes a
   // trace-wrapped client so rail runs land in the decision history); without one
   // it builds the plain browser ctx from the apiKey as before.
@@ -115,7 +104,7 @@ export const inspirationAgent = {
     // All selected images are read by the planner (describe + mix); the checkbox
     // also feeds them to the image model as visual references.
     const refs = selectedImageUrls(selection);
-    // Typed prompt wins; otherwise fall back to a selected text card (Prompt Muse).
+    // Typed prompt wins; otherwise fall back to a selected text card (a Note).
     const effectivePrompt = (prompt && String(prompt).trim()) || selectedText(selection);
     const result = await ops.inspiration(
       { prompt: effectivePrompt, refs, useRefsInGen: !!settings.useSelectionAsRefs, count: settings.count, size: settings.size },
@@ -173,41 +162,10 @@ export const locationVariationsAgent = {
   },
 };
 
-export const mixMatchAgent = {
-  id: 'mixMatch',
-  label: 'Mix & Match',
-  icon: 'mix',
-  color: AGENT_COLORS.mixMatch,
-  consumes: ['image'],
-  needsSelection: true,
-  minSelection: 1,
-  grouped: true,
-  defaultSettings: { prompt: '', count: 4, size: '2K', ratio: '16:9' },
-  describe: 'What might be HAPPENING to your character? Select the character (and optionally locations) — each output is a distinct story moment placing them in a different location, something happening, identity and place preserved. With only the character selected, board locations fill in.',
-  async run({ selection, settings, apiKey, ctx, onAsset, onError }) {
-    // CHARACTER FIRST: the planner treats ref[0] as the character to preserve and
-    // the rest as locations. A tagged talent/character node wins; else selection order.
-    const sel = (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url);
-    const isCast = (n) => n.data?.bibleRole === 'talent' || n.data?.bibleRole === 'character';
-    const character = sel.find(isCast) || sel[0];
-    const others = sel.filter((n) => n !== character);
-    if (!character) throw new Error('Select your character image first');
-    let refs = [refUrl(character), ...others.map(refUrl)];
-    // Only the character selected → the canvas passes the bible's location anchors
-    // via settings.locationUrls as the fallback stage set.
-    if (refs.length < 2 && Array.isArray(settings.locationUrls) && settings.locationUrls.length) {
-      refs = [refs[0], ...settings.locationUrls.slice(0, 3)];
-    }
-    if (refs.length < 2) throw new Error('Select the character plus at least one location (or tag location anchors in the bible)');
-    const result = await ops.mixMatch(
-      { imageUrls: refs, direction: settings.prompt, count: settings.count, size: settings.size, ratio: settings.ratio },
-      ctx || browserCtx(apiKey),
-      (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'mixMatch', sourceRefs: item.referenceImages, meta: item.meta }),
-    );
-    if (result.errors.length && onError) onError(result.errors);
-    return result;
-  },
-};
+// (The Mix & Match agent was removed 2026-06-18 — per user. Its op, planner
+// template, suggest helpers, director action, production/Service-API step and the
+// canvas panel/dispatch are all gone too; characters land in locations via the
+// SHOT-card storyboard path now, not a standalone composite tool.)
 
 export const animateAgent = {
   id: 'animate',
@@ -255,109 +213,66 @@ export const animateAgent = {
   },
 };
 
-export const topicExplorerAgent = {
-  id: 'topicExplorer',
-  label: 'Topic Explorer',
-  icon: 'explore',
-  color: AGENT_COLORS.topicExplorer,
+// Pre-production casting — a first-class rail agent (sibling of Inspiration). Drafts
+// the whole production from the idea in the chosen genre; the canvas injects
+// onPlan/onEntry to stream candidate plates onto the board, headless callers run it
+// bare for anchors. Lives in the rail AND on the pipeline strip / genre gate — same
+// agent, three triggers. (Its run() uses the onPlan/onEntry plate-streaming contract,
+// not the rail's onAsset; the canvas routes the rail Run through the castDraft path.)
+export const castAgent = {
+  id: 'cast',
+  label: 'Cast & World',
+  icon: 'cast',
+  color: AGENT_COLORS.cast,
   consumes: ['text'],
   needsSelection: false,
-  defaultSettings: { topic: '', budget: 12, depth: 2 },
-  describe: 'Researches a topic BEFORE production: discovers its unique key concepts (you don\'t need to know the right taxonomy), explains what makes videos on it good, and fills the board shallow→deep with candidate assets — each carrying a suggested bible role you confirm by tagging.',
-  async run({ prompt, selection, settings, apiKey, ctx, onAsset, onGroup, onError }) {
-    const topic = (prompt && String(prompt).trim()) || (settings.topic || '').trim() || selectedText(selection);
-    if (!topic) throw new Error('Give the explorer a topic first (the panel field, or select a text card)');
-    const groupByConcept = {}; // conceptId -> board group frame id
-    const result = await exploreTopic(
-      { topic, budget: settings.budget, depth: settings.depth, roles: AD_ROLES },
+  defaultSettings: { prompt: '' },
+  describe: 'Drafts the cast & world from your idea, in the chosen genre: 1–2 characters (people, animals or monsters — each a 4K face plate + full-body sheet) and 1–2 locations, all under one shared look. They land as candidates with suggested-role chips — you tag the keepers into the bible.',
+  async run({ prompt, settings = {}, apiKey, ctx, onPlan, onEntry, onError }) {
+    const entries = await castFromIdea(
+      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '' },
       ctx || browserCtx(apiKey),
-      {
-        // The craft brief is user-visible knowledge, not buried context.
-        onCraft: (text) => onAsset({ kind: 'text', text: `What makes a video on this topic good:\n\n${text}`, label: 'Topic brief', layerId: 'topicExplorer' }),
-        // One titled group frame per discovered concept — the title IS the concept;
-        // no why-card inside (it ate a cell and left frames looking empty).
-        onConcept: (c) => {
-          const gid = onGroup ? onGroup({ label: c.title }) : null;
-          if (gid) groupByConcept[c.id] = gid;
-        },
-        // Candidates carry a SUGGESTED role (meta) — the user confirms by tagging.
-        onImage: (img) => onAsset({ kind: 'image', url: img.url, label: img.label, layerId: 'topicExplorer', groupId: groupByConcept[img.conceptId] || null, meta: { prompt: img.prompt, suggestedRole: img.role || null } }),
-        onError: (msg) => { if (onError) onError([msg]); },
-      },
+      { onPlan, onEntry, onError: (msg) => { if (onError) onError([msg]); } },
     );
-    return { created: result.images, errors: [] };
+    return { created: entries, errors: [] };
   },
 };
 
-export const storyboardAgent = {
-  id: 'storyboard',
-  label: 'Storyboard',
-  icon: 'board',
-  color: AGENT_COLORS.storyboard,
+// The STORY agent: idea (or a pasted script) → 3–4 KEY EVENTS + APPEARANCE descriptions →
+// one continuous TEXT-ONLY Seedance 2.0 prompt. Identity rides as DESCRIPTION — by default
+// it does NOT pull the board's reference assets in (bible defaults to [] so the cast is
+// invented from the idea); link an appearance to a Cast & World plate yourself to opt in.
+// On the canvas the rail Run is intercepted (handleRun → ensureStoryNode + runStory, which
+// drives the editable Story card); this run() is the headless/SDK entry.
+export const storyAgent = {
+  id: 'story',
+  label: 'Story',
+  icon: 'story',
+  color: AGENT_COLORS.story,
   consumes: ['text'],
   needsSelection: false,
-  defaultSettings: { lengthSec: 90 },
-  describe: 'Breaks your film into 5–15s shots, like a real storyboard: one SHOT card per shot — what happens, the camera template, duration — with a photoreal frame that places your real cast in the location. The frame and your real plates both feed the video when you shoot.',
-  // The canvas injects settings.idea + settings.bibleEntries (the real anchors) and
-  // an onPanel callback that lays each panel as a CUT card on the board.
-  async run({ prompt, settings, apiKey, ctx, onPanel, onPlan, onError }) {
-    const result = await createStoryboard(
+  defaultSettings: { prompt: '' },
+  describe: 'Turns your idea (or a pasted script) into the film’s 3–4 KEY EVENTS + APPEARANCE descriptions, then one continuous text-only Seedance 2.0 prompt. Identity rides as description — it does NOT use the board’s reference assets by default; link any appearance to a Cast & World plate yourself to opt in. Lands as an editable Story card; “Shoot the film” turns it into a SHOT card.',
+  async run({ prompt, settings = {}, apiKey, ctx }) {
+    const story = await writeKeyEvents(
       {
         idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(),
         genre: settings.genre || '',
-        targetSeconds: settings.lengthSec || 90,
-        bible: settings.bibleEntries || [],
+        source: settings.source || '',
+        bible: settings.bible || [], // board refs are OPT-IN — never pulled in by default
       },
       ctx || browserCtx(apiKey),
-      { onPanel, onPlan, onError: (msg) => { if (onError) onError([msg]); } },
     );
-    return { created: result.panels, errors: [] };
+    return { created: [], errors: [], story };
   },
 };
 
-export const promptMuseAgent = {
-  id: 'promptMuse',
-  label: 'Prompt Muse',
-  icon: 'muse',
-  color: AGENT_COLORS.promptMuse,
-  consumes: ['image', 'video'],
-  needsSelection: true,
-  defaultSettings: { question: '' },
-  describe: 'Stuck on how to describe what you want? Select an image or video and Prompt Muse reads the craft back to you — and writes a ready-to-use prompt you can drop into Inspiration or Animate.',
-  async run({ selection, settings, apiKey, ctx, onAsset, onError }) {
-    const sel = selection || [];
-    const images = selectedImageUrls(sel);
-    // Prefer local bytes for an uploaded video too (its TOS URL isn't fetchable).
-    const video = refUrl(sel.find((n) => n.data?.kind === 'video' && n.data?.url)) || undefined;
-    try {
-      const { text } = await ops.promptMuse({ images, video, question: settings.question }, ctx || browserCtx(apiKey));
-      onAsset({ kind: 'text', text, label: 'Prompt Muse', layerId: 'promptMuse', sourceRefs: [...images, ...(video ? [video] : [])], meta: { question: settings.question || '' } });
-      return { created: 1, errors: [] };
-    } catch (err) {
-      if (onError) onError([err.message]);
-      throw err;
-    }
-  },
-};
-
-// Story Director and Auto Director are intentionally GONE from the canvas — their
-// rigid wizard UX is replaced by the Timeline (the spine) + the Bible (lock
-// assets) + Auto-fill (drives the production engine directly). The orchestration
-// engine itself (core/production.js) lives on; the canvas just drives it. (The
-// headless Service-API storyDirector/autoDirector agents are a separate surface.)
-
-// Animate is deliberately NOT in the rail: it's a technical capability the engine
-// (and the planned generate→validate→correct→continue flow) configures per shot —
-// not a creative agent a user picks. The op + its settings UI live on for those
-// surfaces; AGENTS is the creative-tools rail only.
 export const AGENTS = [
-  topicExplorerAgent,
   inspirationAgent,
+  storyAgent,
+  castAgent,
   characterVariationsAgent,
   locationVariationsAgent,
-  mixMatchAgent,
-  storyboardAgent,
-  promptMuseAgent,
 ];
 
 export const AGENT_MAP = AGENTS.reduce((acc, a) => {

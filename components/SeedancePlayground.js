@@ -99,7 +99,7 @@ const SeedancePlayground = ({
       if (!['http:', 'https:'].includes(p.protocol)) { Message.warning('Only http(s) video URIs are supported'); return; }
     } catch { Message.warning('Please enter a valid video URI'); return; }
     if (currentVideoRefs.some(r => r.value === nextUri)) { Message.info('This video URI is already added'); return; }
-    if (currentVideoRefs.length >= 1) { Message.warning('Seedance supports 1 reference video'); return; }
+    if (currentVideoRefs.length >= 3) { Message.warning('Seedance supports up to 3 reference videos'); return; }
     handleInputChange('reference_video_refs', [...currentVideoRefs, { type: 'url', value: nextUri }]);
     setReferenceVideoUri('');
     Message.success('Reference video URI added');
@@ -109,7 +109,7 @@ const SeedancePlayground = ({
     const nextValue = referenceVideoAssetId.trim();
     if (!nextValue) { Message.warning('Please enter a video asset id'); return; }
     if (currentVideoRefs.some(r => r.value === nextValue)) { Message.info('This video asset id is already added'); return; }
-    if (currentVideoRefs.length >= 1) { Message.warning('Seedance supports 1 reference video'); return; }
+    if (currentVideoRefs.length >= 3) { Message.warning('Seedance supports up to 3 reference videos'); return; }
     handleInputChange('reference_video_refs', [...currentVideoRefs, { type: 'asset', value: nextValue }]);
     setReferenceVideoAssetId('');
     Message.success('Reference video asset id added');
@@ -423,7 +423,7 @@ const SeedancePlayground = ({
                 <div style={{ position: 'relative', marginTop: 8 }}>
                     <div className={styles.uploadLabel} style={{ marginBottom: 4 }}>Ref Video</div>
                     <div style={{ fontSize: 12, color: '#86909c', lineHeight: 1.4, marginBottom: 8 }}>
-                        Upload a local video, paste a public URL, or add an Asset ID. Seedance supports 1 reference video.
+                        Upload a local video, paste a public URL, or add an Asset ID. The order here maps directly to <code>[Video 1]</code>, <code>[Video 2]</code>, … in your prompt. Seedance supports up to 3 reference videos.
                     </div>
 
                     {/* Ordered reference list */}
@@ -435,7 +435,7 @@ const SeedancePlayground = ({
                                     style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '4px 8px', background: '#f2f3f5', borderRadius: 6 }}
                                 >
                                     <span style={{ fontSize: 11, fontWeight: 700, color: '#165dff', whiteSpace: 'nowrap', minWidth: 60 }}>
-                                        [Video 1]
+                                        [Video {index + 1}]
                                     </span>
                                     <span style={{ fontSize: 11, color: '#86909c', flexShrink: 0 }}>
                                         {ref.type === 'asset' ? '🏷' : '🎬'}
@@ -449,7 +449,7 @@ const SeedancePlayground = ({
                         </div>
                     )}
 
-                    {currentVideoRefs.length < 1 && (
+                    {currentVideoRefs.length < 3 && (
                         <>
                             {/* Local file upload */}
                             <Upload
@@ -457,6 +457,10 @@ const SeedancePlayground = ({
                                 fileList={[]}
                                 showUploadList={false}
                                 beforeUpload={(file) => {
+                                    if (currentVideoRefs.length >= 3) {
+                                        Message.warning('Seedance supports up to 3 reference videos');
+                                        return false;
+                                    }
                                     const reader = new FileReader();
                                     reader.onload = () => {
                                         setFormValues(prev => ({

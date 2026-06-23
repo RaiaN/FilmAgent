@@ -9,7 +9,7 @@ const { Text } = Typography;
 // "shoot the fox entering the cave", "give me wardrobe options for the guide",
 // "what could happen next?" — an LLM router maps it to ONE studio action
 // (film chunk / correct / approve / variations / inspiration / mix&match story
-// moments / topic explorer), proposes it back in plain words, and a single tap
+// moments), proposes it back in plain words, and a single tap
 // dispatches it deterministically. LLM interprets; the user confirms; tools run.
 const FilmDock = ({ onReset, onRoute, onDispatch, filming, progress }) => {
   const scrollRef = useRef(null);

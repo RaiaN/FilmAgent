@@ -53,9 +53,10 @@ export const createBrowserClient = (apiKey) => ({
     return data;
   },
 
-  async startVideo({ content, model, resolution, ratio, duration, generateAudio }) {
-    const body = { apiKey, model, content, resolution, ratio, generate_audio: !!generateAudio, watermark: false };
+  async startVideo({ content, model, resolution, ratio, duration, generateAudio, seed }) {
+    const body = { apiKey, model, content, resolution, ratio, generate_audio: !!generateAudio, watermark: false, return_last_frame: true };
     if (duration && duration !== 'auto') body.duration = Number(duration);
+    if (seed != null && seed !== '') body.seed = Number(seed);
     const res = await fetch('/api/seedance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -78,7 +79,7 @@ export const createBrowserClient = (apiKey) => ({
         headers: { Authorization: `Bearer ${apiKey}` },
       });
       const data = await res.json();
-      if (data.status === 'succeeded' && data.video_url) return { videoUrl: data.video_url };
+      if (data.status === 'succeeded' && data.video_url) return { videoUrl: data.video_url, lastFrameUrl: data.last_frame_url || null };
       if (data.status === 'failed') throw new Error(data.error?.message || data.error || 'Seedance task failed');
     }
   },

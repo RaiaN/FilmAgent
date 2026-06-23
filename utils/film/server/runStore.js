@@ -30,8 +30,7 @@ const runAgent = async (agent, input, ctx, onEvent) => {
   switch (agent) {
     case 'inspiration':
     case 'characterVariations':
-    case 'locationVariations':
-    case 'mixMatch': {
+    case 'locationVariations': {
       const items = [];
       const op = ops[agent];
       const { errors } = await op(input, ctx, (item) => { items.push(item); onEvent('asset', item); });
@@ -44,10 +43,6 @@ const runAgent = async (agent, input, ctx, onEvent) => {
       const item = { kind: 'video', url: videoUrl, prompt };
       onEvent('asset', item);
       return { results: [item], usage: { created: 1 } };
-    }
-    case 'promptMuse': {
-      const { text } = await ops.promptMuse(input, ctx);
-      return { results: [{ kind: 'text', text }], usage: { created: 1 } };
     }
     case 'storyBeats': {
       const beats = await ops.suggestNextBeats(input, ctx);

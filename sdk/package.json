@@ -1,7 +1,7 @@
 {
   "name": "@modelark/film",
   "version": "0.2.0",
-  "description": "Plug-and-play SDK for the ModelArk agentic film suite — single agents (Inspiration, Variations, Mix & Match, Animate, Prompt Muse, Story Director) plus produce(): the full headless Auto Director loop (idea → plan → shots → stitch).",
+  "description": "Plug-and-play SDK for the ModelArk agentic film suite — single agents (Inspiration, Variations, Animate, Story Beats) plus produce(): the full headless Auto Director loop (idea → plan → shots → stitch).",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",

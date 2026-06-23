@@ -15,6 +15,11 @@ export const emptyProject = ({ id, title, language, targetMinutes, idea }) => ({
   // The detected/confirmed genre + tone — set at the Idea stage, drives the cast
   // style and the storyboard's shot grammar. { label, tone, line } or null.
   genre: null,
+
+  // The SEQUENCE seed — one seed for every shot in the film. { value, locked }:
+  // locked reuses `value` across re-shoots (a prompt tweak becomes the only changed
+  // variable — the iteration lever); unlocked re-rolls each shoot. value null = random.
+  seed: { value: null, locked: false },
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 
@@ -30,12 +35,10 @@ export const emptyProject = ({ id, title, language, targetMinutes, idea }) => ({
   // (Story Director + Auto Director agents were removed; their layer defaults went
   // with them. buildInitialLayerState only ever reads layers for live AGENTS anyway.)
   layers: {
-    topicExplorer: { enabled: true, visibility: 'show', settings: {} },
     inspiration: { enabled: true, visibility: 'show', settings: {} },
+    cast: { enabled: true, visibility: 'show', settings: {} },
     characterVariations: { enabled: true, visibility: 'show', settings: {} },
     locationVariations: { enabled: true, visibility: 'show', settings: {} },
-    mixMatch: { enabled: true, visibility: 'show', settings: {} },
-    promptMuse: { enabled: true, visibility: 'show', settings: {} },
   },
 
   // Optional structured story data (screenwriting layer, folded in later).

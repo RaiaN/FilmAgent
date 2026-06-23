@@ -20,7 +20,7 @@ import { getAgentDefaults as getAgentDefaultsJs, getModel as getModelJs } from '
 import type {
   PipelineResult, ProduceInput, ProduceOptions, StitchFn,
   Production, ProductionOptions, RunStepInput, StepOutput,
-  BibleEntry, Panel, BlueprintShot, GenreRead,
+  BibleEntry, Panel, BlueprintShot, GenreRead, StoryArc,
 } from './types';
 
 /**
@@ -48,7 +48,6 @@ export const qcStep = directorJs.qcStep as unknown as
 export const inspiration = opsJs.inspiration as unknown as ImageOp;
 export const characterVariations = opsJs.characterVariations as unknown as ImageOp;
 export const locationVariations = opsJs.locationVariations as unknown as ImageOp;
-export const mixMatch = opsJs.mixMatch as unknown as ImageOp;
 export const animate = opsJs.animate as unknown as
   (input: Record<string, unknown>, ctx: Ctx) => Promise<{ taskId: string; prompt: string }>;
 
@@ -76,8 +75,8 @@ export const castFromIdea = castFromIdeaJs as unknown as
   (input: { idea: string; genre?: string; config?: unknown }, ctx: Ctx,
    hooks?: { onPlan?: (plates: Array<{ role: string; name: string }>) => void; onEntry?: (entry: BibleEntry, i: number) => void }) => Promise<BibleEntry[]>;
 export const readStoryboard = readStoryboardJs as unknown as
-  (input: { idea: string; genre?: string; targetSeconds?: number; bible?: BibleEntry[]; config?: unknown }, ctx: Ctx)
-    => Promise<{ anchors: BibleEntry[]; panels: Panel[] }>;
+  (input: { idea: string; genre?: string; targetSeconds?: number; count?: number; bible?: BibleEntry[]; config?: unknown }, ctx: Ctx)
+    => Promise<{ anchors: BibleEntry[]; panels: Panel[]; arc: StoryArc | null }>;
 export const panelToShot = panelToShotJs as unknown as
   (panel: Panel, anchors?: BibleEntry[], genre?: string) => BlueprintShot;
 

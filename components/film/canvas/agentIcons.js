@@ -6,25 +6,21 @@ import {
   IconUser,
   IconLocation,
   IconVideoCamera,
-  IconRobot,
-  IconMosaic,
   IconBranch,
   IconThunderbolt,
-  IconCompass,
   IconApps,
+  IconUserGroup,
 } from '@arco-design/web-react/icon';
 
 export const AGENT_ICONS = {
   bulb: IconStar,        // Inspiration Board
   user: IconUser,        // Character Variations
   location: IconLocation, // Location Variations
-  mix: IconMosaic,       // Mix & Match
   film: IconVideoCamera, // Animate
-  muse: IconRobot,       // Prompt Muse
   story: IconBranch,     // Story Director
   auto: IconThunderbolt, // Auto Director (orchestrator)
-  explore: IconCompass,  // Topic Explorer (pre-production research)
   board: IconApps,       // Storyboard (the panel grid)
+  cast: IconUserGroup,   // Cast & World (the ensemble: characters/monsters + places)
 };
 
 export const agentIcon = (key) => AGENT_ICONS[key] || IconStar;

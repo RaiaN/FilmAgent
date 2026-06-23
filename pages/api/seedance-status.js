@@ -65,8 +65,18 @@ async function seedanceStatusHandler(req, res) {
 
       if (data.status === 'succeeded' && data.content) {
           result.video_url = data.content.video_url;
+          // The PNG last frame, returned because the task was created with
+          // return_last_frame:true — used for shot-to-shot continuity. Field name is
+          // tolerant; log the content keys once if none match so it can be corrected live.
+          result.last_frame_url = data.content.last_frame_url
+              || data.content.last_frame_image_url
+              || data.content.last_frame
+              || null;
+          if (!result.last_frame_url) {
+              console.warn('[seedance-status] return_last_frame on but no last-frame field — content keys:', Object.keys(data.content));
+          }
       }
-      
+
       if (data.error) {
           result.error = data.error;
       }

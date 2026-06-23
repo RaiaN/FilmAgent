@@ -18,7 +18,7 @@
 // picks live on the step objects; the canvas mirrors them to board nodes via events.
 
 import { qcStep } from './director';
-import { inspiration, characterVariations, locationVariations, mixMatch, animate, isAudioPolicyError } from './operations';
+import { inspiration, characterVariations, locationVariations, animate, isAudioPolicyError } from './operations';
 import { withRetry } from './retry';
 import { readySteps, runWithConcurrency, isTerminalStatus } from './parallel';
 import { getAgentDefaults } from '../suiteConfig';
@@ -56,35 +56,40 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
       if (!inputUrls[0]) return [];
       await locationVariations({ imageUrl: inputUrls[0], direction: p.direction || intent, count, size: p.size, config }, ctx, collect);
       return outs;
-    case 'mixMatch':
-      if (inputUrls.length < 2) return [];
-      await mixMatch({ imageUrls: inputUrls, direction: p.direction || intent, count, size: p.size, ratio: p.ratio, config }, ctx, collect);
-      return outs;
     case 'animate': {
       // A direct (SHOT-card) shot may carry an EXPLICIT ordered ref list (cast +
       // storyboard frame, [Image1..N] matching the prompt); else fall back to the
       // bible-resolved inputs. Non-direct uses its keyframe dep as before.
       const refs = (p.direct && Array.isArray(p.refUrls) && p.refUrls.length) ? p.refUrls.slice(0, 9) : inputUrls;
-      if (!refs.length) return [];
+      // Parallel portrait-library ids (aligned with refs): a registered person/place
+      // plate rides as image_asset_id (trusted) instead of a screened raw url.
+      const refAssetIds = (p.direct && Array.isArray(p.refAssetIds)) ? p.refAssetIds.slice(0, 9) : [];
+      // A DIRECT shot may be TEXT-ONLY (the Story agent's continuous-shot film — its prompt
+      // alone drives it, no reference images). Only skip a non-direct shot with no inputs.
+      if (!refs.length && !p.direct) return [];
       const animateOnce = async (genAudio) => {
         const { taskId, prompt: animPrompt } = await animate({
           // direct = storyboard shooting: ALL inputs ride as reference images (the
           // REAL cast/place assets + the sketch — no generated keyframe in between).
           imageUrl: p.direct ? null : inputUrls[0],
           refUrls: p.direct ? refs : [],
+          refAssetIds: p.direct ? refAssetIds : [],
+          firstFrameUrl: p.firstFrameUrl ?? null, // prev shot's last frame → this shot's first frame
           motion: p.motion || intent,
           camera: p.camera, lens: p.lens, focalLength: p.focalLength, aperture: p.aperture,
           duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: genAudio,
+          seed: p.seed ?? null,
           config,
         }, ctx);
         const polled = await ctx.client.pollVideo({ taskId });
-        return { videoUrl: polled.videoUrl, prompt: animPrompt };
+        // lastFrameUrl: the native return_last_frame PNG — used for shot-to-shot continuity.
+        return { videoUrl: polled.videoUrl, prompt: animPrompt, lastFrameUrl: polled.lastFrameUrl || null };
       };
       // Retry the WHOLE start+poll once on any failure (fresh task — a lapsed poll
       // can't be resumed). A re-render is cheap; a hole in the final cut is not.
       // The audio policy gets its own fallback: retake the shot WITHOUT audio —
       // re-rolling with audio on just fails again (lost 2/5 shots, 2026-06-12).
-      const { videoUrl, prompt } = await withRetry(async () => {
+      const { videoUrl, prompt, lastFrameUrl } = await withRetry(async () => {
         try {
           return await animateOnce(p.generateAudio);
         } catch (err) {
@@ -92,7 +97,7 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
           throw err;
         }
       }, { tries: 2, baseMs: 4000, shouldRetry: () => true });
-      outs.push({ url: videoUrl, kind: 'video', prompt });
+      outs.push({ url: videoUrl, kind: 'video', prompt, lastFrameUrl: lastFrameUrl || null });
       return outs;
     }
     default:
@@ -177,7 +182,7 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   // depends on nothing, the initial sources. (port of resolveAutoInputs, node-free)
   // Then EVERY step also receives its bible references (bounded, de-duped) appended
   // AFTER the dependency inputs — so a single-image tool (animate) still keys off
-  // the keyframe at [0], while batch tools (inspiration/mixMatch) read the look +
+  // the keyframe at [0], while batch tools (inspiration) read the look +
   // identities they must honor. This is the mechanism that kills cross-shot drift.
   const resolveInputs = (step) => {
     const base = (step.dependsOn && step.dependsOn.length)
@@ -204,8 +209,8 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   // Recipe-aware planning: build the plan straight from the blueprint's shot grammar.
   // Per beat → a keyframe step (an image written from the beat + idea + look, conditioned
   // on ONLY that beat's bible roles) + an animate step (the beat's camera motion). The
-  // role-scoped bibleRefs are the fix for cross-shot identity bleed: a Product shot pulls
-  // product+brand, never the Talent face. No LLM decides the structure — predictability.
+  // role-scoped bibleRefs are the fix for cross-shot identity bleed: a Location shot pulls
+  // the location/look, never a Character face. No LLM decides the structure — predictability.
   const buildStepsFromBlueprint = () => {
     setStatus('planning', 'planning');
     const shots = blueprint.shots || [];
@@ -235,7 +240,7 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
       if (shot.direct) {
         const base = {
           id: animId, agent: 'animate', title: shot.beat, intent: shot.beat,
-          params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto', direct: true, refUrls: shot.refUrls || [] },
+          params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto', direct: true, refUrls: shot.refUrls || [], refAssetIds: shot.refAssetIds || [], seed: shot.seed ?? null, firstFrameUrl: shot.firstFrameUrl ?? null, resolution: shot.resolution, ratio: shot.ratio, generateAudio: shot.generateAudio },
           dependsOn: [], gated: true, qc: null, error: null,
           // Seedance 2.0 takes up to 9 reference images — same cap as Seedream.
           bibleRefs: refIds, refCap: EXPLICIT_REF_CAP, locked: false, feedback: '',

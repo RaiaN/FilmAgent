@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import {
   Button,
   Input,
@@ -12,33 +12,31 @@ import {
   Message,
 } from '@arco-design/web-react';
 import { IconPlayArrow, IconClose, IconBulb } from '@arco-design/web-react/icon';
-import { AGENT_MAP, suggestCompositionDirection, suggestShotMotion, extractMusePrompt, IMAGE_RESOLUTIONS, IMAGE_RATIOS } from '../../../utils/film/agents';
+import { AGENT_MAP, IMAGE_RESOLUTIONS } from '../../../utils/film/agents';
 import { CAMERA_MOVES } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
 const { Text, Title, Paragraph } = Typography;
 
 // Which settings field each agent fills from selected text card(s). Agents not
-// listed here don't auto-pull text. Story Director has its own panel.
+// listed here don't auto-pull text.
 const PRIMARY_TEXT_FIELD = {
   inspiration: 'prompt',   // the generation prompt
-  promptMuse: 'question',  // the focus directive
-  topicExplorer: 'topic',  // the topic to research
+  cast: 'prompt',          // the film idea to cast from
+  story: 'prompt',         // the film idea to write key events from
 };
 
-// Combine every selected text card into one string. For a Prompt Muse card we
-// take only its "Prompt:" section (not the "What I see:" analysis); a plain note
-// contributes its full text. Multiple cards are joined with blank lines.
+// Combine every selected Note card into one string (joined with blank lines).
 const combineSelectedText = (selection) =>
   (selection || [])
     .filter((n) => n.data?.kind === 'text' && (n.data?.text || '').trim())
-    .map((n) => extractMusePrompt(n.data.text))
+    .map((n) => String(n.data.text).trim())
     .filter(Boolean)
     .join('\n\n');
 
 const SIZE_OPTIONS = IMAGE_RESOLUTIONS; // the tiers the API actually accepts (2K/3K/4K) — never a bare '1K', which it rejects
 
-const RESOLUTION_OPTIONS = ['480p', '720p', '1080p'];
+const RESOLUTION_OPTIONS = ['480p', '720p', '1080p', '4k'];
 const RATIO_OPTIONS = ['adaptive', '16:9', '9:16', '4:3', '1:1', '21:9'];
 const DURATION_OPTIONS = ['auto', 2, 4, 5, 10];
 
@@ -56,9 +54,8 @@ const MiniSelect = ({ label, value, onChange, options }) => (
   </div>
 );
 
-export const SettingsControls = ({ layer, settings, setSettings, selection, apiKey }) => {
+export const SettingsControls = ({ layer, settings, setSettings, selection }) => {
   const update = (patch) => setSettings({ ...settings, ...patch });
-  const [musing, setMusing] = useState(false);
 
   const textField = PRIMARY_TEXT_FIELD[layer.id];
   const hasTextSel = (selection || []).some((n) => n.data?.kind === 'text' && (n.data?.text || '').trim());
@@ -74,174 +71,13 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, textField]);
 
-  const askMuseForDirection = async () => {
-    const images = (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url).map((n) => n.data.localUrl || n.data.url);
-    if (images.length < 2) { Message.warning('Select at least two images first'); return; }
-    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ in the far-left sidebar)'); return; }
-    setMusing(true);
-    try {
-      const suggestion = await suggestCompositionDirection({ apiKey: apiKey.trim(), images });
-      if (suggestion) {
-        update({ prompt: suggestion });
-        Message.success('Prompt Muse filled the direction');
-      }
-    } catch (err) {
-      Message.error(err.message);
-    } finally {
-      setMusing(false);
-    }
-  };
-
-  // Force-fill a field from the selected text card(s). For a Prompt Muse card we
-  // take its "Prompt:" section, not the "What I see:" analysis; notes pass whole.
+  // Force-fill a field from the selected Note card(s).
   const loadSelectedText = (field) => {
     const combined = combineSelectedText(selection);
-    if (!combined) { Message.warning('Select a text card on the board first'); return; }
+    if (!combined) { Message.warning('Select a Note card on the board first'); return; }
     update({ [field]: combined });
     Message.success('Loaded text from the selected card(s)');
   };
-
-  const askMuseForMotion = async () => {
-    const images = (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url).map((n) => n.data.localUrl || n.data.url);
-    if (images.length === 0) { Message.warning('Select a keyframe first'); return; }
-    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ in the far-left sidebar)'); return; }
-    setMusing(true);
-    try {
-      const suggestion = await suggestShotMotion({ apiKey: apiKey.trim(), images: [images[0]] });
-      if (suggestion) {
-        update({ motion: suggestion });
-        Message.success('Prompt Muse suggested the motion');
-      }
-    } catch (err) {
-      Message.error(err.message);
-    } finally {
-      setMusing(false);
-    }
-  };
-
-  if (layer.id === 'mixMatch') {
-    return (
-      <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>Direction (optional)</Text>
-            <Button
-              size="mini"
-              type="text"
-              icon={<IconBulb />}
-              loading={musing}
-              onClick={askMuseForDirection}
-              style={{ color: '#0fc6c2' }}
-            >
-              Suggest with Prompt Muse
-            </Button>
-          </div>
-          <Input.TextArea
-            value={settings.prompt || ''}
-            onChange={(value) => update({ prompt: value })}
-            placeholder="how to combine them… e.g. 'the woman seated at the workbench, holding the lantern, dusk light through the window'"
-            autoSize={{ minRows: 2, maxRows: 5 }}
-          />
-        </div>
-        <Space wrap>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Count</Text>
-            <InputNumber min={1} max={8} value={settings.count} onChange={(v) => update({ count: v })} style={{ width: 70 }} />
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Resolution</Text>
-            <Select value={settings.size || '2K'} onChange={(v) => update({ size: v })} style={{ width: 80 }} options={IMAGE_RESOLUTIONS.map((s) => ({ label: s, value: s }))} />
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Aspect</Text>
-            <Select value={settings.ratio || '16:9'} onChange={(v) => update({ ratio: v })} style={{ width: 92 }} options={IMAGE_RATIOS.map((s) => ({ label: s, value: s }))} />
-          </div>
-        </Space>
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          <b>Story moments:</b> select your <b>character</b> (+ optionally locations) — each output places them in a different location with something <i>happening</i>, identity and place preserved. Only the character selected? The bible&rsquo;s location anchors fill in. Pick an <b>Aspect</b> that matches the shot.
-        </Paragraph>
-      </Space>
-    );
-  }
-
-  if (layer.id === 'topicExplorer') {
-    return (
-      <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <div>
-          <Text type="secondary" style={{ fontSize: 12 }}>Topic / idea / problem</Text>
-          <Input.TextArea
-            value={settings.topic || ''}
-            onChange={(value) => update({ topic: value })}
-            placeholder='e.g. "Saudi desert and its wildlife" · "ad of someone running in trainers" · "short 1-min AI film"'
-            autoSize={{ minRows: 2, maxRows: 4 }}
-          />
-        </div>
-        <Space wrap>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Images</Text>
-            <Select value={settings.budget || 12} onChange={(v) => update({ budget: v })} style={{ width: 80 }} options={[8, 12, 20].map((b) => ({ label: `${b}`, value: b }))} />
-          </div>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Depth</Text>
-            <Select value={settings.depth || 2} onChange={(v) => update({ depth: v })} style={{ width: 110 }} options={[{ label: 'Shallow', value: 1 }, { label: 'Deep', value: 2 }]} />
-          </div>
-        </Space>
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Researches the topic before production: discovers its unique key concepts (you don&rsquo;t need to know the right taxonomy), then fills the board shallow→deep — a brief on what makes such videos good, one group per concept, and candidate images each carrying a <b>suggested role</b>. Click the suggestion on a card to tag it into the bible.
-        </Paragraph>
-      </Space>
-    );
-  }
-
-  if (layer.id === 'storyboard') {
-    return (
-      <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <div>
-          <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Film length</Text>
-          <Select
-            value={settings.lengthSec || 90}
-            onChange={(v) => update({ lengthSec: v })}
-            style={{ width: 110 }}
-            options={[60, 90, 120, 150, 180].map((s) => ({ label: `${s}s`, value: s }))}
-          />
-        </div>
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Reads your idea and your tagged cast &amp; places, breaks the film into 5–15s shots, and lays one SHOT card per shot on the board — what happens, the camera template, a photoreal frame placing your cast in the location. <b>The frame and your real tagged assets feed the video</b> when you shoot. Tag at least one cast or place image first.
-        </Paragraph>
-      </Space>
-    );
-  }
-
-  if (layer.id === 'promptMuse') {
-    return (
-      <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>Anything specific to focus on? (optional)</Text>
-            <Button
-              size="mini"
-              type="text"
-              icon={<IconBulb />}
-              disabled={!hasTextSel}
-              onClick={() => loadSelectedText('question')}
-              style={{ color: hasTextSel ? '#0fc6c2' : undefined }}
-            >
-              Use selected text
-            </Button>
-          </div>
-          <Input.TextArea
-            value={settings.question || ''}
-            onChange={(value) => update({ question: value })}
-            placeholder="e.g. 'how is the lighting done?' · 'what makes this feel expensive?' · leave blank for a full read"
-            autoSize={{ minRows: 2, maxRows: 4 }}
-          />
-        </div>
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Select an image or video, then Run — you'll get a craft read plus a ready-to-use prompt. Select a text card too and its content auto-fills the focus above (while it's empty).
-        </Paragraph>
-      </Space>
-    );
-  }
 
   if (layer.id === 'animate') {
     return (
@@ -256,12 +92,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
           </div>
         </div>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>Motion (optional)</Text>
-            <Button size="mini" type="text" icon={<IconBulb />} loading={musing} onClick={askMuseForMotion} style={{ color: '#0fc6c2' }}>
-              Suggest with Prompt Muse
-            </Button>
-          </div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Motion (optional)</Text>
           <Input.TextArea
             value={settings.motion || ''}
             onChange={(value) => update({ motion: value })}
@@ -288,6 +119,68 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
         </Checkbox>
         <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
           Seedance runs as a background task (~1–3 min). A loading shot appears on the board and fills in when ready.
+        </Paragraph>
+      </Space>
+    );
+  }
+
+  if (layer.id === 'cast') {
+    return (
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>Film idea</Text>
+            <Button
+              size="mini"
+              type="text"
+              icon={<IconBulb />}
+              disabled={!hasTextSel}
+              onClick={() => loadSelectedText('prompt')}
+              style={{ color: hasTextSel ? '#0fc6c2' : undefined }}
+            >
+              Use selected text
+            </Button>
+          </div>
+          <Input.TextArea
+            value={settings.prompt || ''}
+            onChange={(value) => update({ prompt: value })}
+            placeholder="one sentence: what is this film about… e.g. 'a lighthouse keeper befriends the sea monster wrecking the ships' — leave blank to use the project's idea"
+            autoSize={{ minRows: 3, maxRows: 6 }}
+          />
+        </div>
+        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
+          Drafts 1–2 <b>characters</b> (people, animals or <b>monsters</b> — a 4K face plate + full-body sheet each) and 1–2 <b>locations</b>, all under one shared look, in the chosen genre. They land as candidates — tap the dashed role chip on the keepers to lock them into the bible, then re-roll the rest with Character / Location Variations.
+        </Paragraph>
+      </Space>
+    );
+  }
+
+  if (layer.id === 'story') {
+    return (
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>Film idea</Text>
+            <Button
+              size="mini"
+              type="text"
+              icon={<IconBulb />}
+              disabled={!hasTextSel}
+              onClick={() => loadSelectedText('prompt')}
+              style={{ color: hasTextSel ? '#0fc6c2' : undefined }}
+            >
+              Use selected text
+            </Button>
+          </div>
+          <Input.TextArea
+            value={settings.prompt || ''}
+            onChange={(value) => update({ prompt: value })}
+            placeholder="one sentence: what happens in this film… e.g. 'a lighthouse keeper befriends the sea monster wrecking the ships' — leave blank to use the project's idea"
+            autoSize={{ minRows: 3, maxRows: 6 }}
+          />
+        </div>
+        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
+          Writes the film as <b>3–4 key events</b> + <b>appearance descriptions</b>, then one continuous text-only Seedance prompt. Identity rides as <b>description</b> — it does <b>not</b> use the board’s reference assets by default; link any appearance to a Cast &amp; World plate yourself to opt in. Lands as an editable Story card; “Shoot the film” turns it into a SHOT card.
         </Paragraph>
       </Space>
     );
@@ -331,7 +224,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
           <Text style={{ fontSize: 12 }}>Seed with selected images as style refs</Text>
         </Checkbox>
         <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Tip: run Prompt Muse first, then select its text card — the prompt auto-fills here while the field is empty. Edit freely, or hit <b>Use selected text</b> to re-pull.
+          Tip: add a <b>Note</b> on the board and select it — its text auto-fills the prompt here while the field is empty. Edit freely, or hit <b>Use selected text</b> to re-pull.
         </Paragraph>
       </Space>
     );
@@ -368,7 +261,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection, apiK
   );
 };
 
-const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun, onClose, apiKeyPresent, apiKey, clipMode, clipLabel, onClearClip }) => {
+const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun, onClose, apiKeyPresent, clipMode, clipLabel, onClearClip }) => {
   const layer = AGENT_MAP[layerId];
   if (!layer) return null;
 
@@ -423,7 +316,7 @@ const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun,
           </div>
         )}
 
-        <SettingsControls layer={layer} settings={settings} setSettings={setSettings} selection={selection} apiKey={apiKey} />
+        <SettingsControls layer={layer} settings={settings} setSettings={setSettings} selection={selection} />
       </div>
 
       <div style={{ padding: 12, borderTop: '1px solid #f2f3f5' }}>

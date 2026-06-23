@@ -27,9 +27,9 @@ export const CHUNK_MIN_SECONDS = 10;
 export const CHUNK_MAX_SECONDS = 15;
 const clampChunkSeconds = (v) => Math.min(CHUNK_MAX_SECONDS, Math.max(CHUNK_MIN_SECONDS, Math.round(Number(v) || 12)));
 
-// The king's reference order: cast identity first (talent/character), then the
-// hero/subject, then the world — capped so the image model isn't swamped.
-const CAST_FIRST = ['talent', 'character', 'product', 'location', 'look', 'style', 'prop', 'brand'];
+// The king's reference order: cast identity first (character), then the world, props,
+// and a style reference last — capped so the image model isn't swamped.
+const CAST_FIRST = ['character', 'location', 'prop', 'look'];
 export const castFirstUrls = (bible = [], cap = 4) => {
   const weight = (r) => { const i = CAST_FIRST.indexOf(r); return i < 0 ? CAST_FIRST.length : i; };
   const seen = new Set();

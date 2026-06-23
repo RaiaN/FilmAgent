@@ -2,22 +2,24 @@
 // One reason call STUDIES the real tagged assets (the VLM sees the actual cast and
 // places) + the idea, and breaks the film into 5–15s shots: what happens, the chosen
 // SHOT TEMPLATE (one of the 50 in the cinematography library — angle/framing/move),
-// duration, and WHICH real assets appear. Then each shot is rendered as a PHOTOREAL
-// storyboard frame: the shot's real cast plates + location plate condition a
-// photographed film still that places the cast IN the location, in that framing.
+// duration, and WHICH real assets appear. Then each shot is rendered as a LIGHTING-
+// ONLY previs frame (white-washed clay, like Unreal's "Lighting Only" view): the
+// shot's real cast plates + location plate condition a neutral grey-scale study that
+// BLOCKS the cast in the location, in that framing — composition and light only.
 //
-// The frame is generated FROM the real plates (so it inherits their identity) and at
-// shoot time rides to Seedance ALONGSIDE those same real plates (shotReferences puts
-// the plates first, the frame last) — so identity is never sourced from a generated
-// image alone, and the frame adds exact composition/blocking/light.
+// The frame is generated FROM the real plates (so the blocking, poses and scale
+// match) and at shoot time rides to Seedance ALONGSIDE those plates (shotReferences
+// puts the plates first, the frame last) — the plates carry identity & colour, the
+// frame carries camera, composition and lighting.
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
 import { renderTemplate, getModel, getRuntime } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
-import { composeSeedancePrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID } from '../recipes';
+import { composeSeedancePrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
 import { parseJson } from './director';
-import { withRetry } from './retry';
+import { withRetry, isTransient } from './retry';
+import { isImagePolicyError } from './operations';
 import { runWithConcurrency } from './parallel';
 
 // Shots are 5–15s (each breaks into cuts of ≤5–6s) → a 60–180s film is ~6–18 shots.
@@ -29,31 +31,77 @@ const clampDuration = (d) => Math.min(15, Math.max(5, Math.round(Number(d) || 10
 // Fallback when the Shot agent returns no/invalid template id — a neutral workhorse.
 const DEFAULT_SHOT_TEMPLATE = 'medium-shot';
 
+// Collapse the panels' per-shot stages into a readable story spine, grouping
+// consecutive shots that share a stage: "1–2 stable normal · 3 trouble strikes · …".
+export const storySpine = (panels = []) => {
+  const groups = [];
+  panels.forEach((p, i) => {
+    const stage = (p.stage || '').trim();
+    const last = groups[groups.length - 1];
+    if (last && last.stage === stage) last.end = i + 1;
+    else groups.push({ stage, start: i + 1, end: i + 1 });
+  });
+  return groups
+    .map((g) => `${g.start === g.end ? g.start : `${g.start}–${g.end}`}${g.stage ? ` ${g.stage}` : ''}`)
+    .join(' · ');
+};
+
+// The agent's NARRATIVE decision → a first-class object the Decision History logs:
+// which story arc it chose, WHY it fits THIS premise, and the per-shot stage spine.
+// Hidden from the main UI by design (we don't make the user pick an arc); the History
+// is the audit/transparency surface, so the choice belongs there. Null when the read
+// named no arc (a bare-array fallback) — then we simply log no spine.
+const resolveArc = (arcId, why, panels) => {
+  const def = STORY_ARC_BY_ID[arcId] || null;
+  if (!def && !arcId) return null;
+  const hasStages = panels.some((p) => p.stage);
+  const spine = hasStages ? storySpine(panels) : (def ? def.stages : '');
+  return def
+    ? { id: def.id, name: def.name, category: def.category, why: why || def.fit, stages: def.stages, spine }
+    : { id: arcId, name: arcId, category: '', why, stages: '', spine };
+};
+
 // ---- the read: idea + REAL assets → the shot list -------------------------------
-export const readStoryboard = async ({ idea, genre = '', targetSeconds = 90, bible = [], config } = {}, ctx) => {
+export const readStoryboard = async ({ idea, genre = '', targetSeconds = 90, bible = [], count: countOverride, script = '', systemTemplate = 'storyboard.read.system', config } = {}, ctx) => {
   const t = String(idea || '').trim();
   if (!t) throw new Error('The storyboard needs the film idea first.');
   const anchors = (bible || []).filter((e) => e && e.url);
   if (!anchors.length) throw new Error('Tag at least one cast or place image first — the storyboard is drawn around your real assets.');
 
-  const count = shotCountFor(targetSeconds);
+  // Caller can pin the shot count (the Contact Sheet defaults to ~12; a single-beat
+  // promote pins 1); else size it from length.
+  const count = Math.max(1, Math.min(50, Math.round(Number(countOverride) || shotCountFor(targetSeconds))));
   const refList = anchors.map((e, i) => `${i + 1}. ${e.role}: ${e.name || 'asset'}`).join(' · ');
+  // When the user wrote/edited a SCRIPT (the Story node), the breakdown reads THAT as
+  // the authoritative narrative — break it into shots, don't invent a different story.
+  const scriptBlock = String(script || '').trim()
+    ? `\nWork from THIS SCRIPT — break it into shots faithfully; do NOT invent a different story. Produce ONE shot per numbered beat, in the SAME order (shot N covers beat N), so the shots stay aligned to the story:\n"""\n${String(script).trim().slice(0, 4000)}\n"""\n`
+    : '';
   // Tolerant shape pick: a bare array, or ANY top-level array property ({"shots":…},
   // {"panels":…}, whatever the model wrapped it in). Retry the read once when it
   // parses to nothing — output-shape variance killed a run (2026-06-12).
   const pickArray = (raw) => (Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? Object.values(raw).find(Array.isArray) : null));
-  const arr = await withRetry(async () => {
+  // The read returns { arc, why, shots:[…] } — but stay tolerant of a bare array
+  // (older shape / a model that ignored the wrapper): pickArray finds the shots
+  // either way, and arc/why are read only when the object form is present.
+  const parsed = await withRetry(async () => {
     const { content } = await ctx.client.reason({
-      prompt: renderTemplate('storyboard.read.user', { idea: t, genre: genre || 'unspecified', seconds: Math.round(Number(targetSeconds) || 90), count, refList }),
-      systemPrompt: renderTemplate('storyboard.read.system', { count, templates: shotTemplateCatalog() }),
+      prompt: renderTemplate('storyboard.read.user', { idea: t, genre: genre || 'unspecified', seconds: Math.round(Number(targetSeconds) || 90), count, refList, script: scriptBlock }),
+      systemPrompt: renderTemplate(systemTemplate, { count, arcs: storyArcCatalog(), templates: shotTemplateCatalog() }),
       images: anchors.map((e) => e.url),
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
     });
-    const got = pickArray(parseJson(content));
-    if (!got || !got.length) throw new Error('The storyboard read returned no shots — try rephrasing the idea.');
-    return got;
+    const raw = parseJson(content);
+    const shots = pickArray(raw);
+    if (!shots || !shots.length) throw new Error('The storyboard read returned no shots — try rephrasing the idea.');
+    return { raw, shots };
   }, { tries: 2, baseMs: 1500, shouldRetry: () => true });
+
+  const arr = parsed.shots;
+  const head = parsed.raw && !Array.isArray(parsed.raw) ? parsed.raw : {};
+  const arcId = typeof head.arc === 'string' ? head.arc.trim() : '';
+  const arcWhy = typeof head.why === 'string' ? head.why.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
 
   const panels = arr.slice(0, count).map((p, i) => {
     // The chosen template carries framing + angle + move; an invalid/missing id
@@ -63,70 +111,79 @@ export const readStoryboard = async ({ idea, genre = '', targetSeconds = 90, bib
     return {
       index: i,
       title: String(p?.title || `Shot ${i + 1}`).slice(0, 48),
-      action: String(p?.action || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+      action: String(p?.action || '').replace(/\s+/g, ' ').trim().slice(0, 500),
       shotTemplate: tpl.id,
       framing: tpl.framing,
       angle: tpl.angle,
       camera: 'auto',
+      // The chosen arc's stage this shot covers — the narrative decision, surfaced
+      // only in the Decision History as the film's story spine (never in the UI).
+      stage: String(p?.stage || '').replace(/\s+/g, ' ').trim().slice(0, 40),
       durationSec: clampDuration(p?.durationSec),
       // 1-based reference numbers → the real bible entry ids this shot uses.
       refEntryIds: (Array.isArray(p?.refs) ? p.refs : []).map((n) => anchors[Number(n) - 1]?.id).filter(Boolean),
     };
   }).filter((p) => p.action);
   if (!panels.length) throw new Error('No usable shots in the storyboard read.');
-  return { anchors, panels };
+  return { anchors, panels, arc: resolveArc(arcId, arcWhy, panels) };
 };
 
-// ---- the frames: one PHOTOREAL still per shot (parallel, retried) ----------------
-// Each shot's real cast plates + location plate condition a photographed film still
-// that PLACES the cast in the location, in the shot's framing/angle. The frame both
-// shows the user the real composition AND rides to Seedance as a composition ref
-// (the real plates ride too — see shotReferences). A failed frame never sinks the
-// plan (the card lands bare). The result is stored on `sketchUrl` (legacy field name
-// kept to avoid a wide refactor — it now holds a photoreal frame, not a drawing).
-export const renderFrames = async ({ panels = [], anchors = [], config } = {}, ctx, hooks = {}) => {
-  const h = { onPanel: hooks.onPanel || (() => {}), onError: hooks.onError || (() => {}) };
-  const frameOne = (panel) => async () => {
-    // The shot's chosen refs, then GUARANTEE a location is present so the cast is
-    // actually placed in an environment (the agent doesn't always tag the place).
-    const refEntries = (panel.refEntryIds || [])
-      .map((id) => anchors.find((e) => e.id === id))
-      .filter((e) => e && e.url);
-    if (!refEntries.some((e) => e.role === 'location')) {
-      const loc = anchors.find((e) => e.role === 'location' && e.url);
-      if (loc) refEntries.push(loc);
-    }
-    const refs = refEntries.map((e) => e.url).slice(0, 6);
-    try {
-      const out = await withRetry(
-        () => ctx.client.generateImage({
-          prompt: renderTemplate('storyboard.frame', { framing: panel.framing, angle: panel.angle || 'eye-level', action: panel.action }),
-          referenceImages: refs,
-          // Photoreal frames render at 4K (same tier as the cast plates) for real
-          // storyboarding fidelity. Only table tiers exist (2K/3K/4K) — never '1K'.
-          size: resolveImageSize('4K', '16:9'),
-          model: getModel('seedream', config),
-        }),
-        { tries: 3, baseMs: 2500 },
-      );
-      h.onPanel({ ...panel, sketchUrl: out.url });
-    } catch (err) {
-      h.onError(`Panel ${panel.index + 1} (${panel.title}): ${err.message}`);
-      h.onPanel({ ...panel, sketchUrl: '' });
-    }
-  };
-  await runWithConcurrency(panels.map(frameOne), 3);
+// ---- Story agent v2 (REWRITTEN 2026-06-19): film → KEY EVENTS + APPEARANCE strings →
+// ONE continuous text-only Seedance 2.0 prompt. Replaces the arc-shaped beats + shot-card
+// breakdown: no story arc, no reference images, no per-shot cards. Identity is held by the
+// APPEARANCE string (stated once at the top), the structure by the 3–4 load-bearing KEY
+// EVENTS. The final prompt = our reference assets AS DESCRIPTION at the top, then the events.
+const clampLine = (s, n = 400) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+// Assemble the final Seedance prompt: appearances (our assets AS DESCRIPTION) at the top,
+// then the key events as one continuous chain. An appearance LINKED to a bible asset (refId)
+// is sent as a reference image, so we LABEL it `[ImageK]` in the SAME order shootFilm
+// collects the refs (appearances.filter(refId)) — binding each image to its named character,
+// not leaving the plate to float. Pure string assembly so the Story node re-assembles live.
+export const composeFilmPrompt = ({ appearances = [], keyEvents = [] } = {}) => {
+  let imgN = 0;
+  const lines = [];
+  (appearances || []).forEach((a) => {
+    const string = clampLine(a?.string, 400);
+    const hasRef = !!a?.refId;
+    if (!string && !a?.name && !hasRef) return;
+    const label = hasRef ? `[Image${(imgN += 1)}] ` : '';
+    const name = a?.name ? (string ? `${a.name} — ` : a.name) : '';
+    lines.push(`${label}${name}${string}`.trim());
+  });
+  const desc = lines.filter(Boolean).join('\n');
+  const events = (keyEvents || []).map((e) => clampLine(e, 300)).filter(Boolean).join(' ');
+  return [desc, events].filter(Boolean).join('\n\n');
 };
 
-// The UI agent's one-call flow: read, then render frames, streaming cards via hooks.
-// hooks.onPlan(panels) fires the MOMENT the shot list is read — so the UI can
-// place the cards (prompts visible) immediately and the photoreal frames fill in
-// after, instead of a silent wait while every frame renders.
-export const createStoryboard = async ({ idea, genre = '', targetSeconds = 90, bible = [], config } = {}, ctx, hooks = {}) => {
-  const { anchors, panels } = await readStoryboard({ idea, genre, targetSeconds, bible, config }, ctx);
-  if (hooks.onPlan) hooks.onPlan(panels);
-  await renderFrames({ panels, anchors, config }, ctx, hooks);
-  return { panels: panels.length, plannedSeconds: panels.reduce((s, p) => s + p.durationSec, 0) };
+export const writeKeyEvents = async ({ idea, source = '', genre = '', bible = [], config } = {}, ctx) => {
+  const t = String(idea || '').trim();
+  const src = String(source || '').trim();
+  if (!t && !src) throw new Error('The story needs an idea or a script first.');
+  // Cast/locations are OPTIONAL now — the appearance strings ARE the identity (text-only,
+  // no reference images). When a bible exists, the agent describes those exact names.
+  const anchors = (bible || []).filter((e) => e && e.name);
+  const castList = anchors.length ? anchors.map((e) => `${e.role}: ${e.name}`).join(' · ') : '(none — invent the minimal cast)';
+  const sourceBlock = src
+    ? `\nSOURCE — the user's OWN story/script; PRESERVE its events (compress, do NOT rewrite into a different story):\n"""\n${src.slice(0, 6000)}\n"""\n`
+    : '';
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('story.keyEvents.user', { idea: t || '(none — work from the source)', genre: genre || 'unspecified', castList, source: sourceBlock }),
+    systemPrompt: renderTemplate('story.keyEvents.system'),
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content);
+  const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const appearances = (Array.isArray(obj.appearances) ? obj.appearances : [])
+    .map((a) => ({ name: clampLine(a?.name, 60), role: a?.role === 'location' ? 'location' : 'character', string: clampLine(a?.string, 400) }))
+    .filter((a) => a.string)
+    .slice(0, 6);
+  const keyEvents = (Array.isArray(obj.keyEvents) ? obj.keyEvents : (Array.isArray(raw) ? raw : []))
+    .map((e) => clampLine(e, 300)).filter(Boolean).slice(0, 4);
+  if (!keyEvents.length) throw new Error('The key events came back empty — try rephrasing the idea.');
+  const mode = obj.mode === 'preserve' ? 'preserve' : (src ? 'preserve' : 'expand');
+  return { mode, appearances, keyEvents, seedancePrompt: composeFilmPrompt({ appearances, keyEvents }) };
 };
 
 // A panel → one direct-to-video blueprint shot (production.js shot.direct): the
@@ -152,7 +209,7 @@ export const panelToShot = (panel, anchors = [], genre = '') => {
   return {
     beat: panel.title,
     direct: true,
-    motion: composeSeedancePrompt({ references, cuts, cinematography, audio: '' }),
+    motion: composeSeedancePrompt({ references, cuts, cinematography, audio: '', shotTemplate: panel.shotTemplate }),
     camera: 'auto',
     durationSec: sec,
     refEntryIds: panel.refEntryIds || [],
@@ -168,7 +225,7 @@ export const panelToShot = (panel, anchors = [], genre = '') => {
 // canonical anchors every shot then references. In the UI the results land as
 // CANDIDATES with suggested-role chips — the user's tag locks them; headless runs
 // (no human) adopt them directly.
-const CAST_ROLE = { character: 'talent', location: 'location', look: 'look' };
+const CAST_ROLE = { character: 'character', location: 'location', look: 'look' };
 
 // Read the film's GENRE & TONE from the premise — the upstream creative knob that
 // drives look, casting and shot grammar. One cheap call; surfaced to the user to
@@ -208,11 +265,16 @@ export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks
   const style = (raw && !Array.isArray(raw) && String(raw.style || '').trim()) || '';
   // The shared style rides on EVERY plate — consistency by construction.
   const withStyle = (p) => [String(p || '').trim(), style].filter(Boolean).join('. ');
+  // A portrait plate is an IDENTITY ANCHOR, not a scene still. Force a clean frontal
+  // reference — facing camera, neutral seamless background, no environment — appended to
+  // every character FACE plate so the anchor stays reliable regardless of LLM drift.
+  const PORTRAIT_SPEC = 'Subject facing camera directly, frontal, eyes to lens. Plain neutral seamless studio background, evenly lit — no scene, no environment, no location, no props.';
   // Cast plates render at 4K, each in the shape that fits it: a head PORTRAIT (3:4)
-  // for facial fidelity in close-ups, a TALL full-body sheet (2:3) head-to-toe, a
-  // LANDSCAPE establishing frame (16:9) for places. (Sketches stay 1K — see above.)
+  // for facial fidelity in close-ups, a LANDSCAPE full-body TURNAROUND sheet (4:3 —
+  // frontal + side views side by side) head-to-toe, a LANDSCAPE establishing frame
+  // (16:9) for places. (Sketches stay 1K — see above.)
   const FACE_SIZE = resolveImageSize('4K', '3:4');
-  const BODY_SIZE = resolveImageSize('4K', '2:3');
+  const BODY_SIZE = resolveImageSize('4K', '4:3');
   const PLACE_SIZE = resolveImageSize('4K', '16:9');
   // Flatten the cast into a PLATE LIST. A character → a face plate + a body plate
   // (the body refs the face so the full-body sheet keeps the close-up's identity);
@@ -225,10 +287,10 @@ export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks
     const face = String(c?.facePrompt || '').trim();
     const body = String(c?.bodyPrompt || '').trim();
     const single = String(c?.prompt || '').trim();
-    if (role === 'talent' && face) {
+    if (role === 'character' && face) {
       const faceKey = `cast-${ci}-face`;
-      plates.push({ key: faceKey, role: 'talent', name: `${name} · face`, prompt: withStyle(face), size: FACE_SIZE });
-      if (body) plates.push({ key: `cast-${ci}-body`, role: 'talent', name: `${name} · body`, prompt: withStyle(body), refFrom: faceKey, size: BODY_SIZE });
+      plates.push({ key: faceKey, role: 'character', name: `${name} · face`, prompt: `${withStyle(face)}. ${PORTRAIT_SPEC}`, size: FACE_SIZE });
+      if (body) plates.push({ key: `cast-${ci}-body`, role: 'character', name: `${name} · body`, prompt: withStyle(body), refFrom: faceKey, size: BODY_SIZE });
     } else if (single) {
       plates.push({ key: `cast-${ci}`, role, name, prompt: withStyle(single), size: PLACE_SIZE });
     } else if (face) {
@@ -242,15 +304,20 @@ export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks
 
   const entries = [];
   const urlByKey = {};
-  const genImage = (prompt, refUrl, size) => withRetry(
-    () => ctx.client.generateImage({
-      prompt,
-      ...(refUrl ? { referenceImages: [refUrl] } : {}),
-      size,
-      model: getModel('seedream', config),
-    }),
-    { tries: 3, baseMs: 2500 },
-  );
+  // Retry transient errors AND the output-image content filter (per-sample → a re-roll
+  // usually passes; soften the prompt after a filter hit). Cast plates can trip it too.
+  const genImage = (prompt, refUrl, size) => {
+    let policyHit = false;
+    return withRetry(
+      () => ctx.client.generateImage({
+        prompt: policyHit ? `${prompt} Keep it tasteful and non-graphic.` : prompt,
+        ...(refUrl ? { referenceImages: [refUrl] } : {}),
+        size,
+        model: getModel('seedream', config),
+      }),
+      { tries: 4, baseMs: 2500, shouldRetry: (err) => isTransient(err) || isImagePolicyError(err), onRetry: (err) => { if (isImagePolicyError(err)) policyHit = true; } },
+    );
+  };
   const renderPlate = (p, idx) => async () => {
     try {
       // A body plate waits on its face's URL so the sheet inherits the exact face.

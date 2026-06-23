@@ -12,7 +12,7 @@ export const MODEL_CAPABILITIES = {
     },
     // --- SEEDANCE (VIDEO) MODELS ---
     'ep-20260415171928-pdvvr': {
-        resolutions: ['720p', '1080p'],
+        resolutions: ['720p', '1080p', '4k'],
         ratios: ['16:9', '9:16', '1:1'],
         durations: ['auto', 5, 10, 15],
         supports_audio: true,
@@ -53,7 +53,7 @@ export const MODEL_CAPABILITIES = {
         supports_seed: true,
         
         // Seedance defaults
-        resolutions: ['480p', '720p', '1080p'],
+        resolutions: ['480p', '720p', '1080p', '4k'],
         ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
         durations: ['auto', 5, 10, 15],
         supports_audio: true,

@@ -4,9 +4,7 @@ export type AgentId =
   | 'inspiration'
   | 'characterVariations'
   | 'locationVariations'
-  | 'mixMatch'
   | 'animate'
-  | 'promptMuse'
   | 'storyBeats'
   | 'autoDirector';
 
@@ -23,24 +21,21 @@ export interface SuiteConfigOverride {
 // ---- per-agent inputs ----
 export interface InspirationInput { prompt?: string; refs?: string[]; count?: number; size?: string; }
 export interface VariationsInput { imageUrl: string; axis?: string; count?: number; notes?: string; size?: string; }
-export interface MixMatchInput { imageUrls: string[]; direction?: string; count?: number; size?: string; }
 export interface AnimateInput {
   imageUrl?: string; assetId?: string; motion?: string;
   camera?: string; lens?: string; focalLength?: string; aperture?: string;
   duration?: number | 'auto'; resolution?: string; ratio?: string; generateAudio?: boolean;
 }
-export interface PromptMuseInput { images?: string[]; video?: string; question?: string; }
 export interface StoryBeatsInput { idea?: string; steps?: string[]; lastImageUrl?: string; count?: number; }
 
 export type AgentInput =
-  | InspirationInput | VariationsInput | MixMatchInput
-  | AnimateInput | PromptMuseInput | StoryBeatsInput
+  | InspirationInput | VariationsInput
+  | AnimateInput | StoryBeatsInput
   | AutoDirectorInput;
 
 // ---- results ----
 export interface ImageAsset { kind?: 'image'; url: string; prompt?: string; label?: string; meta?: Record<string, unknown>; }
 export interface VideoAsset { kind: 'video'; url: string; prompt?: string; }
-export interface TextAsset { kind: 'text'; text: string; }
 export interface Beat { title: string; prompt: string; }
 
 export interface RunEvent {
@@ -88,7 +83,7 @@ export interface RunOptions {
 // is blueprint-only: nothing invents a shot list outside the storyboard.
 
 /** Role of a bible (global, atemporal) asset. */
-export type BibleRole = 'style' | 'character' | 'location' | 'prop' | 'brand';
+export type BibleRole = 'character' | 'location' | 'prop' | 'look';
 
 /** A canonical anchor every generative step references so chunks stay consistent. */
 export interface BibleEntry {
@@ -108,9 +103,9 @@ export interface ProduceInput {
   /** Rough target runtime in minutes; used when `targetSeconds` is absent. Default 1. */
   targetMinutes?: number;
   /**
-   * Global style/character/location/prop/brand anchors. Every generative step also
-   * receives its bible references (bounded, style-first) so the look + cast stay
-   * consistent across shots — the mechanism that kills cross-shot drift.
+   * Global character/location/prop/look anchors. Every generative step also receives
+   * its bible references (bounded, identity-first) so the look + cast stay consistent
+   * across shots — the mechanism that kills cross-shot drift.
    */
   bible?: BibleEntry[];
   /**
@@ -143,8 +138,25 @@ export interface Panel {
   angle: string;
   /** Camera move lives in the template's cinematography line; cards send 'auto'. */
   camera: string;
+  /** The chosen story arc's stage this shot covers (the narrative decision). */
+  stage: string;
   durationSec: number;
   refEntryIds: string[];
+}
+
+/** The agent's auto-selected narrative arc for the film (a STORY_ARCS entry) +
+ *  why it fits this premise + the per-shot stage spine. Surfaced in the Decision
+ *  History, not the UI. Null when the read named no arc. */
+export interface StoryArc {
+  id: string;
+  name: string;
+  category: string;
+  /** One line on why this arc fits THIS premise. */
+  why: string;
+  /** The arc's canonical stage list, e.g. "stable normal · trouble strikes · …". */
+  stages: string;
+  /** Per-shot breakdown, e.g. "1–2 stable normal · 3 trouble strikes · …". */
+  spine: string;
 }
 
 /** One shot in a production blueprint — what `panelToShot` emits. */

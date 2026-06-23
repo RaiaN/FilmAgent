@@ -106,6 +106,15 @@ export default async function imagineHandler(req, res) {
     }
     return res.status(200).json({ url, prompt: body.prompt, size, model: seedreamModel });
   } catch (error) {
-    return res.status(500).json({ error: 'Image generation crashed', details: error.message });
+    // A THROW here is NOT a Seedream rejection (those are handled above with the
+    // real status/message) — it's an exception around the call: reference inlining
+    // 403'd on an aged TOS URL, an upstream connection flake (fetch failed /
+    // ECONNRESET), or a non-JSON gateway body. Surface the REAL message AS `error`
+    // (not a generic "crashed" label) so (a) the toast is actionable and (b)
+    // withRetry's isTransient() can recognize a network blip and retry it — a
+    // generic label matches no transient pattern and silently defeats the retry,
+    // leaving a hole in the contact sheet. Also log it so dev terminals can diagnose.
+    console.error('[film/imagine] crashed —', error?.message, '::', (error?.stack || '').split('\n').slice(1, 3).join(' '));
+    return res.status(500).json({ error: error?.message || 'Image generation crashed' });
   }
 }

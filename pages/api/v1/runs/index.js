@@ -9,7 +9,7 @@ export const config = {
 };
 
 // Single agents + the full-production orchestrator (autoDirector = idea → film).
-const AGENTS = new Set(['inspiration', 'characterVariations', 'locationVariations', 'mixMatch', 'animate', 'promptMuse', 'storyBeats', 'autoDirector']);
+const AGENTS = new Set(['inspiration', 'characterVariations', 'locationVariations', 'animate', 'storyBeats', 'autoDirector']);
 
 const resolveApiKey = (req) => {
   const header = req.headers.authorization || '';

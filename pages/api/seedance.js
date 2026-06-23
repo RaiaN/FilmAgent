@@ -164,7 +164,16 @@ async function seedanceHandler(req, res) {
 
     const data = await response.json();
     if (!response.ok) {
-      return res.status(response.status).json({ error: 'Seedance request failed', details: data });
+      // Surface the REAL Seedance reason AS `error` (not a generic label) — otherwise
+      // errMsg() shows "Seedance request failed" and the actionable message (e.g. a
+      // reference image that couldn't be downloaded / aged-out URL, a bad param) stays
+      // buried in details and is never seen. Also log it so the dev terminal is diagnosable.
+      const seedanceMsg = data?.error?.message
+        || data?.message
+        || (typeof data?.error === 'string' ? data.error : null)
+        || `Seedance request failed (HTTP ${response.status})`;
+      console.error(`[seedance] ${response.status} :: ${typeof seedanceMsg === 'string' ? seedanceMsg : JSON.stringify(seedanceMsg)}`, JSON.stringify(data).slice(0, 600));
+      return res.status(response.status).json({ error: typeof seedanceMsg === 'string' ? seedanceMsg : JSON.stringify(seedanceMsg), details: data });
     }
 
     return res.status(200).json({
@@ -175,7 +184,10 @@ async function seedanceHandler(req, res) {
       assetReferenceCount: staged.assetReferenceCount,
     });
   } catch (error) {
-    return res.status(500).json({ error: 'Request failed', details: error.message });
+    // A THROW (not a Seedance rejection): content normalization (e.g. a reference that
+    // isn't a public/asset/data URL) or TOS staging failed. Surface the real message.
+    console.error('[seedance] crashed —', error?.message);
+    return res.status(500).json({ error: error?.message || 'Request failed' });
   }
 }
 

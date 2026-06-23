@@ -89,9 +89,20 @@ export const createDirectClient = ({ apiKey, baseUrl }) => {
       return { content: extractResponseText(data) };
     },
 
-    async startVideo({ content, model, resolution, ratio, duration, generateAudio }) {
-      const body = { model, content, resolution, ratio, generate_audio: !!generateAudio, watermark: false };
+    async startVideo({ content, model, resolution, ratio, duration, generateAudio, seed }) {
+      // ModelArk's video endpoint accepts only text/image_url/video_url/audio_url —
+      // NOT `image_asset_id` (that's the app route's intermediate shape). A registered
+      // portrait/place asset rides as an `asset://<id>` URL inside image_url instead
+      // (the trusted path that dodges the "input image may contain real person" screen).
+      // The app route (/api/seedance) does this same map; the headless client must too.
+      const normalized = (Array.isArray(content) ? content : []).map((item) => (
+        item?.type === 'image_asset_id'
+          ? { type: 'image_url', image_url: { url: `asset://${String(item.asset_id || '').trim()}` }, role: item.role || 'reference_image' }
+          : item
+      ));
+      const body = { model, content: normalized, resolution, ratio, generate_audio: !!generateAudio, watermark: false, return_last_frame: true };
       if (duration && duration !== 'auto') body.duration = Number(duration);
+      if (seed != null && seed !== '') body.seed = Number(seed);
       const res = await fetch(`${base}/contents/generations/tasks`, { method: 'POST', headers: authHeaders, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) throw new Error(errMsg(data, 'Seedance start failed'));
@@ -108,7 +119,7 @@ export const createDirectClient = ({ apiKey, baseUrl }) => {
         await new Promise((r) => setTimeout(r, intervalMs));
         const res = await fetch(`${base}/contents/generations/tasks/${taskId}`, { headers: authHeaders });
         const data = await res.json();
-        if (data.status === 'succeeded' && data.content?.video_url) return { videoUrl: data.content.video_url };
+        if (data.status === 'succeeded' && data.content?.video_url) return { videoUrl: data.content.video_url, lastFrameUrl: data.content.last_frame_url || data.content.last_frame_image_url || null };
         if (data.status === 'failed') throw new Error(data.error?.message || data.error || 'Seedance task failed');
       }
     },

@@ -15,13 +15,13 @@ const MUTE = '#86909c';
 const LINE = '#e5e6eb';
 
 // Compact display labels — the strip is tight; the chat/narration keep fuller names.
-const SHORT_LABEL = { casting: 'Cast & world' };
+const SHORT_LABEL = { casting: 'Cast & world', storyboard: 'Story' };
 
 // What one click means at each stage. Idea has no button of its own — the premise
 // is a sentence only the user can write, so the strip routes to the director chat.
 const STAGE_ACTION = {
   casting: { label: 'Draft the production', action: 'castDraft' },
-  storyboard: { label: 'Storyboard it', action: 'storyboard' },
+  storyboard: { label: 'Write the story', action: 'story' },
   filming: { label: 'Shoot the cards', action: 'action' },
   finalCut: { label: 'Stitch the film', action: 'stitch' },
 };

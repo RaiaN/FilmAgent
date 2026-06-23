@@ -19,8 +19,8 @@
 
 import type {
   AgentId, AgentInput, FilmSuiteOptions, RunOptions, Run, RunEvent,
-  InspirationInput, VariationsInput, MixMatchInput, AnimateInput, PromptMuseInput, StoryBeatsInput,
-  ImageAsset, VideoAsset, TextAsset, Beat, SuiteConfigOverride,
+  InspirationInput, VariationsInput, AnimateInput, StoryBeatsInput,
+  ImageAsset, VideoAsset, Beat, SuiteConfigOverride,
   ProduceInput, ProduceOptions, PipelineResult, AutoDirectorInput,
   Production, ProductionOptions, StitchFn,
 } from './types';
@@ -146,9 +146,7 @@ export class FilmSuite {
   inspiration(input: InspirationInput, opts?: RunOptions) { return this.run<ImageAsset[]>('inspiration', input, opts); }
   characterVariations(input: VariationsInput, opts?: RunOptions) { return this.run<ImageAsset[]>('characterVariations', input, opts); }
   locationVariations(input: VariationsInput, opts?: RunOptions) { return this.run<ImageAsset[]>('locationVariations', input, opts); }
-  mixMatch(input: MixMatchInput, opts?: RunOptions) { return this.run<ImageAsset[]>('mixMatch', input, opts); }
   animate(input: AnimateInput, opts?: RunOptions) { return this.run<VideoAsset[]>('animate', input, opts); }
-  promptMuse(input: PromptMuseInput, opts?: RunOptions) { return this.run<TextAsset[]>('promptMuse', input, opts); }
   storyBeats(input: StoryBeatsInput, opts?: RunOptions) { return this.run<Beat[]>('storyBeats', input, opts); }
 
   /**

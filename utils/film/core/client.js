@@ -31,11 +31,11 @@ const POLL_TIMEOUT_MS = 360000;
 // Used by the canvas (L4). Keeps the existing request shapes unchanged.
 
 export const createBrowserClient = (apiKey) => ({
-  async generateImage({ prompt, referenceImages, size, model }) {
+  async generateImage({ prompt, referenceImages, size, model, seed }) {
     const res = await fetch('/api/film/imagine', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiKey, prompt, referenceImages, size, model }),
+      body: JSON.stringify({ apiKey, prompt, referenceImages, size, model, seed }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(errMsg(data, `Image generation failed (HTTP ${res.status})`));

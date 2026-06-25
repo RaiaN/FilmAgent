@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useEffect, useRef, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Tag, Message, Select, Button } from '@arco-design/web-react';
-import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamationCircleFill, IconDragDotVertical } from '@arco-design/web-react/icon';
+import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconScissor, IconPlus, IconCheck } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
 import { BIBLE_ROLES, BIBLE_ROLE_META } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
@@ -11,7 +11,7 @@ const { Text } = Typography;
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null, onImgError: null });
+export const AssetNodeContext = createContext({ onTagRole: null, onImgError: null, onDeconstruct: null, deconstructingId: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null });
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
 // colour for its badge so the cast & world read at a glance on the board.
@@ -54,7 +54,8 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, text, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole, onImgError } = useContext(AssetNodeContext);
+  const { onTagRole, onImgError, onDeconstruct, deconstructingId, onAddToTimeline, onRemoveFromTimeline, onTimelineIds } = useContext(AssetNodeContext);
+  const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
   const tint = bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
 
   const isText = kind === 'text';
@@ -251,6 +252,40 @@ const AssetNodeInner = ({ id, data, selected }) => {
       {(label || (isText && text)) && (
         <div style={{ padding: '6px 8px', borderTop: '1px solid #f2f3f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
           <Text style={{ fontSize: 11 }} ellipsis={{ rows: 1 }}>{label}</Text>
+          {/* A rendered Take → add it to / remove it from the Final Cut timeline. */}
+          {kind === 'video' && url && onAddToTimeline && (
+            onTimeline ? (
+              <span
+                className="nodrag"
+                onClick={(e) => { e.stopPropagation(); onRemoveFromTimeline && onRemoveFromTimeline(id); }}
+                title="On the Final Cut timeline — click to remove this clip"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 2, cursor: 'pointer', color: '#00b42a', flexShrink: 0 }}
+              >
+                <IconCheck style={{ fontSize: 12 }} /><Text style={{ fontSize: 10, color: '#00b42a' }}>Timeline</Text>
+              </span>
+            ) : (
+              <span
+                className="nodrag"
+                onClick={(e) => { e.stopPropagation(); onAddToTimeline(id); }}
+                title="Add this take to the Final Cut timeline (then Stitch the film)"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 2, cursor: 'pointer', color: '#165dff', flexShrink: 0 }}
+              >
+                <IconPlus style={{ fontSize: 12 }} /><Text style={{ fontSize: 10, color: '#165dff' }}>Timeline</Text>
+              </span>
+            )
+          )}
+          {/* A rendered Take → Deconstruct it into cuts (key-frame stills + per-cut SHOT cards). */}
+          {kind === 'video' && url && onDeconstruct && (
+            <span
+              className="nodrag"
+              onClick={(e) => { e.stopPropagation(); if (deconstructingId !== id) onDeconstruct(id); }}
+              title="Deconstruct — Seed 2.0 Pro watches this Take and breaks it into its cuts: key-frame stills + one editable SHOT card per cut"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: deconstructingId === id ? 'default' : 'pointer', color: '#0fc6c2', flexShrink: 0 }}
+            >
+              {deconstructingId === id ? <IconLoading style={{ fontSize: 12 }} /> : <IconScissor style={{ fontSize: 12 }} />}
+              <Text style={{ fontSize: 10, color: '#0fc6c2' }}>{deconstructingId === id ? 'Deconstructing…' : 'Deconstruct'}</Text>
+            </span>
+          )}
           {isText && text && (
             <span
               onClick={(e) => copyText(e, text)}

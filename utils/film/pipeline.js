@@ -20,18 +20,18 @@ export const FILM_PIPELINE = [
     produces: 'the premise + (optional) inspiration & mood imagery on the board',
   },
   {
-    id: 'casting',
-    label: 'Casting & World',
-    agents: ['cast', 'characterVariations', 'locationVariations'],
-    gate: 'tag the keepers into the bible',
-    produces: 'locked cast + places (the real assets every shot will use)',
-  },
-  {
     id: 'storyboard',
     label: 'Story',
     agents: ['story'],
-    gate: 'write the story, then break it into shot cards',
-    produces: 'an editable arc-structured story → one SHOT card per 5–15s shot: what happens, framing, camera',
+    gate: 'write the story, then New Shot to drop a SHOT card',
+    produces: 'an editable cinematic prompt from your idea → a SHOT card (and an optional visual storyboard)',
+  },
+  {
+    id: 'casting',
+    label: 'Cast & world',
+    agents: ['cast', 'characterVariations', 'locationVariations'],
+    gate: 'tag the keepers into the bible',
+    produces: 'locked cast + places (the real assets the shots reference)',
   },
   {
     id: 'filming',
@@ -59,8 +59,9 @@ const PLACE_ROLES = ['location'];
 //   cutCards      — [{ shotUrl? }] the storyboard/CUT cards on the board
 //   filmUrl       — the stitched final cut, if any
 //   candidates    — count of untagged board images (ideation output)
-export const pipelineStatus = ({ idea = '', bibleEntries = [], cutCards = [], filmUrl = '', candidates = 0 } = {}) => {
+export const pipelineStatus = ({ idea = '', storyPrompt = '', bibleEntries = [], cutCards = [], filmUrl = '', candidates = 0 } = {}) => {
   const hasIdea = !!String(idea).trim();
+  const hasStory = !!String(storyPrompt).trim();
   const hasCast = bibleEntries.some((e) => CAST_ROLES.includes(e?.role));
   const hasPlace = bibleEntries.some((e) => PLACE_ROLES.includes(e?.role));
   const shot = cutCards.filter((c) => c && c.shotUrl).length;
@@ -68,15 +69,17 @@ export const pipelineStatus = ({ idea = '', bibleEntries = [], cutCards = [], fi
 
   const status = {
     ideation: hasIdea ? 'done' : (candidates > 0 ? 'inProgress' : 'todo'),
+    // Story keys off the WRITTEN PROMPT, never SHOT cards — so deleting a card never
+    // regresses Story, and Story/Shots are not conflated.
+    storyboard: hasStory ? 'done' : 'todo',
     casting: (hasCast && hasPlace) ? 'done' : (bibleEntries.length ? 'inProgress' : 'todo'),
-    storyboard: total > 0 ? 'done' : 'todo',
-    filming: total > 0 && shot >= total ? 'done' : (shot > 0 ? 'inProgress' : 'todo'),
+    filming: shot > 0 ? (total > 0 && shot >= total ? 'done' : 'inProgress') : 'todo',
     finalCut: filmUrl ? 'done' : 'todo',
   };
   const note = {
     ideation: hasIdea ? 'idea set' : (candidates ? `${candidates} candidate(s), no idea yet` : 'no idea yet'),
+    storyboard: hasStory ? 'story written' : 'no story yet',
     casting: [hasCast ? 'cast ✓' : 'no cast', hasPlace ? 'places ✓' : 'no places'].join(' · '),
-    storyboard: total ? `${total} card(s) laid` : 'no cards yet',
     filming: total ? `${shot}/${total} shot` : '—',
     finalCut: filmUrl ? 'film ready' : 'not stitched',
   };

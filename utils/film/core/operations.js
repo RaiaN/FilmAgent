@@ -150,7 +150,7 @@ export const buildAnimatePrompt = ({ motion, camera, lens, focalLength, aperture
     notAuto(focalLength) && `Focal length: ${focalLength}`,
     notAuto(aperture) && `Aperture: ${aperture} (control depth of field accordingly)`,
   ].filter(Boolean).join('. ');
-  const motionText = (motion || '').trim() || renderTemplate('animate.motionFallback');
+  const motionText = (motion || '').trim();
   return [cine, motionText].filter(Boolean).join('. ');
 };
 

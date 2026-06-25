@@ -1,16 +1,9 @@
-// Storyboard — the plan between casting and filming (the Film pipeline's stage 3).
-// One reason call STUDIES the real tagged assets (the VLM sees the actual cast and
-// places) + the idea, and breaks the film into 5–15s shots: what happens, the chosen
-// SHOT TEMPLATE (one of the 50 in the cinematography library — angle/framing/move),
-// duration, and WHICH real assets appear. Then each shot is rendered as a LIGHTING-
-// ONLY previs frame (white-washed clay, like Unreal's "Lighting Only" view): the
-// shot's real cast plates + location plate condition a neutral grey-scale study that
-// BLOCKS the cast in the location, in that framing — composition and light only.
-//
-// The frame is generated FROM the real plates (so the blocking, poses and scale
-// match) and at shoot time rides to Seedance ALONGSIDE those plates (shotReferences
-// puts the plates first, the frame last) — the plates carry identity & colour, the
-// frame carries camera, composition and lighting.
+// Storyboard core. The headless breakdown (readStoryboard): one reason call STUDIES the
+// real tagged assets (the VLM sees the actual cast and places) + the idea, and breaks the
+// film into 5–15s shots — what happens, the chosen SHOT TEMPLATE (one of the 50 in the
+// cinematography library), duration, and WHICH real assets appear; panelToShot turns each
+// into a Seedance prompt. Also home to the Story agent (writeFilmPrompt → idea/script → one
+// long cinematic prompt) and the pre-production draft (detectGenre / castFromIdea).
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
@@ -68,8 +61,7 @@ export const readStoryboard = async ({ idea, genre = '', targetSeconds = 90, bib
   const anchors = (bible || []).filter((e) => e && e.url);
   if (!anchors.length) throw new Error('Tag at least one cast or place image first — the storyboard is drawn around your real assets.');
 
-  // Caller can pin the shot count (the Contact Sheet defaults to ~12; a single-beat
-  // promote pins 1); else size it from length.
+  // Caller can pin the shot count; else size it from length.
   const count = Math.max(1, Math.min(50, Math.round(Number(countOverride) || shotCountFor(targetSeconds))));
   const refList = anchors.map((e, i) => `${i + 1}. ${e.role}: ${e.name || 'asset'}`).join(' · ');
   // When the user wrote/edited a SCRIPT (the Story node), the breakdown reads THAT as
@@ -128,62 +120,112 @@ export const readStoryboard = async ({ idea, genre = '', targetSeconds = 90, bib
   return { anchors, panels, arc: resolveArc(arcId, arcWhy, panels) };
 };
 
-// ---- Story agent v2 (REWRITTEN 2026-06-19): film → KEY EVENTS + APPEARANCE strings →
-// ONE continuous text-only Seedance 2.0 prompt. Replaces the arc-shaped beats + shot-card
-// breakdown: no story arc, no reference images, no per-shot cards. Identity is held by the
-// APPEARANCE string (stated once at the top), the structure by the 3–4 load-bearing KEY
-// EVENTS. The final prompt = our reference assets AS DESCRIPTION at the top, then the events.
-const clampLine = (s, n = 400) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
-
-// Assemble the final Seedance prompt: appearances (our assets AS DESCRIPTION) at the top,
-// then the key events as one continuous chain. An appearance LINKED to a bible asset (refId)
-// is sent as a reference image, so we LABEL it `[ImageK]` in the SAME order shootFilm
-// collects the refs (appearances.filter(refId)) — binding each image to its named character,
-// not leaving the plate to float. Pure string assembly so the Story node re-assembles live.
-export const composeFilmPrompt = ({ appearances = [], keyEvents = [] } = {}) => {
-  let imgN = 0;
-  const lines = [];
-  (appearances || []).forEach((a) => {
-    const string = clampLine(a?.string, 400);
-    const hasRef = !!a?.refId;
-    if (!string && !a?.name && !hasRef) return;
-    const label = hasRef ? `[Image${(imgN += 1)}] ` : '';
-    const name = a?.name ? (string ? `${a.name} — ` : a.name) : '';
-    lines.push(`${label}${name}${string}`.trim());
-  });
-  const desc = lines.filter(Boolean).join('\n');
-  const events = (keyEvents || []).map((e) => clampLine(e, 300)).filter(Boolean).join(' ');
-  return [desc, events].filter(Boolean).join('\n\n');
+// ---- Story agent: an idea or a pasted script → ONE long cinematic prompt -----------
+// A direct rewrite (no JSON, no key events, no appearances): the concept becomes a single
+// continuous cinematic narrative with clear subjects + a clear story arc — CUT-structured
+// in the model's head but with NO CUT markers in the output, no characters facing camera,
+// and explicit eyelines (what each character is looking at). The prompt feeds a New Shot.
+// `complexity` (light | medium | deep) tunes HOW MUCH the rewrite expands the source.
+const REWRITE_DEPTH = {
+  light: 'DEPTH: keep it CONCISE and close to the source — a short, tight prompt; minimal embellishment, do not invent beyond the idea.',
+  medium: 'DEPTH: develop a clear arc and vivid subjects with moderate cinematic detail.',
+  deep: 'DEPTH: elaborate RICHLY — a long, immersive prompt with layered staging, atmosphere, lighting and texture, and a fully developed arc; expand the idea into a vivid scene.',
 };
-
-export const writeKeyEvents = async ({ idea, source = '', genre = '', bible = [], config } = {}, ctx) => {
+export const writeFilmPrompt = async ({ idea, source = '', complexity = 'medium', config } = {}, ctx) => {
   const t = String(idea || '').trim();
   const src = String(source || '').trim();
   if (!t && !src) throw new Error('The story needs an idea or a script first.');
-  // Cast/locations are OPTIONAL now — the appearance strings ARE the identity (text-only,
-  // no reference images). When a bible exists, the agent describes those exact names.
-  const anchors = (bible || []).filter((e) => e && e.name);
-  const castList = anchors.length ? anchors.map((e) => `${e.role}: ${e.name}`).join(' · ') : '(none — invent the minimal cast)';
-  const sourceBlock = src
-    ? `\nSOURCE — the user's OWN story/script; PRESERVE its events (compress, do NOT rewrite into a different story):\n"""\n${src.slice(0, 6000)}\n"""\n`
-    : '';
+  const depth = REWRITE_DEPTH[complexity] || REWRITE_DEPTH.medium;
   const { content } = await ctx.client.reason({
-    prompt: renderTemplate('story.keyEvents.user', { idea: t || '(none — work from the source)', genre: genre || 'unspecified', castList, source: sourceBlock }),
-    systemPrompt: renderTemplate('story.keyEvents.system'),
+    prompt: renderTemplate('story.prompt.user', { story: (src || t).slice(0, 6000), depth }),
+    systemPrompt: renderTemplate('story.prompt.system'),
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
-  const raw = parseJson(content);
-  const obj = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const appearances = (Array.isArray(obj.appearances) ? obj.appearances : [])
-    .map((a) => ({ name: clampLine(a?.name, 60), role: a?.role === 'location' ? 'location' : 'character', string: clampLine(a?.string, 400) }))
-    .filter((a) => a.string)
-    .slice(0, 6);
-  const keyEvents = (Array.isArray(obj.keyEvents) ? obj.keyEvents : (Array.isArray(raw) ? raw : []))
-    .map((e) => clampLine(e, 300)).filter(Boolean).slice(0, 4);
-  if (!keyEvents.length) throw new Error('The key events came back empty — try rephrasing the idea.');
-  const mode = obj.mode === 'preserve' ? 'preserve' : (src ? 'preserve' : 'expand');
-  return { mode, appearances, keyEvents, seedancePrompt: composeFilmPrompt({ appearances, keyEvents }) };
+  const prompt = String(content || '').replace(/```/g, '').trim();
+  if (!prompt) throw new Error('The rewrite came back empty — try rephrasing the idea.');
+  return { mode: src ? 'preserve' : 'expand', prompt };
+};
+
+// ---- Storyboard: the STORY → a visual storyboard, all frames in one go --------------
+// The story prompt is CUT-marked (story.prompt.system emits "CUT TO:" between shots), so
+// its key elements are the segments between those markers. Render one storyboard FRAME per
+// element with Seedream — ALL AT ONCE (parallel, bounded). Consistency rides on the ONE
+// shared seed + the references (cast/world/mood); there's no prev-frame chain since the
+// frames don't wait on each other. Streams via onPlan/onFrame as each lands.
+const STORYBOARD_MAX = 12;
+export const splitStoryElements = (story = '') => {
+  const parts = String(story || '')
+    .split(/\bCUT\s*(?:TO)?\s*\d*\s*:?/i)
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter((s) => s.length > 8);
+  return parts.length ? parts.slice(0, STORYBOARD_MAX) : (String(story || '').trim() ? [String(story).trim()] : []);
+};
+
+export const generateStoryboard = async ({ story, references = [], seed, config } = {}, ctx, hooks = {}) => {
+  const elements = splitStoryElements(story);
+  if (!elements.length) throw new Error('Give me a story or an idea to storyboard.');
+  const onPlan = hooks.onPlan || (() => {});
+  const onFrame = hooks.onFrame || (() => {});
+  const s = (seed == null || seed === '') ? Math.floor(Math.random() * 2147483647) : Number(seed);
+  const size = resolveImageSize('2K', '16:9');
+  // OPTIONAL references (cast / world / mood) anchor EVERY frame — with no prev-frame chain,
+  // these + the shared seed are what hold the board consistent. Capped for Seedream.
+  const baseRefs = (references || []).filter(Boolean).slice(0, 4);
+  onPlan(elements.map((action, i) => ({ index: i, action })));
+  const frames = new Array(elements.length);
+  // ALL frames in one go — parallel, bounded; each carries the SAME seed + references.
+  const frameOne = (action, i) => async () => {
+    try {
+      const out = await ctx.client.generateImage({
+        prompt: renderTemplate('storyboard.frame', { action }),
+        referenceImages: baseRefs,
+        size,
+        seed: s,
+        model: getModel('seedream', config),
+      });
+      frames[i] = { index: i, action, url: out.url };
+      onFrame({ index: i, action, url: out.url });
+    } catch (err) {
+      frames[i] = { index: i, action, url: '', error: err.message };
+      onFrame({ index: i, action, url: '', error: err.message });
+    }
+  };
+  await runWithConcurrency(elements.map((a, i) => frameOne(a, i)), 4);
+  return { seed: s, frames: frames.filter(Boolean) };
+};
+
+// ---- Deconstruct: a rendered Take → its CUTs (the bridge to Directing) -------------
+// The Seed 2.0 Pro VLM WATCHES the Take and breaks it into distinct CUTs — per CUT the
+// action, the best-fit SHOT TEMPLATE + cinematography, the subjects, and a few KEY
+// TIMESTAMPS (the meaningful frames to grab for visual grounding). No marker parsing —
+// the model reads the picture. Feeds per-CUT SHOT cards + key-frame ingredients.
+export const deconstructTake = async ({ videoUrl, prompt = '', genre = '', bible = [], config } = {}, ctx) => {
+  if (!videoUrl) throw new Error('Deconstruct needs a Take video.');
+  const clamp = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const castList = (bible || []).filter((e) => e && e.name).map((e) => `${e.role}: ${e.name}`).join(' · ') || '(none given)';
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('deconstruct.user', { prompt: clamp(prompt, 2000), castList }),
+    systemPrompt: renderTemplate('deconstruct.system', { templates: shotTemplateCatalog() }),
+    video: videoUrl,
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const parsed = parseJson(content);
+  const arr = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.cuts) ? parsed.cuts : []);
+  const cuts = arr.map((c, i) => {
+    const tpl = SHOT_TEMPLATE_BY_ID[c?.shotTemplate] ? c.shotTemplate : '';
+    return {
+      index: i,
+      action: clamp(c?.action, 600),
+      shotTemplate: tpl,
+      cinematography: clamp(c?.cinematography, 220) || shotTemplateCinematography(tpl, genre),
+      subjects: (Array.isArray(c?.subjects) ? c.subjects : []).map((s) => clamp(s, 60)).filter(Boolean).slice(0, 6),
+      keyTimestamps: (Array.isArray(c?.keyTimestamps) ? c.keyTimestamps : []).map(Number).filter((t) => Number.isFinite(t) && t >= 0).slice(0, 6),
+    };
+  }).filter((c) => c.action);
+  if (!cuts.length) throw new Error('Deconstruct found no cuts in the Take.');
+  return { cuts };
 };
 
 // A panel → one direct-to-video blueprint shot (production.js shot.direct): the
@@ -272,7 +314,7 @@ export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks
   // Cast plates render at 4K, each in the shape that fits it: a head PORTRAIT (3:4)
   // for facial fidelity in close-ups, a LANDSCAPE full-body TURNAROUND sheet (4:3 —
   // frontal + side views side by side) head-to-toe, a LANDSCAPE establishing frame
-  // (16:9) for places. (Sketches stay 1K — see above.)
+  // (16:9) for places.
   const FACE_SIZE = resolveImageSize('4K', '3:4');
   const BODY_SIZE = resolveImageSize('4K', '4:3');
   const PLACE_SIZE = resolveImageSize('4K', '16:9');

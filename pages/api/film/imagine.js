@@ -13,6 +13,19 @@ export const config = {
   },
 };
 
+// fetch with a hard timeout — without it a hung upstream (a slow Seedream call or a
+// reference URL that never responds) blocks the request indefinitely (observed: a 26-min
+// hang → "fetch failed"). On timeout it aborts and throws, handled as a normal failure.
+const fetchWithTimeout = async (url, opts = {}, ms = 120000) => {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(new Error(`Timed out after ${Math.round(ms / 1000)}s`)), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+};
+
 export default async function imagineHandler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
@@ -27,6 +40,7 @@ export default async function imagineHandler(req, res) {
     referenceImages,       // ...array of URLs/base64 (multi-ref blend / mix & match)
     size = '2K',
     model,                 // optional override; defaults to the suite's Seedream model
+    seed,                  // optional fixed seed (the Storyboard holds it constant across frames)
   } = req.body || {};
   const seedreamModel = model || ROOT_CONFIG.models.seedream;
 
@@ -52,7 +66,7 @@ export default async function imagineHandler(req, res) {
   const inlineReference = async (ref) => {
     if (typeof ref !== 'string') return null;
     if (!/^https?:\/\//i.test(ref)) return ref; // already a data: URL or asset id
-    const resp = await fetch(ref);
+    const resp = await fetchWithTimeout(ref, {}, 30000); // a reference download shouldn't take >30s
     if (!resp.ok) {
       throw new Error(
         `Reference image could not be loaded (HTTP ${resp.status}). Generated images expire after ~24h — re-generate the keyframe, then try again.`,
@@ -78,6 +92,7 @@ export default async function imagineHandler(req, res) {
     } else if (refs.length > 1) {
       body.image = refs; // Seedream multi-image blend
     }
+    if (seed != null && seed !== '') body.seed = Number(seed);
 
     const response = await fetch(`${endpointBase}/images/generations`, {
       method: 'POST',

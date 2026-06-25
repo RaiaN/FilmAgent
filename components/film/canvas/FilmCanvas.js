@@ -3,6 +3,7 @@ import {
   ReactFlow,
   Background,
   Controls,
+  ControlButton,
   MiniMap,
   SelectionMode,
   useNodesState,
@@ -10,18 +11,14 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Button, Message, Space, Typography, Tooltip, Modal, Dropdown, Menu, InputNumber } from '@arco-design/web-react';
+import { Button, Message, Space, Typography, Tooltip, Modal, InputNumber } from '@arco-design/web-react';
 import {
-  IconPlus,
   IconLock,
   IconUnlock,
-  IconDelete,
-  IconFullscreen,
-  IconCloudDownload,
-  IconStorage,
-  IconUpload,
-  IconHistory,
   IconRefresh,
+  IconUpload,
+  IconStorage,
+  IconHistory,
 } from '@arco-design/web-react/icon';
 import AssetNode, { AssetNodeContext } from './AssetNode';
 import CutNode, { CutContext } from './CutNode';
@@ -38,8 +35,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction, runStep as runAgentOp } from '../../../utils/film/core/production';
 import { animate as animateOp } from '../../../utils/film/core/operations';
-import { createFilmingSession } from '../../../utils/film/core/filming';
-import { detectGenre, writeKeyEvents, composeFilmPrompt } from '../../../utils/film/core/storyboard';
+import { detectGenre, writeFilmPrompt, deconstructTake, generateStoryboard } from '../../../utils/film/core/storyboard';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -76,9 +72,8 @@ const CELL_H = 290;
 const GROUP_PAD = 12;
 const GROUP_HEADER = 34;
 
-// SHOT cards are 300px wide and TALL — the sketch + the pins (cut list, cinematography,
-// audio, composed preview, references) run ~640–740px depending on cut count. Tile on a
-// generous pitch so rows never collide (gaps for short cards beat overlaps for tall ones).
+// SHOT cards are 300px wide and TALL — the prompt + cinematography + audio + params +
+// references run ~600–700px. Tile on a generous pitch so rows never collide.
 const CUT_COL_W = 340;
 const CUT_ROW_H = 760;
 // Asset-plate tiling pitch (image node ≈ 220×280).
@@ -91,8 +86,6 @@ const PLATE_ROW_H = 320;
 // extra gutter so rows never touch and the last row clears the grid's bottom edge.
 const TAKE_COLS = 5;
 const TAKE_CELL_H = 212;
-// A thin vertical rule that groups the floating toolbar into clusters.
-const TOOLBAR_SEP = { width: 1, height: 18, background: '#e5e6eb', alignSelf: 'center' };
 // Storyboard panel grid: one ROW per shot, the shot's frames left-to-right (a cell each).
 
 // A top-level node's bounding box for collision-aware placement. React Flow's
@@ -294,6 +287,8 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const timeline = useMemo(() => project.timeline || emptyTimeline(), [project.timeline]);
   const bible = useMemo(() => project.bible || emptyBible(), [project.bible]);
   const timelineEvents = useMemo(() => orderedEvents(timeline.events || []), [timeline.events]);
+  // Which board take nodes are currently ON the timeline (drives the Take node's button).
+  const onTimelineNodeIds = useMemo(() => new Set((timelineEvents || []).map((e) => e.shotNodeId).filter(Boolean)), [timelineEvents]);
   const bibleEntries = useMemo(() => bible.entries || [], [bible.entries]);
   const bibleRef = useRef(bibleEntries);  // latest bible for the async session/transport
   useEffect(() => { bibleRef.current = bibleEntries; }, [bibleEntries]);
@@ -376,10 +371,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     setNodes(seedBibleTags(applyVisibility(project.canvas?.nodes || [], ls.visibility), project.bible?.entries || []));
     bibleSeededRef.current = project.id;
     sessionRef.current = null;
-    filmingRef.current = null;
-    setFilmChunks(project.filming?.chunks || []);
-    chunkStageRef.current = new Map();
-    setFilmStage('');
     setFilmProgress(null);
     outNodesRef.current = new Map();
     traceRef.current.clear(); // the run log belongs to one project's session
@@ -537,16 +528,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     event.target.value = ''; // allow re-picking the same file
   }, [rfInstance, ingestFiles]);
 
-  const addNote = useCallback(() => {
-    const center = rfInstance
-      ? rfInstance.screenToFlowPosition({
-          x: (wrapperRef.current?.clientWidth || 800) / 2,
-          y: (wrapperRef.current?.clientHeight || 600) / 2,
-        })
-      : { x: 200, y: 200 };
-    const node = createAssetNode({ kind: 'text', label: 'Note', text: 'Double-click to edit…', position: center });
-    setNodes((ns) => ns.concat(node));
-  }, [rfInstance, setNodes]);
 
   // ---- library ----
   const refreshLibrary = useCallback(async () => {
@@ -645,19 +626,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     }
   }, [setNodes]);
 
-  const preserveSelection = useCallback(async () => {
-    const targets = nodes.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url && !n.data?.preserved);
-    if (targets.length === 0) {
-      Message.info('Nothing to check in (only un-preserved images can be saved)');
-      return;
-    }
-    Message.info(`Checking in ${targets.length} asset${targets.length > 1 ? 's' : ''}…`);
-    const results = await Promise.allSettled(targets.map((n) => preserveNode(n)));
-    const failed = results.filter((r) => r.status === 'rejected');
-    if (failed.length) Message.warning(`${failed.length} could not be preserved: ${failed[0].reason?.message || ''}`);
-    else Message.success('Checked in — these assets are now permanent');
-  }, [nodes, preserveNode]);
-
   // ---- bible = role-tagged board nodes (the board IS the brand kit) ------------
   // A fat base64 anchor gets a downscaled reference (data.bibleRefUrl) so the
   // producer's capped bible refs stay under the imagine body limit; computed off the
@@ -729,13 +697,13 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     }
   }, [setNodes, nodes, preserveNode]);
 
-  const deleteSelection = useCallback(() => {
-    setNodes((ns) => {
-      const deletedIds = new Set(ns.filter((n) => n.selected).map((n) => n.id));
-      // Deleting a group frame also removes its children (no orphans).
-      return ns.filter((n) => !n.selected && !deletedIds.has(n.parentId));
-    });
-  }, [setNodes]);
+  // Delete is keyboard-driven (deleteKeyCode) — ReactFlow removes the node AND its
+  // children (xyflow v12 cascades parentId) and hands us the full set here, so the
+  // Final Cut timeline drops any clip that referenced a deleted take/keyframe.
+  const onNodesDeleted = useCallback((deleted) => {
+    const ids = new Set((deleted || []).map((n) => n.id));
+    updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => !ids.has(e.shotNodeId) && !ids.has(e.keyframeNodeId)) }));
+  }, [updateTimeline]);
 
   // ---- layers ----
   const cycleVisibility = useCallback((layerId) => {
@@ -766,6 +734,13 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const castRunRef = useRef(null);
   // Same bridge for the Story rail agent (ensureStoryNode + runStory live far below).
   const storyRunRef = useRef(null);
+  // …and for Deconstruct (handleBreakdownTake lives far below). `deconstructing` = the
+  // take id currently being deconstructed (drives the Take node's button spinner).
+  const deconstructRunRef = useRef(null);
+  const [deconstructing, setDeconstructing] = useState(null);
+  // …and for the Storyboard agent (handleGenerateStoryboard lives far below).
+  const storyboardRunRef = useRef(null);
+  const [storyboarding, setStoryboarding] = useState(false);
 
   // Snap a batch's origin to open board space so successive runs (and a batch vs.
   // whatever is already there) never pile onto the same spot — the overlap bug.
@@ -1047,6 +1022,18 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
         if (!idea) { Message.warning('Type the film idea first — one sentence is enough.'); return; }
         if (storyRunRef.current) storyRunRef.current(idea);
         Message.success('Story drafted — key events on the board');
+      } else if (activeLayerId === 'deconstruct') {
+        // Deconstruct operates on a SELECTED Take (a rendered video) → its cuts.
+        const take = nodes.find((n) => n.selected && n.data?.kind === 'video' && n.data?.url);
+        if (!take) { Message.warning('Select a Take (a rendered video) on the board first.'); return; }
+        if (deconstructRunRef.current) await deconstructRunRef.current(take.id);
+      } else if (activeLayerId === 'storyboard') {
+        // Storyboard a typed idea (or the current Story) → a visual panel. Any SELECTED
+        // board images ride as references on every frame.
+        const idea = (activeSettings.prompt || '').trim();
+        if (!idea && !storyRef.current.prompt) { Message.warning('Type an idea (or write the Story first), then Run.'); return; }
+        const refs = nodes.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url).map((n) => n.data.localUrl || n.data.url);
+        if (storyboardRunRef.current) await storyboardRunRef.current({ story: idea, references: refs });
       } else {
         const selNodes = nodes.filter((n) => n.selected);
         const origin = originOverride.current || undefined;
@@ -1317,7 +1304,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
         id,
         type: 'cut',
         position: { x: base.x + (panel.index % 3) * CUT_COL_W, y: base.y + Math.floor(panel.index / 3) * CUT_ROW_H },
-        data: { cut: panel.index, ...derived, assetRefs: [] },
+        data: { cut: panel.cut ?? panel.index, ...derived, assetRefs: [] },
       };
       return [...ns, card];
     });
@@ -1494,6 +1481,59 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     })();
   }, [apiKey, shotFromCard, onPatchCut, resolveShootSeed, setNodes, ensureRefsRegistered]);
 
+  // DECONSTRUCT a Take → its cuts. Seed 2.0 Pro WATCHES the video; we grab the key frames
+  // it points at (visual-grounding ingredients, as board images) and lay one editable SHOT
+  // card per cut (camera + cinematography pre-filled, references LEFT EMPTY for the user to
+  // populate). The bridge from a quick Exploration Take to detailed, directed shots.
+  const handleBreakdownTake = useCallback(async (takeId) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    const take = nodesRef.current.find((n) => n.id === takeId && n.data?.kind === 'video' && n.data?.url);
+    if (!take) { Message.error('Pick a finished Take (a rendered video) first'); return; }
+    // The source SHOT card = the take's grid's card (grid-<cutId> → <cutId>) — its prompt
+    // is context for the read.
+    const cutId = take.parentId ? String(take.parentId).replace(/^grid-/, '') : null;
+    const card = cutId ? nodesRef.current.find((n) => n.id === cutId && n.type === 'cut') : null;
+    const sourcePrompt = card?.data?.promptOverride || card?.data?.beat || '';
+    const genre = projectRef.current?.genre?.line || '';
+    setDeconstructing(takeId);
+    traceRef.current.startRun({ note: 'Agent · Deconstruct' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
+    try {
+      const bible = bibleRef.current.filter((b) => b.url).map((b) => ({ name: b.name, role: b.role }));
+      const { cuts } = await deconstructTake({ videoUrl: take.data.url, prompt: sourcePrompt, genre, bible }, ctx);
+      // Grab every key frame the VLM pointed at (server ffmpeg → base64), keyed by ~second.
+      const allTs = [...new Set(cuts.flatMap((c) => c.keyTimestamps).map((t) => Math.round(t * 10) / 10))];
+      let frames = [];
+      if (allTs.length) { try { frames = await createBrowserTransport(apiKey.trim()).frames(take.data.url, allTs); } catch { /* frames best-effort */ } }
+      const frameUrlAt = (t) => { const f = frames.find((x) => Math.abs(x.t - t) < 0.3); return f ? f.url : null; };
+      // Lay the output below the take: a key-frame strip on top, the per-cut SHOT cards under.
+      const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 520 }) : { x: 220, y: 520 };
+      const origin = freeOrigin({ w: 3 * CUT_COL_W, h: PLATE_ROW_H + 2 * CUT_ROW_H, preferred: pref });
+      let kf = 0;
+      cuts.forEach((c) => {
+        c.keyTimestamps.forEach((t) => {
+          const url = frameUrlAt(Math.round(t * 10) / 10);
+          if (!url) return;
+          const node = createAssetNode({ kind: 'image', url, label: `Cut ${c.index + 1} · ${t}s`, position: { x: origin.x + kf * PLATE_COL_W, y: origin.y } });
+          setNodes((ns) => ns.concat(node));
+          kf += 1;
+        });
+      });
+      const cardBase = { x: origin.x, y: origin.y + PLATE_ROW_H + 30 };
+      cuts.forEach((c) => {
+        if (!storyboardPanelRef.current) return;
+        storyboardPanelRef.current({
+          index: c.index, idPrefix: `dx-${takeId}`, title: `Cut ${c.index + 1}`,
+          action: c.action, promptOverride: c.action, framing: '',
+          shotTemplate: c.shotTemplate || 'medium-shot', cinematography: c.cinematography,
+          durationSec: 15, refEntryIds: [], audio: '', rederive: true,
+        }, cardBase);
+      });
+      Message.success(`Deconstructed into ${cuts.length} cut${cuts.length === 1 ? '' : 's'} — key frames + SHOT cards on the board (populate refs, then 🎬).`);
+    } catch (e) { Message.error(`Deconstruct failed: ${e.message}`); }
+    finally { setDeconstructing(null); }
+  }, [apiKey, rfInstance, freeOrigin, setNodes]);
+
   // 🎬 Action: shoot the SHOT cards IN ORDER, CONTINUITY-CHAINED — each shot rides the
   // previous shot's FINAL FRAME (extracted via the last-frame API) as a reference + a
   // CONTINUITY note, so the world, lighting, character design and screen direction carry
@@ -1516,14 +1556,12 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     const transport = createBrowserTransport(apiKey.trim());
     const lastFrameOf = async (url) => { try { return (await transport.lastFrame(url)).url || null; } catch { return null; } };
     let prevFrameUrl = null;  // the previous shot's final frame (continuity anchor)
-    let prevBeat = '';        // what happened in the previous shot (causal context)
     let failures = 0;
     try {
       for (const card of cards) {
         // Already shot & kept → don't re-shoot, but use it as the continuity anchor
         // (its stored native last frame, else extract one).
         if (card.data?.shotUrl) {
-          prevBeat = card.data.beat || prevBeat;
           prevFrameUrl = card.data.lastFrameUrl || (await lastFrameOf(card.data.shotUrl)) || prevFrameUrl;
           continue;
         }
@@ -1551,7 +1589,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           const lastFrameUrl = nativeLast || (await lastFrameOf(shotUrl)) || null;
           onPatchCut(card.id, { status: 'shot', shotUrl, lastFrameUrl });
           upsertShotNodeForCard(card.id, shotUrl);
-          prevBeat = card.data.beat || prevBeat;
           prevFrameUrl = lastFrameUrl || prevFrameUrl; // anchor for the NEXT shot (keep last good on failure)
         } else {
           onPatchCut(card.id, { status: 'failed' });
@@ -1574,164 +1611,29 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     onAttachAsset: attachRefToCut,
   }), [onPatchCut, bibleEntries, handleShootCut, attachSelectedToCut, attachRefToCut]);
 
-  // ---- the Filming Loop (Short Film mode) --------------------------------------
-  // generate 10–15s → validate (QC advisory + human gate) → correct by aspects →
-  // continue. The session is the driver; the timeline below is just the view.
   const filmMode = true; // Short-Film-only suite (ad mode purged).
-  const [filmChunks, setFilmChunks] = useState(() => project.filming?.chunks || []);
-  const [filmBusy, setFilmBusy] = useState(false);
-  const filmingRef = useRef(null);
 
-  // ---- Story agent v2: KEY EVENTS + APPEARANCES → one text-only Seedance prompt ------
+  // ---- Story agent: an idea/script → one long cinematic prompt → New Shot -----------
   const [story, setStory] = useState(() => {
     const s = project.story;
+    const prompt = s?.prompt || s?.seedancePrompt || ''; // migrate old projects' assembled prompt
     return {
-      idea: s?.idea || '', mode: s?.mode || '',
-      appearances: Array.isArray(s?.appearances) ? s.appearances : [],
-      keyEvents: Array.isArray(s?.keyEvents) ? s.keyEvents : [],
-      seedancePrompt: s?.seedancePrompt || '',
-      busy: false, shooting: false, phase: (s?.keyEvents?.length) ? 'ready' : 'idle',
+      idea: s?.idea || '', mode: s?.mode || '', prompt,
+      complexity: s?.complexity || 'medium', // rewrite depth: light | medium | deep
+      useCastRefs: !!s?.useCastRefs,          // 📋 Storyboard: anchor frames on the bible plates
+      busy: false, shooting: false, phase: prompt ? 'ready' : 'idle',
     };
   });
   const storyRef = useRef(story);
   useEffect(() => { storyRef.current = story; }, [story]);
 
-  // Mirror the chunk chain onto timeline.events (the zoom-out view): chunk ids are
-  // event ids, so manual events coexist and clicks select chunks.
-  const syncFilmingEvents = useCallback((state) => {
-    updateTimeline((cur) => {
-      const others = (cur.events || []).filter((e) => !String(e.id).startsWith('ch-'));
-      const evs = state.chunks.map((c, i) => timelineEvent({
-        id: c.id,
-        order: others.length + i,
-        beat: c.beat,
-        durationSec: c.durationSec,
-        keyframeUrl: c.keyframeUrl,
-        shotUrl: c.shotUrl,
-        status: c.status === 'generating' ? 'rendering'
-          : c.status === 'failed' ? 'failed'
-            : c.shotUrl ? 'shot'
-              : c.keyframeUrl ? 'keyframe' : 'empty',
-        locked: c.status === 'validated',
-        qc: c.qc || null,
-      }));
-      return { ...cur, events: [...others, ...evs] };
-    });
-  }, [updateTimeline]);
-
-  // Live filming narration: diff each state snapshot against the last-known stage
-  // per chunk and surface the transitions in the chat + footer — the 4–5 silent
-  // minutes of a take get narrated as they actually happen (TRANSPARENCY).
-  const chunkStageRef = useRef(new Map()); // chunkId -> { kf, qc, status }
+  // Live narration channel: the chat surfaces these (cast draft, routing, pipeline).
   const filmSeqRef = useRef(0);
   const [filmProgress, setFilmProgress] = useState(null); // { seq, text } → FilmDock prints
-  const [filmStage, setFilmStage] = useState('');         // short live label → footers
   const pushFilmNote = useCallback((text) => {
     filmSeqRef.current += 1;
     setFilmProgress({ seq: filmSeqRef.current, text });
   }, []);
-
-  const handleFilmingEvent = useCallback((e) => {
-    traceRef.current.ingestSessionEvent(e.type === 'phase' ? { type: 'phase', phase: e.phase } : null);
-    if (e.type === 'state') {
-      setFilmChunks(e.state.chunks);
-      syncFilmingEvents(e.state);
-      onUpdateProject((prev) => (prev && prev.id === loadedIdRef.current ? { ...prev, filming: e.state } : prev));
-      const chunks = e.state.chunks || [];
-      const seen = chunkStageRef.current;
-      chunks.forEach((c) => {
-        const prev = seen.get(c.id) || {};
-        if (!prev.kf && c.keyframeUrl) pushFilmNote(`Keyframe ready for “${c.beat}” — animating the ${c.durationSec}s take now (usually 4–5 minutes).`);
-        if (!prev.qc && c.qc && c.qc.verdict && c.qc.verdict !== 'pass') {
-          const issues = (c.qc.issues || []).map((i) => i && i.message).filter(Boolean).join('; ');
-          pushFilmNote(`Heads-up — QC says ${c.qc.verdict} on that keyframe${issues ? `: ${issues}` : ''}. Advisory only; you can correct once the take lands.`);
-        }
-        if (prev.status === 'generating' && c.status === 'failed') pushFilmNote(`The take failed: ${c.error || 'unknown error'}. Tell me what to change, or just try again.`);
-        seen.set(c.id, { kf: !!c.keyframeUrl, qc: !!c.qc, status: c.status });
-      });
-      const working = chunks[chunks.length - 1];
-      setFilmStage(working && working.status === 'generating'
-        ? (working.keyframeUrl ? `animating ${working.durationSec}s…` : 'making the keyframe…')
-        : '');
-    } else if (e.type === 'warning') {
-      Message.warning(e.message);
-    } else if (e.type === 'film') {
-      updateTimeline((cur) => ({ ...cur, film: { url: e.url, assetId: e.assetId || null, builtAt: new Date().toISOString() } }));
-      Message.success('Film assembled');
-    }
-  }, [syncFilmingEvents, onUpdateProject, updateTimeline, pushFilmNote]);
-
-  const getFilming = useCallback(() => {
-    if (filmingRef.current) return filmingRef.current;
-    const transport = createBrowserTransport(apiKey.trim());
-    filmingRef.current = createFilmingSession(
-      {},
-      { client: traceRef.current.wrapClient(transport.client), stitch: traceRef.current.wrapStitch(transport.stitch), lastFrame: transport.lastFrame },
-      {
-        // Live getters: a chunk generated later sees the CURRENT idea + bible.
-        getIdea: () => projectRef.current?.idea || '',
-        getBible: () => bibleRef.current,
-        initialState: projectRef.current?.filming || null,
-        onEvent: handleFilmingEvent,
-      },
-    );
-    return filmingRef.current;
-  }, [apiKey, handleFilmingEvent]);
-
-  const filmPropose = useCallback(async () => {
-    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return []; }
-    traceRef.current.startRun({ note: 'Filming · propose next beats' });
-    try {
-      return await getFilming().proposeBeats(3);
-    } catch (err) {
-      Message.error(err.message);
-      return [];
-    }
-  }, [apiKey, getFilming]);
-
-  const filmGenerate = useCallback(async ({ beat, durationSec, aspects }) => {
-    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
-    traceRef.current.startRun({ note: `Filming · ${filmChunks.length ? 'continue' : 'first chunk'} · ${durationSec}s` });
-    setTimelineCollapsed(false);
-    setFilmBusy(true);
-    try {
-      const chunk = await getFilming().generateNext({ beat, durationSec, aspects });
-      if (chunk?.status === 'failed') Message.error(`Chunk failed: ${chunk.error}`);
-      else Message.success('Chunk ready — review it below, then approve or correct.');
-      return chunk;
-    } catch (err) {
-      Message.error(err.message);
-      return null;
-    } finally {
-      setFilmBusy(false);
-    }
-  }, [apiKey, getFilming, filmChunks.length]);
-
-  const filmCorrect = useCallback(async (chunkIdToFix, { aspects, note }) => {
-    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
-    traceRef.current.startRun({ note: 'Filming · correct (re-animate)' });
-    setFilmBusy(true);
-    try {
-      const chunk = await getFilming().correct(chunkIdToFix, { aspects, note });
-      if (chunk?.status === 'failed') Message.error(`Re-animate failed: ${chunk.error}`);
-      else Message.success('New take ready.');
-      return chunk;
-    } catch (err) {
-      Message.error(err.message);
-      return null;
-    } finally {
-      setFilmBusy(false);
-    }
-  }, [apiKey, getFilming]);
-
-  const filmValidate = useCallback((chunkIdToApprove) => {
-    try {
-      getFilming().validate(chunkIdToApprove);
-      Message.success('Chunk approved — the story continues from here.');
-    } catch (err) {
-      Message.error(err.message);
-    }
-  }, [getFilming]);
 
   // Start Short Film mode (the launcher card): lock the recipe and open the
   // conversational director — the chat IS film mode's front door.
@@ -1750,6 +1652,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   // deterministic "continue" ladder, so neither can drift from the board.
   const livePipeline = useCallback(() => pipelineStatus({
     idea: projectRef.current?.idea || '',
+    storyPrompt: storyRef.current?.prompt || '',
     bibleEntries: bibleRef.current,
     cutCards: nodesRef.current.filter((n) => n.type === 'cut').map((n) => ({ shotUrl: n.data?.shotUrl || '' })),
     filmUrl: projectRef.current?.timeline?.film?.url || '',
@@ -1761,11 +1664,10 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const routeFilmMessage = useCallback(async (message) => {
     if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return null; }
     const roles = BIBLE_ROLES.map((r) => { const n = bibleRef.current.filter((b) => b.role === r).length; return n ? `${r}×${n}` : null; }).filter(Boolean).join(' ');
-    const lastChunk = filmChunks[filmChunks.length - 1];
     // The pipeline state rides in the routing context, so even free-form answers
     // are grounded in where the project ACTUALLY stands.
     const pipe = livePipeline().map((s) => `${s.label}: ${s.status === 'done' ? 'done' : s.note}`).join(' · ');
-    const context = `pipeline — ${pipe} · idea: ${projectRef.current?.idea ? 'set' : 'NOT set'} · genre: ${projectRef.current?.genre?.line ? `locked (${projectRef.current.genre.line})` : 'NOT set'} · bible: ${roles || '(empty)'} · chunks filmed: ${filmChunks.length}${lastChunk ? ` (current: ${lastChunk.status})` : ''} · board selection: ${nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image').length} image(s)`;
+    const context = `pipeline — ${pipe} · idea: ${projectRef.current?.idea ? 'set' : 'NOT set'} · genre: ${projectRef.current?.genre?.line ? `locked (${projectRef.current.genre.line})` : 'NOT set'} · bible: ${roles || '(empty)'} · board selection: ${nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image').length} image(s)`;
     // Every chat message is a small workflow of its own, so the route read (and an
     // answer-mode reply) never orphan into "Other actions" in the History export.
     traceRef.current.startRun({ note: `Chat · “${message.replace(/\s+/g, ' ').trim().slice(0, 60)}”` });
@@ -1779,7 +1681,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       rec.status = 'error'; rec.error = err.message;
       return null;
     }
-  }, [apiKey, filmChunks, livePipeline]);
+  }, [apiKey, livePipeline]);
 
   // The image node behind a bible role (the cast/world anchors as chat targets).
   const nodesForRole = useCallback((role) => bibleRef.current
@@ -1788,7 +1690,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     .filter(Boolean), []);
 
 
-  // ---- Story (write the script, then break it into SHOT cards) -----------------
+  // ---- Story (key events + appearances → one prompt → New Shot) ----------------
   const storyClient = useCallback(() => ({ client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) }), [apiKey]);
 
   // The Story lives ON THE BOARD as one node — an editable script card you iterate on
@@ -1810,26 +1712,22 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const persistStory = useCallback((patch) => {
     const cur = storyRef.current;
     onUpdateProject((prev) => (prev && prev.id === loadedIdRef.current
-      ? { ...prev, story: { idea: cur.idea, mode: cur.mode, appearances: cur.appearances, keyEvents: cur.keyEvents, seedancePrompt: cur.seedancePrompt, ...patch } }
+      ? { ...prev, story: { idea: cur.idea, mode: cur.mode, prompt: cur.prompt, complexity: cur.complexity, useCastRefs: cur.useCastRefs, ...patch } }
       : prev));
   }, [onUpdateProject]);
 
-  // The Story agent: idea OR a pasted script → 3–4 KEY EVENTS + APPEARANCE strings, then
-  // the assembled text-only Seedance prompt (assets-as-description at top, then the events).
+  // The Story agent: an idea OR a pasted script → ONE long cinematic prompt, at the
+  // chosen rewrite DEPTH (light | medium | deep — the node's toggle).
   const runStory = useCallback(async ({ idea, source = '' }) => {
-    // Story is IDEA-first: it does NOT pull the board's reference assets in by default —
-    // the cast is invented from the idea (text-only appearances). Opting in is per
-    // appearance, via the 🔗 bible-asset link in the Story card (storyCtx.bibleAssets).
-    const bible = [];
-    const genre = projectRef.current?.genre?.line || '';
+    const complexity = storyRef.current.complexity || 'medium';
     traceRef.current.startRun({ note: 'Agent · Story' });
-    setStory((s) => ({ ...s, idea: idea ?? s.idea, busy: true, phase: 'writing', keyEvents: source ? s.keyEvents : [], appearances: source ? s.appearances : [] }));
+    setStory((s) => ({ ...s, idea: idea ?? s.idea, busy: true, phase: 'writing' }));
     try {
-      const { mode, appearances, keyEvents, seedancePrompt } = await writeKeyEvents({ idea, source, genre, bible }, storyClient());
-      traceRef.current.log({ level: 'run', kind: 'decision', note: `Story · ${keyEvents.length} key events, ${appearances.length} appearances` });
-      setStory((s) => ({ ...s, idea: idea ?? s.idea, mode, appearances, keyEvents, seedancePrompt, busy: false, phase: 'ready' }));
-      persistStory({ mode, appearances, keyEvents, seedancePrompt, idea: idea ?? storyRef.current.idea });
-    } catch (e) { Message.error(`Story failed: ${e.message}`); setStory((s) => ({ ...s, busy: false, phase: s.keyEvents.length ? 'ready' : 'idle' })); }
+      const { mode, prompt } = await writeFilmPrompt({ idea, source, complexity }, storyClient());
+      traceRef.current.log({ level: 'run', kind: 'decision', note: `Story · ${prompt.length}-char prompt (${mode}, ${complexity})` });
+      setStory((s) => ({ ...s, idea: idea ?? s.idea, mode, prompt, busy: false, phase: 'ready' }));
+      persistStory({ mode, prompt, idea: idea ?? storyRef.current.idea });
+    } catch (e) { Message.error(`Story failed: ${e.message}`); setStory((s) => ({ ...s, busy: false, phase: s.prompt ? 'ready' : 'idle' })); }
   }, [storyClient, persistStory]);
 
   // Rewrite from scratch (fresh from the idea).
@@ -1838,86 +1736,112 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     runStory({ idea: storyRef.current.idea || projectRef.current?.idea || '', source: '' });
   }, [runStory]);
 
-  // Paste your OWN story/script → preserved + compressed into key events.
+  // Paste your OWN story/script → preserved (rewritten cinematically, not into a new story).
   const shapeStorySource = useCallback((text) => {
     if (storyRef.current.busy || !String(text || '').trim()) return;
     runStory({ idea: storyRef.current.idea || projectRef.current?.idea || '', source: text });
   }, [runStory]);
 
-  // Inline edits — recompute the Seedance prompt from the edited pieces and persist.
-  const editKeyEvent = useCallback((i, text) => {
-    const s = storyRef.current;
-    const keyEvents = s.keyEvents.map((e, j) => (j === i ? text : e));
-    const seedancePrompt = composeFilmPrompt({ appearances: s.appearances, keyEvents });
-    setStory((cur) => ({ ...cur, keyEvents, seedancePrompt }));
-    persistStory({ keyEvents, seedancePrompt });
+  // Manual edit of the cinematic prompt (what New Shot puts on the card).
+  const editStoryPrompt = useCallback((text) => {
+    setStory((cur) => ({ ...cur, prompt: text }));
+    persistStory({ prompt: text });
   }, [persistStory]);
 
-  const editAppearance = useCallback((i, patch) => {
-    const s = storyRef.current;
-    const appearances = patch.__remove
-      ? s.appearances.filter((_, j) => j !== i)
-      : s.appearances.map((a, j) => (j === i ? { ...a, ...patch } : a));
-    const seedancePrompt = composeFilmPrompt({ appearances, keyEvents: s.keyEvents });
-    setStory((cur) => ({ ...cur, appearances, seedancePrompt }));
-    persistStory({ appearances, seedancePrompt });
+  // Rewrite DEPTH (light | medium | deep) — set + persist; the next Rewrite uses it.
+  const setStoryComplexity = useCallback((complexity) => {
+    setStory((cur) => ({ ...cur, complexity }));
+    persistStory({ complexity });
   }, [persistStory]);
 
-  // Add / remove a key event (the user shaping the chain), re-assembling the prompt.
-  const addKeyEvent = useCallback(() => {
-    const s = storyRef.current;
-    const keyEvents = [...s.keyEvents, ''];
-    const seedancePrompt = composeFilmPrompt({ appearances: s.appearances, keyEvents });
-    setStory((cur) => ({ ...cur, keyEvents, seedancePrompt }));
-    persistStory({ keyEvents, seedancePrompt });
+  // 📋 Storyboard: anchor every frame on the tagged Cast & World plates (set + persist).
+  const setStoryUseCastRefs = useCallback((useCastRefs) => {
+    setStory((cur) => ({ ...cur, useCastRefs }));
+    persistStory({ useCastRefs });
   }, [persistStory]);
 
-  const removeKeyEvent = useCallback((i) => {
-    const s = storyRef.current;
-    if (s.keyEvents.length <= 1) return;
-    const keyEvents = s.keyEvents.filter((_, j) => j !== i);
-    const seedancePrompt = composeFilmPrompt({ appearances: s.appearances, keyEvents });
-    setStory((cur) => ({ ...cur, keyEvents, seedancePrompt }));
-    persistStory({ keyEvents, seedancePrompt });
-  }, [persistStory]);
-
-  // Manual override of the assembled prompt (what actually gets shot).
-  const editSeedancePrompt = useCallback((text) => {
-    setStory((cur) => ({ ...cur, seedancePrompt: text }));
-    persistStory({ seedancePrompt: text });
-  }, [persistStory]);
-
-  // 🎬 Shoot the film → lay an editable SHOT card (CutNode) on the board, pre-filled with
-  // the assembled prompt as the SHOT DESCRIPTION + a default camera + the bible assets the
-  // appearances reference (as [Image1..N]). The user edits the prompt / camera / SD params
-  // on the card, then 🎬 on the card shoots it. Re-clicking re-derives the same card.
+  // New Shot → lay an editable SHOT card (CutNode) on the board, pre-filled with the Story's
+  // cinematic prompt + a default camera. The user edits the prompt / camera / SD params on
+  // the card, then 🎬 on the card shoots it. Re-clicking re-derives the same card.
   const shootFilm = useCallback(() => {
     const st = storyRef.current;
-    const prompt = String(st.seedancePrompt || '').trim();
+    const prompt = String(st.prompt || '').trim();
     if (!prompt) { Message.warning('Write the story first — there is no prompt to shoot.'); return; }
     if (!storyboardPanelRef.current) return;
-    const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 280, y: 480 }) : { x: 180, y: 480 };
+    // Land the SHOT card NEXT TO the Story node (to its right); fall back to a screen spot.
+    const storyNode = nodesRef.current.find((n) => n.id === STORY_NODE_ID);
+    const storyW = Math.round(storyNode?.measured?.width || storyNode?.width || 560);
+    const pref = storyNode
+      ? { x: (storyNode.position?.x || 0) + storyW + 60, y: storyNode.position?.y || 0 }
+      : (rfInstance ? rfInstance.screenToFlowPosition({ x: 280, y: 480 }) : { x: 180, y: 480 });
     const base = freeOrigin({ w: CUT_COL_W, h: CUT_ROW_H, preferred: pref });
-    // Appearances that reference a bible asset → the card's reference images.
-    const refEntryIds = (st.appearances || []).map((a) => a.refId).filter(Boolean);
+    // A UNIQUE prefix per click → New Shot ALWAYS lays a fresh card (never re-derives an
+    // existing one); freeOrigin tiles each near the Story so they don't overlap. `cut`
+    // numbers the SHOT label by how many already exist (index 0 keeps the card AT `base`).
+    const cut = nodesRef.current.filter((n) => n.type === 'cut' && String(n.id).startsWith('film-')).length;
     storyboardPanelRef.current({
-      index: 0, idPrefix: 'film', title: (st.idea || 'Film').slice(0, 40),
+      index: 0, cut, idPrefix: `film-${Date.now().toString(36)}`, title: (st.idea || 'Film').slice(0, 40),
       action: prompt, promptOverride: prompt, framing: '', shotTemplate: 'medium-shot', durationSec: 15,
-      refEntryIds, audio: '', rederive: true,
+      refEntryIds: [], audio: '',
     }, base);
     Message.success('SHOT card on the board — edit the prompt, camera and SD params, then 🎬 to shoot.');
   }, [rfInstance, freeOrigin]);
 
+  // 📋 Storyboard → a visual storyboard PANEL on the board: one Seedream frame per story
+  // element (CUT-marked), rendered SEQUENTIALLY so each frame uses the previous as a visual
+  // reference + one shared seed. `story` defaults to the Story card's prompt; `references`
+  // (or, if none passed, the SELECTED board images) anchor every frame. Streams onPlan/onFrame.
+  const handleGenerateStoryboard = useCallback(async ({ story, references } = {}) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    const text = String(story || storyRef.current.prompt || '').trim();
+    if (!text) { Message.warning('Give me a story or an idea to storyboard.'); return; }
+    // References: the tagged Cast & World plates (when the toggle is on) anchor every frame,
+    // then the explicitly-passed refs (rail) or the currently-selected board images.
+    const castRefs = storyRef.current.useCastRefs ? bibleRef.current.filter((b) => b.url).map((b) => b.localUrl || b.url) : [];
+    const picked = (references && references.length)
+      ? references
+      : nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url).map((n) => n.data.localUrl || n.data.url);
+    const refs = [...castRefs, ...picked];
+    const PANEL_ID = 'storyboard-panel';
+    const COLS = 5;
+    setStoryboarding(true);
+    traceRef.current.startRun({ note: 'Agent · Storyboard' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
+    const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 560 }) : { x: 220, y: 560 };
+    const base = freeOrigin({ w: GROUP_PAD * 2 + COLS * PLATE_COL_W, h: GROUP_HEADER + GROUP_PAD + PLATE_ROW_H, preferred: pref });
+    try {
+      await generateStoryboard({ story: text, references: refs }, ctx, {
+        onPlan: (els) => {
+          setNodes((ns) => {
+            // Replace any prior storyboard panel + its frames.
+            let next = ns.filter((n) => n.id !== PANEL_ID && n.parentId !== PANEL_ID);
+            const rows = Math.max(1, Math.ceil(els.length / COLS));
+            const grid = createGroupNode({ label: 'Storyboard', position: base, width: GROUP_PAD * 2 + COLS * PLATE_COL_W, height: GROUP_HEADER + GROUP_PAD + rows * PLATE_ROW_H });
+            next = next.concat({ ...grid, id: PANEL_ID }); // parent before children (RF ordering)
+            els.forEach((el) => {
+              const fn = createAssetNode({ kind: 'image', url: '', label: `Frame ${el.index + 1}`, position: { x: GROUP_PAD + (el.index % COLS) * PLATE_COL_W, y: GROUP_HEADER + GROUP_PAD + Math.floor(el.index / COLS) * PLATE_ROW_H } });
+              next = next.concat({ ...fn, id: `sb-${el.index}`, parentId: PANEL_ID, data: { ...fn.data, loading: true } });
+            });
+            return next;
+          });
+        },
+        onFrame: ({ index, url, error }) => {
+          setNodes((ns) => ns.map((n) => (n.id === `sb-${index}` ? { ...n, data: { ...n.data, url: url || n.data.url, loading: false, ...(error ? { error } : {}) } } : n)));
+        },
+      });
+      Message.success('Storyboard generated');
+    } catch (e) { Message.error(`Storyboard failed: ${e.message}`); }
+    finally { setStoryboarding(false); }
+  }, [apiKey, rfInstance, freeOrigin, setNodes]);
+
 
 
   // Deterministic dispatch of a CONFIRMED chat action to the existing machinery.
-  // Returns the chat's reply line (or a beats array for proposeBeats).
+  // Returns the chat's reply line.
   const dispatchFilmAction = useCallback(async (action, params = {}) => {
     const selImages = nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url);
-    const lastChunk = filmChunks[filmChunks.length - 1];
     // A premise typed into the chat becomes the project idea when none exists —
-    // the pipeline status and every later prompt read it. (Shot-level actions
-    // like filmChunk never adopt: a beat is not the film's premise.)
+    // the pipeline status and every later prompt read it.
     const adoptIdea = (text) => {
       const t = (text || '').trim();
       if (t && !projectRef.current?.idea?.trim()) {
@@ -1925,26 +1849,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       }
     };
     switch (action) {
-      case 'filmChunk': {
-        const chunk = await filmGenerate({ beat: params.beat || params.prompt, durationSec: SHORT_FILM_RECIPE.defaultChunkSeconds, aspects: {} });
-        return chunk && chunk.status === 'draft'
-          ? 'Take landed — review it on the timeline: say “approve” to lock it and continue, or tell me what to fix.'
-          : 'That take didn\'t make it — the note above says why. Adjust and try again.';
-      }
-      case 'correctChunk': {
-        if (!lastChunk || lastChunk.status === 'validated') return 'There is no draft take to correct — film the next chunk first.';
-        const chunk = await filmCorrect(lastChunk.id, { aspects: {}, note: params.note || params.direction || '' });
-        return chunk && chunk.status === 'draft'
-          ? 'New take landed — check the timeline. Say “approve” to lock it and continue, or tell me what still bothers you.'
-          : 'The retake didn\'t make it — the note above says why.';
-      }
-      case 'approveChunk': {
-        if (!lastChunk || lastChunk.status !== 'draft') return 'Nothing to approve right now.';
-        filmValidate(lastChunk.id);
-        return 'Approved — the story continues from here. What happens next?';
-      }
-      case 'proposeBeats':
-        return filmPropose();
       case 'inspiration': {
         adoptIdea(params.prompt);
         // Strip-launched "Explore the look" sends no prompt — seed it from the
@@ -1973,13 +1877,17 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           : 'Nothing to sort — drop a few untagged images on the board first.';
       }
       case 'story': {
-        // Story is IDEA-first — it writes from the premise alone and does NOT need (or
-        // pull in) a tagged cast. Link appearances to Cast & World plates yourself if you
-        // want real reference images on the eventual SHOT card.
+        // Story is IDEA-first — it writes the cinematic prompt from the premise alone (no
+        // cast needed). The Story card appearing on the board IS the feedback → no pop-up.
         adoptIdea(params.prompt);
         ensureStoryNode();
         runStory({ idea: (params.prompt || projectRef.current?.idea || '').trim() });
-        return 'Shaping the story — a Story card is on the board: 3–4 key events + appearance descriptions, then one text-only Seedance prompt. Edit any of it, add events, or paste your own script (it’s preserved). Then “Shoot the film” to drop a SHOT card.';
+        return '';
+      }
+      case 'storyboard': {
+        if (!storyRef.current.prompt) return 'Write the story first, then storyboard it.';
+        if (storyboardRunRef.current) storyboardRunRef.current();
+        return '';
       }
       case 'detectGenre': {
         // The genre detector: read genre & tone from the premise FIRST, surface it
@@ -2057,10 +1965,8 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
         return 'Stitching the rendered shots into the final cut — it lands on the timeline (▶ to watch).';
       }
       case 'nextStep': {
-        // "Continue" is deterministic: a draft take always comes first, then the
-        // first unfinished pipeline stage — the LLM routed the word, nothing more.
-        const draft = filmChunks[filmChunks.length - 1];
-        if (draft && draft.status === 'draft') return 'A draft take is waiting on the timeline — say “approve” to lock it, or tell me what to fix.';
+        // "Continue" is deterministic: the first unfinished pipeline stage — the LLM
+        // routed the word, nothing more.
         const next = livePipeline().find((s) => s.status !== 'done');
         if (!next) return 'Everything is done — the film is cut. Press ▶ on the timeline to watch it, or start a new idea.';
         switch (next.id) {
@@ -2093,7 +1999,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       default:
         return "I don't know that move yet.";
     }
-  }, [filmChunks, filmGenerate, filmCorrect, filmValidate, filmPropose, runAgent, nodesForRole, classifyBoardAssets, handleAction, apiKey, onUpdateProject, rfInstance, setNodes, livePipeline, pushFilmNote, freeOrigin, runStory, ensureStoryNode]);
+  }, [runAgent, nodesForRole, classifyBoardAssets, handleAction, apiKey, onUpdateProject, rfInstance, setNodes, livePipeline, pushFilmNote, freeOrigin, runStory, ensureStoryNode]);
 
   // handleRenderMovie is declared below (it reads live timeline state); the
   // dispatch above reaches it through this ref to avoid a declaration-order knot.
@@ -2107,29 +2013,8 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   // The Story rail agent's Run: drop the editable Story card, then write the key events
   // from the idea (board refs stay opt-in — runStory does not feed the bible in).
   storyRunRef.current = (idea) => { ensureStoryNode(); runStory({ idea }); };
-
-  // The pipeline strip's one-click dispatch. No proposal round-trip: the chat
-  // confirms because an LLM interpreted free text, but the strip's button is
-  // already deterministic — its label IS the confirmation. Replies land in the
-  // director chat, and as a toast when the chat is closed, so the strip never
-  // works silently.
-  const [stripBusy, setStripBusy] = useState(false);
-  const runStripAction = useCallback(async (action, params = {}) => {
-    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
-    setStripBusy(true);
-    try {
-      const out = await dispatchFilmAction(action, params);
-      const text = typeof out === 'string' ? out : (out && out.say) || '';
-      if (text) {
-        pushFilmNote(text);
-        if (!filmDockOpen) Message.info({ content: text, duration: 6000 });
-      }
-    } catch (err) {
-      Message.error(err.message);
-    } finally {
-      setStripBusy(false);
-    }
-  }, [apiKey, dispatchFilmAction, pushFilmNote, filmDockOpen]);
+  deconstructRunRef.current = (takeId) => handleBreakdownTake(takeId);
+  storyboardRunRef.current = (opts) => handleGenerateStoryboard(opts);
 
   // Render movie: stitch the timeline's rendered shots IN EVENT ORDER (so reorders
   // and trims are honored) into the final cut — same server ffmpeg + TOS as the engine.
@@ -2166,6 +2051,25 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     if (!sel) { Message.warning('Select a board image first'); return; }
     addAssetToTimeline({ url: refUrl(sel), assetId: sel.data.assetId || null, label: sel.data.label });
   }, [addAssetToTimeline]);
+
+  // A rendered TAKE → the Final Cut timeline (the EDL that Stitch concatenates, in order).
+  // The take's NODE id rides on the event, so removing the take (from the board or just the
+  // timeline) drops the clip — and an empty timeline makes Stitch inactive again.
+  const addTakeToTimeline = useCallback((takeId) => {
+    const take = nodesRef.current.find((n) => n.id === takeId && n.data?.kind === 'video' && n.data?.url);
+    if (!take) return;
+    updateTimeline((cur) => {
+      const evs = cur.events || [];
+      if (evs.some((e) => e.shotNodeId === takeId)) return cur; // already on the timeline
+      const nextOrder = evs.length ? Math.max(...evs.map((e) => e.order || 0)) + 1 : 0;
+      return { ...cur, events: [...evs, timelineEvent({ order: nextOrder, beat: take.data.label || `Shot ${nextOrder + 1}`, shotUrl: take.data.url, shotNodeId: takeId, status: 'shot' })] };
+    });
+    Message.success('Added to the Final Cut timeline');
+  }, [updateTimeline]);
+
+  const removeTakeFromTimeline = useCallback((takeId) => {
+    updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => e.shotNodeId !== takeId) }));
+  }, [updateTimeline]);
 
   const setEventDuration = useCallback((id, sec) => {
     const secs = Math.max(1, Math.min(60, Number(sec) || 5));
@@ -2345,11 +2249,12 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   // the user always knows the stage and the next step (TRANSPARENCY).
   const filmPipeline = useMemo(() => pipelineStatus({
     idea: project.idea,
+    storyPrompt: story.prompt,
     bibleEntries,
     cutCards: nodes.filter((n) => n.type === 'cut').map((n) => ({ shotUrl: n.data?.shotUrl || '' })),
     filmUrl: timeline.film?.url || '',
     candidates: untaggedImageCount,
-  }), [project.idea, bibleEntries, nodes, timeline.film, untaggedImageCount]);
+  }), [project.idea, story.prompt, bibleEntries, nodes, timeline.film, untaggedImageCount]);
   // Narrate pipeline-stage completions in the director chat (e.g. the tag that
   // completes casting): the user's off-chat actions advance the conversation too.
   const stagePrevRef = useRef(null);
@@ -2395,14 +2300,9 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const resetFilm = useCallback(() => {
     setNodes([]);
     setEdges([]);
-    setFilmChunks([]);
-    setFilmStage('');
     setFilmProgress(null);
-    setFilmBusy(false);
     setSelectedEventId(null);
     setActiveLayerId(null);
-    filmingRef.current = null;
-    chunkStageRef.current = new Map();
     stagePrevRef.current = null;
     sessionRef.current = null;
     sessionStateRef.current = null;
@@ -2415,7 +2315,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       genre: null,
       bible: emptyBible(),
       timeline: emptyTimeline(),
-      filming: { chunks: [] },
       auto: null,
       canvas: { ...(prev.canvas || {}), nodes: [], edges: [] },
     } : prev));
@@ -2424,29 +2323,27 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
 
   // Pass tagNode + the heal hook to board AssetNodes through context (functions
   // can't live in serializable node.data).
-  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onImgError: healNodeUrl }), [tagNode, healNodeUrl]);
+  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onImgError: healNodeUrl, onDeconstruct: handleBreakdownTake, deconstructingId: deconstructing, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds }), [tagNode, healNodeUrl, handleBreakdownTake, deconstructing, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds]);
 
   const storyCtx = useMemo(() => ({
     idea: story.idea,
     mode: story.mode,
-    appearances: story.appearances,
-    keyEvents: story.keyEvents,
-    seedancePrompt: story.seedancePrompt,
+    prompt: story.prompt,
+    complexity: story.complexity,
+    useCastRefs: story.useCastRefs,
     busy: story.busy,
     phase: story.phase,
     shooting: story.shooting,
-    // The Cast & World assets the appearances can link to (id + name + role).
-    bibleAssets: bibleEntries.map((b) => ({ id: b.id, name: b.name, role: b.role })),
-    onEditEvent: editKeyEvent,
-    onAddEvent: addKeyEvent,
-    onRemoveEvent: removeKeyEvent,
-    onEditAppearance: editAppearance,
-    onEditPrompt: editSeedancePrompt,
+    storyboarding,
+    onEditPrompt: editStoryPrompt,
+    onSetComplexity: setStoryComplexity,
+    onSetUseCastRefs: setStoryUseCastRefs,
     onRegenerate: regenerateStory,
     onShapeSource: shapeStorySource,
     onShoot: shootFilm,
+    onStoryboard: handleGenerateStoryboard,
     onClose: removeStoryNode,
-  }), [story.idea, story.mode, story.appearances, story.keyEvents, story.seedancePrompt, story.busy, story.phase, story.shooting, bibleEntries, editKeyEvent, addKeyEvent, removeKeyEvent, editAppearance, editSeedancePrompt, regenerateStory, shapeStorySource, shootFilm, removeStoryNode]);
+  }), [story.idea, story.mode, story.prompt, story.complexity, story.useCastRefs, story.busy, story.phase, story.shooting, storyboarding, editStoryPrompt, setStoryComplexity, setStoryUseCastRefs, regenerateStory, shapeStorySource, shootFilm, handleGenerateStoryboard, removeStoryNode]);
 
   return (
     <AssetNodeContext.Provider value={tagCtx}>
@@ -2482,41 +2379,12 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       )}
 
       <div ref={wrapperRef} style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver}>
-        {/* Floating toolbar */}
+        {/* Floating toolbar — just the seed + the contextual selection action. Add /
+            Library / History moved onto the zoom Controls (icon-only); Fit was redundant
+            with the Controls' own fit button, so it's gone. Narrow → never crowds the
+            centered status pill below. */}
         <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5 }}>
           <Space>
-            <Tooltip content="Add images, video or audio from your computer">
-              <Button size="small" type="primary" icon={<IconUpload />} onClick={() => fileInputRef.current?.click()}>Add</Button>
-            </Tooltip>
-            <Tooltip content="Library — your checked-in assets (drag onto the board)">
-              <Button size="small" type={libraryOpen ? 'primary' : 'default'} icon={<IconStorage />} onClick={() => setLibraryOpen((v) => !v)}>Library</Button>
-            </Tooltip>
-            <Tooltip content="Decision history — every prompt, reference & decision each agent made (fully transparent)">
-              <Button size="small" type={historyOpen ? 'primary' : 'default'} icon={<IconHistory />} onClick={() => setHistoryOpen((v) => !v)}>History</Button>
-            </Tooltip>
-            <Button size="small" icon={<IconPlus />} onClick={addNote}>Note</Button>
-            {/* Selection actions are CONTEXTUAL — they only do anything with a selection,
-                so they appear only THEN (no greyed-out dead weight in the default bar).
-                Lock + Unlock collapse into one state-reflecting toggle. Pan is gone:
-                Space-hold / middle-mouse / scroll already pan, and left-drag marquee-selects. */}
-            {selectionCount > 0 && (
-              <>
-                <span style={TOOLBAR_SEP} />
-                <Tooltip content={allLocked ? 'Unlock selected' : 'Lock selected (use as canonical reference)'}>
-                  <Button size="small" type={allLocked ? 'primary' : 'default'} icon={allLocked ? <IconLock /> : <IconUnlock />} onClick={() => setLockOnSelection(!allLocked)} />
-                </Tooltip>
-                <Tooltip content="Check in selected — save permanently to your storage (beats the 24h expiry)">
-                  <Button size="small" icon={<IconCloudDownload />} onClick={preserveSelection}>Check in</Button>
-                </Tooltip>
-                <Tooltip content="Delete selected">
-                  <Button size="small" status="danger" icon={<IconDelete />} onClick={deleteSelection} />
-                </Tooltip>
-                <span style={TOOLBAR_SEP} />
-              </>
-            )}
-            <Tooltip content="Fit view">
-              <Button size="small" icon={<IconFullscreen />} onClick={() => rfInstance?.fitView({ padding: 0.2 })} />
-            </Tooltip>
             {/* Sequence seed — one seed for every shot. Lock it to hold every variable
                 but your prompt edits constant across re-shoots (the iteration lever). */}
             {filmMode && (
@@ -2543,21 +2411,34 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
                 </span>
               </Tooltip>
             )}
+            {/* The one CONTEXTUAL selection action — appears only with a selection (no
+                greyed-out dead weight). Lock + Unlock collapse into one state-reflecting
+                toggle; locking also preserves the asset (canonical ref never expires).
+                Delete is keyboard-driven (Backspace/Delete); Check in is gone — locking
+                already preserves. Pan is gone: Space-hold / middle-mouse / scroll pan,
+                and left-drag marquee-selects. */}
+            {selectionCount > 0 && (
+              <Tooltip content={allLocked ? 'Unlock selected' : 'Lock selected (use as canonical reference)'}>
+                <Button size="small" type={allLocked ? 'primary' : 'default'} icon={allLocked ? <IconLock /> : <IconUnlock />} onClick={() => setLockOnSelection(!allLocked)} />
+              </Tooltip>
+            )}
           </Space>
         </div>
 
-        {/* The pipeline strip — the explicit Film pipeline rendered ON the board,
-            current stage carrying its action button. The forward path lives here;
-            the director chat is for free-form direction, never a required ritual. */}
-        {filmMode && (
+        {/* Pipeline STATUS — its own readable top layer (solid pill), so the breadcrumb
+            reads cleanly over whatever board content sits behind it. Centered between the
+            narrow top-left toolbar and the top-right minimap/Director; the maxWidth caps it
+            to a band that clears both (≥250px reserved each side) and scrolls if narrower. */}
+        <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 6, maxWidth: 'min(720px, calc(100% - 500px))', overflowX: 'auto', background: '#fff', border: '1px solid #e5e6eb', borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', padding: '6px 14px' }}>
           <PipelineStrip
-            pipeline={filmPipeline}
-            busy={stripBusy || filmBusy || autoFillBusy}
-            busyLabel={filmStage || ''}
-            onAction={runStripAction}
-            onOpenDirector={() => setFilmDockOpen(true)}
+            hasIdea={!!(project.idea || story.idea)}
+            hasStory={!!story.prompt}
+            hasCast={bibleEntries.length > 0}
+            hasFilm={!!(timeline.film && timeline.film.url)}
+            shots={nodes.filter((n) => n.type === 'cut').length}
+            takes={nodes.filter((n) => n.data?.kind === 'video' && String(n.id).startsWith('shot-')).length}
           />
-        )}
+        </div>
 
         {/* Film mode's conversational director — say it, confirm it, it runs. */}
         {filmMode && filmDockOpen && (
@@ -2565,13 +2446,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
             onReset={resetFilm}
             onRoute={routeFilmMessage}
             onDispatch={dispatchFilmAction}
-            filming={{
-              busy: filmBusy,
-              stage: filmStage,
-              // An unapproved take survives the dock closing (takes cost money —
-              // chat resets, the film doesn't); the greeting names it explicitly.
-              draft: (() => { const c = filmChunks[filmChunks.length - 1]; return c && c.status === 'draft' ? c.beat : ''; })(),
-            }}
             progress={filmProgress}
           />
         )}
@@ -2621,6 +2495,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
+          onNodesDelete={onNodesDeleted}
           onEdgesChange={onEdgesChange}
           onNodeDragStop={handleNodeDragStop}
           onInit={setRfInstance}
@@ -2649,7 +2524,19 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
           <Background gap={20} />
           {/* Top-left (below the toolbar) so the always-on timeline can't bury the
               zoom / fit / pan-lock buttons. */}
-          <Controls position="top-left" style={{ top: 50, left: 10 }} showInteractive={false} />
+          {/* Zoom / fit Controls, plus the board utilities as icon-only buttons in the
+              same stack (Add / Library / History) — no text panel cluttering the rail. */}
+          <Controls position="top-left" style={{ top: 50, left: 10 }} showInteractive={false}>
+            <ControlButton onClick={() => fileInputRef.current?.click()} title="Add images, video or audio">
+              <IconUpload style={{ fontSize: 14 }} />
+            </ControlButton>
+            <ControlButton onClick={() => setLibraryOpen((v) => !v)} title="Library" style={libraryOpen ? { color: '#165dff' } : undefined}>
+              <IconStorage style={{ fontSize: 14 }} />
+            </ControlButton>
+            <ControlButton onClick={() => setHistoryOpen((v) => !v)} title="History" style={historyOpen ? { color: '#165dff' } : undefined}>
+              <IconHistory style={{ fontSize: 14 }} />
+            </ControlButton>
+          </Controls>
           <MiniMap position="top-right" pannable zoomable nodeColor={(n) => (n.data?.layerId ? (AGENT_MAP[n.data.layerId]?.color || '#c9cdd4') : '#c9cdd4')} />
         </ReactFlow>
 

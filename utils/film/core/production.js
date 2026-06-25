@@ -17,14 +17,11 @@
 // (executeAutoStep / advanceAuto / resolveAutoInputs / stitchAuto). Step outputs and
 // picks live on the step objects; the canvas mirrors them to board nodes via events.
 
-import { qcStep } from './director';
 import { inspiration, characterVariations, locationVariations, animate, isAudioPolicyError } from './operations';
 import { withRetry } from './retry';
 import { readySteps, runWithConcurrency, isTerminalStatus } from './parallel';
 import { getAgentDefaults } from '../suiteConfig';
 import { resolveBibleUrls, BIBLE_REF_CAP, EXPLICIT_REF_CAP } from '../timelineModel';
-
-const isVideoAgent = (agent) => agent === 'animate';
 
 let _oid = 0;
 const outId = () => `o-${Date.now().toString(36)}-${(_oid += 1).toString(36)}`;
@@ -132,7 +129,6 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
   // cost). When null (interactive default), each step uses its own params.count or
   // the agent's default count — so a reviewer gets several options to pick from.
   const perStepCount = opts.perStepCount != null ? Math.max(1, opts.perStepCount) : null;
-  const qcEnabled = opts.qc !== false;
   const ctx = { client: transport.client, config };
 
   let status = 'idle';
@@ -315,14 +311,7 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
         return step;
       }
       step.outputs = raw.map((o) => ({ id: outId(), ...o }));
-      let choice = step.outputs[0];
-      if (step.outputs.length > 1 && qcEnabled && !isVideoAgent(step.agent)) {
-        try {
-          const qc = await qcStep({ agent: step.agent, intent: step.intent, references: inputUrls, outputs: step.outputs.map((o) => o.url), config }, ctx);
-          step.qc = qc;
-          choice = step.outputs[qc.best] || step.outputs[0];
-        } catch { /* QC advisory */ }
-      }
+      const choice = step.outputs[0];
       step.pickedId = choice.id;
       step.status = 'review';
       emit({ type: 'asset', stepId: step.id, kind: choice.kind, url: choice.url });

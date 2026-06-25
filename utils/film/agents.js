@@ -7,7 +7,7 @@ import { createBrowserClient } from './core/client';
 import * as ops from './core/operations';
 import * as director from './core/director';
 import { buildAnimatePrompt } from './core/operations';
-import { castFromIdea, writeKeyEvents } from './core/storyboard';
+import { castFromIdea, writeFilmPrompt, deconstructTake, generateStoryboard } from './core/storyboard';
 import { SIZE_TIERS as IMAGE_RESOLUTIONS, ASPECT_RATIOS as IMAGE_RATIOS } from './imageSizes';
 
 // Re-exported so the canvas panels can reuse them.
@@ -23,6 +23,7 @@ export const AGENT_COLORS = {
   cast: '#9a5b13',                 // bronze (pre-production: cast & world)
   story: '#f7ba1e',                // gold (the narrative spine: key events)
   storyboard: '#4e5969',           // graphite (the shot plan)
+  deconstruct: '#0fc6c2',          // teal (a Take → its cuts + key frames)
 };
 
 const browserCtx = (apiKey) => ({ client: createBrowserClient(apiKey) });
@@ -55,6 +56,18 @@ export const createBrowserTransport = (apiKey) => ({
     if (!res.ok) throw new Error(data?.details || data?.error || 'Last-frame extraction failed');
     return { url: data.url };
   },
+  // Deconstruct's visual grounding: grab frames at the VLM's key timestamps (server
+  // ffmpeg → base64). Returns [{ t, url }].
+  frames: async (url, timestamps) => {
+    const res = await fetch('/api/film/frames', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, timestamps }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.details || data?.error || 'Frame extraction failed');
+    return data.frames || [];
+  },
 });
 
 // The reference a Seedream-backed agent should send for a node. Prefer the local
@@ -73,11 +86,6 @@ const selectedText = (selection) => {
   const t = (selection || []).find((n) => n.data?.kind === 'text' && (n.data?.text || '').trim());
   return t ? String(t.data.text).trim() : '';
 };
-
-// ---- exported suggestion helpers (used by the panels) -------------------------
-
-export const suggestNextBeats = ({ apiKey, idea, steps, lastImageUrl, count = 3 }) =>
-  ops.suggestNextBeats({ idea, steps, lastImageUrl, count }, browserCtx(apiKey));
 
 // Concierge intake: classify a pile of uploaded images into recipe bible roles, and
 // report which required roles are still missing ("do you have XYZ?"). An injected
@@ -238,12 +246,11 @@ export const castAgent = {
   },
 };
 
-// The STORY agent: idea (or a pasted script) → 3–4 KEY EVENTS + APPEARANCE descriptions →
-// one continuous TEXT-ONLY Seedance 2.0 prompt. Identity rides as DESCRIPTION — by default
-// it does NOT pull the board's reference assets in (bible defaults to [] so the cast is
-// invented from the idea); link an appearance to a Cast & World plate yourself to opt in.
-// On the canvas the rail Run is intercepted (handleRun → ensureStoryNode + runStory, which
-// drives the editable Story card); this run() is the headless/SDK entry.
+// The STORY agent: an idea (or a pasted script) → ONE long cinematic prompt (clear subjects
+// + story arc, CUT-structured but no CUT markers, no facing-camera, explicit eyelines). Text
+// only — no key events, no appearances, no board reference assets. On the canvas the rail Run
+// is intercepted (handleRun → ensureStoryNode + runStory, which drives the editable Story
+// card); this run() is the headless/SDK entry.
 export const storyAgent = {
   id: 'story',
   label: 'Story',
@@ -252,14 +259,12 @@ export const storyAgent = {
   consumes: ['text'],
   needsSelection: false,
   defaultSettings: { prompt: '' },
-  describe: 'Turns your idea (or a pasted script) into the film’s 3–4 KEY EVENTS + APPEARANCE descriptions, then one continuous text-only Seedance 2.0 prompt. Identity rides as description — it does NOT use the board’s reference assets by default; link any appearance to a Cast & World plate yourself to opt in. Lands as an editable Story card; “Shoot the film” turns it into a SHOT card.',
+  describe: 'Rewrites your idea (or a pasted script) into one long cinematic prompt — clear subjects and a story arc, no characters facing the camera, explicit eyelines. Lands as an editable Story card; “New Shot” turns it into a SHOT card.',
   async run({ prompt, settings = {}, apiKey, ctx }) {
-    const story = await writeKeyEvents(
+    const story = await writeFilmPrompt(
       {
         idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(),
-        genre: settings.genre || '',
         source: settings.source || '',
-        bible: settings.bible || [], // board refs are OPT-IN — never pulled in by default
       },
       ctx || browserCtx(apiKey),
     );
@@ -267,12 +272,62 @@ export const storyAgent = {
   },
 };
 
+// The DECONSTRUCT agent: a rendered Take (a 15s video) → its CUTs. The Seed 2.0 Pro VLM
+// WATCHES the video and returns, per cut, the action + best-fit shot template + key
+// timestamps. The canvas turns those into key-frame ingredients + per-cut SHOT cards (the
+// bridge from Exploration to Directing). On the canvas the rail Run + the Take node's
+// "Deconstruct" button are intercepted (handleRun → handleBreakdownTake); this run() is the
+// headless/SDK entry. Operates on a SELECTED Take video.
+export const deconstructAgent = {
+  id: 'deconstruct',
+  label: 'Deconstruct',
+  icon: 'deconstruct',
+  color: AGENT_COLORS.deconstruct,
+  consumes: ['video'],
+  needsSelection: true,
+  defaultSettings: {},
+  describe: 'Select a Take (a rendered shot) — Seed 2.0 Pro WATCHES it and breaks it into its cuts: key-frame stills for visual grounding + one editable SHOT card per cut (camera & cinematography pre-filled, references left for you to populate). The bridge from a quick exploration Take to detailed, directed shots.',
+  async run({ selection, settings = {}, apiKey, ctx }) {
+    const take = (selection || []).find((n) => n.data?.kind === 'video' && n.data?.url);
+    if (!take) throw new Error('Select one Take (a rendered video) first');
+    const deconstruction = await deconstructTake(
+      { videoUrl: take.data.url, prompt: settings.prompt || '', bible: settings.bible || [] },
+      ctx || browserCtx(apiKey),
+    );
+    return { created: [], errors: [], deconstruction };
+  },
+};
+
+// The STORYBOARD agent: the STORY → a visual storyboard, frame by frame. One Seedream
+// frame per story element (CUT-marked), rendered SEQUENTIALLY — each frame uses the
+// PREVIOUS frame as a visual reference and ONE shared seed for consistency. No bible refs.
+// On the canvas the rail Run + the Story node's 📋 button are intercepted (handleRun →
+// handleGenerateStoryboard, which lays the streaming Storyboard panel); this run() is the
+// headless/SDK entry (operates on the provided story prompt).
+export const storyboardAgent = {
+  id: 'storyboard',
+  label: 'Storyboard',
+  icon: 'board',
+  color: AGENT_COLORS.storyboard,
+  consumes: ['image'],   // any selected board images become per-frame references
+  needsSelection: false, // references are optional — the prev-frame chain carries consistency
+  defaultSettings: { prompt: '' },
+  describe: 'Turns a story (or a typed idea) into a visual storyboard — one frame per element, all rendered AT ONCE (one shared seed for consistency). Any board images you select are used as references (cast, world, mood) on every frame. Lands as a Storyboard panel on the board.',
+  async run({ prompt, selection, settings = {}, apiKey, ctx }) {
+    const story = (prompt && String(prompt).trim()) || settings.story || settings.prompt || '';
+    const board = await generateStoryboard({ story, references: selectedImageUrls(selection) }, ctx || browserCtx(apiKey));
+    return { created: [], errors: [], storyboard: board };
+  },
+};
+
 export const AGENTS = [
   inspirationAgent,
   storyAgent,
+  storyboardAgent,
   castAgent,
   characterVariationsAgent,
   locationVariationsAgent,
+  deconstructAgent,
 ];
 
 export const AGENT_MAP = AGENTS.reduce((acc, a) => {

@@ -24,6 +24,7 @@ const PRIMARY_TEXT_FIELD = {
   inspiration: 'prompt',   // the generation prompt
   cast: 'prompt',          // the film idea to cast from
   story: 'prompt',         // the film idea to write key events from
+  storyboard: 'prompt',    // a story/idea to storyboard (else the current Story card)
 };
 
 // Combine every selected Note card into one string (joined with blank lines).
@@ -227,6 +228,45 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
           Tip: add a <b>Note</b> on the board and select it — its text auto-fills the prompt here while the field is empty. Edit freely, or hit <b>Use selected text</b> to re-pull.
         </Paragraph>
       </Space>
+    );
+  }
+
+  if (layer.id === 'storyboard') {
+    return (
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>Story or idea</Text>
+            <Button
+              size="mini"
+              type="text"
+              icon={<IconBulb />}
+              disabled={!hasTextSel}
+              onClick={() => loadSelectedText('prompt')}
+              style={{ color: hasTextSel ? '#0fc6c2' : undefined }}
+            >
+              Use selected text
+            </Button>
+          </div>
+          <Input.TextArea
+            value={settings.prompt || ''}
+            onChange={(value) => update({ prompt: value })}
+            placeholder="a story or idea to storyboard… leave blank to use the current Story card"
+            autoSize={{ minRows: 3, maxRows: 6 }}
+          />
+        </div>
+        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
+          Renders a <b>visual storyboard</b> — one frame per element, all <b>in one go</b> (one shared seed for consistency). Any board <b>images you select</b> ride as <b>references</b> (cast, world, mood) on every frame. Lands as a Storyboard panel. <i>(The Story node also has a 📋 button.)</i>
+        </Paragraph>
+      </Space>
+    );
+  }
+
+  if (layer.id === 'deconstruct') {
+    return (
+      <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
+        Select a <b>Take</b> (a rendered shot) on the board, then Run. Seed 2.0 Pro watches it and breaks it into its cuts — <b>key-frame stills</b> for visual grounding + one editable <b>SHOT card per cut</b> (camera &amp; cinematography pre-filled; references left for you to populate). The bridge from a quick exploration Take to detailed, directed shots. <i>(The Take node also has its own ✂ Deconstruct button.)</i>
+      </Paragraph>
     );
   }
 

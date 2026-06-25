@@ -10,6 +10,7 @@ import {
   IconThunderbolt,
   IconApps,
   IconUserGroup,
+  IconScissor,
 } from '@arco-design/web-react/icon';
 
 export const AGENT_ICONS = {
@@ -21,6 +22,7 @@ export const AGENT_ICONS = {
   auto: IconThunderbolt, // Auto Director (orchestrator)
   board: IconApps,       // Storyboard (the panel grid)
   cast: IconUserGroup,   // Cast & World (the ensemble: characters/monsters + places)
+  deconstruct: IconScissor, // Deconstruct (a Take → its cuts + key frames)
 };
 
 export const agentIcon = (key) => AGENT_ICONS[key] || IconStar;

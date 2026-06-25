@@ -1,32 +1,33 @@
 import { createContext, memo, useContext, useState } from 'react';
-import { Button, Typography, Tag, Input, Select } from '@arco-design/web-react';
-import { IconLoading, IconRefresh, IconClose, IconEdit, IconSend, IconVideoCamera, IconPlus } from '@arco-design/web-react/icon';
+import { Button, Typography, Tag, Input, Select, Tooltip, Checkbox } from '@arco-design/web-react';
+import { IconLoading, IconRefresh, IconClose, IconEdit, IconSend, IconVideoCamera, IconApps } from '@arco-design/web-react/icon';
 
 const { Text } = Typography;
 const GOLD = '#b06f10';
 
-// Story agent v2 (2026-06-19): the film as KEY EVENTS + APPEARANCE strings → ONE
-// continuous text-only Seedance 2.0 prompt (no arc, no reference images, no shot cards).
-// The node shows three editable sections — APPEARANCES (the identity lock), KEY EVENTS
-// (the 3–4 load-bearing beats), and the assembled SEEDANCE PROMPT (assets-as-description
-// at the top, then the events) — and a 🎬 Shoot the film button that sends that prompt.
+// Story agent: an idea (or a pasted script) → ONE long cinematic prompt (clear subjects +
+// story arc, CUT-structured but no CUT markers in the output, no facing-camera, explicit
+// eyelines). The node shows that single editable prompt + a 🎬 New Shot button that drops
+// an editable SHOT card carrying the prompt.
 export const StoryScriptContext = createContext({
-  idea: '', mode: '', appearances: [], keyEvents: [], seedancePrompt: '', busy: false, phase: 'idle', shooting: false, bibleAssets: [],
-  onEditEvent: null, onAddEvent: null, onRemoveEvent: null, onEditAppearance: null, onEditPrompt: null, onRegenerate: null, onShapeSource: null, onShoot: null, onClose: null,
+  idea: '', mode: '', prompt: '', complexity: 'medium', useCastRefs: false, busy: false, phase: 'idle', shooting: false, storyboarding: false,
+  onEditPrompt: null, onSetComplexity: null, onSetUseCastRefs: null, onRegenerate: null, onShapeSource: null, onShoot: null, onStoryboard: null, onClose: null,
 });
 
-const dark = { fontSize: 12, lineHeight: '17px', color: '#e5e6eb', background: '#101418', border: '1px solid #2a313a', borderRadius: 6, fontFamily: 'inherit' };
+const DEPTH_OPTIONS = [{ label: 'Light', value: 'light' }, { label: 'Medium', value: 'medium' }, { label: 'Deep', value: 'deep' }];
+
+const dark = { fontSize: 12, lineHeight: '18px', color: '#e5e6eb', background: '#101418', border: '1px solid #2a313a', borderRadius: 6, fontFamily: 'inherit' };
 const NODE_W = 560;
 
 const StoryScriptNode = () => {
   const {
-    idea, mode, appearances = [], keyEvents = [], seedancePrompt = '', busy, phase, shooting, bibleAssets = [],
-    onEditEvent, onAddEvent, onRemoveEvent, onEditAppearance, onEditPrompt, onRegenerate, onShapeSource, onShoot, onClose,
+    idea, mode, prompt = '', complexity = 'medium', useCastRefs, busy, phase, shooting, storyboarding,
+    onEditPrompt, onSetComplexity, onSetUseCastRefs, onRegenerate, onShapeSource, onShoot, onStoryboard, onClose,
   } = useContext(StoryScriptContext);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
-  const writing = phase === 'writing' || (busy && !keyEvents.length);
-  const ready = keyEvents.length > 0;
+  const writing = phase === 'writing' || (busy && !prompt);
+  const ready = !!prompt;
 
   const submitPaste = () => {
     if (!pasteText.trim() || busy || !onShapeSource) return;
@@ -48,74 +49,45 @@ const StoryScriptNode = () => {
       {/* toolbar */}
       <div style={{ padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1px solid #2a313a', flexWrap: 'wrap' }}>
         <Button className="nodrag" size="mini" type="text" icon={<IconEdit />} onClick={() => setPasteOpen((v) => !v)} style={{ color: '#9fb4d0' }}>{pasteOpen ? 'Hide script' : 'Paste a script'}</Button>
+        <Tooltip content="Rewrite depth — how far to expand your idea: Light (tight, close to the source) · Medium · Deep (rich, immersive). Pick, then Rewrite.">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Text style={{ color: '#5a6472', fontSize: 11 }}>Depth</Text>
+            <Select className="nodrag" size="mini" value={complexity} onChange={(v) => onSetComplexity && onSetComplexity(v)} options={DEPTH_OPTIONS} style={{ width: 84 }} triggerProps={{ autoAlignPopupWidth: false }} disabled={busy || shooting} />
+          </span>
+        </Tooltip>
         <Button className="nodrag" size="mini" icon={busy ? <IconLoading /> : <IconRefresh />} disabled={busy || shooting} onClick={onRegenerate}>Rewrite</Button>
         <span style={{ flex: 1 }} />
+        <Tooltip content="Use your tagged Cast & World plates as references on every storyboard frame (keeps characters & world consistent). Off = story text + the chained previous frame only.">
+          <Checkbox className="nodrag" checked={!!useCastRefs} onChange={(c) => onSetUseCastRefs && onSetUseCastRefs(c)} style={{ marginRight: 2 }}>
+            <Text style={{ fontSize: 11, color: '#5a6472' }}>cast refs</Text>
+          </Checkbox>
+        </Tooltip>
+        <Button className="nodrag" size="mini" icon={storyboarding ? <IconLoading /> : <IconApps />} disabled={busy || shooting || storyboarding || !ready} onClick={onStoryboard} title="Storyboard — render a visual storyboard of this story, all frames in one go (one shared seed; turn on ‘cast refs’ to anchor on your Cast & World)">Storyboard</Button>
         <Button className="nodrag" size="mini" type="primary" icon={shooting ? <IconLoading /> : <IconVideoCamera />} disabled={busy || shooting || !ready} style={{ background: GOLD, borderColor: GOLD }} onClick={onShoot} title="New Shot — drop an editable SHOT card on the board with this prompt">New Shot</Button>
       </div>
 
-      {/* paste a script → preserved + compressed into key events */}
+      {/* paste a script → rewritten cinematically (events preserved) */}
       {pasteOpen && (
         <div className="nodrag nowheel" style={{ padding: 10, borderBottom: '1px solid #2a313a', background: '#12161c' }}>
-          <Input.TextArea className="nodrag nowheel" value={pasteText} onChange={setPasteText} placeholder="Paste your story or script — its events are preserved and compressed into key events (not rewritten)." autoSize={{ minRows: 3, maxRows: 10 }} style={{ ...dark, marginBottom: 6 }} />
-          <Button className="nodrag" size="mini" type="outline" icon={<IconSend />} disabled={busy || !pasteText.trim()} onClick={submitPaste}>Compress to key events</Button>
+          <Input.TextArea className="nodrag nowheel" value={pasteText} onChange={setPasteText} placeholder="Paste your story or script — its events are preserved and rewritten into one cinematic prompt (not into a different story)." autoSize={{ minRows: 3, maxRows: 10 }} style={{ ...dark, marginBottom: 6 }} />
+          <Button className="nodrag" size="mini" type="outline" icon={<IconSend />} disabled={busy || !pasteText.trim()} onClick={submitPaste}>Rewrite to a prompt</Button>
         </div>
       )}
 
       {writing ? (
         <div style={{ padding: '34px 24px', textAlign: 'center', color: '#86909c', fontSize: 12 }}>
-          <IconLoading style={{ color: GOLD }} /> Finding the key events…
+          <IconLoading style={{ color: GOLD }} /> Writing the cinematic prompt…
         </div>
       ) : ready ? (
-        <div className="nodrag nowheel" style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* APPEARANCES — the identity lock (assets as description) */}
-          <div>
-            <Text style={{ color: GOLD, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Appearances — the identity lock</Text>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 5 }}>
-              {appearances.map((a, i) => (
-                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 3, border: '1px solid #20262e', borderRadius: 6, padding: '5px 6px' }}>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <Input className="nodrag" size="mini" value={a.name || ''} onChange={(v) => onEditAppearance && onEditAppearance(i, { name: v })} style={{ ...dark, width: 110, flexShrink: 0 }} placeholder="name" />
-                    {/* Reference a Cast & World bible asset — links this character to a real
-                        plate so the shot can use it as a reference image. */}
-                    <Select className="nodrag" size="mini" allowClear placeholder="🔗 bible asset" value={a.refId || undefined} style={{ flex: 1, minWidth: 0 }} triggerProps={{ autoAlignPopupWidth: false }}
-                      onChange={(v) => { const b = bibleAssets.find((x) => x.id === v); onEditAppearance && onEditAppearance(i, { refId: v || null, ...(b && !a.name ? { name: b.name } : {}) }); }}>
-                      {bibleAssets.map((b) => <Select.Option key={b.id} value={b.id}>{b.name || b.role}</Select.Option>)}
-                    </Select>
-                    {onRemoveEvent && <Button className="nodrag" size="mini" type="text" status="danger" onClick={() => onEditAppearance && onEditAppearance(i, { __remove: true })} style={{ padding: '0 3px', flexShrink: 0 }}>×</Button>}
-                  </div>
-                  <Input.TextArea className="nodrag nowheel" value={a.string || ''} onChange={(v) => onEditAppearance && onEditAppearance(i, { string: v })} autoSize={{ minRows: 1, maxRows: 4 }} style={dark} placeholder="age, build, hair, wardrobe, one distinguishing feature" />
-                </div>
-              ))}
-              {!appearances.length && <Text style={{ color: '#5a6472', fontSize: 11 }}>No named characters — the unknown stays unseen.</Text>}
-            </div>
-          </div>
-
-          {/* KEY EVENTS — the 3–4 load-bearing beats */}
-          <div>
-            <Text style={{ color: GOLD, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Key events — setup → turn → payoff</Text>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 5 }}>
-              {keyEvents.map((e, i) => (
-                <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                  <span style={{ color: GOLD, fontSize: 11, fontWeight: 700, paddingTop: 4, width: 14, flexShrink: 0 }}>{i + 1}</span>
-                  <Input.TextArea className="nodrag nowheel" value={e || ''} onChange={(v) => onEditEvent && onEditEvent(i, v)} autoSize={{ minRows: 1, maxRows: 4 }} style={{ ...dark, flex: 1 }} />
-                  <Button className="nodrag" size="mini" type="text" status="danger" disabled={keyEvents.length <= 1} onClick={() => onRemoveEvent && onRemoveEvent(i)} style={{ padding: '0 3px', flexShrink: 0 }}>×</Button>
-                </div>
-              ))}
-              <Button className="nodrag" size="mini" type="text" icon={<IconPlus />} onClick={onAddEvent} style={{ color: GOLD, alignSelf: 'flex-start', fontSize: 11 }}>Add event</Button>
-            </div>
-          </div>
-
-          {/* SEEDANCE PROMPT — assets-as-description + key events (what gets shot) */}
-          <div>
-            <Text style={{ color: GOLD, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Seedance prompt — what gets shot</Text>
-            <Input.TextArea className="nodrag nowheel" value={seedancePrompt} onChange={(v) => onEditPrompt && onEditPrompt(v)} autoSize={{ minRows: 4, maxRows: 16 }} style={{ ...dark, marginTop: 5 }} />
-          </div>
+        <div className="nodrag nowheel" style={{ padding: 10 }}>
+          <Text style={{ color: GOLD, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Cinematic prompt — what gets shot</Text>
+          <Input.TextArea className="nodrag nowheel" value={prompt} onChange={(v) => onEditPrompt && onEditPrompt(v)} autoSize={{ minRows: 6, maxRows: 22 }} style={{ ...dark, marginTop: 5 }} />
         </div>
       ) : (
         <div style={{ padding: '24px', textAlign: 'center', color: '#86909c', fontSize: 12 }}>Give me an idea or paste a script.</div>
       )}
 
-      <Text style={{ color: '#5a6472', fontSize: 10, padding: '0 10px 8px' }}>Edit the appearances, the key events, or the final prompt — then 🎬 New Shot to drop an editable SHOT card on the board.</Text>
+      <Text style={{ color: '#5a6472', fontSize: 10, padding: '0 10px 8px' }}>Edit the prompt — then 🎬 New Shot to drop an editable SHOT card on the board.</Text>
     </div>
   );
 };

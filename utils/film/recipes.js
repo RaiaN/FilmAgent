@@ -58,9 +58,8 @@ export const cinematographyForGenre = (genre = '') => {
 // 50 distinct shot templates — angle · framing · move · a complete standalone
 // cinematography line. The Storyboard (Shot) agent SELECTS one per shot by id; the
 // locked genre only BIASES which it picks (the line is genre-neutral so it layers
-// over any genre's cast plates). `framing`/`angle` also drive the previs frame's
-// composition; `cinematography` drops straight into the SHOT card's CINEMATOGRAPHY
-// pin. Grouped into Scale (10) · Angle (10) · Movement (15) · Composition (8) ·
+// over any genre's cast plates). `cinematography` drops straight into the SHOT card's
+// CINEMATOGRAPHY pin. Grouped into Scale (10) · Angle (10) · Movement (15) · Composition (8) ·
 // Specialty (7).
 export const SHOT_TEMPLATES = [
   // --- Scale (10): how much of the subject/world the frame holds ---
@@ -147,10 +146,7 @@ export const STORY_ARC_BY_ID = STORY_ARCS.reduce((m, a) => { m[a.id] = a; return
 export const storyArcCatalog = () => STORY_ARCS.map((a) => `${a.id} — ${a.name} (${a.category}): ${a.fit}. Shape: ${a.stages}. Ends on ${a.ending}.`).join('\n');
 
 // Resolve a SHOT card's references into the ordered [{url, assetId, desc}] list that
-// becomes [Image1..N]: the bible cast/location plates + per-shot attached assets. The
-// clay previs FRAME is NOT a reference any more — a VLM reads its composition into the
-// shot's COMPOSITION text instead (the frame stays on the card for the eye / regenerate).
-// ONE derivation shared by the card's preview and the actual send.
+// becomes [Image1..N]: the bible cast/location plates + per-shot attached assets.
 export const shotReferences = (data = {}, bibleEntries = []) => {
   const refs = [];
   // assetId (the portrait-library asset:// id) rides alongside each ref so the shoot
@@ -187,11 +183,9 @@ export const composeSeedancePrompt = ({ references = [], cuts = [], cinematograp
   ].filter(Boolean).join('\n\n');
 };
 
-// A DIRECT shot prompt: the Story agent already produced a complete prompt (appearances
-// as description + key events), so we DON'T re-derive VISUAL ANCHORS / ACTION — we use it
-// verbatim and only APPEND the cinematic params (camera move + look + audio) the SHOT card
-// adds on top. (The bible plates still ride as actual reference images; the text already
-// describes them, so no [ImageN] block.)
+// The SHOT prompt: the Story agent already produced a complete prompt (appearances as
+// description + key events), used VERBATIM with only the cinematic params (camera move +
+// look + audio) appended. The bible plates still ride as actual reference images.
 export const composeFilmShotPrompt = ({ prompt = '', shotTemplate = '', cinematography = '', audio = '' } = {}) => {
   const move = (SHOT_TEMPLATE_BY_ID[shotTemplate] || {}).move || '';
   return [

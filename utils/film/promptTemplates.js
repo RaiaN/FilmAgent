@@ -5,14 +5,6 @@
 
 export const DEFAULT_TEMPLATES = {
 
-  // ---- Animate (Seedance) ----
-  'animate.motionFallback': {
-    agent: 'Animate',
-    label: 'Fallback motion (when the box is empty)',
-    vars: [],
-    text: 'Natural micro-movement; preserve the framing, subject, lighting and grade of the still.',
-  },
-
   // ---- Storyboard (the plan between casting and filming) ----
   'storyboard.read.system': {
     agent: 'Storyboard',
@@ -77,21 +69,44 @@ Max 5 entries total. Keep the [SECTION] tags in every facePrompt exactly as show
     vars: ['{idea}', '{genre}'],
     text: 'Film idea: {idea}\nGenre & tone: {genre}\n\nThe shared visual style MUST embody that genre & tone, and the cast must fit it. Return the JSON object: the shared style + the cast (characters with facePrompt + bodyPrompt) and locations.',
   },
-  // ---- Story agent v2: KEY EVENTS → one continuous text-only Seedance prompt --------
-  // The film → 3–4 load-bearing KEY EVENTS + dense APPEARANCE strings (the identity lock).
-  // The canvas assembles the final prompt = appearances (our assets AS DESCRIPTION) at the
-  // top, then the key events. No arc, no reference images, no shot-card breakdown.
-  'story.keyEvents.system': {
+  // ---- Story agent: an idea/script → ONE long cinematic prompt (Seed 2.0 Pro rewrite) -
+  // No JSON, no key events, no appearances — a direct rewrite to a single continuous
+  // cinematic narrative: clear subjects + story arc, structured into shots with explicit
+  // CUT markers (kept in the output — they let Deconstruct read the Take's cuts), no
+  // characters facing camera, explicit eyelines. The prompt feeds a New Shot.
+  'story.prompt.system': {
     agent: 'Story',
-    label: 'Key events + appearances (system)',
+    label: 'Rewrite to a cinematic prompt (system)',
     vars: [],
-    text: 'You are a film director converting a short-film concept into the STRUCTURE for a single continuous ~15-second Seedance 2.0 video: the recurring APPEARANCES (the identity lock) and the 3–4 KEY EVENTS.\n\nMODE — read the SOURCE in the instruction: if a story/script is given, you are in PRESERVE mode — keep ITS events, characters and intent; compress them, do NOT invent a different story. If there is only a thin idea, EXPAND it into a complete short.\n\nAPPEARANCES — for each recurring CHARACTER (and any key LOCATION) write ONE dense appearance string that locks identity: age range, build, hair, clothing / wardrobe, and ONE distinguishing feature — a single sentence. Use the REAL cast / location NAMES given (never rename them); if none are given, invent the minimal cast. THE UNKNOWN — an unseen force, a demon, a threat meant to stay mysterious — gets NO appearance: it is never described or named, and in the events it appears ONLY through its EFFECT (light, reaction, environment, implied sound).\n\nKEY EVENTS — compress the story to its 3–4 LOAD-BEARING beats. Keep ONLY what the camera can SEE or what a character DOES. Drop backstory, internal thought, and any event that does not change the situation. Order them as ONE continuous chain — setup → the turn → the payoff — that fits inside ~15 seconds. Each event: ONE vivid present-tense sentence that NAMES the real characters and shows WHO does WHAT, WHERE.\n\nReturn ONLY JSON — no prose, no code fences: {"mode": "preserve" | "expand", "appearances": [{"name": "<name>", "role": "character" | "location", "string": "<dense appearance sentence>"}], "keyEvents": ["<event 1>", "<event 2>", "<event 3>", "<event 4 — optional>"]}',
+    text: 'Convert the story below into a cinematic narrative with clear subjects and story arc. Structure it into shots separated by explicit CUT markers (e.g. "CUT TO:") and KEEP those markers in the output — but never use the word "cut" in the action wording itself. Don\'t make characters face the camera. Always specify what characters are looking at. Output single long prompt only.',
   },
-  'story.keyEvents.user': {
+  'story.prompt.user': {
     agent: 'Story',
-    label: 'Key events + appearances (instruction)',
-    vars: ['{idea}', '{genre}', '{castList}', '{source}'],
-    text: 'Concept / idea: {idea}\nGenre & tone: {genre}\nReal cast & locations (use these names): {castList}\n{source}\nReturn ONLY the JSON: the appearance strings for the recurring characters (+ key locations) and the 3–4 key events.',
+    label: 'Rewrite to a cinematic prompt (instruction)',
+    vars: ['{story}', '{depth}'],
+    text: '{story}\n\n{depth}',
+  },
+
+  // ---- Deconstruct: a rendered Take → its CUTs (Seed 2.0 Pro VLM watches the video) ---
+  'deconstruct.system': {
+    agent: 'Deconstruct',
+    label: 'Deconstruct a Take into cuts (system)',
+    vars: ['{templates}'],
+    text: 'You are a film editor and cinematographer DECONSTRUCTING a generated Take (a short video) into the distinct CUTs it can be re-shot from in detail. WATCH the video. A CUT is one continuous camera setup; a new cut begins when the framing, angle or subject changes. For EACH cut, in order, capture:\n- action: what happens, present tense — name the subjects and state what each is looking at (never the camera)\n- shotTemplate: the exact id of the best-fit camera setup from the library below\n- cinematography: lens · DOF · light · grain · grade · movement, one line\n- subjects: the people/places present (use the known names when they match)\n- keyTimestamps: 1–3 second-marks (numbers, seconds from the start) of the MOST REPRESENTATIVE frames of this cut — the moments worth grabbing as reference stills for visual grounding\n\nSHOT TEMPLATE LIBRARY (reference by exact id):\n{templates}\n\nReturn ONLY JSON — no prose, no code fences: {"cuts": [{"action": "...", "shotTemplate": "...", "cinematography": "...", "subjects": ["..."], "keyTimestamps": [n]}]}. Be specific and brief.',
+  },
+  'deconstruct.user': {
+    agent: 'Deconstruct',
+    label: 'Deconstruct a Take into cuts (instruction)',
+    vars: ['{prompt}', '{castList}'],
+    text: 'Source prompt that produced this Take (context only): {prompt}\nKnown cast & places: {castList}\n\nDeconstruct this Take into its cuts. Return the JSON.',
+  },
+
+  // ---- Storyboard: one chained Seedream frame per story element (prev frame = reference) ----
+  'storyboard.frame': {
+    agent: 'Storyboard',
+    label: 'Storyboard frame',
+    vars: ['{action}'],
+    text: 'A cinematic storyboard frame: {action}. Use the reference image(s) for the EXACT characters, wardrobe, location, world and visual style — keep them consistent across the whole storyboard (this is ONE continuous film). Filmic lighting and composition. No on-image text, captions or watermarks.',
   },
 
   // ---- Story Director (headless Service API ONLY) ----
@@ -177,20 +192,6 @@ Max 5 entries total. Keep the [SECTION] tags in every facePrompt exactly as show
     text: 'Ad idea: {idea}\n\nThe {count} attached images are the client\'s uploaded assets, in order. Classify each into exactly one of: {roles}. Return the specified JSON array — one entry per image, in the same order.',
   },
 
-  // ---- Producer QC (the per-step reviewer) ----
-  'autoDirector.qc.system': {
-    agent: 'Producer',
-    label: 'Per-step QC review (system)',
-    vars: [],
-    text: 'You are a meticulous film QC supervisor reviewing ONE production step. You are given the step\'s intent, the source reference image(s), and the generated output(s). Judge whether the output achieves the intent and is technically sound. Check, as relevant: subject identity preserved, location architecture preserved, anatomy and proportions, exposure and focus, composition and framing, prompt adherence, and continuity with the references. Return ONLY a JSON object — no prose, no code fences: {"verdict": "pass" | "warn" | "fail", "best": 0-based index of the strongest output, "issues": [{"severity": "low" | "medium" | "high", "message": what is wrong, "suggestion": a concrete fix or reshoot note}]}. If everything is good, return verdict "pass" with an empty issues array. Be specific and brief.',
-  },
-  'autoDirector.qc.user': {
-    agent: 'Producer',
-    label: 'Per-step QC review (instruction)',
-    vars: ['{agent}', '{intent}', '{refCount}'],
-    text: 'Step agent: {agent}\nStep intent: {intent}\n\nThe first {refCount} attached item(s) are the source reference image(s); everything after them is the generated output (image variations and/or a shot video) to review, in order. Assess the outputs against the intent and the references, then return the QC JSON. "best" is the index among the generated outputs only.',
-  },
-  // (Style exploration now uses the Creative Planner — see creativePlanner.styles.)
 };
 
 const STORAGE_KEY = 'film-agent-prompt-overrides';

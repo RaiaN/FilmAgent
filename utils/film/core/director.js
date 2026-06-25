@@ -64,16 +64,12 @@ export const classifyAssets = async ({ images = [], idea = '', roles = [], requi
 // directly ('answer' — the say field IS the answer, grounded in the context).
 // What each action means lives here so the docks and the template never drift.
 export const ACTION_DESCRIBE = {
-  filmChunk: 'shoot the next 10–15s video chunk — pick this when the message describes story action to film',
-  correctChunk: 're-render the current draft take — pick when they critique what was just shot',
-  approveChunk: 'they accept the current take',
-  proposeBeats: 'they ask what could happen next in the story',
   inspiration: 'generate fresh reference imagery from a description they give',
   characterVariations: 'variations of a person/character: wardrobe, expression, angle',
   locationVariations: 'coverage variations of a location/place: angle, time of day, weather',
-  story: 'write/shape the STORY — pick this whenever the message is about the narrative: a premise to expand, a concept to develop, or their own script/treatment to structure. Produces a whole editable story (beats shaped by a story-arc) that the user then breaks into shots',
-  detectGenre: 'the message is a fresh film PREMISE/idea and no genre is locked yet — read its genre & tone first (the user confirms, then casting runs in that genre). Pick this for an opening idea like "cowboys vs a grizzly" when idea is NOT set',
-  castDraft: 'generate the cast & location plates from the idea — pick ONLY when a genre is already set/confirmed (otherwise detectGenre comes first)',
+  story: 'write/shape the STORY — pick this for ANY film premise, idea, concept or script the user gives. THE STORY IS THE FIRST THING WE MAKE FROM AN IDEA, before casting — so a fresh opening premise like "cowboys vs a grizzly" goes HERE. Produces an editable cinematic prompt the user turns into a SHOT card',
+  detectGenre: 'read the film\'s genre & tone — pick ONLY when the user explicitly asks about genre/tone, or as the first move of Cast & World. NOT for an opening premise (that is `story`).',
+  castDraft: 'generate the cast & location plates from the idea — Cast & World (now AFTER the story). Detects the genre first if none is set.',
   nextStep: 'they ask to continue or what to do next ("continue", "next", "what now", "go on") — advance the pipeline to its next concrete step',
   stitch: 'assemble the rendered shots into the final cut — pick when they say stitch / render / assemble the film',
   classify: 'sort the board\'s untagged images into roles — pick when they ask to tag / sort / organize what they have',
@@ -82,7 +78,7 @@ export const ACTION_DESCRIBE = {
   unknown: 'none of the above fit and it is not answerable',
 };
 
-export const FILM_ACTIONS = ['filmChunk', 'correctChunk', 'approveChunk', 'proposeBeats', 'inspiration', 'characterVariations', 'locationVariations', 'story', 'detectGenre', 'castDraft', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
+export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'detectGenre', 'castDraft', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
 
 export const routeStudioAction = async ({ message = '', context = '', actions = FILM_ACTIONS, config } = {}, ctx) => {
   if (!String(message).trim()) return null;
@@ -111,35 +107,4 @@ export const routeStudioAction = async ({ message = '', context = '', actions = 
 
 // Back-compat alias — the film dock's original entry point (defaults FILM_ACTIONS).
 export const routeFilmAction = (args = {}, ctx) => routeStudioAction(args, ctx);
-
-// ---- QC: VLM reviews a step's outputs vs intent + references --------------------
-
-export const qcStep = async ({ agent = '', intent = '', references = [], outputs = [], video, config } = {}, ctx) => {
-  const images = [...references, ...outputs];
-  let content;
-  try {
-    ({ content } = await ctx.client.reason({
-      prompt: renderTemplate('autoDirector.qc.user', { agent, intent, refCount: references.length }),
-      systemPrompt: renderTemplate('autoDirector.qc.system'),
-      images,
-      video,
-      modelId: getModel('reasoner', config), reasoningEffort: effort(config),
-    }));
-  } catch (err) {
-    // QC is advisory — never block the human on a QC failure.
-    return { verdict: 'pass', issues: [], best: 0, error: err.message };
-  }
-  const r = parseJson(content) || {};
-  const verdict = ['pass', 'warn', 'fail'].includes(r.verdict) ? r.verdict : 'pass';
-  const issues = Array.isArray(r.issues)
-    ? r.issues.map((it) => ({
-        severity: ['low', 'medium', 'high'].includes(it?.severity) ? it.severity : 'medium',
-        message: String(it?.message || '').slice(0, 300),
-        suggestion: String(it?.suggestion || '').slice(0, 300),
-      })).filter((it) => it.message)
-    : [];
-  const outCount = Math.max(outputs.length, 1);
-  const best = Number.isInteger(r.best) && r.best >= 0 && r.best < outCount ? r.best : 0;
-  return { verdict, issues, best };
-};
 

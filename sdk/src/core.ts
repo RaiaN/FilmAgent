@@ -6,7 +6,6 @@
 // lets TS resolve them; we cast to precise signatures here so the rest of the SDK
 // gets real types and all JS interop lives in exactly one file.
 
-import * as directorJs from '../../utils/film/core/director.js';
 import * as opsJs from '../../utils/film/core/operations.js';
 import { runProduction as runProductionJs } from '../../utils/film/core/orchestrator.js';
 import { createProduction as createProductionJs, runStep as runStepJs } from '../../utils/film/core/production.js';
@@ -39,10 +38,6 @@ export interface Ctx { client: Client; config?: unknown }
 
 type Item = { url: string; prompt?: string; label?: string };
 type ImageOp = (input: Record<string, unknown>, ctx: Ctx, onItem?: (i: Item) => void) => Promise<{ created: number; errors: string[] }>;
-
-// ---- director (reasoning) ----
-export const qcStep = directorJs.qcStep as unknown as
-  (input: { agent?: string; intent?: string; references?: string[]; outputs?: string[]; video?: string; config?: unknown }, ctx: Ctx) => Promise<{ verdict: 'pass' | 'warn' | 'fail'; issues: unknown[]; best: number }>;
 
 // ---- per-agent operations ----
 export const inspiration = opsJs.inspiration as unknown as ImageOp;

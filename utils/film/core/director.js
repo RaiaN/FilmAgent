@@ -68,17 +68,19 @@ export const ACTION_DESCRIBE = {
   characterVariations: 'variations of a person/character: wardrobe, expression, angle',
   locationVariations: 'coverage variations of a location/place: angle, time of day, weather',
   story: 'write/shape the STORY — pick this for ANY film premise, idea, concept or script the user gives. THE STORY IS THE FIRST THING WE MAKE FROM AN IDEA, before casting — so a fresh opening premise like "cowboys vs a grizzly" goes HERE. Produces an editable cinematic prompt the user turns into a SHOT card',
+  storyboard: 'render a VISUAL STORYBOARD of the current story — one frame per shot, in sequence. Pick when they say storyboard / visualize / show me the shots / preview the story as frames (needs a story written).',
   detectGenre: 'read the film\'s genre & tone — pick ONLY when the user explicitly asks about genre/tone, or as the first move of Cast & World. NOT for an opening premise (that is `story`).',
   castDraft: 'generate the cast & location plates from the idea — Cast & World (now AFTER the story). Detects the genre first if none is set.',
+  deconstruct: 'break a rendered TAKE into its cuts — key-frame stills + one SHOT card per cut. Pick when they say deconstruct / break down / split / detail this take (needs a Take selected on the board).',
   nextStep: 'they ask to continue or what to do next ("continue", "next", "what now", "go on") — advance the pipeline to its next concrete step',
   stitch: 'assemble the rendered shots into the final cut — pick when they say stitch / render / assemble the film',
   classify: 'sort the board\'s untagged images into roles — pick when they ask to tag / sort / organize what they have',
   action: 'shoot the laid-out SHOT cards — pick when they say action / roll / shoot the shots',
-  answer: 'the message is a QUESTION or asks for advice — answer it yourself from the studio context',
+  answer: 'the message is a QUESTION or asks for filmmaking advice — answer it yourself, grounded in the studio context (stay in character as their film director; gently steer general/off-topic questions back to the film)',
   unknown: 'none of the above fit and it is not answerable',
 };
 
-export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'detectGenre', 'castDraft', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
+export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'storyboard', 'detectGenre', 'castDraft', 'deconstruct', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
 
 export const routeStudioAction = async ({ message = '', context = '', actions = FILM_ACTIONS, config } = {}, ctx) => {
   if (!String(message).trim()) return null;

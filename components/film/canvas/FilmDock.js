@@ -4,10 +4,11 @@ import { IconClose, IconUp, IconDown, IconDragDotVertical, IconLoading, IconRigh
 
 const { Text } = Typography;
 
-// The Film Director — Short Film mode's conversational front door. You SAY what you
-// want — "write a story about…", "draft the cast", "variations of the guide",
-// "explore the look" — an LLM router maps it to ONE studio action, proposes it back in
-// plain words, and a single tap dispatches it. LLM interprets; the user confirms; tools run.
+// The Film Director Assistant — Short Film mode's conversational front door. You SAY what
+// you want — "write a story about…", "draft the cast", "storyboard it", "variations of the
+// guide", "deconstruct this take" — and Seed 2.0 Pro maps it to exactly ONE agent, proposes
+// it back in plain words, and a single tap dispatches it. Questions about the film it answers
+// itself (in character, grounded in the board). Independent of the pipeline strip (status only).
 const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
   const scrollRef = useRef(null);
   const [messages, setMessages] = useState([]);
@@ -29,9 +30,7 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    // The strip up top already shows the stages and the next step, so the dock
-    // doesn't repeat them — it just says what the chat is FOR.
-    say('agent', '🎬 Director here. The strip up top tracks the stages and runs the next step. In here, just tell me what you want — a story, a cast, variations, or a question.');
+    say('agent', '🎬 I\'m your director. Tell me what you want — write a story, draft the cast & world, storyboard it, variations, deconstruct a take, stitch the film — and I\'ll line up the move for one tap. Or just ask me about the film.');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live narration from the engine (keyframe ready / QC verdicts / take landed /
@@ -82,7 +81,7 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
     try {
       const routed = await onRoute(text);
       if (!routed || routed.action === 'unknown') {
-        say('agent', "I didn't catch which tool that needs. Try: “write a story about …”, “draft the cast”, “variations of <character>”, “explore <topic>” — or just ask me a question. The strip up top always has the next step.");
+        say('agent', "I didn't catch which move that needs. Try: “write a story about …”, “draft the cast”, “storyboard it”, “variations of <character>”, “deconstruct this take”, “stitch” — or just ask me about the film.");
         return;
       }
       // A question → the router answered it directly; no tool, no confirmation.
@@ -121,7 +120,7 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
     <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 9, width: 340, maxWidth: 'calc(100% - 24px)', transform: `translate(${pos.x}px, ${pos.y}px)`, background: '#fff', border: '1px solid #e5e6eb', borderRadius: 12, boxShadow: '0 10px 34px rgba(0,0,0,0.16)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <div onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#b06f10', color: '#fff', cursor: 'grab', userSelect: 'none', touchAction: 'none', flexShrink: 0 }}>
         <IconDragDotVertical style={{ fontSize: 14, opacity: 0.85 }} />
-        <Text style={{ color: '#fff', fontWeight: 700, fontSize: 13, flex: 1 }}>Film director</Text>
+        <Text style={{ color: '#fff', fontWeight: 700, fontSize: 13, flex: 1 }}>Film Director Assistant</Text>
         <Tooltip content={collapsed ? 'Expand' : 'Collapse'}>
           <Button size="mini" type="text" style={{ color: '#fff' }} icon={collapsed ? <IconDown /> : <IconUp />} onClick={() => setCollapsed((v) => !v)} />
         </Tooltip>
@@ -160,7 +159,7 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
               autoSize={{ minRows: 1, maxRows: 4 }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-              <Text type="secondary" style={{ fontSize: 10 }}>{busy ? (routing ? 'Reading…' : 'Working…') : 'Routes to: story · cast · variations · stitch · inspiration · explore · sort — or just ask'}</Text>
+              <Text type="secondary" style={{ fontSize: 10 }}>{busy ? (routing ? 'Reading…' : 'Working…') : 'Routes to: story · cast · storyboard · variations · deconstruct · stitch · inspiration · sort — or ask'}</Text>
               <Button size="small" type="primary" icon={busy && !pending ? <IconLoading /> : <IconRight />} disabled={!draft.trim() || (busy && !pending)} style={{ background: '#b06f10', borderColor: '#b06f10' }} onClick={send}>Send</Button>
             </div>
           </div>

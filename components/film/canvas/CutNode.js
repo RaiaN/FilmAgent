@@ -118,7 +118,7 @@ const CutNodeInner = ({ id, data, selected }) => {
           <div style={{ marginBottom: 3 }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
           </div>
-          <Input.TextArea className="nodrag nowheel" value={data.promptOverride || ''} onChange={(v) => patch({ promptOverride: v })} placeholder="the shot's prompt — appearances + key events" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
+          <Input.TextArea className="nodrag nowheel" value={data.promptOverride || ''} onChange={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
         </div>
 
         <div>

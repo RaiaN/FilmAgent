@@ -181,7 +181,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
           />
         </div>
         <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Writes the film as <b>3–4 key events</b> + <b>appearance descriptions</b>, then one continuous text-only Seedance prompt. Identity rides as <b>description</b> — it does <b>not</b> use the board’s reference assets by default; link any appearance to a Cast &amp; World plate yourself to opt in. Lands as an editable Story card; “Shoot the film” turns it into a SHOT card.
+          Rewrites your idea (or pasted script) into <b>one long cinematic prompt</b> — clear subjects, a story arc, explicit eyelines. It does <b>not</b> use the board’s reference assets by default. Lands as an editable Story card (each Run adds a new one); <b>New Shot</b> turns it into a SHOT card.
         </Paragraph>
       </Space>
     );

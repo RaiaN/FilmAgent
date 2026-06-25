@@ -104,20 +104,27 @@ async function seedHandler(req, res) {
       }
       
       // Adapt /responses output to match standard /chat/completions for frontend.
-      // Some models emit reasoning items first and the assistant message later in output[].
+      // With thinking enabled the output[] leads with a `reasoning` item (the model's
+      // private thinking) and the assistant `message` follows — take text from the
+      // MESSAGE only, never the reasoning, and concatenate every text part (a long
+      // JSON answer can span several parts).
       const outputItems = Array.isArray(data.output) ? data.output : [];
-      const firstTextItem = outputItems
+      const assistantText = outputItems
+        .filter((item) => item?.type !== 'reasoning')
         .flatMap((item) => (Array.isArray(item.content) ? item.content : []))
-        .find((item) => item?.type === 'output_text' || item?.type === 'text');
-      const content = data.output_text
-        || firstTextItem?.text
-        || data.output?.content?.[0]?.text
-        || JSON.stringify(data);
+        .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+        .join('')
+        .trim();
+      const content = assistantText || (typeof data.output_text === 'string' ? data.output_text.trim() : '');
+      if (!content) {
+        // No assistant text — surface the real envelope (its `status` /
+        // `incomplete_details` says e.g. max_output_tokens) instead of masking it as
+        // fake content the downstream JSON parser then chokes on.
+        console.warn('[seed] /responses returned no assistant text:', JSON.stringify(data).slice(0, 800));
+        return res.status(502).json({ error: 'Reasoning model returned no assistant text', details: data });
+      }
 
-      return res.status(200).json({ 
-          content,
-          raw: data 
-      });
+      return res.status(200).json({ content, raw: data });
     }
 
     // Standard Chat Completions logic for other models

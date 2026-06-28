@@ -292,15 +292,15 @@ export const panelToShot = (panel, anchors = [], genre = '') => {
   };
 };
 
-// ---- the pre-production draft: cast + places + look, from the idea ---------------
-// ONE read derives everything the film needs to anchor every shot — 1–2 characters,
-// 1–2 locations, ONE look frame — under a single shared visual style, so the whole
-// draft is consistent BY CONSTRUCTION (the style sentence is appended to every
-// plate prompt deterministically). Each is generated ONCE; those plates become the
-// canonical anchors every shot then references. In the UI the results land as
-// CANDIDATES with suggested-role chips — the user's tag locks them; headless runs
-// (no human) adopt them directly.
-const CAST_ROLE = { character: 'character', location: 'location', look: 'look' };
+// ---- the pre-production draft: cast + places, from the idea ----------------------
+// ONE read derives everything the film needs to anchor every shot — 1–2 characters
+// and 1–2 locations — under a single shared visual style, so the whole draft is
+// consistent BY CONSTRUCTION (the style sentence is appended to every plate prompt
+// deterministically — no separate "look" frame needed). Each is generated ONCE; those
+// plates become the canonical anchors every shot then references. In the UI the results
+// land as CANDIDATES with suggested-role chips — the user's tag locks them; headless
+// runs (no human) adopt them directly.
+const CAST_ROLE = { character: 'character', location: 'location' };
 
 // Read the film's GENRE & TONE from the premise — the upstream creative knob that
 // drives look, casting and shot grammar. One cheap call; surfaced to the user to

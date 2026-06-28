@@ -38,10 +38,10 @@ export const classifyAssets = async ({ images = [], idea = '', roles = [], requi
   const arr = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.assets) ? parsed.assets : []);
   const allow = (r) => (roles.length ? roles.includes(r) : true);
   // One classification per input image, matched by index (tolerant: fall back to
-  // positional, then to 'look' so an unclassifiable asset is still usable as a ref).
+  // positional, then to 'prop' so an unclassifiable asset is still usable as a ref).
   const assets = images.map((_, i) => {
     const m = arr.find((a) => Number(a?.index) === i) || arr[i] || {};
-    const role = allow(m?.role) ? m.role : (roles[0] || 'look');
+    const role = allow(m?.role) ? m.role : (roles[0] || 'prop');
     return {
       index: i,
       role,

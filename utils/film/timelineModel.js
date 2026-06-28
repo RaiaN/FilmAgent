@@ -34,13 +34,13 @@ export const emptyTimeline = (targetSeconds = DEFAULT_TIMELINE_SECONDS) => ({
 });
 
 export const bibleEntry = ({
-  id, role = 'look', name = '', url = '', assetId = null, nodeId = null, locked = true,
+  id, role = 'prop', name = '', url = '', assetId = null, nodeId = null, locked = true,
 } = {}) => ({
   id: id || uid('bib'),
-  // Accept any role string — the bible roles are character/location/prop/look; an
-  // unspecified entry defaults to 'look' (a style reference). Unknown roles render
-  // with a fallback colour.
-  role: role || 'look',
+  // Accept any role string — the bible roles are character/location/prop/frame; an
+  // unspecified entry defaults to 'prop' (a generic supporting ref). Unknown roles
+  // render with a fallback colour.
+  role: role || 'prop',
   name: name || role,
   url: url || '',
   // The ModelArk portrait-library asset id (set when the node was preserved on tag).
@@ -87,20 +87,17 @@ export const totalDuration = (events = []) =>
 // Reassign order to match array position (after a reorder / mirror).
 export const renumber = (events = []) => events.map((e, i) => ({ ...e, order: i }));
 
-// Resolve bible-entry ids → reference image URLs, style/brand first, capped. This
-// is the mechanism every tool uses to stay consistent: each chunk is generated
-// WITH the look + identities it must honor. Dedupes; skips entries with no url.
+// Resolve bible-entry ids → reference image URLs, in ref order, capped. This is the
+// mechanism every tool uses to stay consistent: each chunk is generated WITH the
+// identities it must honor. Dedupes; skips entries with no url.
 export const resolveBibleUrls = (refIds, bibleEntries = [], cap = BIBLE_REF_CAP) => {
   if (!refIds || !refIds.length || !bibleEntries || !bibleEntries.length) return [];
   const byId = new Map(bibleEntries.map((e) => [e.id, e]));
-  // Identity anchors (cast/location/prop) lead; a 'look' style-reference rides last.
-  const weight = (r) => (r.role === 'look' ? 1 : 0);
   const seen = new Set();
   const out = [];
   refIds
     .map((id) => byId.get(id))
     .filter(Boolean)
-    .sort((a, b) => weight(a) - weight(b))
     .forEach((e) => {
       if (e.url && !seen.has(e.url)) { seen.add(e.url); out.push(e.url); }
     });

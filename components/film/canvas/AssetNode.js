@@ -5,13 +5,14 @@ import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamation
 import { AGENT_COLORS } from '../../../utils/film/agents';
 import { BIBLE_ROLES, BIBLE_ROLE_META } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
+import EditableLabel from './EditableLabel';
 
 const { Text } = Typography;
 
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null, onImgError: null, onDeconstruct: null, deconstructingId: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null });
+export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onDeconstruct: null, deconstructingId: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null });
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
 // colour for its badge so the cast & world read at a glance on the board.
@@ -19,7 +20,6 @@ const BIBLE_ROLE_COLOR = {
   character: '#722ed1',
   location: '#00b42a',
   prop: '#ff7d00',
-  look: '#0aa8a8',
   frame: '#f5319d',
 };
 
@@ -55,7 +55,7 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, cacheUrl, text, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole, onImgError, onDeconstruct, deconstructingId, onAddToTimeline, onRemoveFromTimeline, onTimelineIds } = useContext(AssetNodeContext);
+  const { onTagRole, onRename, onImgError, onDeconstruct, deconstructingId, onAddToTimeline, onRemoveFromTimeline, onTimelineIds } = useContext(AssetNodeContext);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
   const tint = bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
 
@@ -77,6 +77,9 @@ const AssetNodeInner = ({ id, data, selected }) => {
   // A PRESERVED image that fails to load is a dead LINK, not lost bytes — ask
   // the canvas for a fresh signed url (self-heal) and show a quiet refresh state.
   const healing = imgError && preserved && !localUrl;
+
+  // Inline rename (shared EditableLabel) — non-text assets with an onRename handler.
+  const canRename = !isText && typeof onRename === 'function';
 
   // Save the asset to disk. Blob-fetch (works for the same-origin local cache / data URLs
   // and any CORS-permitting remote) → trigger a download; if a cross-origin fetch is blocked,
@@ -279,54 +282,56 @@ const AssetNodeInner = ({ id, data, selected }) => {
         </div>
       )}
 
-      {/* Caption */}
-      {(label || (isText && text)) && (
-        <div style={{ padding: '6px 8px', borderTop: '1px solid #f2f3f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-          <Text style={{ fontSize: 11 }} ellipsis={{ rows: 1 }}>{label}</Text>
-          {/* A rendered Take → add it to / remove it from the Final Cut timeline. */}
-          {kind === 'video' && url && onAddToTimeline && (
-            onTimeline ? (
-              <span
+      {/* Caption — editable name (left) + icon-only actions (right), one aligned row. */}
+      {(label || (isText && text) || canRename) && (
+        <div style={{ padding: '6px 8px', borderTop: '1px solid #f2f3f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          {canRename ? (
+            <EditableLabel value={label} onCommit={(v) => onRename(id, v)} containerStyle={{ flex: 1 }} textStyle={{ fontSize: 11 }} inputStyle={{ fontSize: 11 }} />
+          ) : (
+            <Text style={{ fontSize: 11, flex: 1, minWidth: 0 }} ellipsis={{ rows: 1 }}>{label}</Text>
+          )}
+          {/* Actions: icons only (tooltip carries the meaning). */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {/* A rendered Take → add it to / remove it from the Final Cut timeline. */}
+            {kind === 'video' && url && onAddToTimeline && (
+              onTimeline ? (
+                <IconCheck
+                  className="nodrag"
+                  onClick={(e) => { e.stopPropagation(); onRemoveFromTimeline && onRemoveFromTimeline(id); }}
+                  title="On the Final Cut timeline — click to remove this clip"
+                  style={{ fontSize: 15, cursor: 'pointer', color: '#00b42a' }}
+                />
+              ) : (
+                <IconPlus
+                  className="nodrag"
+                  onClick={(e) => { e.stopPropagation(); onAddToTimeline(id); }}
+                  title="Add this take to the Final Cut timeline (then Stitch the film)"
+                  style={{ fontSize: 15, cursor: 'pointer', color: '#165dff' }}
+                />
+              )
+            )}
+            {/* A rendered Take → Deconstruct it into cuts (key-frame stills + per-cut SHOT cards). */}
+            {kind === 'video' && url && onDeconstruct && (
+              (deconstructingId === id ? (
+                <IconLoading className="nodrag" title="Deconstructing…" style={{ fontSize: 15, color: '#0fc6c2' }} />
+              ) : (
+                <IconScissor
+                  className="nodrag"
+                  onClick={(e) => { e.stopPropagation(); onDeconstruct(id); }}
+                  title="Deconstruct — Seed 2.0 Pro watches this Take and breaks it into its cuts: key-frame stills + one editable SHOT card per cut"
+                  style={{ fontSize: 15, cursor: 'pointer', color: '#0fc6c2' }}
+                />
+              ))
+            )}
+            {isText && text && (
+              <IconCopy
                 className="nodrag"
-                onClick={(e) => { e.stopPropagation(); onRemoveFromTimeline && onRemoveFromTimeline(id); }}
-                title="On the Final Cut timeline — click to remove this clip"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 2, cursor: 'pointer', color: '#00b42a', flexShrink: 0 }}
-              >
-                <IconCheck style={{ fontSize: 12 }} /><Text style={{ fontSize: 10, color: '#00b42a' }}>Timeline</Text>
-              </span>
-            ) : (
-              <span
-                className="nodrag"
-                onClick={(e) => { e.stopPropagation(); onAddToTimeline(id); }}
-                title="Add this take to the Final Cut timeline (then Stitch the film)"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 2, cursor: 'pointer', color: '#165dff', flexShrink: 0 }}
-              >
-                <IconPlus style={{ fontSize: 12 }} /><Text style={{ fontSize: 10, color: '#165dff' }}>Timeline</Text>
-              </span>
-            )
-          )}
-          {/* A rendered Take → Deconstruct it into cuts (key-frame stills + per-cut SHOT cards). */}
-          {kind === 'video' && url && onDeconstruct && (
-            <span
-              className="nodrag"
-              onClick={(e) => { e.stopPropagation(); if (deconstructingId !== id) onDeconstruct(id); }}
-              title="Deconstruct — Seed 2.0 Pro watches this Take and breaks it into its cuts: key-frame stills + one editable SHOT card per cut"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: deconstructingId === id ? 'default' : 'pointer', color: '#0fc6c2', flexShrink: 0 }}
-            >
-              {deconstructingId === id ? <IconLoading style={{ fontSize: 12 }} /> : <IconScissor style={{ fontSize: 12 }} />}
-              <Text style={{ fontSize: 10, color: '#0fc6c2' }}>{deconstructingId === id ? 'Deconstructing…' : 'Deconstruct'}</Text>
-            </span>
-          )}
-          {isText && text && (
-            <span
-              onClick={(e) => copyText(e, text)}
-              title="Copy text"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer', color: '#0fc6c2', flexShrink: 0 }}
-            >
-              <IconCopy style={{ fontSize: 12 }} />
-              <Text style={{ fontSize: 10, color: '#0fc6c2' }}>Copy</Text>
-            </span>
-          )}
+                onClick={(e) => copyText(e, text)}
+                title="Copy text"
+                style={{ fontSize: 15, cursor: 'pointer', color: '#0fc6c2' }}
+              />
+            )}
+          </span>
         </div>
       )}
     </div>

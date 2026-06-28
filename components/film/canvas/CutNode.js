@@ -5,6 +5,7 @@ import { IconLoading, IconExpand } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
+import EditableLabel from './EditableLabel';
 
 const { Text } = Typography;
 
@@ -16,7 +17,7 @@ export const CutContext = createContext({
   onPatchCut: null, bibleEntries: [], onShootCut: null, onAttachSelected: null, onAttachAsset: null,
 });
 
-const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', look: '#0aa8a8', frame: '#f5319d' };
+const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
 
 // Visual state of the cut as it shoots (border + header tag).
 const CUT_STATUS = {
@@ -48,6 +49,9 @@ const CutNodeInner = ({ id, data, selected }) => {
   const toggleRef = (entryId) => patch({ refIds: refIds.includes(entryId) ? refIds.filter((r) => r !== entryId) : [...refIds, entryId] });
   const removeAssetRef = (url) => patch({ assetRefs: assetRefs.filter((a) => a.url !== url) });
   const [dragOver, setDragOver] = useState(false);
+
+  // The SHOT's title (data.beat) is inline-renamed via the shared EditableLabel. The beat
+  // is the card's NAME; it only feeds the shoot prompt as a FALLBACK when PROMPT is empty.
 
   const durationSec = Math.min(15, Math.max(5, Math.round(Number(data.durationSec) || 10)));
   // CINEMATOGRAPHY pin = pick one of the 50 shot templates (sets the whole line) OR
@@ -141,7 +145,17 @@ const CutNodeInner = ({ id, data, selected }) => {
       </div>
 
       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <Text style={{ color: '#f7ba1e', fontSize: 12, fontWeight: 700 }}>{data.beat || 'Shot'}</Text>
+        <EditableLabel
+          value={data.beat}
+          onCommit={(v) => patch({ beat: v })}
+          placeholder="Shot"
+          maxLength={60}
+          title="Double-click to rename this shot"
+          pencilColor="#5a6472"
+          containerStyle={{ width: '100%' }}
+          textStyle={{ color: '#f7ba1e', fontSize: 12, fontWeight: 700 }}
+          inputStyle={{ fontSize: 12, fontWeight: 700, color: '#f7ba1e', background: '#161b22', borderColor: '#2a313a' }}
+        />
 
         <div>
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

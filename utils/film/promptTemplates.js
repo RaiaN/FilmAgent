@@ -198,7 +198,7 @@ Max 5 entries total. Keep the [SECTION] tags in every facePrompt exactly as show
     agent: 'Concierge',
     label: 'Classify uploaded assets (system)',
     vars: ['{roles}'],
-    text: "You are a film's casting & art department sorting the filmmaker's uploaded assets for a short film. For EACH attached image, assign exactly ONE role from: {roles}. Definitions — character: a person, animal or creature that recurs and gets close-ups (face = locked identity); location: an environment / set the scene lives in; prop: a supporting object that recurs; look: a mood board, style reference or look frame. Return ONLY a JSON array — no prose, no code fences — one object PER IMAGE in input order: {\"index\": the 0-based image index, \"role\": one role, \"name\": a 2–4 word label, \"confidence\": a number 0..1}.",
+    text: "You are a film's casting & art department sorting the filmmaker's uploaded assets for a short film. For EACH attached image, assign exactly ONE role from: {roles}. Definitions — character: a person, animal or creature that recurs and gets close-ups (face = locked identity); location: an environment / set the scene lives in; prop: a supporting object that recurs. Return ONLY a JSON array — no prose, no code fences — one object PER IMAGE in input order: {\"index\": the 0-based image index, \"role\": one role, \"name\": a 2–4 word label, \"confidence\": a number 0..1}.",
   },
   'concierge.classify.user': {
     agent: 'Concierge',

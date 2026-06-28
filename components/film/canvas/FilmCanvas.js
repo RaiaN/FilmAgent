@@ -247,6 +247,8 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const initialLayerState = useMemo(() => buildInitialLayerState(project), [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [layerSettings, setLayerSettings] = useState(initialLayerState.settings);
   const [layerVisibility, setLayerVisibility] = useState(initialLayerState.visibility);
+  const layerSettingsRef = useRef(layerSettings); // latest per-agent settings for async funnels (e.g. storyboard Frames)
+  useEffect(() => { layerSettingsRef.current = layerSettings; }, [layerSettings]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(
     // Seed bible tags from any persisted entries up front (first mount skips the
@@ -745,6 +747,13 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     }
   }, [setNodes, scheduleRefDownscale, preserveNode]);
 
+  // Rename any board asset (image / video / frame / audio) — just patch its label.
+  // A bible-tagged node's bible-entry `name` re-derives from the label automatically
+  // (the reconciler reads `n.data.label`), so the cast & world stay in sync.
+  const renameNode = useCallback((id, label) => {
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, label: String(label || '').slice(0, 80) } } : n)));
+  }, [setNodes]);
+
   // "Build brand kit": classify the board's UNTAGGED image nodes into AD roles and
   // tag each (role + lock) → they flow into project.bible via the reconciler.
   const classifyBoardAssets = useCallback(async () => {
@@ -1002,7 +1011,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       },
       onFailAsset: (id, message) => {
         setNodes((ns) => ns.map((n) => (n.id === id
-          ? { ...n, data: { ...n.data, loading: false, label: 'Animation failed', error: message } }
+          ? { ...n, data: { ...n.data, loading: false, label: `${n.data?.kind === 'video' ? 'Animation' : 'Generation'} failed`, error: message } }
           : n)));
         if (settle[id]) { settle[id]({ id, ok: false, error: message }); delete settle[id]; }
       },
@@ -1927,6 +1936,10 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     const refs = (references && references.length)
       ? references
       : nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url).map((n) => n.data.localUrl || n.data.url);
+    // Frames count: an explicit caller value wins; otherwise fall back to the Storyboard agent's
+    // own "Frames" control (layerSettings.storyboard.count) so EVERY trigger — rail Run, director
+    // chat, SDK — honors it. Undefined / 0 = Auto (follow the story's authored shots).
+    const frames = Number.isFinite(Number(count)) && Number(count) > 0 ? Number(count) : layerSettingsRef.current?.storyboard?.count;
     const PANEL_ID = `storyboard-${targetId || 'panel'}`;
     const COLS = 5;
     traceRef.current.startRun({ note: 'Agent · Storyboard' });
@@ -1935,7 +1948,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     const pref = node ? { x: node.position?.x || 0, y: (node.position?.y || 0) + 480 } : (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 560 }) : { x: 220, y: 560 });
     const base = freeOrigin({ w: GROUP_PAD * 2 + COLS * PLATE_COL_W, h: GROUP_HEADER + GROUP_PAD + PLATE_ROW_H, preferred: pref });
     try {
-      await generateStoryboard({ story: text, references: refs, count }, ctx, {
+      await generateStoryboard({ story: text, references: refs, count: frames }, ctx, {
         onPlan: (els) => {
           setNodes((ns) => {
             // Replace this story's prior storyboard panel + its frames (others untouched).
@@ -2455,7 +2468,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
 
   // Pass tagNode + the heal hook to board AssetNodes through context (functions
   // can't live in serializable node.data).
-  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onImgError: healNodeUrl, onDeconstruct: handleBreakdownTake, deconstructingId: deconstructing, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds }), [tagNode, healNodeUrl, handleBreakdownTake, deconstructing, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds]);
+  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onDeconstruct: handleBreakdownTake, deconstructingId: deconstructing, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds }), [tagNode, renameNode, healNodeUrl, handleBreakdownTake, deconstructing, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds]);
 
   // Handlers only — each Story node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Story element on the board.

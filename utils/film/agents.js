@@ -87,6 +87,25 @@ const selectedText = (selection) => {
   return t ? String(t.data.text).trim() : '';
 };
 
+// Streaming hooks for a batch image agent (character/location variations): the moment the plan
+// lands, lay ONE pending placeholder per planned spec (so the panel fills with loading cards
+// immediately), then resolve each in place as the parallel batch returns. Falls back to dropping
+// finished cards via onAsset when the canvas pending callbacks aren't supplied (headless/SDK).
+const variationHooks = (layerId, anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset } = {}) => {
+  const streaming = typeof onPendingAsset === 'function' && typeof onResolveAsset === 'function';
+  if (!streaming) {
+    return (item) => onAsset && onAsset({ kind: 'image', url: item.url, label: item.label, layerId, sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId: anchor.id } });
+  }
+  const ids = [];
+  return {
+    onPlanned: (specs) => specs.forEach((s, i) => {
+      ids[i] = onPendingAsset({ kind: 'image', label: s.label, layerId, sourceRefs: [src], meta: { anchorId: anchor.id, planLabel: s.label } });
+    }),
+    onItem: (item, i) => { if (ids[i]) onResolveAsset(ids[i], { url: item.url, loading: false, label: item.label, sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId: anchor.id } }); },
+    onFail: (i, msg) => { if (onFailAsset && ids[i]) onFailAsset(ids[i], msg); },
+  };
+};
+
 // Concierge intake: classify a pile of uploaded images into recipe bible roles, and
 // report which required roles are still missing ("do you have XYZ?"). An injected
 // `client` (e.g. trace-wrapped) wins over the plain browser one.
@@ -134,13 +153,14 @@ export const characterVariationsAgent = {
   grouped: true,
   defaultSettings: { count: 4, size: '2K', direction: '' },
   describe: 'Select a character image — Seed 2.0 Pro plans distinct, content-aware variations (identity preserved). Leave Direction blank to let it choose, or steer it (e.g. "different wardrobes", "across ages").',
-  async run({ selection, settings, apiKey, ctx, onAsset, onError }) {
+  async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one character image first');
+    const src = refUrl(anchor);
     const result = await ops.characterVariations(
-      { imageUrl: refUrl(anchor), direction: settings.direction, count: settings.count, size: settings.size },
+      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size },
       ctx || browserCtx(apiKey),
-      (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'characterVariations', sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId: anchor.id } }),
+      variationHooks('characterVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
     if (result.errors.length && onError) onError(result.errors);
     return result;
@@ -157,13 +177,14 @@ export const locationVariationsAgent = {
   grouped: true,
   defaultSettings: { count: 4, size: '2K', direction: '' },
   describe: 'Select a location plate — Seed 2.0 Pro plans distinct coverage (architecture preserved, no people). Leave Direction blank, or steer it (e.g. "different times of day", "tighter angles").',
-  async run({ selection, settings, apiKey, ctx, onAsset, onError }) {
+  async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one location image first');
+    const src = refUrl(anchor);
     const result = await ops.locationVariations(
-      { imageUrl: refUrl(anchor), direction: settings.direction, count: settings.count, size: settings.size },
+      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size },
       ctx || browserCtx(apiKey),
-      (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'locationVariations', sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId: anchor.id } }),
+      variationHooks('locationVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
     if (result.errors.length && onError) onError(result.errors);
     return result;

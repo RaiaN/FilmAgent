@@ -8,14 +8,13 @@
 // The bible IS the board: a tagged image node carries data.bibleRole. These are the
 // roles the user tags assets into (or Cast & World auto-tags), and that every shot
 // pulls its references from. character + location are the load-bearing pair (Cast &
-// World produces them, the pipeline gates on them); prop + look are optional tags.
-export const BIBLE_ROLES = ['character', 'location', 'prop', 'look', 'frame'];
+// World produces them, the pipeline gates on them); prop is an optional tag.
+export const BIBLE_ROLES = ['character', 'location', 'prop', 'frame'];
 
 export const BIBLE_ROLE_META = {
   character: { label: 'Character', kind: 'image', hint: 'a character — person, animal or creature (face = locked identity)' },
   location: { label: 'Location', kind: 'image', hint: 'the set / environment the scene lives in' },
   prop: { label: 'Prop', kind: 'image', hint: 'a supporting object that recurs in the film' },
-  look: { label: 'Look', kind: 'image', hint: 'mood board / style reference imagery' },
   frame: { label: 'Frame', kind: 'image', hint: 'a still frame — e.g. a key frame the Deconstruct agent pulls from a take; reuse it as a visual reference' },
 };
 

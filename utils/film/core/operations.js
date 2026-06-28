@@ -42,17 +42,28 @@ export const parseBeats = (text) => {
 
 // ---- image batch (parallel, incremental) --------------------------------------
 
-const runImagineBatch = async ({ specs, size, model }, ctx, onItem) => {
-  const results = await Promise.allSettled(specs.map(async (spec) => {
-    // Transient Seedream errors (overload/429/timeouts) get backoff retries — the
-    // batch runs in parallel, so without this one shed request = one lost image.
-    const data = await withRetry(
-      () => ctx.client.generateImage({ prompt: spec.prompt, referenceImages: spec.referenceImages, size, model }),
-      { tries: 3, baseMs: 2500 },
-    );
-    const item = { url: data.url, prompt: data.prompt || spec.prompt, label: spec.label, referenceImages: spec.referenceImages || [], meta: spec.meta || {} };
-    if (onItem) onItem(item);
-    return item;
+// `hooks` is EITHER a plain onItem function (back-compat: production.js / inspiration pass one)
+// OR { onPlanned(specs), onItem(item, idx), onFail(idx, msg) } — the streaming form. The plan
+// is known before any image renders, so onPlanned lets the canvas lay a PENDING placeholder per
+// spec the moment planning finishes, then fill/fail each in place as the parallel batch resolves.
+const runImagineBatch = async ({ specs, size, model }, ctx, hooks) => {
+  const { onPlanned, onItem, onFail } = typeof hooks === 'function' ? { onItem: hooks } : (hooks || {});
+  if (onPlanned) onPlanned(specs);
+  const results = await Promise.allSettled(specs.map(async (spec, idx) => {
+    try {
+      // Transient Seedream errors (overload/429/timeouts) get backoff retries — the
+      // batch runs in parallel, so without this one shed request = one lost image.
+      const data = await withRetry(
+        () => ctx.client.generateImage({ prompt: spec.prompt, referenceImages: spec.referenceImages, size, model }),
+        { tries: 3, baseMs: 2500 },
+      );
+      const item = { url: data.url, prompt: data.prompt || spec.prompt, label: spec.label, referenceImages: spec.referenceImages || [], meta: spec.meta || {} };
+      if (onItem) onItem(item, idx);
+      return item;
+    } catch (err) {
+      if (onFail) onFail(idx, err?.message || 'failed');
+      throw err;
+    }
   }));
   const errors = results.filter((r) => r.status === 'rejected').map((r) => r.reason?.message || 'failed');
   return { created: results.filter((r) => r.status === 'fulfilled').length, errors };
@@ -125,20 +136,20 @@ export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, cou
   return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
 };
 
-export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', config } = {}, ctx, onItem) => {
+export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', config } = {}, ctx, hooks) => {
   if (!imageUrl) throw new Error('characterVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'characterVariations', count: n, direction, references: [imageUrl], config }, ctx);
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label } }));
-  return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
+  return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, hooks);
 };
 
-export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', config } = {}, ctx, onItem) => {
+export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', config } = {}, ctx, hooks) => {
   if (!imageUrl) throw new Error('locationVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'locationVariations', count: n, direction, references: [imageUrl], config }, ctx);
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label } }));
-  return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
+  return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, hooks);
 };
 
 // Compose the camera/lens preamble + motion into a single Seedance prompt.

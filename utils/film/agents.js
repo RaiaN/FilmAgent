@@ -311,11 +311,11 @@ export const storyboardAgent = {
   color: AGENT_COLORS.storyboard,
   consumes: ['image'],   // any selected board images become per-frame references
   needsSelection: false, // references are optional — the prev-frame chain carries consistency
-  defaultSettings: { prompt: '' },
-  describe: 'Turns a story (or a typed idea) into a visual storyboard — one frame per element, all rendered AT ONCE (one shared seed for consistency). Any board images you select are used as references (cast, world, mood) on every frame. Lands as a Storyboard panel on the board.',
+  defaultSettings: { prompt: '', count: undefined },
+  describe: 'Turns a story (or a typed idea) into a visual storyboard — one frame per element, all rendered AT ONCE (one shared seed for consistency). Frames defaults to the story\'s shots (Auto) but can be set explicitly. Any board images you select are used as references (cast, world, mood) on every frame. Lands as a Storyboard panel on the board.',
   async run({ prompt, selection, settings = {}, apiKey, ctx }) {
     const story = (prompt && String(prompt).trim()) || settings.story || settings.prompt || '';
-    const board = await generateStoryboard({ story, references: selectedImageUrls(selection) }, ctx || browserCtx(apiKey));
+    const board = await generateStoryboard({ story, references: selectedImageUrls(selection), count: settings.count }, ctx || browserCtx(apiKey));
     return { created: [], errors: [], storyboard: board };
   },
 };

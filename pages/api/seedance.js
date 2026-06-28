@@ -153,6 +153,15 @@ async function seedanceHandler(req, res) {
     const staged = await normalizeSeedanceContent(payload.content);
     normalizedPayload.content = staged.content;
 
+    // Diagnose reference-image screening: print each content item's index + scheme so a
+    // `content[i].image_url … may contain sensitive information` rejection can be tied to a
+    // RAW http url (slipped past asset registration) vs a TRUSTED asset:// ref.
+    console.log('[seedance] content →', (staged.content || []).map((it, i) => {
+      const u = it?.image_url?.url || it?.video_url?.url || it?.audio_url?.url || '';
+      const scheme = u.startsWith('asset://') ? 'ASSET' : u.startsWith('http') ? 'http' : u.startsWith('data:') ? 'data' : (it?.type || '?');
+      return `${i}:${it?.role === 'first_frame' ? 'firstframe' : scheme}`;
+    }).join(' '));
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {

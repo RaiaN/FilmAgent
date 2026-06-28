@@ -26,6 +26,45 @@ const writeIndex = (list) => {
   fs.writeFileSync(LIBRARY_FILE, JSON.stringify(list.slice(0, MAX_ITEMS), null, 2), 'utf8');
 };
 
+// Best-effort PERMANENT storage delete for ONE asset (TOS object + Assets-API asset).
+// Returns a { tos, asset } report and never throws — a partial failure still reports.
+// Shared by the `delete` (one item) and `clear` (whole library) actions.
+async function deleteAssetStorage({ url, assetId, objectKey: bodyKey }) {
+  const accessKey = process.env.MODELARK_ASSET_ACCESS_KEY;
+  const secretKey = process.env.MODELARK_ASSET_SECRET_KEY;
+  const tosBucket = process.env.MODELARK_TOS_BUCKET;
+  const report = { tos: 'skipped', asset: 'skipped' };
+
+  if (accessKey && secretKey && tosBucket) {
+    const objectKey = bodyKey || tosObjectKeyFromUrl(url, {
+      tosPublicBaseUrl: process.env.MODELARK_TOS_PUBLIC_BASE_URL,
+      tosEndpoint: process.env.MODELARK_TOS_ENDPOINT,
+      tosRegion: process.env.MODELARK_TOS_REGION,
+      tosBucket,
+    });
+    if (objectKey) {
+      try {
+        await deleteTosObject({ accessKey, secretKey, tosBucket, tosRegion: process.env.MODELARK_TOS_REGION, tosEndpoint: process.env.MODELARK_TOS_ENDPOINT, objectKey });
+        report.tos = 'deleted';
+      } catch (err) {
+        report.tos = `failed: ${err.message}`;
+      }
+    } else {
+      report.tos = 'no-key (url not in this bucket)';
+    }
+  }
+
+  if (assetId && accessKey && secretKey) {
+    try {
+      await callAssetApi({ action: 'DeleteAsset', payload: { Id: assetId, ProjectName: 'default' }, accessKey, secretKey });
+      report.asset = 'deleted';
+    } catch (err) {
+      report.asset = `failed: ${err.message}`;
+    }
+  }
+  return report;
+}
+
 export default async function libraryHandler(req, res) {
   const { action } = req.query;
   try {
@@ -67,45 +106,24 @@ export default async function libraryHandler(req, res) {
 
     if (req.method === 'POST' && action === 'delete') {
       // Permanent: delete the TOS object + the Assets-API asset, THEN drop the
-      // index entry. Each storage delete is best-effort so a partial failure
+      // index entry. The storage delete is best-effort so a partial failure
       // (e.g. permissions) still removes the entry and reports what happened.
-      const { id, url, assetId, objectKey: bodyKey } = req.body || {};
-      const accessKey = process.env.MODELARK_ASSET_ACCESS_KEY;
-      const secretKey = process.env.MODELARK_ASSET_SECRET_KEY;
-      const tosBucket = process.env.MODELARK_TOS_BUCKET;
-      const report = { tos: 'skipped', asset: 'skipped' };
-
-      if (accessKey && secretKey && tosBucket) {
-        const objectKey = bodyKey || tosObjectKeyFromUrl(url, {
-          tosPublicBaseUrl: process.env.MODELARK_TOS_PUBLIC_BASE_URL,
-          tosEndpoint: process.env.MODELARK_TOS_ENDPOINT,
-          tosRegion: process.env.MODELARK_TOS_REGION,
-          tosBucket,
-        });
-        if (objectKey) {
-          try {
-            await deleteTosObject({ accessKey, secretKey, tosBucket, tosRegion: process.env.MODELARK_TOS_REGION, tosEndpoint: process.env.MODELARK_TOS_ENDPOINT, objectKey });
-            report.tos = 'deleted';
-          } catch (err) {
-            report.tos = `failed: ${err.message}`;
-          }
-        } else {
-          report.tos = 'no-key (url not in this bucket)';
-        }
-      }
-
-      if (assetId && accessKey && secretKey) {
-        try {
-          await callAssetApi({ action: 'DeleteAsset', payload: { Id: assetId, ProjectName: 'default' }, accessKey, secretKey });
-          report.asset = 'deleted';
-        } catch (err) {
-          report.asset = `failed: ${err.message}`;
-        }
-      }
-
+      const { id, url, assetId, objectKey } = req.body || {};
+      const report = await deleteAssetStorage({ url, assetId, objectKey });
       const next = readIndex().filter((it) => it.id !== id && it.url !== url);
       writeIndex(next);
       return res.status(200).json({ items: next, report });
+    }
+
+    if (req.method === 'POST' && action === 'clear') {
+      // Permanent: wipe the WHOLE library — best-effort delete EVERY asset's TOS object +
+      // Assets-API asset (in parallel; each delete never throws), then empty the index. The
+      // index is cleared even if some storage deletes fail (those are reported, not fatal).
+      const items = readIndex();
+      const reports = await Promise.all(items.map((it) => deleteAssetStorage({ url: it.url, assetId: it.assetId, objectKey: it.objectKey })));
+      const failed = reports.filter((r) => /failed/.test(r.tos) || /failed/.test(r.asset)).length;
+      writeIndex([]);
+      return res.status(200).json({ items: [], report: { cleared: items.length, failed } });
     }
 
     return res.status(400).json({ error: `Unknown action: ${action || '(none)'}` });

@@ -5,7 +5,7 @@ import { ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 const { Text, Title } = Typography;
 
 // In-canvas drawer of checked-in assets. Items are draggable onto the board.
-const LibraryPanel = ({ items, onClose, onRefresh, onAddToBoard, onRemove }) => (
+const LibraryPanel = ({ items, onClose, onRefresh, onAddToBoard, onRemove, onClear }) => (
   <div
     style={{
       width: 240,
@@ -20,6 +20,7 @@ const LibraryPanel = ({ items, onClose, onRefresh, onAddToBoard, onRemove }) => 
       <Title heading={6} style={{ margin: 0 }}>Library</Title>
       <span>
         <Tooltip content="Refresh"><Button size="mini" type="text" icon={<IconRefresh />} onClick={onRefresh} /></Tooltip>
+        <Tooltip content="Clear the whole library (permanent)"><Button size="mini" type="text" status="danger" icon={<IconDelete />} disabled={!items.length} onClick={onClear} /></Tooltip>
         <Button size="mini" type="text" icon={<IconClose />} onClick={onClose} />
       </span>
     </div>

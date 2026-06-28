@@ -108,6 +108,21 @@ Max 5 entries total. Keep the [SECTION] tags in every facePrompt exactly as show
     vars: ['{action}'],
     text: 'A cinematic storyboard frame: {action}. Use the reference image(s) for the EXACT characters, wardrobe, location, world and visual style — keep them consistent across the whole storyboard (this is ONE continuous film). Filmic lighting and composition. No on-image text, captions or watermarks.',
   },
+  // When the storyboard input is a RAW idea (no CUT markers → it would be a single
+  // frame), break it into a SEQUENCE of distinct visual shots so the board still reads
+  // as a film. One frame is rendered per returned shot.
+  'storyboard.beats.system': {
+    agent: 'Storyboard',
+    label: 'Expand an idea into storyboard shots',
+    vars: ['{count}'],
+    text: 'You are a storyboard artist. Break the idea or story below into {count} DISTINCT visual shots that tell it as a sequence (establish → develop → turn → resolve). Each shot is ONE vivid sentence describing exactly what is ON SCREEN — subject, action, framing, and where the subjects are looking; never have a character look at the camera. Return ONLY a JSON array of strings (one per shot), no prose, no code fences.',
+  },
+  'storyboard.beats.user': {
+    agent: 'Storyboard',
+    label: 'Expand an idea into storyboard shots (instruction)',
+    vars: ['{story}'],
+    text: '{story}\n\nReturn the JSON array of shot descriptions, in order.',
+  },
 
   // ---- Story Director (headless Service API ONLY) ----
   // The canvas Story-Director agent was removed; these still power the Service API's

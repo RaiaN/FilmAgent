@@ -232,6 +232,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
   }
 
   if (layer.id === 'storyboard') {
+    const imgSel = (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url).length;
     return (
       <Space direction="vertical" style={{ width: '100%' }} size="small">
         <div>
@@ -251,12 +252,19 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
           <Input.TextArea
             value={settings.prompt || ''}
             onChange={(value) => update({ prompt: value })}
-            placeholder="a story or idea to storyboard… leave blank to use the current Story card"
+            placeholder="a story or idea to storyboard… leave blank to use a Story card on the board"
             autoSize={{ minRows: 3, maxRows: 6 }}
           />
         </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Frames</Text>
+          <InputNumber min={1} max={12} value={settings.count} onChange={(v) => update({ count: v })} placeholder="Auto" style={{ width: 110 }} />
+        </div>
+        {imgSel > 0 && (
+          <Text style={{ fontSize: 11, color: '#0fc6c2' }}>{imgSel} selected image{imgSel === 1 ? '' : 's'} will anchor every frame as references.</Text>
+        )}
         <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Renders a <b>visual storyboard</b> — one frame per element, all <b>in one go</b> (one shared seed for consistency). Any board <b>images you select</b> ride as <b>references</b> (cast, world, mood) on every frame. Lands as a Storyboard panel. <i>(The Story node also has a 📋 button.)</i>
+          Renders a <b>visual storyboard</b> — all frames <b>in one go</b> (one shared seed for consistency). <b>Frames</b>: leave on <b>Auto</b> to follow the story's shots, or set a number to force exactly that many. Any board <b>images you select</b> ride as <b>references</b> (cast, world, mood) on every frame.
         </Paragraph>
       </Space>
     );

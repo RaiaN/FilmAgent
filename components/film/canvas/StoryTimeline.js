@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Typography, Button, Tooltip, Tag, InputNumber, Input, Popover, Modal } from '@arco-design/web-react';
 import {
   IconUp, IconDown, IconLeft, IconRight, IconBranch, IconPlus, IconClose,
-  IconThunderbolt, IconVideoCamera, IconPlayArrow, IconPause, IconRefresh,
+  IconThunderbolt, IconVideoCamera, IconPlayArrow, IconRefresh,
   IconLock, IconUnlock, IconDelete, IconLoading, IconZoomIn, IconZoomOut,
 } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
@@ -39,71 +39,45 @@ const fmt = (s) => {
   return `${Math.floor(n / 60)}m ${String(n % 60).padStart(2, '0')}s`;
 };
 
-// ---- the instant animatic / final-cut player ---------------------------------
-// Zero-generation preview: cycle the keyframes for their durations. Once a stitched
-// film exists, ▶ plays the mp4 instead — a "first cut" in seconds, before any video.
-const AnimaticPlayer = ({ events, film, onClose }) => {
-  const frames = useMemo(() => orderedEvents(events).filter((e) => e.keyframeUrl || e.shotUrl), [events]);
-  const [idx, setIdx] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const isFilm = !!(film && film.url);
+// Compact overlay button on a clip (reorder ◀▶ / remove ✕) — revealed on hover/selected.
+const CTRL_BTN = (disabled, danger) => ({
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 18, height: 18, padding: 0, borderRadius: 4, border: 'none', lineHeight: 1, fontSize: 11,
+  background: danger ? 'rgba(245,63,63,0.88)' : 'rgba(0,0,0,0.62)', color: '#fff',
+  cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.35 : 1,
+});
 
-  useEffect(() => {
-    if (isFilm || paused || !frames.length) return undefined;
-    const cur = frames[Math.min(idx, frames.length - 1)];
-    const ms = Math.max(700, (Number(cur?.durationSec) || 5) * 1000);
-    const t = setTimeout(() => setIdx((i) => (i + 1) % frames.length), ms);
-    return () => clearTimeout(t);
-  }, [idx, paused, isFilm, frames]);
-
-  const cur = frames[Math.min(idx, Math.max(0, frames.length - 1))];
-  return (
-    <Modal
-      visible
-      onCancel={onClose}
-      footer={null}
-      title={isFilm ? 'Final cut' : `Animatic · ${frames.length} ${frames.length === 1 ? 'shot' : 'shots'} · ${fmt(totalDuration(events))}`}
-      style={{ width: 720, maxWidth: '92vw' }}
-      autoFocus={false}
-    >
-      <div style={{ background: '#000', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-        {isFilm ? (
-          // eslint-disable-next-line jsx-a11y/media-has-caption
-          <video src={film.url} controls autoPlay style={{ width: '100%', display: 'block', maxHeight: '60vh' }} />
-        ) : cur ? (
-          <div style={{ position: 'relative' }}>
-            <img src={cur.keyframeUrl || cur.shotUrl} alt={cur.beat} style={{ width: '100%', display: 'block', maxHeight: '60vh', objectFit: 'contain' }} />
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 12px', background: 'linear-gradient(transparent, rgba(0,0,0,0.7))' }}>
-              <Text style={{ color: '#fff', fontSize: 13 }}>{Math.min(idx, frames.length - 1) + 1}. {cur.beat || 'Shot'}</Text>
-            </div>
-          </div>
-        ) : (
-          <div style={{ padding: 40, textAlign: 'center' }}><Text style={{ color: '#fff' }}>No keyframes yet.</Text></div>
-        )}
-      </div>
-      {!isFilm && frames.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-          <Button size="small" shape="circle" icon={paused ? <IconPlayArrow /> : <IconPause />} onClick={() => setPaused((p) => !p)} />
-          <div style={{ flex: 1, display: 'flex', gap: 3 }}>
-            {frames.map((f, i) => (
-              <div key={f.id} style={{ flex: 1, height: 4, borderRadius: 2, background: i === Math.min(idx, frames.length - 1) ? COLOR : '#e5e6eb' }} />
-            ))}
-          </div>
-          <Text type="secondary" style={{ fontSize: 11 }}>cycling keyframes — no generation</Text>
-        </div>
-      )}
-    </Modal>
-  );
-};
+// ---- the final-cut player ------------------------------------------------------
+// Plays the stitched film (mp4). Only opened once a stitched film exists.
+const FilmPlayer = ({ film, onClose }) => (
+  <Modal
+    visible
+    onCancel={onClose}
+    footer={null}
+    title="Final cut"
+    style={{ width: 720, maxWidth: '92vw' }}
+    autoFocus={false}
+  >
+    <div style={{ background: '#000', borderRadius: 8, overflow: 'hidden' }}>
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <video src={film.url} controls autoPlay style={{ width: '100%', display: 'block', maxHeight: '60vh' }} />
+    </div>
+  </Modal>
+);
 
 // ---- one clip on the time-scaled track ----------------------------------------
-const Clip = ({ event, index, width, selected, onSelect, onTrimStart }) => {
+const Clip = ({ event, index, total, width, selected, onSelect, onTrimStart, onMove, onRemove }) => {
   const status = STATUS_META[event.status] || STATUS_META.empty;
   const thumb = event.keyframeUrl || event.shotUrl;
   const narrow = width < 64;
+  const [hover, setHover] = useState(false);
+  const firstClip = index === 0;
+  const lastClip = index === total - 1;
   return (
     <div
       onClick={() => onSelect(event.id)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       title={`${index + 1}. ${event.beat || 'Shot'} · ${fmt(event.durationSec)}`}
       style={{
         position: 'relative', width, minWidth: CLIP_MIN_PX, height: 64, flexShrink: 0,
@@ -136,6 +110,32 @@ const Clip = ({ event, index, width, selected, onSelect, onTrimStart }) => {
           <Text style={{ fontSize: 9, color: '#fff', textShadow: '0 1px 2px #000' }} ellipsis>{fmt(event.durationSec)} · {event.beat || 'Shot'}</Text>
         </div>
       )}
+      {/* overlay controls — reorder ◀▶ and remove ✕, revealed on hover/selected. Reorder maps
+          to the timeline EDL order (what Stitch concatenates); remove drops the clip but LEAVES
+          the take node on the board (it just flips back to ＋ Timeline). */}
+      {(hover || selected) && (onMove || onRemove) && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', display: 'flex', gap: 2, zIndex: 6 }}
+        >
+          {onMove && (
+            <button type="button" title="Move earlier" disabled={firstClip} style={CTRL_BTN(firstClip, false)} onClick={(e) => { e.stopPropagation(); if (!firstClip) onMove(event.id, -1); }}>
+              <IconLeft />
+            </button>
+          )}
+          {onRemove && (
+            <button type="button" title="Remove from timeline (the take stays on the board)" style={CTRL_BTN(false, true)} onClick={(e) => { e.stopPropagation(); onRemove(event.id); }}>
+              <IconClose />
+            </button>
+          )}
+          {onMove && (
+            <button type="button" title="Move later" disabled={lastClip} style={CTRL_BTN(lastClip, false)} onClick={(e) => { e.stopPropagation(); if (!lastClip) onMove(event.id, 1); }}>
+              <IconRight />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* right-edge trim handle (drag to change duration — the video-editor gesture) */}
       <div
         onPointerDown={(e) => { e.stopPropagation(); onTrimStart(event, e); }}
@@ -223,7 +223,6 @@ const StoryTimeline = ({
   const ordered = useMemo(() => orderedEvents(events), [events]);
   const sumSeconds = useMemo(() => totalDuration(events), [events]);
   const shotsReady = useMemo(() => ordered.filter((e) => e.shotUrl).length, [ordered]);
-  const hasFrames = useMemo(() => ordered.some((e) => e.keyframeUrl || e.shotUrl), [ordered]);
 
   const selectedEvent = useMemo(
     () => ordered.find((e) => e.id === selectedEventId || e.keyframeNodeId === selectedEventId) || null,
@@ -333,9 +332,9 @@ const StoryTimeline = ({
               <Tooltip content="Zoom in"><Button size="mini" type="text" icon={<IconZoomIn />} disabled={pxPerSec >= PX_MAX} onClick={() => zoom(1.5)} /></Tooltip>
             </>
           )}
-          {(hasFrames || film?.url) && (
-            <Tooltip content={film?.url ? 'Play the stitched film' : 'Instant animatic — cycles keyframes, no generation'}>
-              <Button size="mini" type="outline" icon={<IconPlayArrow />} onClick={() => setPlayerOpen(true)}>{film?.url ? 'Play film' : 'Animatic'}</Button>
+          {film?.url && (
+            <Tooltip content="Play the stitched film">
+              <Button size="mini" type="outline" icon={<IconPlayArrow />} onClick={() => setPlayerOpen(true)}>Play film</Button>
             </Tooltip>
           )}
           {/* Film mode: no Auto-fill (timeline = view; shooting is on the SHOT cards). */}
@@ -411,7 +410,7 @@ const StoryTimeline = ({
                 )}
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 2, height: '100%' }}>
                   {ordered.map((event, i) => (
-                    <Clip key={event.id} event={event} index={i} width={Math.max(CLIP_MIN_PX, event.durationSec * pxPerSec)} selected={selectedEvent?.id === event.id} onSelect={onSelectEvent} onTrimStart={startTrim} />
+                    <Clip key={event.id} event={event} index={i} total={ordered.length} width={Math.max(CLIP_MIN_PX, event.durationSec * pxPerSec)} selected={selectedEvent?.id === event.id} onSelect={onSelectEvent} onTrimStart={startTrim} onMove={onMoveEvent} onRemove={onRemoveEvent} />
                   ))}
                   {!filmMode && canAddSelected && (
                     <Tooltip content="Add the selected board asset as the next shot">
@@ -443,7 +442,7 @@ const StoryTimeline = ({
         </>
       )}
 
-      {playerOpen && <AnimaticPlayer events={events} film={film} onClose={() => setPlayerOpen(false)} />}
+      {playerOpen && film?.url && <FilmPlayer film={film} onClose={() => setPlayerOpen(false)} />}
     </div>
   );
 };

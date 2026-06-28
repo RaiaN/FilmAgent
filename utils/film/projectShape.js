@@ -5,13 +5,12 @@ import { emptyBible, emptyTimeline, timelineEvent } from './timelineModel';
 
 export const PROJECT_VERSION = 2;
 
-export const emptyProject = ({ id, title, language, targetMinutes, idea }) => ({
+export const emptyProject = ({ id, title, language, targetMinutes }) => ({
   version: PROJECT_VERSION,
   id,
   title: title || 'Untitled Film',
   language: language || 'en',
   targetMinutes: targetMinutes || 4,
-  idea: idea || '',
   // The detected/confirmed genre + tone — set at the Idea stage, drives the cast
   // style and the storyboard's shot grammar. { label, tone, line } or null.
   genre: null,
@@ -116,7 +115,6 @@ export const migrateProject = (project) => {
       title: project.title,
       language: project.language,
       targetMinutes: project.targetMinutes,
-      idea: project.idea,
     }),
     id: project.id,
     createdAt: project.createdAt || new Date().toISOString(),

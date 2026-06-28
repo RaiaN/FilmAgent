@@ -1,3 +1,32 @@
+NEW assets
+asset-20260628001243-c9jsk - man
+asset-20260628001323-7k7tq - guest
+asset-20260628001418-lh9k4 - wife
+
+asset-20260628003322-r96ct - video
+asset-20260628011420-gnss7 - video 2
+
+asset-20260628023735-rx4l4 - video [need to replace man]
+
+EU:
+asset-20260628010137-q6hln - man
+asset-20260628010244-78zws - guest
+asset-20260628012544-lkqvq - wife
+
+Warm realistic casual home dining scene, soft warm overhead kitchen lighting, wooden table with plated homecooked food, 3 relaxed adults [Image 1] [Image 2] [Image 3] at dinner, natural lifelike acting, quiet home ambient background sound
+CHINESE ACTORS ONLY [Image 1] [Image 2] [Image 3]. FOOD - Chinese RAMEN noodles [Image 4]
+
+SEQUENTIAL TIMED ACTION FLOW:
+1.  Man [Image 1] turns gently to the first woman [Image 2], speaks warmly: *"My wife cooked such a delicious dinner"*
+2.  First woman [Image 2] nods, replies agreeing: *"yes, she's a great cook!"*
+3.  The wife (second woman [Image 3]) smiles happily shy, responds softly: *"Thank you both...no it was nothing, so easy to prepare."*
+4.  Wife [Image 3] stands calmly, reaches over to place extra serving of food onto the first woman's plate
+5.  First woman [Image 2] looks down at her plate impressed, exclaims: *"Wow, i feel like I'm at a 5 star restaurant"*
+6.  Man [Image 1] grins proud at his wife, gives small quiet approving nod, says cheerfully: *"Enjoy!"*
+
+Style notes: Calm friendly domestic tone, natural subtle facial expressions, small realistic idle body movements, smooth natural pacing, no exaggerated acting
+
+
 Char 1 [Erik]
 asset-20260513171157-b9jhv
 asset-20260513171409-cq2kh

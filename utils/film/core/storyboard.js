@@ -162,9 +162,42 @@ export const splitStoryElements = (story = '') => {
   return parts.length ? parts.slice(0, STORYBOARD_MAX) : (String(story || '').trim() ? [String(story).trim()] : []);
 };
 
-export const generateStoryboard = async ({ story, references = [], seed, config } = {}, ctx, hooks = {}) => {
-  const elements = splitStoryElements(story);
-  if (!elements.length) throw new Error('Give me a story or an idea to storyboard.');
+// Break a story/idea into a SEQUENCE of distinct visual shots (one sentence each) via the
+// VLM. `count` = how many shots (a number, or undefined → the model's own 5–7). Used both to
+// expand a RAW idea (no CUT markers) and to honor an explicit Frames count. Returns null on
+// failure / a degenerate result so the caller can fall back to the CUT segments.
+const expandToBeats = async (story, config, ctx, count) => {
+  try {
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('storyboard.beats.user', { story }),
+      systemPrompt: renderTemplate('storyboard.beats.system', { count: count ? String(count) : '5–7' }),
+      modelId: getModel('reasoner', config),
+      reasoningEffort: 'low',
+    });
+    const arr = parseJson(content);
+    const beats = (Array.isArray(arr) ? arr : (arr && Array.isArray(arr.shots) ? arr.shots : []))
+      .map((s) => String(s).replace(/\s+/g, ' ').trim())
+      .filter((s) => s.length > 8);
+    if (beats.length >= 2 || (count === 1 && beats.length === 1)) return beats.slice(0, count || STORYBOARD_MAX);
+  } catch { /* fall through to null */ }
+  return null;
+};
+
+export const generateStoryboard = async ({ story, references = [], count, seed, config } = {}, ctx, hooks = {}) => {
+  const segs = splitStoryElements(story);
+  if (!segs.length) throw new Error('Give me a story or an idea to storyboard.');
+  // FRAME COUNT: an explicit count (the rail's Frames control) re-breaks the WHOLE story into
+  // exactly that many shots via the model (it picks the strongest beats), falling back to
+  // slicing the CUT segments if the model is unavailable. Auto (no count) keeps the authored
+  // CUT segments — and expands a single raw idea into a 5–7 shot sequence so it isn't 1 frame.
+  const target = Number.isFinite(Number(count)) && Number(count) > 0 ? Math.min(Math.round(Number(count)), STORYBOARD_MAX) : null;
+  let elements = segs;
+  if (target) {
+    const expanded = ctx?.client?.reason ? await expandToBeats(story, config, ctx, target) : null;
+    elements = (expanded && expanded.length ? expanded : segs).slice(0, target);
+  } else if (segs.length === 1 && ctx?.client?.reason) {
+    elements = (await expandToBeats(segs[0], config, ctx)) || segs;
+  }
   const onPlan = hooks.onPlan || (() => {});
   const onFrame = hooks.onFrame || (() => {});
   const s = (seed == null || seed === '') ? Math.floor(Math.random() * 2147483647) : Number(seed);

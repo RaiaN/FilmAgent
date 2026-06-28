@@ -4,13 +4,11 @@ import {
   Input,
   Select,
   Space,
-  Tag,
   Typography,
   Message,
   Modal,
   Dropdown,
   Menu,
-  Popover,
 } from '@arco-design/web-react';
 import {
   IconFolder,
@@ -19,7 +17,6 @@ import {
   IconSettings,
   IconPlus,
   IconCode,
-  IconBulb,
 } from '@arco-design/web-react/icon';
 import FilmCanvas from './canvas/FilmCanvas';
 import PromptSettings from './PromptSettings';
@@ -61,18 +58,13 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
-  // The idea/pitch is the creative seed every agent uses, so it lives in the
-  // header as an always-visible, click-to-edit pill (not buried in settings).
-  const [ideaEditOpen, setIdeaEditOpen] = useState(false);
-  const [ideaDraft, setIdeaDraft] = useState('');
 
   const makeScratch = useCallback(() => emptyProject({
     id: randomId(),
     title: 'Untitled (scratch)',
     language: formValues.language || 'en',
     targetMinutes: formValues.targetMinutes || 4,
-    idea: formValues.idea || '',
-  }), [formValues.language, formValues.targetMinutes, formValues.idea]);
+  }), [formValues.language, formValues.targetMinutes]);
 
   // Create the scratch project on the client only (avoids SSR/CSR hydration
   // mismatch from random id + timestamps). The canvas appears immediately.
@@ -252,9 +244,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
               <Text type="secondary">Title</Text>
               <Input value={project.title} onChange={(v) => patchProject({ title: v })} />
             </div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Your idea / pitch now lives in the header — click the <b>idea</b> pill next to the title to edit it.
-            </Text>
             <Space wrap>
               <div>
                 <Text type="secondary" style={{ marginRight: 8 }}>Language</Text>
@@ -297,49 +286,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
         <div style={{ minWidth: 0 }}>
           <Space align="center" wrap>
             <Title heading={6} style={{ margin: 0 }}>{project.title}</Title>
-            <Tag>{project.language}</Tag>
-            {/* The film's length is the Timeline's budget (default 15s), not the
-                legacy targetMinutes — show that so the header matches the timeline. */}
-            <Tag color="purple">{project.timeline?.targetSeconds ?? 15}s</Tag>
-            {isScratch
-              ? <Tag color="orange">Scratch — unsaved</Tag>
-              : <Tag color="green">Saved</Tag>}
-            <Popover
-              trigger="click"
-              popupVisible={ideaEditOpen}
-              onVisibleChange={(v) => { if (v) setIdeaDraft(project.idea || ''); setIdeaEditOpen(v); }}
-              content={(
-                <div style={{ width: 320 }}>
-                  <Text style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>Idea / pitch</Text>
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-                    The creative seed every agent builds from.
-                  </Text>
-                  <Input.TextArea
-                    autoFocus
-                    value={ideaDraft}
-                    onChange={setIdeaDraft}
-                    autoSize={{ minRows: 3, maxRows: 6 }}
-                    placeholder="What's your film about?"
-                  />
-                  <div style={{ textAlign: 'right', marginTop: 8 }}>
-                    <Space>
-                      <Button size="small" onClick={() => setIdeaEditOpen(false)}>Cancel</Button>
-                      <Button size="small" type="primary" onClick={() => { patchProject({ idea: ideaDraft.trim() }); setIdeaEditOpen(false); }}>Save</Button>
-                    </Space>
-                  </div>
-                </div>
-              )}
-            >
-              <Tag
-                icon={<IconBulb />}
-                color={project.idea?.trim() ? 'arcoblue' : 'orange'}
-                style={{ cursor: 'pointer', maxWidth: 340 }}
-              >
-                <span style={{ display: 'inline-block', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>
-                  {project.idea?.trim() ? project.idea.trim() : 'Add your idea'}
-                </span>
-              </Tag>
-            </Popover>
           </Space>
           {!isScratch && displayPath && (
             <div>

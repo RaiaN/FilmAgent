@@ -25,7 +25,9 @@ export const errMsg = (data, fallback) => {
 };
 
 const POLL_INTERVAL_MS = 4000;
-const POLL_TIMEOUT_MS = 360000;
+// Seedance has NO generation SLA — under load a task can sit queued for many minutes — so the
+// client poll waits generously (30 min) before giving up rather than killing a still-live task.
+const POLL_TIMEOUT_MS = 1800000;
 
 // ---- Browser client: talks to the app's own Next.js API routes ----------------
 // Used by the canvas (L4). Keeps the existing request shapes unchanged.

@@ -6,7 +6,9 @@
 import { errMsg } from './client';
 
 const POLL_INTERVAL_MS = 4000;
-const POLL_TIMEOUT_MS = 360000;
+// Seedance has NO generation SLA — under load a task can sit queued for many minutes — so the
+// client poll waits generously (30 min) before giving up rather than killing a still-live task.
+const POLL_TIMEOUT_MS = 1800000;
 
 const stripTrailingSlash = (s) => String(s || '').replace(/\/+$/, '');
 const isHttpUrl = (v) => /^https?:\/\//i.test(String(v || '').trim());

@@ -1,9 +1,10 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox } from '@arco-design/web-react';
-import { IconLoading } from '@arco-design/web-react/icon';
+import { IconLoading, IconExpand } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
+import PromptEditorModal from './PromptEditorModal';
 
 const { Text } = Typography;
 
@@ -15,7 +16,7 @@ export const CutContext = createContext({
   onPatchCut: null, bibleEntries: [], onShootCut: null, onAttachSelected: null, onAttachAsset: null,
 });
 
-const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', look: '#0aa8a8' };
+const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', look: '#0aa8a8', frame: '#f5319d' };
 
 // Visual state of the cut as it shoots (border + header tag).
 const CUT_STATUS = {
@@ -29,6 +30,14 @@ const MAX_CUT_REFS = 9; // Seedream's reference-image limit — first 9 feed the
 const promptArea = {
   fontSize: 11, lineHeight: '15px', color: '#cdd3dc', background: '#161b22',
   border: '1px solid #2a313a', borderRadius: 4, fontFamily: 'inherit',
+};
+
+// Leading "image index" badge on a reference chip — its position in the Seedance send order
+// (so the chip labelled 2 IS Image2 in the prompt).
+const REF_BADGE = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  minWidth: 13, height: 13, padding: '0 3px', borderRadius: 7,
+  background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 9, fontWeight: 800, lineHeight: '13px',
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
@@ -49,6 +58,26 @@ const CutNodeInner = ({ id, data, selected }) => {
   const status = CUT_STATUS[data.status] || null;
   const borderColor = selected ? '#f7ba1e' : (status ? status.color : '#2a313a');
   const refTotal = refIds.length + assetRefs.length;
+
+  // Index each reference by its ACTUAL send order (= "Image1…N" in the Seedance prompt):
+  // enabled bible refs in refIds order, then per-shot assets. Each sent chip shows its image
+  // number so the prompt can address "Image1" etc. without guessing which plate is which.
+  const sentBibleIds = refIds.filter((rid) => (bibleEntries || []).some((b) => b.id === rid && b.url));
+  const bibleImageIndex = (entryId) => { const i = sentBibleIds.indexOf(entryId); return i < 0 ? null : i + 1; };
+  const assetImageIndex = (j) => sentBibleIds.length + j + 1;
+
+  const [editorOpen, setEditorOpen] = useState(false);
+  // Every reference the editor's @-picker can offer: ALL bible plates (with a url) + the
+  // per-shot assets. `index` = its current Image number when already enabled/sent on this
+  // shot, else null — picking a not-yet-enabled plate in the editor ATTACHES it (adds it to
+  // refIds, giving it the next index) AND inserts its tag. So @ always lists the cast/world,
+  // even on a fresh card whose references aren't toggled on yet. Built ONLY while the editor
+  // is open (it's an O(bible) pass) — closed cards skip it entirely.
+  const attachableRefs = editorOpen ? [
+    ...(bibleEntries || []).filter((b) => b.url).map((b) => ({ id: b.id, name: b.name || BIBLE_ROLE_META[b.role]?.label || 'cast', url: b.url, index: bibleImageIndex(b.id) })),
+    ...assetRefs.map((a, j) => ({ id: `asset:${a.url}`, name: a.label || 'asset', url: a.url, index: assetImageIndex(j) })).filter((r) => r.index <= MAX_CUT_REFS),
+  ] : [];
+  const attachRef = (refId) => { if (refId && !String(refId).startsWith('asset:') && !refIds.includes(refId)) patch({ refIds: [...refIds, refId] }); };
 
   // Drop a board asset / Library item straight onto the card to feed it to this shot.
   const carries = (e) => e.dataTransfer.types.includes(BOARD_NODE_DRAG_TYPE) || e.dataTransfer.types.includes(ASSET_DRAG_TYPE);
@@ -115,10 +144,11 @@ const CutNodeInner = ({ id, data, selected }) => {
         <Text style={{ color: '#f7ba1e', fontSize: 12, fontWeight: 700 }}>{data.beat || 'Shot'}</Text>
 
         <div>
-          <div style={{ marginBottom: 3 }}>
+          <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
+            <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
           </div>
-          <Input.TextArea className="nodrag nowheel" value={data.promptOverride || ''} onChange={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
+          <Input.TextArea className="nodrag nowheel" value={data.promptOverride || ''} onChange={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt — Expand to @-mention references" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
         </div>
 
         <div>
@@ -158,12 +188,14 @@ const CutNodeInner = ({ id, data, selected }) => {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {(bibleEntries || []).map((b) => {
               const onCut = refIds.includes(b.id);
+              const imgIdx = onCut ? bibleImageIndex(b.id) : null;
+              const sent = imgIdx != null && imgIdx <= MAX_CUT_REFS;
               return (
                 <span
                   key={b.id}
                   className="nodrag"
                   onClick={() => toggleRef(b.id)}
-                  title={`${BIBLE_ROLE_META[b.role]?.label || b.role}: ${b.name || ''} — ${onCut ? 'click to remove' : 'click to add'}`}
+                  title={`${sent ? `Image${imgIdx} · ` : ''}${BIBLE_ROLE_META[b.role]?.label || b.role}: ${b.name || ''} — ${onCut ? 'click to remove' : 'click to add'}`}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
                     padding: '1px 6px', borderRadius: 10, fontSize: 10,
@@ -173,28 +205,34 @@ const CutNodeInner = ({ id, data, selected }) => {
                     opacity: onCut ? 1 : 0.55,
                   }}
                 >
-                  {b.url ? <img src={b.url} alt="" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
+                  {sent && <b style={REF_BADGE}>{imgIdx}</b>}
+                  {b.url ? <img src={b.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
                   {(b.name || BIBLE_ROLE_META[b.role]?.label || b.role).slice(0, 14)}
                 </span>
               );
             })}
             {/* Non-bible board assets attached to JUST this shot — per-shot refs, not canon. */}
-            {assetRefs.map((a) => (
-              <span
-                key={a.url}
-                className="nodrag"
-                onClick={() => removeAssetRef(a.url)}
-                title={`${a.label || 'asset'} — attached to this shot only; click to remove`}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                  padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                  border: '1px solid #e5e6eb', background: '#e5e6eb', color: '#1d2129',
-                }}
-              >
-                {a.url ? <img src={a.url} alt="" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
-                {(a.label || 'asset').slice(0, 14)}
-              </span>
-            ))}
+            {assetRefs.map((a, j) => {
+              const imgIdx = assetImageIndex(j);
+              const sent = imgIdx <= MAX_CUT_REFS;
+              return (
+                <span
+                  key={a.url}
+                  className="nodrag"
+                  onClick={() => removeAssetRef(a.url)}
+                  title={`${sent ? `Image${imgIdx} · ` : ''}${a.label || 'asset'} — attached to this shot only; click to remove`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                    padding: '1px 6px', borderRadius: 10, fontSize: 10,
+                    border: '1px solid #e5e6eb', background: '#e5e6eb', color: '#1d2129',
+                  }}
+                >
+                  {sent && <b style={REF_BADGE}>{imgIdx}</b>}
+                  {a.url ? <img src={a.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
+                  {(a.label || 'asset').slice(0, 14)}
+                </span>
+              );
+            })}
             {onAttachSelected && (
               <span
                 className="nodrag"
@@ -213,6 +251,17 @@ const CutNodeInner = ({ id, data, selected }) => {
           </div>
         </div>
       </div>
+      {editorOpen && (
+        <PromptEditorModal
+          open
+          value={data.promptOverride || ''}
+          references={attachableRefs}
+          onAttach={attachRef}
+          maxRefs={MAX_CUT_REFS}
+          onChange={(v) => patch({ promptOverride: v })}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
     </div>
   );
 };

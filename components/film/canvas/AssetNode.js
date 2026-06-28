@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useEffect, useRef, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Tag, Message, Select, Button } from '@arco-design/web-react';
-import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconScissor, IconPlus, IconCheck } from '@arco-design/web-react/icon';
+import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconScissor, IconPlus, IconCheck, IconDownload } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
 import { BIBLE_ROLES, BIBLE_ROLE_META } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
@@ -20,6 +20,7 @@ const BIBLE_ROLE_COLOR = {
   location: '#00b42a',
   prop: '#ff7d00',
   look: '#0aa8a8',
+  frame: '#f5319d',
 };
 
 const NONE = '__none__';
@@ -53,7 +54,7 @@ const visibilityStyle = (visibility) => {
 };
 
 const AssetNodeInner = ({ id, data, selected }) => {
-  const { kind, url, localUrl, text, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
+  const { kind, url, localUrl, cacheUrl, text, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
   const { onTagRole, onImgError, onDeconstruct, deconstructingId, onAddToTimeline, onRemoveFromTimeline, onTimelineIds } = useContext(AssetNodeContext);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
   const tint = bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
@@ -63,9 +64,9 @@ const AssetNodeInner = ({ id, data, selected }) => {
   // tall, much smaller than portrait cast plates. Give them a wider node so the place
   // reads at a comparable size on the board.
   const isLocation = bibleRole === 'location' || data.meta?.suggestedRole === 'location' || layerId === 'locationVariations';
-  // Local uploads keep an in-memory data URL that always renders; prefer it for
-  // display so the thumbnail never breaks even if the remote/TOS URL is unreachable.
-  const displaySrc = localUrl || url;
+  // Display source, in durability order: the LOCAL on-disk cache (cacheUrl — survives the
+  // remote URL's expiry), then a local upload's in-memory data URL, then the remote URL.
+  const displaySrc = cacheUrl || localUrl || url;
   const [imgError, setImgError] = useState(false);
   // A healed/changed url deserves a fresh load attempt (and may heal again later).
   const healAskedRef = useRef(false);
@@ -76,6 +77,29 @@ const AssetNodeInner = ({ id, data, selected }) => {
   // A PRESERVED image that fails to load is a dead LINK, not lost bytes — ask
   // the canvas for a fresh signed url (self-heal) and show a quiet refresh state.
   const healing = imgError && preserved && !localUrl;
+
+  // Save the asset to disk. Blob-fetch (works for the same-origin local cache / data URLs
+  // and any CORS-permitting remote) → trigger a download; if a cross-origin fetch is blocked,
+  // open it in a new tab so the user can still save it manually.
+  const downloadAsset = async (e) => {
+    e.stopPropagation();
+    const src = displaySrc || url;
+    if (!src) return;
+    const base = String(label || kind || 'asset').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 48) || 'asset';
+    try {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error('fetch failed');
+      const blob = await res.blob();
+      const ext = ((blob.type.split('/')[1] || '').split(';')[0]) || (kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : 'png');
+      const obj = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = obj; a.download = `${base}.${ext}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(obj), 2000);
+    } catch {
+      window.open(src, '_blank', 'noopener');
+    }
+  };
 
   return (
     <div
@@ -168,6 +192,11 @@ const AssetNodeInner = ({ id, data, selected }) => {
               <IconDragDotVertical style={{ fontSize: 14 }} />
             </span>
           )}
+          {((kind === 'image' && displaySrc && !expired) || (kind === 'video' && (cacheUrl || url)) || (kind === 'audio' && url)) && (
+            <span className="nodrag" onClick={downloadAsset} title="Download to disk" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', color: '#86909c' }}>
+              <IconDownload style={{ fontSize: 14 }} />
+            </span>
+          )}
           {preserving && <IconLoading style={{ color: '#0fc6c2', fontSize: 13 }} title="Checking in…" />}
           {preserved && !preserving && (
             <IconCloud style={{ color: '#0fc6c2', fontSize: 14 }} title="Checked in — saved permanently" />
@@ -193,6 +222,8 @@ const AssetNodeInner = ({ id, data, selected }) => {
             alt={label}
             style={{ width: '100%', display: 'block' }}
             draggable={false}
+            loading="lazy"
+            decoding="async"
             onError={() => {
               setImgError(true);
               if (preserved && !localUrl && onImgError && !healAskedRef.current) {
@@ -222,7 +253,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
           </div>
         )}
         {kind === 'video' && url && (
-          <video src={url} style={{ width: '100%', display: 'block' }} muted loop playsInline controls />
+          <video src={cacheUrl || url} style={{ width: '100%', display: 'block' }} muted loop playsInline controls preload="metadata" />
         )}
         {kind === 'audio' && url && (
           <audio src={url} controls style={{ width: '100%', padding: 8 }} />

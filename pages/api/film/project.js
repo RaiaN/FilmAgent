@@ -63,7 +63,7 @@ export default async function projectHandler(req, res) {
     }
 
     if (req.method === 'POST' && action === 'init') {
-      const { projectPath, title, language, targetMinutes, idea } = req.body || {};
+      const { projectPath, title, language, targetMinutes } = req.body || {};
       if (!isAbsolutePath(projectPath)) {
         return res.status(400).json({ error: 'projectPath must be an absolute path' });
       }
@@ -74,7 +74,7 @@ export default async function projectHandler(req, res) {
         return res.status(409).json({ error: 'A project already exists at this path. Use load instead.' });
       }
       const id = crypto.randomBytes(8).toString('hex');
-      const project = emptyProject({ id, title, language, targetMinutes, idea });
+      const project = emptyProject({ id, title, language, targetMinutes });
       writeJson(filePath, project);
       updateRecent({ path: projectPath, id, title: project.title });
       return res.status(200).json({ project, projectPath });

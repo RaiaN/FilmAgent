@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import {
   Button,
   Input,
@@ -9,31 +8,13 @@ import {
   Typography,
   Tag,
   Divider,
-  Message,
 } from '@arco-design/web-react';
-import { IconPlayArrow, IconClose, IconBulb } from '@arco-design/web-react/icon';
+import { IconPlayArrow, IconClose } from '@arco-design/web-react/icon';
 import { AGENT_MAP, IMAGE_RESOLUTIONS } from '../../../utils/film/agents';
-import { CAMERA_MOVES } from '../../../utils/film/recipes';
+import { CAMERA_MOVES, SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
 const { Text, Title, Paragraph } = Typography;
-
-// Which settings field each agent fills from selected text card(s). Agents not
-// listed here don't auto-pull text.
-const PRIMARY_TEXT_FIELD = {
-  inspiration: 'prompt',   // the generation prompt
-  cast: 'prompt',          // the film idea to cast from
-  story: 'prompt',         // the film idea to write key events from
-  storyboard: 'prompt',    // a story/idea to storyboard (else the current Story card)
-};
-
-// Combine every selected Note card into one string (joined with blank lines).
-const combineSelectedText = (selection) =>
-  (selection || [])
-    .filter((n) => n.data?.kind === 'text' && (n.data?.text || '').trim())
-    .map((n) => String(n.data.text).trim())
-    .filter(Boolean)
-    .join('\n\n');
 
 const SIZE_OPTIONS = IMAGE_RESOLUTIONS; // the tiers the API actually accepts (2K/3K/4K) — never a bare '1K', which it rejects
 
@@ -55,30 +36,8 @@ const MiniSelect = ({ label, value, onChange, options }) => (
   </div>
 );
 
-export const SettingsControls = ({ layer, settings, setSettings, selection }) => {
+export const SettingsControls = ({ layer, settings, setSettings }) => {
   const update = (patch) => setSettings({ ...settings, ...patch });
-
-  const textField = PRIMARY_TEXT_FIELD[layer.id];
-  const hasTextSel = (selection || []).some((n) => n.data?.kind === 'text' && (n.data?.text || '').trim());
-
-  // Auto-populate the agent's text field from selected text card(s) — but only
-  // while it's empty, so we never clobber what the user typed. Re-runs when the
-  // selection or active agent changes; the manual button below can force-refill.
-  useEffect(() => {
-    if (!textField) return;
-    if ((settings[textField] || '').trim()) return;
-    const combined = combineSelectedText(selection);
-    if (combined) update({ [textField]: combined });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, textField]);
-
-  // Force-fill a field from the selected Note card(s).
-  const loadSelectedText = (field) => {
-    const combined = combineSelectedText(selection);
-    if (!combined) { Message.warning('Select a Note card on the board first'); return; }
-    update({ [field]: combined });
-    Message.success('Loaded text from the selected card(s)');
-  };
 
   if (layer.id === 'animate') {
     return (
@@ -118,9 +77,44 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
         <Checkbox checked={settings.generateAudio} onChange={(c) => update({ generateAudio: c })}>
           <Text style={{ fontSize: 12 }}>Generate native audio</Text>
         </Checkbox>
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Seedance runs as a background task (~1–3 min). A loading shot appears on the board and fills in when ready.
-        </Paragraph>
+      </Space>
+    );
+  }
+
+  if (layer.id === 'shot') {
+    return (
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Shot description (optional)</Text>
+          <Input.TextArea
+            value={settings.prompt || ''}
+            onChange={(value) => update({ prompt: value })}
+            placeholder="what happens in the shot… or leave blank and write it on the card"
+            autoSize={{ minRows: 3, maxRows: 6 }}
+          />
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Camera preset</Text>
+          <Select
+            size="small"
+            value={settings.shotTemplate || undefined}
+            placeholder="cinematography…"
+            onChange={(v) => update({ shotTemplate: v })}
+            style={{ width: '100%' }}
+            showSearch
+            filterOption={(input, option) => String(option.props.children).toLowerCase().includes(input.toLowerCase())}
+          >
+            {SHOT_TEMPLATES_BY_CATEGORY.map(({ category, templates }) => (
+              <Select.OptGroup key={category} label={category}>
+                {templates.map((t) => <Select.Option key={t.id} value={t.id}>{t.name}</Select.Option>)}
+              </Select.OptGroup>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Duration</Text>
+          <InputNumber min={5} max={15} value={settings.durationSec} onChange={(v) => update({ durationSec: v })} style={{ width: 90 }} suffix="s" />
+        </div>
       </Space>
     );
   }
@@ -129,19 +123,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
     return (
       <Space direction="vertical" style={{ width: '100%' }} size="small">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>Film idea</Text>
-            <Button
-              size="mini"
-              type="text"
-              icon={<IconBulb />}
-              disabled={!hasTextSel}
-              onClick={() => loadSelectedText('prompt')}
-              style={{ color: hasTextSel ? '#0fc6c2' : undefined }}
-            >
-              Use selected text
-            </Button>
-          </div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Film idea</Text>
           <Input.TextArea
             value={settings.prompt || ''}
             onChange={(value) => update({ prompt: value })}
@@ -149,9 +131,6 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
             autoSize={{ minRows: 3, maxRows: 6 }}
           />
         </div>
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Drafts 1–2 <b>characters</b> (people, animals or <b>monsters</b> — a 4K face plate + full-body sheet each) and 1–2 <b>locations</b>, all under one shared look, in the chosen genre. They land as candidates — tap the dashed role chip on the keepers to lock them into the bible, then re-roll the rest with Character / Location Variations.
-        </Paragraph>
       </Space>
     );
   }
@@ -160,19 +139,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
     return (
       <Space direction="vertical" style={{ width: '100%' }} size="small">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>Film idea</Text>
-            <Button
-              size="mini"
-              type="text"
-              icon={<IconBulb />}
-              disabled={!hasTextSel}
-              onClick={() => loadSelectedText('prompt')}
-              style={{ color: hasTextSel ? '#0fc6c2' : undefined }}
-            >
-              Use selected text
-            </Button>
-          </div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Film idea</Text>
           <Input.TextArea
             value={settings.prompt || ''}
             onChange={(value) => update({ prompt: value })}
@@ -180,9 +147,6 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
             autoSize={{ minRows: 3, maxRows: 6 }}
           />
         </div>
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Rewrites your idea (or pasted script) into <b>one long cinematic prompt</b> — clear subjects, a story arc, explicit eyelines. It does <b>not</b> use the board’s reference assets by default. Lands as an editable Story card (each Run adds a new one); <b>New Shot</b> turns it into a SHOT card.
-        </Paragraph>
       </Space>
     );
   }
@@ -191,19 +155,7 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
     return (
       <Space direction="vertical" style={{ width: '100%' }} size="small">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>Prompt</Text>
-            <Button
-              size="mini"
-              type="text"
-              icon={<IconBulb />}
-              disabled={!hasTextSel}
-              onClick={() => loadSelectedText('prompt')}
-              style={{ color: hasTextSel ? '#0fc6c2' : undefined }}
-            >
-              Use selected text
-            </Button>
-          </div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Prompt</Text>
           <Input.TextArea
             value={settings.prompt || ''}
             onChange={(value) => update({ prompt: value })}
@@ -224,57 +176,35 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
         <Checkbox checked={settings.useSelectionAsRefs} onChange={(c) => update({ useSelectionAsRefs: c })}>
           <Text style={{ fontSize: 12 }}>Seed with selected images as style refs</Text>
         </Checkbox>
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Tip: add a <b>Note</b> on the board and select it — its text auto-fills the prompt here while the field is empty. Edit freely, or hit <b>Use selected text</b> to re-pull.
-        </Paragraph>
       </Space>
     );
   }
 
   if (layer.id === 'storyboard') {
-    const imgSel = (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url).length;
     return (
       <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>Story or idea</Text>
-            <Button
-              size="mini"
-              type="text"
-              icon={<IconBulb />}
-              disabled={!hasTextSel}
-              onClick={() => loadSelectedText('prompt')}
-              style={{ color: hasTextSel ? '#0fc6c2' : undefined }}
-            >
-              Use selected text
-            </Button>
-          </div>
-          <Input.TextArea
-            value={settings.prompt || ''}
-            onChange={(value) => update({ prompt: value })}
-            placeholder="a story or idea to storyboard… leave blank to use a Story card on the board"
-            autoSize={{ minRows: 3, maxRows: 6 }}
-          />
-        </div>
+        <Text type="secondary" style={{ fontSize: 12 }}>Select a Story node with a script, then Run — a chat lands on the board and breaks it into a grid of keyframe stills you brainstorm and refine together.</Text>
         <div>
           <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Frames</Text>
-          <InputNumber min={1} max={12} value={settings.count} onChange={(v) => update({ count: v })} placeholder="Auto" style={{ width: 110 }} />
+          <InputNumber min={1} max={16} value={settings.count} onChange={(v) => update({ count: v })} placeholder="8" style={{ width: 90 }} />
         </div>
-        {imgSel > 0 && (
-          <Text style={{ fontSize: 11, color: '#0fc6c2' }}>{imgSel} selected image{imgSel === 1 ? '' : 's'} will anchor every frame as references.</Text>
-        )}
-        <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-          Renders a <b>visual storyboard</b> — all frames <b>in one go</b> (one shared seed for consistency). <b>Frames</b>: leave on <b>Auto</b> to follow the story's shots, or set a number to force exactly that many. Any board <b>images you select</b> ride as <b>references</b> (cast, world, mood) on every frame.
-        </Paragraph>
       </Space>
     );
   }
 
   if (layer.id === 'deconstruct') {
+    return null; // no settings — the describe + the "select a video" tag say it all
+  }
+
+  if (layer.id === 'breakdown') {
     return (
-      <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-        Select a <b>Take</b> (a rendered shot) on the board, then Run. Seed 2.0 Pro watches it and breaks it into its cuts — <b>key-frame stills</b> for visual grounding + one editable <b>SHOT card per cut</b> (camera &amp; cinematography pre-filled; references left for you to populate). The bridge from a quick exploration Take to detailed, directed shots. <i>(The Take node also has its own ✂ Deconstruct button.)</i>
-      </Paragraph>
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <Text type="secondary" style={{ fontSize: 12 }}>Select your hand-drawn storyboard on the board, then Run — it reads each panel and lays a grid of keyframe stills matching their camera angles.</Text>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>Genre &amp; tone (optional)</Text>
+          <Input value={settings.genre || ''} onChange={(v) => update({ genre: v })} placeholder="e.g. 'gritty desert western' — or leave blank to read it from the board" />
+        </div>
+      </Space>
     );
   }
 
@@ -302,9 +232,6 @@ export const SettingsControls = ({ layer, settings, setSettings, selection }) =>
           <Select value={settings.size} onChange={(v) => update({ size: v })} style={{ width: 90 }} options={SIZE_OPTIONS.map((s) => ({ label: s, value: s }))} />
         </div>
       </Space>
-      <Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 0 }}>
-        Each variation is planned to be distinct by Seed 2.0 Pro, with identity{layer.id === 'locationVariations' ? '/architecture' : ''} preserved.
-      </Paragraph>
     </Space>
   );
 };
@@ -327,9 +254,9 @@ const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun,
     <div style={{ width: 300, borderLeft: '1px solid #e5e6eb', background: '#fff', display: 'flex', flexDirection: 'column' }}>
       <div style={{ height: 4, background: layer.color }} />
       <div style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
           <Icon style={{ color: layer.color, fontSize: 18, flexShrink: 0 }} />
-          <Title heading={6} style={{ margin: 0 }} ellipsis>{layer.label}</Title>
+          <Title heading={6} style={{ margin: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{layer.label}</Title>
         </span>
         <Button size="mini" type="text" icon={<IconClose />} onClick={onClose} />
       </div>
@@ -357,14 +284,14 @@ const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun,
               <Tag color={layer.color === '#00b42a' ? 'green' : 'arcoblue'}>{usableSelection.length} {usableSelection.length > 1 ? 'assets' : 'asset'} selected</Tag>
             ) : (
               <Tag color="red">
-                select {minSelection >= 2 ? `at least ${minSelection} images` : (consumesVideo ? 'an image or video' : '1 image')} on the board
+                select {minSelection >= 2 ? `at least ${minSelection} images` : (consumesVideo ? 'a Take (a rendered video)' : '1 image')} on the board
                 {minSelection >= 2 && usableSelection.length === 1 ? ` (1 so far)` : ''}
               </Tag>
             )}
           </div>
         )}
 
-        <SettingsControls layer={layer} settings={settings} setSettings={setSettings} selection={selection} />
+        <SettingsControls layer={layer} settings={settings} setSettings={setSettings} />
       </div>
 
       <div style={{ padding: 12, borderTop: '1px solid #f2f3f5' }}>

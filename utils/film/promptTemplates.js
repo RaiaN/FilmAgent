@@ -40,34 +40,85 @@ Be specific and cinematic. Avoid bare 'drama' unless nothing else fits.`,
     agent: 'Cast & World',
     label: 'Draft the production — cast & places (system)',
     vars: [],
-    text: `You are a film's pre-production department — casting and location scouting. From the film idea, derive the MINIMUM real assets that anchor every shot: 1–2 characters and 1–2 locations. A "character" is anything recurring that gets close-ups — people, animals, an antagonist creature. Decide the film's ONE visual style first (medium, palette, light, grade); every asset shares it.
+    text: `You are a film's pre-production department — casting, location scouting AND props/vehicles. From the film idea, derive the MINIMUM set of REAL, RECURRING assets that must stay visually CONSISTENT across shots: every named character, every key location, every recurring object or vehicle, and any creature/antagonist the film features. Exclude anything seen only once in passing or pure background. Decide the film's ONE visual style FIRST (medium, palette, light, grade, era); every asset shares it.
 
-Each CHARACTER needs BOTH a close-up FACE and a full-body sheet — the film has close-ups, so a face must be rendered at portrait fidelity, not cropped from a distant plate. The FACE is a clean IDENTITY-ANCHOR reference, not a scene still: the subject faces camera directly on a neutral background, with no environment.
+Pick the RIGHT type for each — do NOT force everything into a frontal portrait:
+• "character" — a PERSON or animal that recurs and gets CLOSE-UPS; its face is locked identity. Distinct characters must be visibly DIFFERENT individuals (never reuse one face for two roles). Needs a frontal FACE portrait + a full-body turnaround sheet.
+• "creature" — a supernatural, monstrous or ANTAGONIST presence that is NOT meant to be seen as a clean ID photo (obscured, atmospheric, barely glimpsed). Needs ONE "presence" plate: shown IN ITS OWN LIGHT and only PARTIALLY revealed — silhouette / half-lit / wreathed in its element — NEVER a neutral frontal mugshot.
+• "location" — an environment / set a scene lives in. ONE establishing plate, no people.
+• "prop" — a recurring OBJECT or VEHICLE that must look identical every time it appears (a car / convoy, a weapon, a signature object). ONE clean reference plate, neutral or minimal in-world context, no people.
 
 Return ONLY a JSON object — no prose, no code fences:
 {
   "style": "<ONE sentence: the shared visual style — medium, palette, light, grade>",
-  "cast": [
+  "assets": [
     {
-      "role": "character",
+      "type": "character",
       "name": "<2–3 word label>",
       "facePrompt": "[MEDIUM] Character reference PORTRAIT, head-and-shoulders, subject FACING CAMERA DIRECTLY — frontal, eyes to lens. [SUBJECT] <age, build, ethnicity or species, distinctive bone structure / markings>. [BACKGROUND] plain neutral seamless studio backdrop (mid-grey), evenly lit — NO scene, NO environment, NO location, NO props. [CAMERA] prime portrait lens, soft frontal key, clean even light, sharp focus on the face. [SKIN_REFLECTANCE] real skin — semi-matte, visible pores and texture, weathering / scars / freckles as fitting; no dewy glow, no frequency separation. [HAIR] <natural, real, a few stray strands>. [EXPRESSION] <calm, in character; eyes to camera, mouth relaxed>. [FORBIDDEN] no background scenery or environment, no scene, no props, no 3/4 turn-away, not looking off-camera; no over-retouched skin, no plastic or porcelain finish, no AI beauty mode, no soft-focus glow, no render — real, photographed.",
       "bodyPrompt": "<full-body CHARACTER TURNAROUND SHEET of the SAME subject in ONE image: TWO full-length views side by side — a FRONTAL view (facing camera) on the left and a SIDE / PROFILE view (90° profile) on the right — both head-to-toe, same neutral standing A-pose, identical wardrobe / coat / markings and identical scale, evenly lit on a plain neutral-grey background. Identity, face, hair, build and costume match the reference EXACTLY across both views; same realism rules — real texture, no AI beauty. No on-image text, labels or watermarks>"
     },
     {
-      "role": "location",
+      "type": "creature",
+      "name": "<2–3 word label>",
+      "presencePrompt": "<the figure IN-WORLD and only PARTIALLY revealed — rendered in its own light, atmosphere, surface and texture; obscured / silhouetted / half-swallowed by shadow or its element. NOT frontal, NOT a neutral background, NOT eyes-to-lens, NOT a clean ID photo. Cinematic and ominous. No on-image text.>"
+    },
+    {
+      "type": "location",
       "name": "<2–3 word label>",
       "prompt": "<establishing view of the place, no people, neutral motivated light, no on-image text>"
+    },
+    {
+      "type": "prop",
+      "name": "<2–3 word label>",
+      "prompt": "<clean reference of the object or vehicle, three-quarter view, on a neutral or minimal in-world ground, even light, no people, no on-image text>"
     }
   ]
 }
-Max 5 entries total. Keep the [SECTION] tags in every facePrompt exactly as shown. For ANIMAL characters, adapt [SKIN_REFLECTANCE] to fur / hide / feather texture and [HAIR] accordingly. Make every asset specific, distinctive and faithful to the idea. NEVER put text, captions or watermarks in any image.`,
+Up to 8 assets total. Include EVERY recurring subject the film needs — never drop one that matters. Keep the [SECTION] tags in every character facePrompt EXACTLY as shown; they apply to "character" faces ONLY — creatures, locations and props are NOT frontal neutral portraits. For ANIMAL characters, adapt [SKIN_REFLECTANCE] to fur / hide / feather texture and [HAIR] accordingly. Make every asset specific, distinctive and faithful to the idea. NEVER put text, captions or watermarks in any image.`,
   },
   'storyboard.cast.user': {
     agent: 'Cast & World',
     label: 'Draft the production (instruction)',
     vars: ['{idea}', '{genre}'],
-    text: 'Film idea: {idea}\nGenre & tone: {genre}\n\nThe shared visual style MUST embody that genre & tone, and the cast must fit it. Return the JSON object: the shared style + the cast (characters with facePrompt + bodyPrompt) and locations.',
+    text: 'Film idea: {idea}\nGenre & tone: {genre}\n\nThe shared visual style MUST embody that genre & tone, and every asset must fit it. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
+  },
+
+  // The storyboard KEYFRAME prompt — one still per shot, shared by the Storyboard agent AND
+  // Breakdown. Wraps the shot's action + its cinematography line into a cinematic frame; the
+  // bible reference images anchor the subjects so the keyframes stay consistent.
+  'storyboard.keyframe': {
+    agent: 'Storyboard',
+    label: 'Storyboard keyframe (the still per shot)',
+    vars: ['{action}', '{cine}'],
+    text: 'A cinematic STORYBOARD KEYFRAME — a single still that LOCKS the shot\'s camera, framing, blocking and mood: {action}. Camera & look: {cine}. Use the reference image(s) for the EXACT characters, wardrobe, places and visual style — keep them consistent across the storyboard. Filmic lighting and composition; characters never look at the camera. No on-image text, captions or watermarks.',
+  },
+  'breakdown.read.system': {
+    agent: 'Breakdown',
+    label: 'Read a storyboard → keyframe shots (system)',
+    vars: ['{templates}'],
+    text: `You are a cinematographer reading a director's STORYBOARD — hand-drawn panels, often with NO written labels. Work ONLY from what is DRAWN; treat any handwriting as a bonus hint, never a requirement. Read the panels in reading order (left-to-right, top-to-bottom, by column).
+
+Produce ONE shot per panel, in reading order — a clean keyframe that REPRODUCES THAT PANEL'S CAMERA ANGLE. Your single focus is CAMERA ANGLE: match how the panel is framed and angled as closely as you can.
+
+For each panel:
+• Choose the single best-fit camera setup from the SHOT TEMPLATE LIBRARY below, by its EXACT id — the one whose framing and angle match the DRAWING. Read FRAMING from how large the figures are drawn (tiny figures in a big space = wide; a head filling the panel = close-up; a foreground shoulder/back-of-head against a distant figure = over-the-shoulder). Read ANGLE from the horizon and vantage (looking UP at a figure = low angle; looking DOWN = high angle; eye-level = neutral). Read MOVEMENT from any drawn arrows (inward arrows = push-in; a curved sweep = an orbit/arc) and pick a template whose move matches; if NO arrow is drawn, pick a STATIC template — never invent a move.
+{templates}
+• Describe what is IN THE FRAME, present-tense — the subjects, their pose, their orientation and EYELINE — read from the drawing, enough to render a clean cinematic still that matches the panel. Keep attention inside the scene; characters never look at the camera.
+
+Return ONLY a JSON object — no prose, no code fences:
+{
+  "shots": [
+    {"panel": <1-based, in order>, "beat": "<2–4 word shot name>", "shotTemplate": "<exact id from the library>", "prompt": "<present-tense description of the framed action + orientation/eyeline that matches the panel>", "durationSec": <5–15>}
+  ]
+}
+ONE shot per panel, in reading order. Describe ONLY what is drawn; do not invent panels that aren't on the board. NEVER put text, captions or watermarks in any image prompt.`,
+  },
+  'breakdown.read.user': {
+    agent: 'Breakdown',
+    label: 'Read a storyboard (instruction)',
+    vars: ['{genre}'],
+    text: 'The attached image is the director\'s storyboard. Genre & tone (if known): {genre}.\nRead it panel by panel and return the JSON: ONE shot per panel, each with the camera-template id that matches the drawn camera angle and a description of what is framed. Focus on reproducing each panel\'s CAMERA ANGLE.',
   },
   // ---- Story agent: an idea/script → ONE long cinematic prompt (Seed 2.0 Pro rewrite) -
   // No JSON, no key events, no appearances — a direct rewrite to a single continuous
@@ -101,27 +152,37 @@ Max 5 entries total. Keep the [SECTION] tags in every facePrompt exactly as show
     text: 'Source prompt that produced this Take (context only): {prompt}\nKnown cast & places: {castList}\n\nDeconstruct this Take into its cuts. Return the JSON.',
   },
 
-  // ---- Storyboard: one chained Seedream frame per story element (prev frame = reference) ----
-  'storyboard.frame': {
+  // ---- Storyboard: a conversational SHOT DIVISION (cinematographer brainstorm) ----
+  // Each turn returns the FULL updated shot list + a one-line reply. The camera is a
+  // shotTemplate id from the library; each shot's `prompt` is the Seedance prompt body.
+  'storyboard.turn.system': {
     agent: 'Storyboard',
-    label: 'Storyboard frame',
-    vars: ['{action}'],
-    text: 'A cinematic storyboard frame: {action}. Use the reference image(s) for the EXACT characters, wardrobe, location, world and visual style — keep them consistent across the whole storyboard (this is ONE continuous film). Filmic lighting and composition. No on-image text, captions or watermarks.',
+    label: 'Shot division — brainstorm the shot list (system)',
+    vars: ['{templates}', '{count}'],
+    text: `You are a film DIRECTOR and CINEMATOGRAPHER brainstorming the SHOT DIVISION of a scene WITH the director — turn by turn. You break the script into a SHOT LIST: a sequence of camera shots that tell the scene with good coverage, pacing and emotional flow.
+
+You are given the SCRIPT, the CURRENT shot list (may be empty on the first turn), and the director's latest MESSAGE. Apply the message and return the FULL updated shot list — keep the shots the director didn't ask to change (don't silently rewrite them), add/cut/re-order/re-frame only what the message calls for. On the FIRST turn (empty list), divide the whole script into EXACTLY {count} shots — collapse or expand the action to land on {count} well-chosen, distinct shots that cover the scene. (After that, follow the director: add/cut shots only when the message asks.)
+
+For EACH shot:
+• Choose the single best-fit camera setup from the SHOT TEMPLATE LIBRARY below, by its EXACT id — this sets the size, angle and movement:
+{templates}
+• Write the "prompt" — a vivid present-tense description of what is ON SCREEN (who does what, where, orientation/eyeline; characters never look at the camera). This is the shot's Seedance prompt; the chosen template already carries the framing/angle/movement, so do NOT restate the camera in the prompt.
+• Coverage is welcome: a single beat can become several shots (e.g. wide + OTS each way + a CU) — just add them as consecutive shots.
+• "beat" = a 2–4 word shot name; "durationSec" = 5–15.
+
+Return ONLY a JSON object — no prose, no code fences:
+{
+  "shots": [
+    {"beat": "<2–4 word name>", "shotTemplate": "<exact id from the library>", "prompt": "<what's on screen, present tense>", "durationSec": <5–15>}
+  ],
+  "reply": "<ONE short line to the director: what you changed / a question back>"
+}`,
   },
-  // When the storyboard input is a RAW idea (no CUT markers → it would be a single
-  // frame), break it into a SEQUENCE of distinct visual shots so the board still reads
-  // as a film. One frame is rendered per returned shot.
-  'storyboard.beats.system': {
+  'storyboard.turn.user': {
     agent: 'Storyboard',
-    label: 'Expand an idea into storyboard shots',
-    vars: ['{count}'],
-    text: 'You are a storyboard artist. Break the idea or story below into {count} DISTINCT visual shots that tell it as a sequence (establish → develop → turn → resolve). Each shot is ONE vivid sentence describing exactly what is ON SCREEN — subject, action, framing, and where the subjects are looking; never have a character look at the camera. Return ONLY a JSON array of strings (one per shot), no prose, no code fences.',
-  },
-  'storyboard.beats.user': {
-    agent: 'Storyboard',
-    label: 'Expand an idea into storyboard shots (instruction)',
-    vars: ['{story}'],
-    text: '{story}\n\nReturn the JSON array of shot descriptions, in order.',
+    label: 'Shot division — brainstorm the shot list (instruction)',
+    vars: ['{script}', '{genre}', '{shots}', '{message}'],
+    text: 'SCRIPT:\n"""\n{script}\n"""\nGenre & tone: {genre}\n\nCURRENT shot list (JSON, in order): {shots}\n\nDirector\'s message: {message}\n\nApply it and return the JSON object — the FULL updated shot list + your one-line reply.',
   },
 
   // ---- Story Director (headless Service API ONLY) ----
@@ -169,16 +230,6 @@ Max 5 entries total. Keep the [SECTION] tags in every facePrompt exactly as show
     label: 'Location variations (system)',
     vars: ['{count}'],
     text: "You are a location scout and DP. The attached image is the canonical location. Propose {count} DISTINCT coverage variations. EVERY prompt MUST preserve the location's architecture, layout, materials and set dressing, with NO people in frame; vary only what the user asks for, or if nothing is specified the most interesting dimensions (angle, time of day, weather, season). Return ONLY a JSON array of {count} objects {\"label\": 2–5 words, \"prompt\": a complete image prompt that restates architecture preservation and 'no people'}. Substantially different options. No prose, no code fences.",
-  },
-  // PRODUCTION shots (the blueprint producer) use this PRESERVATION-FIRST persona —
-  // the references are the user's canonical assets, and consistency between what the
-  // user provided and what they see in the output is the absolute requirement. The
-  // exploratory personas above are for the freeform board only.
-  'creativePlanner.styles.system': {
-    agent: 'Creative Planner',
-    label: 'Style exploration (system)',
-    vars: ['{count}'],
-    text: "You are a film director's visual lead planning a look-development exploration. Study the attached reference(s) and concept, then propose {count} DISTINCT visual styles to try — each a clearly different look (film stock/medium, palette, grade, lighting, lens, era), yet every one GENRE- and MOOD-APPROPRIATE for this story (never a look that fights the tone). Keep the subject and scene constant; vary only the visual treatment. Return ONLY a JSON array of {count} objects {\"label\": the style name (2–5 words), \"prompt\": a complete key-still image prompt for the concept rendered fully in that style}. Substantially different, tone-appropriate options. No prose, no code fences.",
   },
 
   // ---- Director chat router + board classify ----

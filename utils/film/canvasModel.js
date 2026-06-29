@@ -1,7 +1,7 @@
 // Canvas data helpers for the freeform Project Workspace.
 // Asset nodes are simple cards (no input/output pins, no wires by default).
 
-export const ASSET_KINDS = ['image', 'video', 'audio', 'text'];
+export const ASSET_KINDS = ['image', 'video', 'audio'];
 
 const randomId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -14,7 +14,6 @@ export const createAssetNode = ({
   id,
   kind = 'image',
   url = '',
-  text = '',
   label = '',
   position = { x: 0, y: 0 },
   locked = false,
@@ -28,7 +27,7 @@ export const createAssetNode = ({
   id: id || `a-${randomId()}`,
   type: 'asset',
   position,
-  data: { kind, url, text, label, locked, layerId, sourceRefs, meta, preserved, createdAt: Date.now() },
+  data: { kind, url, label, locked, layerId, sourceRefs, meta, preserved, createdAt: Date.now() },
 });
 
 // Stage a locally-dropped data URL into TOS and catalogue it in the Assets
@@ -141,12 +140,14 @@ export const originFromSelection = (selectedNodes, fallback = { x: 120, y: 120 }
   return { x: minX, y: maxY + 60 };
 };
 
+// Only media files become board assets. Anything else (a dropped .txt etc.) is rejected —
+// there is no "Note" / text card on the board.
 export const fileToAssetKind = (file) => {
   const t = file.type || '';
   if (t.startsWith('image/')) return 'image';
   if (t.startsWith('video/')) return 'video';
   if (t.startsWith('audio/')) return 'audio';
-  return 'text';
+  return null;
 };
 
 export const readFileAsDataUrl = (file) =>

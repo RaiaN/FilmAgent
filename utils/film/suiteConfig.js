@@ -23,7 +23,8 @@ import {
 export const ROOT_CONFIG = {
   models: {
     seedream: 'ep-20260501195034-hj78f',   // Seedream 5.0 image endpoint
-    seedance: 'ep-20260415171928-pdvvr',    // Seedance video endpoint
+    seedance: 'ep-20260415171928-pdvvr',    // Seedance 2.0 video endpoint (default)
+    seedanceMini: 'ep-20260629005443-n7rjn', // Seedance 2.0 Mini (faster/cheaper — opt-in per SHOT card)
     reasoner: 'seed-2-0-pro-260328',        // Seed 2.0 Pro (multimodal reasoning / suggestions)
   },
   runtime: {
@@ -93,6 +94,22 @@ export const resetClientConfig = () => {
 export const resolveConfig = (perCall = {}) => deepMerge(deepMerge(ROOT_CONFIG, getClientConfig()), perCall || {});
 
 export const getModel = (key, perCall) => resolveConfig(perCall).models[key];
+
+// The Seedance (video) endpoints a SHOT card can shoot a take on. `key` indexes
+// ROOT_CONFIG.models; the card stores the key in data.videoModel ('seedance' = default).
+export const VIDEO_MODEL_OPTIONS = [
+  { key: 'seedance', label: 'Seedance 2.0' },
+  { key: 'seedanceMini', label: 'Seedance 2.0 Mini' },
+];
+
+// Resolutions allowed per Seedance endpoint: the standard one goes up to 4K; Mini caps at 720p
+// (no 1080p, no 4K). Shared by the CutNode dropdown AND the shoot path so the two never diverge.
+export const RES_BY_MODEL = { seedance: ['480p', '720p', '1080p', '4K'], seedanceMini: ['480p', '720p'] };
+export const resDefault = (model) => (model === 'seedanceMini' ? '720p' : '1080p');
+export const clampResolution = (model, res) => {
+  const opts = RES_BY_MODEL[model] || RES_BY_MODEL.seedance;
+  return opts.includes(res) ? res : resDefault(model);
+};
 
 export const getRuntime = (perCall) => resolveConfig(perCall).runtime;
 

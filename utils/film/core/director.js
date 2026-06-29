@@ -68,10 +68,11 @@ export const ACTION_DESCRIBE = {
   characterVariations: 'variations of a person/character: wardrobe, expression, angle',
   locationVariations: 'coverage variations of a location/place: angle, time of day, weather',
   story: 'write/shape the STORY — pick this for ANY film premise, idea, concept or script the user gives. THE STORY IS THE FIRST THING WE MAKE FROM AN IDEA, before casting — so a fresh opening premise like "cowboys vs a grizzly" goes HERE. Produces an editable cinematic prompt the user turns into a SHOT card',
-  storyboard: 'render a VISUAL STORYBOARD of the current story — one frame per shot, in sequence. Pick when they say storyboard / visualize / show me the shots / preview the story as frames (needs a story written).',
+  storyboard: 'break the script into a SHOT LIST and brainstorm the shot division — a chat lands on the board bound to a column of SHOT cards. Pick when they say storyboard / shot list / break this into shots / shot division / cover this scene (needs a Story node with a script selected).',
   detectGenre: 'read the film\'s genre & tone — pick ONLY when the user explicitly asks about genre/tone, or as the first move of Cast & World. NOT for an opening premise (that is `story`).',
   castDraft: 'generate the cast & location plates from the idea — Cast & World (now AFTER the story). Detects the genre first if none is set.',
   deconstruct: 'break a rendered TAKE into its cuts — key-frame stills + one SHOT card per cut. Pick when they say deconstruct / break down / split / detail this take (needs a Take selected on the board).',
+  breakdown: 'read a hand-drawn STORYBOARD image into a grid of keyframe stills — one per panel, reproducing each panel\'s camera angle (the same keyframe panel the Storyboard agent builds). Pick when they say break down / read / ingest this storyboard / board / sketch (needs a storyboard image selected on the board).',
   nextStep: 'they ask to continue or what to do next ("continue", "next", "what now", "go on") — advance the pipeline to its next concrete step',
   stitch: 'assemble the rendered shots into the final cut — pick when they say stitch / render / assemble the film',
   classify: 'sort the board\'s untagged images into roles — pick when they ask to tag / sort / organize what they have',
@@ -80,7 +81,7 @@ export const ACTION_DESCRIBE = {
   unknown: 'none of the above fit and it is not answerable',
 };
 
-export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'storyboard', 'detectGenre', 'castDraft', 'deconstruct', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
+export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'storyboard', 'detectGenre', 'castDraft', 'deconstruct', 'breakdown', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
 
 export const routeStudioAction = async ({ message = '', context = '', actions = FILM_ACTIONS, config } = {}, ctx) => {
   if (!String(message).trim()) return null;
@@ -106,7 +107,4 @@ export const routeStudioAction = async ({ message = '', context = '', actions = 
     say: s(j.say, action === 'answer' ? 700 : 220),
   };
 };
-
-// Back-compat alias — the film dock's original entry point (defaults FILM_ACTIONS).
-export const routeFilmAction = (args = {}, ctx) => routeStudioAction(args, ctx);
 

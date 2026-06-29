@@ -7,14 +7,13 @@ import { createBrowserClient } from './core/client';
 import * as ops from './core/operations';
 import * as director from './core/director';
 import { buildAnimatePrompt } from './core/operations';
-import { castFromIdea, writeFilmPrompt, deconstructTake, generateStoryboard } from './core/storyboard';
+import { castFromIdea, writeFilmPrompt, deconstructTake } from './core/storyboard';
 import { SIZE_TIERS as IMAGE_RESOLUTIONS, ASPECT_RATIOS as IMAGE_RATIOS } from './imageSizes';
 
 // Re-exported so the canvas panels can reuse them.
 export { IMAGE_RESOLUTIONS, IMAGE_RATIOS };
 
 export const AGENT_COLORS = {
-  autoDirector: '#5a3df0',         // electric indigo (orchestrator)
   inspiration: '#ff7d00',          // orange
   characterVariations: '#165dff',  // blue
   locationVariations: '#00b42a',   // green
@@ -24,6 +23,8 @@ export const AGENT_COLORS = {
   story: '#f7ba1e',                // gold (the narrative spine: key events)
   storyboard: '#4e5969',           // graphite (the shot plan)
   deconstruct: '#0fc6c2',          // teal (a Take → its cuts + key frames)
+  shot: '#d9488f',                 // rose (a single SHOT card)
+  breakdown: '#7a3fd6',            // violet (a storyboard → bible + shots)
 };
 
 const browserCtx = (apiKey) => ({ client: createBrowserClient(apiKey) });
@@ -81,12 +82,6 @@ const selectedImageUrls = (selection) =>
   (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url).map(refUrl);
 const firstImageNode = (selection) =>
   (selection || []).find((n) => n.data?.kind === 'image' && n.data?.url);
-// The prompt to use from a selected text card (a board Note) — its full text.
-const selectedText = (selection) => {
-  const t = (selection || []).find((n) => n.data?.kind === 'text' && (n.data?.text || '').trim());
-  return t ? String(t.data.text).trim() : '';
-};
-
 // Streaming hooks for a batch image agent (character/location variations): the moment the plan
 // lands, lay ONE pending placeholder per planned spec (so the panel fills with loading cards
 // immediately), then resolve each in place as the parallel batch returns. Falls back to dropping
@@ -119,11 +114,11 @@ export const inspirationAgent = {
   label: 'Inspiration Board',
   icon: 'bulb',
   color: AGENT_COLORS.inspiration,
-  consumes: ['text'],
+  consumes: [],
   needsSelection: false,
   grouped: true,
   defaultSettings: { count: 6, size: '2K', useSelectionAsRefs: false },
-  describe: 'Generate a grid of reference imagery. Select multiple assets and it reads each, synthesises them, and plans distinct directions (Seed 2.0 Pro). Or seed from a selected Note. Each output is meaningfully different.',
+  describe: 'Generates a grid of distinct style/mood references from a prompt or your selected images.',
   // Every agent run accepts an optional injected `ctx` (the canvas passes a
   // trace-wrapped client so rail runs land in the decision history); without one
   // it builds the plain browser ctx from the apiKey as before.
@@ -131,8 +126,7 @@ export const inspirationAgent = {
     // All selected images are read by the planner (describe + mix); the checkbox
     // also feeds them to the image model as visual references.
     const refs = selectedImageUrls(selection);
-    // Typed prompt wins; otherwise fall back to a selected text card (a Note).
-    const effectivePrompt = (prompt && String(prompt).trim()) || selectedText(selection);
+    const effectivePrompt = (prompt || '').trim();
     const result = await ops.inspiration(
       { prompt: effectivePrompt, refs, useRefsInGen: !!settings.useSelectionAsRefs, count: settings.count, size: settings.size },
       ctx || browserCtx(apiKey),
@@ -152,7 +146,7 @@ export const characterVariationsAgent = {
   needsSelection: true,
   grouped: true,
   defaultSettings: { count: 4, size: '2K', direction: '' },
-  describe: 'Select a character image — Seed 2.0 Pro plans distinct, content-aware variations (identity preserved). Leave Direction blank to let it choose, or steer it (e.g. "different wardrobes", "across ages").',
+  describe: 'Plans distinct variations of the selected character, identity preserved.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one character image first');
@@ -176,7 +170,7 @@ export const locationVariationsAgent = {
   needsSelection: true,
   grouped: true,
   defaultSettings: { count: 4, size: '2K', direction: '' },
-  describe: 'Select a location plate — Seed 2.0 Pro plans distinct coverage (architecture preserved, no people). Leave Direction blank, or steer it (e.g. "different times of day", "tighter angles").',
+  describe: 'Plans distinct coverage of the selected location, architecture preserved.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one location image first');
@@ -207,7 +201,7 @@ export const animateAgent = {
     motion: '', camera: 'slow push-in', lens: 'auto', focalLength: '35mm', aperture: 'f/2.8',
     duration: 5, resolution: '720p', ratio: 'adaptive', generateAudio: true,
   },
-  describe: 'Select a keyframe image, set the camera, describe the motion, and Seedance turns it into a moving shot with native audio. The still becomes the first frame.',
+  describe: 'Renders a keyframe into a video shot — Seedance, ~1–3 min in the background.',
   async run({ selection, settings, apiKey, ctx: injectedCtx, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one image to animate');
@@ -253,10 +247,10 @@ export const castAgent = {
   label: 'Cast & World',
   icon: 'cast',
   color: AGENT_COLORS.cast,
-  consumes: ['text'],
+  consumes: [],
   needsSelection: false,
   defaultSettings: { prompt: '' },
-  describe: 'Drafts the cast & world from your idea, in the chosen genre: 1–2 characters (people, animals or monsters — each a 4K face plate + full-body sheet) and 1–2 locations, all under one shared look. They land as candidates with suggested-role chips — you tag the keepers into the bible.',
+  describe: 'Drafts the film\'s recurring assets — characters, creatures, locations and key props/vehicles — in one shared look, as bible candidates.',
   async run({ prompt, settings = {}, apiKey, ctx, onPlan, onEntry, onError }) {
     const entries = await castFromIdea(
       { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '' },
@@ -277,10 +271,10 @@ export const storyAgent = {
   label: 'Story',
   icon: 'story',
   color: AGENT_COLORS.story,
-  consumes: ['text'],
+  consumes: [],
   needsSelection: false,
   defaultSettings: { prompt: '' },
-  describe: 'Rewrites your idea (or a pasted script) into one long cinematic prompt — clear subjects and a story arc, no characters facing the camera, explicit eyelines. Lands as an editable Story card; “New Shot” turns it into a SHOT card.',
+  describe: 'Rewrites your idea or script into one long cinematic prompt — subjects, arc, eyelines — as an editable Story card.',
   async run({ prompt, settings = {}, apiKey, ctx }) {
     const story = await writeFilmPrompt(
       {
@@ -307,7 +301,7 @@ export const deconstructAgent = {
   consumes: ['video'],
   needsSelection: true,
   defaultSettings: {},
-  describe: 'Select a Take (a rendered shot) — Seed 2.0 Pro WATCHES it and breaks it into its cuts: key-frame stills for visual grounding + one editable SHOT card per cut (camera & cinematography pre-filled, references left for you to populate). The bridge from a quick exploration Take to detailed, directed shots.',
+  describe: 'Watches a selected Take and breaks it into per-cut SHOT cards + key-frame stills.',
   async run({ selection, settings = {}, apiKey, ctx }) {
     const take = (selection || []).find((n) => n.data?.kind === 'video' && n.data?.url);
     if (!take) throw new Error('Select one Take (a rendered video) first');
@@ -322,22 +316,55 @@ export const deconstructAgent = {
 // The STORYBOARD agent: the STORY → a visual storyboard, frame by frame. One Seedream
 // frame per story element (CUT-marked), rendered SEQUENTIALLY — each frame uses the
 // PREVIOUS frame as a visual reference and ONE shared seed for consistency. No bible refs.
-// On the canvas the rail Run + the Story node's 📋 button are intercepted (handleRun →
-// handleGenerateStoryboard, which lays the streaming Storyboard panel); this run() is the
-// headless/SDK entry (operates on the provided story prompt).
+// Storyboard = a conversational SHOT DIVISION: select a Story node and Run, and a chat node
+// lands on the board bound to a column of SHOT cards. You brainstorm the shot list with a
+// cinematographer; each turn it updates the cards. Canvas-only (it lays a chat node + cards) —
+// the run() guards the headless/SDK path like cast/shot/breakdown.
 export const storyboardAgent = {
   id: 'storyboard',
   label: 'Storyboard',
   icon: 'board',
   color: AGENT_COLORS.storyboard,
-  consumes: ['image'],   // any selected board images become per-frame references
-  needsSelection: false, // references are optional — the prev-frame chain carries consistency
-  defaultSettings: { prompt: '', count: undefined },
-  describe: 'Turns a story (or a typed idea) into a visual storyboard — one frame per element, all rendered AT ONCE (one shared seed for consistency). Frames defaults to the story\'s shots (Auto) but can be set explicitly. Any board images you select are used as references (cast, world, mood) on every frame. Lands as a Storyboard panel on the board.',
-  async run({ prompt, selection, settings = {}, apiKey, ctx }) {
-    const story = (prompt && String(prompt).trim()) || settings.story || settings.prompt || '';
-    const board = await generateStoryboard({ story, references: selectedImageUrls(selection), count: settings.count }, ctx || browserCtx(apiKey));
-    return { created: [], errors: [], storyboard: board };
+  consumes: [],
+  needsSelection: false,
+  defaultSettings: { genre: '', count: 8 },
+  describe: 'Brainstorm the shot division with a cinematographer. Select a Story node and Run — a chat lands on the board, bound to a grid of keyframe stills (default 8) it builds and refines as you talk.',
+  async run() {
+    throw new Error('The Storyboard agent lays a chat node + SHOT cards on the canvas — run it from the board.');
+  },
+};
+
+// The SHOT agent: drops a single EMPTY SHOT card (CutNode) on the board with a camera
+// preset — no Story required. The rail Run is intercepted (handleRun lays the card); this
+// run() guards the headless/SDK path, since laying a board node is a canvas-only action.
+export const shotAgent = {
+  id: 'shot',
+  label: 'Shot',
+  icon: 'shot',
+  color: AGENT_COLORS.shot,
+  consumes: [],
+  needsSelection: false,
+  defaultSettings: { prompt: '', shotTemplate: 'medium-shot', durationSec: 15 },
+  describe: 'Drops an empty SHOT card with a camera preset — write the shot, attach references, then 🎬 to shoot.',
+  async run() {
+    throw new Error('The Shot agent lays a SHOT card on the canvas — run it from the board.');
+  },
+};
+
+// Breakdown: select a director's STORYBOARD image → ONE Seed 2.0 Pro read → lays a keyframe
+// still per drawn panel (matching its camera angle), in the SAME panel the Storyboard agent
+// produces. Canvas-only like cast/shot — it lays board nodes (not a headless op; guarded run()).
+export const breakdownAgent = {
+  id: 'breakdown',
+  label: 'Breakdown',
+  icon: 'breakdown',
+  color: AGENT_COLORS.breakdown,
+  consumes: ['image'],
+  needsSelection: true,
+  defaultSettings: { genre: '' },
+  describe: 'Select a hand-drawn storyboard — Seed 2.0 Pro reads it panel by panel and lays a grid of keyframe stills that reproduce each panel\'s camera angle (the same keyframe panel the Storyboard agent builds). No annotations needed.',
+  async run() {
+    throw new Error('The Breakdown agent lays a keyframe panel on the canvas — run it from the board.');
   },
 };
 
@@ -345,10 +372,12 @@ export const AGENTS = [
   inspirationAgent,
   storyAgent,
   storyboardAgent,
+  shotAgent,
   castAgent,
   characterVariationsAgent,
   locationVariationsAgent,
   deconstructAgent,
+  breakdownAgent,
 ];
 
 export const AGENT_MAP = AGENTS.reduce((acc, a) => {

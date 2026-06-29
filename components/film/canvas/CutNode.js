@@ -3,6 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox } from '@arco-design/web-react';
 import { IconLoading, IconExpand } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import EditableLabel from './EditableLabel';
@@ -54,6 +55,10 @@ const CutNodeInner = ({ id, data, selected }) => {
   // is the card's NAME; it only feeds the shoot prompt as a FALLBACK when PROMPT is empty.
 
   const durationSec = Math.min(15, Math.max(5, Math.round(Number(data.durationSec) || 10)));
+  // Resolution is gated by the chosen Seedance endpoint: Mini caps at 720p, standard adds 4K.
+  const videoModel = data.videoModel || 'seedance';
+  const resOptions = RES_BY_MODEL[videoModel] || RES_BY_MODEL.seedance;
+  const resolution = resOptions.includes(data.resolution) ? data.resolution : resDefault(videoModel);
   // CINEMATOGRAPHY pin = pick one of the 50 shot templates (sets the whole line) OR
   // hand-type. Picking stores the template id (so the dropdown highlights it) + its
   // name (cinePreset, for display) + the cinematography line.
@@ -187,7 +192,8 @@ const CutNodeInner = ({ id, data, selected }) => {
         <div>
           <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700, display: 'block', marginBottom: 3 }}>SEEDANCE 2.0 PARAMS</Text>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Select className="nodrag" size="mini" value={data.resolution || '1080p'} onChange={(v) => patch({ resolution: v })} options={['480p', '720p', '1080p'].map((o) => ({ label: o, value: o }))} style={{ width: 76 }} triggerProps={{ autoAlignPopupWidth: false }} />
+            <Select className="nodrag" size="mini" value={videoModel} onChange={(v) => patch({ videoModel: v, ...((RES_BY_MODEL[v] || RES_BY_MODEL.seedance).includes(data.resolution) ? {} : { resolution: resDefault(v) }) })} options={VIDEO_MODEL_OPTIONS.map((o) => ({ label: o.label, value: o.key }))} style={{ width: 148 }} triggerProps={{ autoAlignPopupWidth: false }} title="Which Seedance endpoint shoots this shot — Mini is faster/cheaper (caps at 720p)" />
+            <Select className="nodrag" size="mini" value={resolution} onChange={(v) => patch({ resolution: v })} options={resOptions.map((o) => ({ label: o, value: o }))} style={{ width: 76 }} triggerProps={{ autoAlignPopupWidth: false }} />
             <Select className="nodrag" size="mini" value={data.ratio || 'adaptive'} onChange={(v) => patch({ ratio: v })} options={['adaptive', '16:9', '9:16', '1:1', '4:3', '21:9'].map((o) => ({ label: o, value: o }))} style={{ width: 92 }} triggerProps={{ autoAlignPopupWidth: false }} />
             <Checkbox className="nodrag" checked={data.generateAudio !== false} onChange={(c) => patch({ generateAudio: c })}><Text style={{ fontSize: 10, color: '#9fb4d0' }}>audio</Text></Checkbox>
             <InputNumber className="nodrag" size="mini" placeholder="seed" value={data.seed ?? undefined} onChange={(v) => patch({ seed: v == null || v === '' ? null : Math.round(Number(v)) })} style={{ width: 88 }} />

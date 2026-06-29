@@ -93,9 +93,9 @@ export const planPrompts = async ({ task, count = 4, idea = '', direction = '', 
   const n = clamp(count, 1, 12, 4);
   let items = [];
   let lastErr = null;
-  // A task may ship its own user instruction (the preservation-first adShot does —
-  // the generic one's "what to explore / substantially different" is exploration
-  // language that fights fidelity); otherwise the shared exploratory instruction.
+  // Each task selects its planner persona via creativePlanner.{task}.user/.system
+  // (inspiration / characterVariations / locationVariations); an unknown task falls back to
+  // the shared exploratory instruction (creativePlanner.user) + an empty system.
   const userVars = {
     idea: idea || '(none given)',
     direction: direction || '(your call — choose the most interesting dimensions)',
@@ -126,11 +126,9 @@ export const planPrompts = async ({ task, count = 4, idea = '', direction = '', 
 // Inspiration: plan N distinct directions (reading selected refs = describe+mix),
 // then render. `refs` are always read for ideas; `useRefsInGen` also feeds them to
 // the image model as visual references.
-export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, count = 6, size = '2K', planTask = 'inspiration', config } = {}, ctx, onItem) => {
+export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, count = 6, size = '2K', config } = {}, ctx, onItem) => {
   const n = clamp(count, 1, 12, 6);
-  // planTask selects the planner persona: 'inspiration' explores (the freeform
-  // board); 'adShot' preserves (production shots — refs are canonical assets).
-  const items = await planPrompts({ task: planTask, count: n, idea: prompt, references: refs, config }, ctx);
+  const items = await planPrompts({ task: 'inspiration', count: n, idea: prompt, references: refs, config }, ctx);
   const genRefs = useRefsInGen ? refs : [];
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: genRefs, label: it.label || `Inspiration ${i + 1}`, meta: { planLabel: it.label } }));
   return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
@@ -184,7 +182,7 @@ export const isImagePolicyError = (err) => /image may contain sensitive/i.test((
 // Two source modes: a single imageUrl/assetId (the classic keyframe → first frame),
 // or `refUrls` — SEVERAL real reference images (direct-to-video: the storyboard's
 // cast/place assets, untouched, so the video model preserves the subjects itself).
-export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], firstFrameUrl = null, motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, config } = {}, ctx) => {
+export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], firstFrameUrl = null, motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, modelKey = 'seedance', config } = {}, ctx) => {
   // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
   // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
   if (!imageUrl && !assetId && !refUrls.length && !firstFrameUrl && !String(motion || '').trim()) throw new Error('animate requires a prompt, imageUrl, assetId, refUrls or firstFrameUrl');
@@ -212,8 +210,11 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // else: text-to-video — the prompt is the only content (no reference media).
   // seed (sequence-level, optional): held constant across re-shoots it isolates the
   // prompt as the only changed variable; null lets the model roll its own each time.
+  // Per-shot endpoint choice: the SHOT card may pick a variant (e.g. Seedance 2.0 Mini) by
+  // modelKey; unknown/blank falls back to the default seedance endpoint.
+  const videoModel = getModel(modelKey, config) || getModel('seedance', config);
   const { taskId } = await withRetry(
-    () => ctx.client.startVideo({ content, model: getModel('seedance', config), resolution, ratio, duration, generateAudio, seed }),
+    () => ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, seed }),
     { tries: 3, baseMs: 3000 },
   );
   return { taskId, prompt };

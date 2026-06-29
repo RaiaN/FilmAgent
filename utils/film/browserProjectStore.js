@@ -2,7 +2,7 @@
 // (window.showDirectoryPicker + FileSystemDirectoryHandle).
 // Used when running in a browser that supports the API (Chrome, Edge, Brave, etc.).
 
-import { emptyProject, migrateProject } from './projectShape';
+import { emptyProject } from './projectShape';
 
 const PROJECT_FILENAME = 'project.json';
 const ASSETS_DIRNAME = 'assets';
@@ -80,7 +80,7 @@ export const loadProjectFromHandle = async ({ handle }) => {
   if (!ok) throw new Error('Permission denied for selected folder');
   const loaded = await readJsonFile(handle, PROJECT_FILENAME);
   if (!loaded) throw new Error('No project.json found in this folder');
-  return { project: migrateProject(loaded), handleName: handle.name };
+  return { project: loaded, handleName: handle.name };
 };
 
 export const saveProjectToHandle = async ({ handle, project }) => {

@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useEffect, useRef, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Typography, Tag, Message, Select, Button } from '@arco-design/web-react';
-import { IconLock, IconUnlock, IconLoading, IconCopy, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconScissor, IconPlus, IconCheck, IconDownload } from '@arco-design/web-react/icon';
+import { Typography, Tag, Select, Button } from '@arco-design/web-react';
+import { IconLock, IconUnlock, IconLoading, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconScissor, IconPlus, IconCheck, IconDownload } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
 import { BIBLE_ROLES, BIBLE_ROLE_META } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
@@ -29,21 +29,10 @@ const ROLE_SELECT_OPTIONS = [
   { label: '— none —', value: NONE },
 ];
 
-const copyText = (e, text) => {
-  e.stopPropagation();
-  if (typeof navigator !== 'undefined' && navigator.clipboard) {
-    navigator.clipboard.writeText(text || '').then(
-      () => Message.success('Copied'),
-      () => Message.error('Copy failed'),
-    );
-  }
-};
-
 const KIND_LABEL = {
   image: 'IMG',
   video: 'VID',
   audio: 'AUD',
-  text: 'TXT',
 };
 
 // Visibility from the owning layer: 'show' | 'dim' | 'hide'
@@ -54,12 +43,11 @@ const visibilityStyle = (visibility) => {
 };
 
 const AssetNodeInner = ({ id, data, selected }) => {
-  const { kind, url, localUrl, cacheUrl, text, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
+  const { kind, url, localUrl, cacheUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
   const { onTagRole, onRename, onImgError, onDeconstruct, deconstructingId, onAddToTimeline, onRemoveFromTimeline, onTimelineIds } = useContext(AssetNodeContext);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
   const tint = bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
 
-  const isText = kind === 'text';
   // Locations are 16:9 (wide) — at the default 220px width they render only ~124px
   // tall, much smaller than portrait cast plates. Give them a wider node so the place
   // reads at a comparable size on the board.
@@ -78,8 +66,8 @@ const AssetNodeInner = ({ id, data, selected }) => {
   // the canvas for a fresh signed url (self-heal) and show a quiet refresh state.
   const healing = imgError && preserved && !localUrl;
 
-  // Inline rename (shared EditableLabel) — non-text assets with an onRename handler.
-  const canRename = !isText && typeof onRename === 'function';
+  // Inline rename (shared EditableLabel) — when an onRename handler is provided.
+  const canRename = typeof onRename === 'function';
 
   // Save the asset to disk. Blob-fetch (works for the same-origin local cache / data URLs
   // and any CORS-permitting remote) → trigger a download; if a cross-origin fetch is blocked,
@@ -107,7 +95,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
   return (
     <div
       style={{
-        width: isText ? 280 : (isLocation ? 360 : 220),
+        width: isLocation ? 360 : 220,
         background: '#fff',
         borderRadius: 10,
         // A bible-tagged node wears its role colour as the border so the cast & world
@@ -261,16 +249,6 @@ const AssetNodeInner = ({ id, data, selected }) => {
         {kind === 'audio' && url && (
           <audio src={url} controls style={{ width: '100%', padding: 8 }} />
         )}
-        {isText && (
-          <div
-            className="nowheel"
-            style={{ padding: 10, width: '100%', maxHeight: 220, overflowY: 'auto', background: '#fff', textAlign: 'left' }}
-          >
-            <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {text || label || '—'}
-            </Text>
-          </div>
-        )}
         {kind === 'image' && !displaySrc && !loading && (
           <Text type="secondary" style={{ fontSize: 12 }}>empty</Text>
         )}
@@ -283,7 +261,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
       )}
 
       {/* Caption — editable name (left) + icon-only actions (right), one aligned row. */}
-      {(label || (isText && text) || canRename) && (
+      {(label || canRename) && (
         <div style={{ padding: '6px 8px', borderTop: '1px solid #f2f3f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           {canRename ? (
             <EditableLabel value={label} onCommit={(v) => onRename(id, v)} containerStyle={{ flex: 1 }} textStyle={{ fontSize: 11 }} inputStyle={{ fontSize: 11 }} />
@@ -322,14 +300,6 @@ const AssetNodeInner = ({ id, data, selected }) => {
                   style={{ fontSize: 15, cursor: 'pointer', color: '#0fc6c2' }}
                 />
               ))
-            )}
-            {isText && text && (
-              <IconCopy
-                className="nodrag"
-                onClick={(e) => copyText(e, text)}
-                title="Copy text"
-                style={{ fontSize: 15, cursor: 'pointer', color: '#0fc6c2' }}
-              />
             )}
           </span>
         </div>

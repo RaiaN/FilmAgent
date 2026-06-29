@@ -147,85 +147,58 @@ export const writeFilmPrompt = async ({ idea, source = '', complexity = 'medium'
   return { mode: src ? 'preserve' : 'expand', prompt };
 };
 
-// ---- Storyboard: the STORY → a visual storyboard, all frames in one go --------------
-// The story prompt is CUT-marked (story.prompt.system emits "CUT TO:" between shots), so
-// its key elements are the segments between those markers. Render one storyboard FRAME per
-// element with Seedream — ALL AT ONCE (parallel, bounded). Consistency rides on the ONE
-// shared seed + the references (cast/world/mood); there's no prev-frame chain since the
-// frames don't wait on each other. Streams via onPlan/onFrame as each lands.
-const STORYBOARD_MAX = 12;
-export const splitStoryElements = (story = '') => {
-  const parts = String(story || '')
-    .split(/\bCUT\s*(?:TO)?\s*\d*\s*:?/i)
-    .map((s) => s.replace(/\s+/g, ' ').trim())
-    .filter((s) => s.length > 8);
-  return parts.length ? parts.slice(0, STORYBOARD_MAX) : (String(story || '').trim() ? [String(story).trim()] : []);
+// ---- Storyboard: a conversational SHOT DIVISION — script → a shot list, turn by turn ----
+// The Storyboard agent is a cinematographer you brainstorm WITH. Each turn takes the script,
+// the CURRENT shot list (read off the cards) and the director's message, and returns the FULL
+// updated shot list + a one-line reply. The canvas reconciles the list into a column of SHOT
+// cards (each a real CutNode = a Seedance prompt). No frames are rendered here — the shot list
+// IS the storyboard; the picture is shooting a card. Camera = a shotTemplate id from the library.
+export const storyboardTurn = async ({ script = '', shots = [], message = '', genre = '', count, config } = {}, ctx) => {
+  const n = Math.max(1, Math.min(16, Math.round(Number(count) || 8))); // default 8 frames; 1–16
+  const current = (shots || []).map((s, i) => ({
+    n: i + 1, beat: s.beat || '', prompt: s.prompt || '', shotTemplate: s.shotTemplate || '', durationSec: s.durationSec || 10,
+  }));
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('storyboard.turn.user', {
+      script: String(script || '').trim() || '(none given)',
+      genre: genre || 'unspecified',
+      shots: JSON.stringify(current),
+      message: String(message || '').trim() || '(start: break this into a shot list)',
+    }),
+    systemPrompt: renderTemplate('storyboard.turn.system', { templates: shotTemplateCatalog(), count: String(n) }),
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const arr = Array.isArray(raw.shots) ? raw.shots : (Array.isArray(raw) ? raw : []);
+  const out = arr.map((s, i) => {
+    const tpl = SHOT_TEMPLATE_BY_ID[s?.shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
+    return {
+      beat: String(s?.beat || s?.title || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
+      prompt: String(s?.prompt || s?.action || '').replace(/\s+/g, ' ').trim().slice(0, 600),
+      shotTemplate: tpl.id,
+      durationSec: clampDuration(s?.durationSec),
+    };
+  }).filter((s) => s.prompt);
+  if (!out.length) throw new Error('The shot read came back empty — try rephrasing.');
+  const reply = String(raw.reply || '').replace(/\s+/g, ' ').trim().slice(0, 400) || 'Updated the shot list.';
+  return { shots: out, reply };
 };
 
-// Break a story/idea into a SEQUENCE of distinct visual shots (one sentence each) via the
-// VLM. `count` = how many shots (a number, or undefined → the model's own 5–7). Used both to
-// expand a RAW idea (no CUT markers) and to honor an explicit Frames count. Returns null on
-// failure / a degenerate result so the caller can fall back to the CUT segments.
-const expandToBeats = async (story, config, ctx, count) => {
-  try {
-    const { content } = await ctx.client.reason({
-      prompt: renderTemplate('storyboard.beats.user', { story }),
-      systemPrompt: renderTemplate('storyboard.beats.system', { count: count ? String(count) : '5–7' }),
-      modelId: getModel('reasoner', config),
-      reasoningEffort: 'low',
-    });
-    const arr = parseJson(content);
-    const beats = (Array.isArray(arr) ? arr : (arr && Array.isArray(arr.shots) ? arr.shots : []))
-      .map((s) => String(s).replace(/\s+/g, ' ').trim())
-      .filter((s) => s.length > 8);
-    if (beats.length >= 2 || (count === 1 && beats.length === 1)) return beats.slice(0, count || STORYBOARD_MAX);
-  } catch { /* fall through to null */ }
-  return null;
-};
-
-export const generateStoryboard = async ({ story, references = [], count, seed, config } = {}, ctx, hooks = {}) => {
-  const segs = splitStoryElements(story);
-  if (!segs.length) throw new Error('Give me a story or an idea to storyboard.');
-  // FRAME COUNT: an explicit count (the rail's Frames control) re-breaks the WHOLE story into
-  // exactly that many shots via the model (it picks the strongest beats), falling back to
-  // slicing the CUT segments if the model is unavailable. Auto (no count) keeps the authored
-  // CUT segments — and expands a single raw idea into a 5–7 shot sequence so it isn't 1 frame.
-  const target = Number.isFinite(Number(count)) && Number(count) > 0 ? Math.min(Math.round(Number(count)), STORYBOARD_MAX) : null;
-  let elements = segs;
-  if (target) {
-    const expanded = ctx?.client?.reason ? await expandToBeats(story, config, ctx, target) : null;
-    elements = (expanded && expanded.length ? expanded : segs).slice(0, target);
-  } else if (segs.length === 1 && ctx?.client?.reason) {
-    elements = (await expandToBeats(segs[0], config, ctx)) || segs;
-  }
-  const onPlan = hooks.onPlan || (() => {});
-  const onFrame = hooks.onFrame || (() => {});
-  const s = (seed == null || seed === '') ? Math.floor(Math.random() * 2147483647) : Number(seed);
-  const size = resolveImageSize('2K', '16:9');
-  // OPTIONAL references (cast / world / mood) anchor EVERY frame — with no prev-frame chain,
-  // these + the shared seed are what hold the board consistent. Capped for Seedream.
-  const baseRefs = (references || []).filter(Boolean).slice(0, 4);
-  onPlan(elements.map((action, i) => ({ index: i, action })));
-  const frames = new Array(elements.length);
-  // ALL frames in one go — parallel, bounded; each carries the SAME seed + references.
-  const frameOne = (action, i) => async () => {
-    try {
-      const out = await ctx.client.generateImage({
-        prompt: renderTemplate('storyboard.frame', { action }),
-        referenceImages: baseRefs,
-        size,
-        seed: s,
-        model: getModel('seedream', config),
-      });
-      frames[i] = { index: i, action, url: out.url };
-      onFrame({ index: i, action, url: out.url });
-    } catch (err) {
-      frames[i] = { index: i, action, url: '', error: err.message };
-      onFrame({ index: i, action, url: '', error: err.message });
-    }
-  };
-  await runWithConcurrency(elements.map((a, i) => frameOne(a, i)), 4);
-  return { seed: s, frames: frames.filter(Boolean) };
+// ONE storyboard KEYFRAME: a Seedream still that LOCKS the shot's camera, framing, blocking and
+// mood. Composed from the shot's prompt + the chosen template's cinematography; the project's
+// bible refs (cast/world) anchor the subjects so the storyboard stays consistent. No video — this
+// is a planning still (the storyboard frame). One call per shot; the canvas streams them.
+export const storyboardKeyframe = async ({ prompt = '', shotTemplate = '', refs = [], genre = '', config } = {}, ctx) => {
+  const cine = shotTemplateCinematography(shotTemplate, genre);
+  const { url } = await ctx.client.generateImage({
+    prompt: renderTemplate('storyboard.keyframe', { action: String(prompt || '').trim(), cine }),
+    referenceImages: (refs || []).filter(Boolean).slice(0, 4),
+    size: resolveImageSize('2K', '16:9'),
+    model: getModel('seedream', config),
+  });
+  if (!url) throw new Error('No keyframe URL in response');
+  return { url };
 };
 
 // ---- Deconstruct: a rendered Take → its CUTs (the bridge to Directing) -------------
@@ -300,7 +273,7 @@ export const panelToShot = (panel, anchors = [], genre = '') => {
 // plates become the canonical anchors every shot then references. In the UI the results
 // land as CANDIDATES with suggested-role chips — the user's tag locks them; headless
 // runs (no human) adopt them directly.
-const CAST_ROLE = { character: 'character', location: 'location' };
+const CAST_ROLE = { character: 'character', creature: 'character', location: 'location', prop: 'prop' };
 
 // Read the film's GENRE & TONE from the premise — the upstream creative knob that
 // drives look, casting and shot grammar. One cheap call; surfaced to the user to
@@ -323,21 +296,13 @@ export const detectGenre = async ({ idea, config } = {}, ctx) => {
   };
 };
 
-export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks = {}) => {
-  const t = String(idea || '').trim();
-  if (!t) throw new Error('The production draft needs the film idea.');
+// Render a parsed asset array (the cast schema — type + facePrompt/bodyPrompt/presencePrompt/
+// prompt) into bible PLATES. Used by castFromIdea (the Cast & World idea read). Each plate carries
+// its source asset id + a `primary` flag (the identity anchor: the FACE for a character, the single
+// plate otherwise). Streams onPlan/onEntry; the canvas tags/locks the plates.
+export const castDraftFromParsed = async ({ arr, style = '', config } = {}, ctx, hooks = {}) => {
   const onPlan = hooks.onPlan || (() => {});
   const onEntry = hooks.onEntry || (() => {});
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('storyboard.cast.user', { idea: t, genre: genre || 'unspecified' }),
-    systemPrompt: renderTemplate('storyboard.cast.system'),
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const raw = parseJson(content);
-  const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.cast) ? raw.cast : null);
-  if (!arr || !arr.length) throw new Error('The production draft returned nothing — provide bible images or rephrase the idea.');
-  const style = (raw && !Array.isArray(raw) && String(raw.style || '').trim()) || '';
   // The shared style rides on EVERY plate — consistency by construction.
   const withStyle = (p) => [String(p || '').trim(), style].filter(Boolean).join('. ');
   // A portrait plate is an IDENTITY ANCHOR, not a scene still. Force a clean frontal
@@ -351,31 +316,41 @@ export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks
   const FACE_SIZE = resolveImageSize('4K', '3:4');
   const BODY_SIZE = resolveImageSize('4K', '4:3');
   const PLACE_SIZE = resolveImageSize('4K', '16:9');
-  // Flatten the cast into a PLATE LIST. A character → a face plate + a body plate
-  // (the body refs the face so the full-body sheet keeps the close-up's identity);
-  // a location → one plate. Defensive: a character that returned only `prompt`
-  // (old shape) becomes a single plate.
+  const CREATURE_SIZE = resolveImageSize('4K', '16:9'); // an in-world PRESENCE, cinematic — not a portrait
+  const PROP_SIZE = resolveImageSize('4K', '4:3');       // a clean object / vehicle reference
+  // Flatten the assets into a PLATE LIST, each rendered in the shape its TYPE needs:
+  //  • character → frontal FACE portrait (identity anchor) + full-body turnaround sheet
+  //    (the body refs the face so the sheet keeps the close-up's identity)
+  //  • creature  → ONE in-world "presence" plate (a bible 'character' ref, but obscured /
+  //    atmospheric — NO PORTRAIT_SPEC: a neutral frontal mugshot would kill an obscured antagonist)
+  //  • prop      → ONE clean object / vehicle reference (bible 'prop')
+  //  • location  → ONE establishing plate (the default)
+  //  `assetId`/`primary` tag each plate to its source asset (the FACE is the primary anchor) so
+  //  a caller can wire a SHOT card's refs to the right plate. (`c.role` tolerated alongside `c.type`.)
   const plates = [];
-  arr.slice(0, 5).forEach((c, ci) => {
-    const role = CAST_ROLE[c?.role] || 'location';
-    const name = String(c?.name || `Cast ${ci + 1}`).slice(0, 40);
+  arr.slice(0, 8).forEach((c, ci) => {
+    const aid = String(c?.id != null ? c.id : ci);
+    const type = String(c?.type || c?.role || '').trim().toLowerCase();
+    const role = CAST_ROLE[type] || 'location';
+    const name = String(c?.name || `Asset ${ci + 1}`).slice(0, 40);
     const face = String(c?.facePrompt || '').trim();
     const body = String(c?.bodyPrompt || '').trim();
+    const presence = String(c?.presencePrompt || '').trim();
     const single = String(c?.prompt || '').trim();
-    if (role === 'character' && face) {
+    if (type === 'character' && face) {
       const faceKey = `cast-${ci}-face`;
-      plates.push({ key: faceKey, role: 'character', name: `${name} · face`, prompt: `${withStyle(face)}. ${PORTRAIT_SPEC}`, size: FACE_SIZE });
-      if (body) plates.push({ key: `cast-${ci}-body`, role: 'character', name: `${name} · body`, prompt: withStyle(body), refFrom: faceKey, size: BODY_SIZE });
-    } else if (single) {
-      plates.push({ key: `cast-${ci}`, role, name, prompt: withStyle(single), size: PLACE_SIZE });
-    } else if (face) {
-      plates.push({ key: `cast-${ci}`, role, name, prompt: withStyle(face), size: PLACE_SIZE });
+      plates.push({ key: faceKey, role: 'character', name: `${name} · face`, prompt: `${withStyle(face)}. ${PORTRAIT_SPEC}`, size: FACE_SIZE, assetId: aid, primary: true });
+      if (body) plates.push({ key: `cast-${ci}-body`, role: 'character', name: `${name} · body`, prompt: withStyle(body), refFrom: faceKey, size: BODY_SIZE, assetId: aid, primary: false });
+    } else if (type === 'creature' && (presence || single || face)) {
+      plates.push({ key: `cast-${ci}`, role: 'character', name, prompt: withStyle(presence || single || face), size: CREATURE_SIZE, assetId: aid, primary: true });
+    } else if (single || face || presence) {
+      plates.push({ key: `cast-${ci}`, role, name, prompt: withStyle(single || face || presence), size: role === 'prop' ? PROP_SIZE : PLACE_SIZE, assetId: aid, primary: true });
     }
   });
   if (!plates.length) throw new Error('The production draft returned no usable assets — rephrase the idea.');
-  // Announce the PLAN before any image renders (role + name only) so the UI can
+  // Announce the PLAN before any image renders (role + name + asset tag) so the UI can
   // place loading cards immediately — no silent minute.
-  onPlan(plates.map(({ role, name }) => ({ role, name })));
+  onPlan(plates.map(({ role, name, assetId, primary }) => ({ role, name, assetId, primary })));
 
   const entries = [];
   const urlByKey = {};
@@ -398,11 +373,11 @@ export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks
       // A body plate waits on its face's URL so the sheet inherits the exact face.
       const out = await genImage(p.prompt, p.refFrom ? urlByKey[p.refFrom] : null, p.size);
       urlByKey[p.key] = out.url;
-      const entry = { id: p.key, role: p.role, name: p.name, url: out.url, locked: true };
+      const entry = { id: p.key, role: p.role, name: p.name, url: out.url, locked: true, assetId: p.assetId, primary: p.primary };
       entries.push(entry);
       onEntry(entry, idx);
     } catch {
-      onEntry({ id: p.key, role: p.role, name: p.name, url: '', failed: true }, idx);
+      onEntry({ id: p.key, role: p.role, name: p.name, url: '', failed: true, assetId: p.assetId, primary: p.primary }, idx);
     }
   };
   // Phase 1: faces + locations (no dependency). Phase 2: bodies (ref their face).
@@ -412,4 +387,53 @@ export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks
   await runWithConcurrency(deps, 3);
   if (!entries.length) throw new Error('The production draft could not generate any anchors.');
   return entries;
+};
+
+// Idea → cast & world (the original entry): one read derives the asset list, then the shared
+// renderer draws the bible plates.
+export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks = {}) => {
+  const t = String(idea || '').trim();
+  if (!t) throw new Error('The production draft needs the film idea.');
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('storyboard.cast.user', { idea: t, genre: genre || 'unspecified' }),
+    systemPrompt: renderTemplate('storyboard.cast.system'),
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content);
+  const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.assets) ? raw.assets : null);
+  if (!arr || !arr.length) throw new Error('The production draft returned nothing — provide bible images or rephrase the idea.');
+  const style = (raw && !Array.isArray(raw) && String(raw.style || '').trim()) || '';
+  return castDraftFromParsed({ arr, style, config }, ctx, hooks);
+};
+
+// Breakdown: a director's STORYBOARD image → a SHOT LIST that mirrors each drawn panel, in ONE
+// Seed 2.0 Pro read (no annotations required). The focus is CAMERA ANGLE — for each panel the
+// model picks the camera template whose framing/angle matches the drawing and describes what's
+// framed. Returns the normalized shots `{ beat, prompt, shotTemplate, durationSec }` (the SAME
+// shape `storyboardTurn` returns), so the canvas renders a keyframe still per panel — the same
+// keyframe panel the Storyboard agent produces. NO bible plates, NO SHOT cards.
+export const breakdownStoryboard = async ({ boardUrl, genre = '', config } = {}, ctx) => {
+  if (!boardUrl) throw new Error('Breakdown needs a storyboard image — select one on the board first.');
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('breakdown.read.user', { genre: genre || 'unspecified' }),
+    systemPrompt: renderTemplate('breakdown.read.system', { templates: shotTemplateCatalog() }),
+    images: [boardUrl],
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const arr = Array.isArray(raw.shots) ? raw.shots : (Array.isArray(raw) ? raw : []);
+  // Normalize each panel → a shot: resolve/fallback the camera-template id, clamp the duration.
+  const shots = arr.map((s, i) => {
+    const tpl = SHOT_TEMPLATE_BY_ID[s?.shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
+    return {
+      beat: String(s?.beat || s?.title || `Panel ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
+      prompt: String(s?.prompt || s?.action || '').replace(/\s+/g, ' ').trim().slice(0, 600),
+      shotTemplate: tpl.id,
+      durationSec: clampDuration(s?.durationSec),
+    };
+  }).filter((s) => s.prompt);
+  if (!shots.length) throw new Error('The breakdown read found no panels — try a clearer storyboard.');
+  return { shots };
 };

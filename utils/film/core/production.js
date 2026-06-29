@@ -41,9 +41,7 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
     case 'inspiration':
       // In a production the refs are the chunk's deps + bible — feed them to the
       // image model too (not just the planner) so the look actually conditions it.
-      // planTask 'adShot' (set by the blueprint) switches the prompt-writer to the
-      // preservation-first persona — refs are canonical assets, not inspiration.
-      await inspiration({ prompt: p.prompt || intent, refs: inputUrls, useRefsInGen: inputUrls.length > 0, count, size: p.size, planTask: p.planTask, config }, ctx, collect);
+      await inspiration({ prompt: p.prompt || intent, refs: inputUrls, useRefsInGen: inputUrls.length > 0, count, size: p.size, config }, ctx, collect);
       return outs;
     case 'characterVariations':
       if (!inputUrls[0]) return [];
@@ -254,12 +252,12 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
         const kfOut = shot.keyframeUrl ? [{ id: outId(), url: shot.keyframeUrl, kind: 'image', prompt: shot.promptSeed || shot.beat }] : [];
         const shotOut = [{ id: outId(), url: shot.shotUrl, kind: 'video', prompt: shot.motion || '' }];
         return [
-          { id: kfId, agent: 'inspiration', title: shot.beat, intent: shot.beat, params: { prompt: shot.promptSeed || shot.beat, count: 1, planTask: 'adShot' }, dependsOn: [], gated: true, status: 'approved', outputs: kfOut, pickedId: kfOut[0]?.id || null, qc: null, error: null, bibleRefs: refIds, refCap: explicit ? EXPLICIT_REF_CAP : undefined, locked: true, feedback: '' },
+          { id: kfId, agent: 'inspiration', title: shot.beat, intent: shot.beat, params: { prompt: shot.promptSeed || shot.beat, count: 1 }, dependsOn: [], gated: true, status: 'approved', outputs: kfOut, pickedId: kfOut[0]?.id || null, qc: null, error: null, bibleRefs: refIds, refCap: explicit ? EXPLICIT_REF_CAP : undefined, locked: true, feedback: '' },
           { id: animId, agent: 'animate', title: shot.beat, intent: shot.beat, params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto' }, dependsOn: [kfId], gated: true, status: 'approved', outputs: shotOut, pickedId: shotOut[0].id, qc: null, error: null, bibleRefs: [], locked: true, feedback: '' },
         ];
       }
       return [
-        { id: kfId, agent: 'inspiration', title: shot.beat, intent: shot.beat, params: { prompt: shot.promptSeed || shot.beat, count: 1, planTask: 'adShot' }, dependsOn: [], gated: true, status: 'pending', outputs: [], pickedId: null, qc: null, error: null, bibleRefs: refIds, refCap: explicit ? EXPLICIT_REF_CAP : undefined, locked: false, feedback: '' },
+        { id: kfId, agent: 'inspiration', title: shot.beat, intent: shot.beat, params: { prompt: shot.promptSeed || shot.beat, count: 1 }, dependsOn: [], gated: true, status: 'pending', outputs: [], pickedId: null, qc: null, error: null, bibleRefs: refIds, refCap: explicit ? EXPLICIT_REF_CAP : undefined, locked: false, feedback: '' },
         // The animate step keys off the keyframe (its dep); it needs no bible refs of
         // its own. The shot's camera template + motion are the two halves of the
         // Seedance prompt; camera defaults to 'auto' (no contradicting preamble).

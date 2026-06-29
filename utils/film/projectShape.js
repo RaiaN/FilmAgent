@@ -1,7 +1,7 @@
 // Canvas-native project shape, shared by the server fs store and the browser
 // File System Access store so both write identical project.json structures.
 
-import { emptyBible, emptyTimeline, timelineEvent } from './timelineModel';
+import { emptyBible, emptyTimeline } from './timelineModel';
 
 export const PROJECT_VERSION = 2;
 
@@ -11,8 +11,9 @@ export const emptyProject = ({ id, title, language, targetMinutes }) => ({
   title: title || 'Untitled Film',
   language: language || 'en',
   targetMinutes: targetMinutes || 4,
-  // The detected/confirmed genre + tone — set at the Idea stage, drives the cast
-  // style and the storyboard's shot grammar. { label, tone, line } or null.
+  // The confirmed genre LINE — set when the Cast & World flow locks genre; drives the
+  // cast style and the storyboard's shot grammar. Shape: { line } (a "genre · tone"
+  // string) or null. Only `line` is stored/read — the detection's label/tone aren't kept.
   genre: null,
 
   // The SEQUENCE seed — one seed for every shot in the film. { value, locked }:
@@ -40,19 +41,12 @@ export const emptyProject = ({ id, title, language, targetMinutes }) => ({
     locationVariations: { enabled: true, visibility: 'show', settings: {} },
   },
 
-  // Optional structured story data (screenwriting layer, folded in later).
-  story: null,
-
-  // Cached production-session snapshot (the engine behind Auto-fill), so per-shot
+  // Cached production-session snapshot (the engine behind per-card shoots), so per-shot
   // iteration survives a reload. Null until a session runs. No user-facing panel.
   auto: null,
 
-  // The Filming Loop's chunk chain (Short Film mode): { chunks, story }. The
-  // timeline mirrors it as events; this is the driver state, persisted for reload.
-  filming: null,
-
-  // The chosen Concierge recipe (use-case) + its framing. Null until the Concierge
-  // runs. e.g. { id: 'advertisement', durationSec, aspect, look }.
+  // The chosen recipe (use-case) + its framing. Null until launched; the Short-Film
+  // recipe gates the launcher → canvas. e.g. { id, durationSec, aspect, look }.
   recipe: null,
 
   // The Bible — a global, ATEMPORAL layer of canonical assets (style/look,
@@ -72,88 +66,3 @@ export const emptyProject = ({ id, title, language, targetMinutes }) => ({
 
 // Re-export the shape constructors so callers have one import surface.
 export { emptyBible, emptyTimeline };
-
-// Build timeline events from any Story Director keyframes on the board (nodes that
-// carry storyOrder/event). Lets a story built before the timeline existed appear
-// on the spine. Each beat becomes a manual (non-step) keyframe event.
-export const eventsFromStoryNodes = (nodes = []) =>
-  (nodes || [])
-    .filter((n) => n?.data?.storyOrder != null && n?.data?.url)
-    .sort((a, b) => a.data.storyOrder - b.data.storyOrder)
-    .map((n, i) => timelineEvent({
-      order: i,
-      beat: n.data.event || `Beat ${i + 1}`,
-      keyframeUrl: n.data.url,
-      keyframeNodeId: n.id,
-      status: 'keyframe',
-    }));
-
-// Backfill the bible + timeline on an already-current project saved before they
-// existed (migrateProject only handles v1→v2). Non-destructive: returns the same
-// reference when nothing is missing, else a shallow clone with the defaults.
-export const normalizeProject = (project) => {
-  if (!project || typeof project !== 'object') return project;
-  const hasBible = project.bible && Array.isArray(project.bible.entries);
-  const hasTimeline = project.timeline && Array.isArray(project.timeline.events);
-  if (hasBible && hasTimeline) return project;
-  return {
-    ...project,
-    bible: hasBible ? project.bible : emptyBible(),
-    timeline: hasTimeline ? project.timeline : emptyTimeline(),
-  };
-};
-
-// Migrate a v1 (wizard) project into the v2 canvas shape without losing data.
-// Old story stages become a `story` blob; any generated bible imagery becomes
-// canvas asset nodes so nothing the user made disappears.
-export const migrateProject = (project) => {
-  if (!project || project.version >= PROJECT_VERSION) return normalizeProject(project);
-
-  const migrated = {
-    ...emptyProject({
-      id: project.id,
-      title: project.title,
-      language: project.language,
-      targetMinutes: project.targetMinutes,
-    }),
-    id: project.id,
-    createdAt: project.createdAt || new Date().toISOString(),
-  };
-
-  if (project.stages) {
-    migrated.story = {
-      logline: project.stages.logline?.approved || null,
-      treatment: project.stages.treatment?.approved || null,
-      script: project.stages.script?.approved || null,
-      style: project.stages.style?.approved || null,
-    };
-
-    const nodes = [];
-    let x = 80;
-    let y = 80;
-    const pushAsset = (url, label, layerId) => {
-      if (!url) return;
-      nodes.push({
-        id: `mig-${nodes.length}-${Math.random().toString(36).slice(2, 7)}`,
-        type: 'asset',
-        position: { x, y },
-        data: { kind: 'image', url, label, locked: true, layerId, sourceRefs: [], meta: {} },
-      });
-      x += 280;
-      if (x > 1200) { x = 80; y += 320; }
-    };
-
-    (project.stages.characters?.items || []).forEach((c) => {
-      pushAsset(c.portraitUrl, `${c.name} — portrait`, 'characterVariations');
-      pushAsset(c.closeSheetUrl, `${c.name} — close sheet`, 'characterVariations');
-      pushAsset(c.fullBodyUrl, `${c.name} — full body`, 'characterVariations');
-    });
-    (project.stages.locations?.items || []).forEach((l) => {
-      pushAsset(l.imageUrl, `${l.name} — plate`, 'locationVariations');
-    });
-
-    migrated.canvas.nodes = nodes;
-  }
-
-  return migrated;
-};

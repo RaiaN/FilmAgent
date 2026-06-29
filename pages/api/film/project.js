@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
-import { emptyProject, migrateProject } from '../../../utils/film/projectShape';
+import { emptyProject } from '../../../utils/film/projectShape';
 
 export const config = {
   api: {
@@ -93,7 +93,7 @@ export default async function projectHandler(req, res) {
       if (!loaded) {
         return res.status(500).json({ error: 'project.json is corrupt' });
       }
-      const project = migrateProject(loaded);
+      const project = loaded;
       updateRecent({ path: projectPath, id: project.id, title: project.title });
       return res.status(200).json({ project, projectPath });
     }

@@ -103,11 +103,6 @@ const LayerRail = ({ activeLayerId, onActivate, visibility, onCycleVisibility })
           );
         })}
       </div>
-      <div style={{ padding: 10, borderTop: '1px solid #f2f3f5' }}>
-        <Text type="secondary" style={{ fontSize: 10 }}>
-          Click an agent to arm it, then Run on your selection. The eye toggles that agent's assets on the board.
-        </Text>
-      </div>
     </div>
   );
 };

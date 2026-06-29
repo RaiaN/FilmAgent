@@ -27,6 +27,7 @@ import AssetNode, { AssetNodeContext } from './AssetNode';
 import CutNode, { CutContext } from './CutNode';
 import GroupNode from './GroupNode';
 import StoryScriptNode, { StoryScriptContext } from './StoryScriptNode';
+import StoryboardChatNode, { StoryboardChatContext } from './StoryboardChatNode';
 import LayerRail from './LayerRail';
 import LayerPanel from './LayerPanel';
 import CanvasContextMenu from './CanvasContextMenu';
@@ -38,12 +39,13 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction, runStep as runAgentOp } from '../../../utils/film/core/production';
 import { animate as animateOp } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, deconstructTake, generateStoryboard } from '../../../utils/film/core/storyboard';
+import { detectGenre, writeFilmPrompt, deconstructTake, storyboardTurn, storyboardKeyframe, breakdownStoryboard } from '../../../utils/film/core/storyboard';
+import { clampResolution } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
 import { createTrace } from '../../../utils/film/core/trace';
-import { emptyTimeline, emptyBible, eventsFromStoryNodes } from '../../../utils/film/projectShape';
+import { emptyTimeline, emptyBible } from '../../../utils/film/projectShape';
 import { bibleEntry, timelineEvent, orderedEvents, renumber, mirrorSessionEvents, resolveBibleUrls } from '../../../utils/film/timelineModel';
 import { BIBLE_ROLES, SHORT_FILM_RECIPE, composeFilmShotPrompt, shotReferences, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import {
@@ -64,7 +66,7 @@ import { cacheAssetLocal } from '../../../utils/film/assetCache';
 
 const { Text } = Typography;
 
-const nodeTypes = { asset: AssetNode, group: GroupNode, cut: CutNode, story: StoryScriptNode };
+const nodeTypes = { asset: AssetNode, group: GroupNode, cut: CutNode, story: StoryScriptNode, sbchat: StoryboardChatNode };
 
 // Agents that can fill a selected timeline clip directly (image agents → the clip's
 // keyframe; animate → its rendered shot).
@@ -159,32 +161,6 @@ const downscaleRef = async (url) => {
   try { return await makeThumbnail(url, 1024); } catch { return url; }
 };
 
-// Back-compat: a modal-era project persisted project.bible.entries but its board
-// nodes aren't tagged. Stamp role + lock onto each entry's source node (or, if that
-// node is gone, synthesize a tagged node from the entry) so reconcileBibleFromNodes
-// derives the same bible — nodes are now the source of truth. Idempotent: skips an
-// entry whose node is already tagged, so it's safe to run on every load.
-const seedBibleTags = (nodes, entries) => {
-  if (!entries || !entries.length) return nodes;
-  const list = nodes.slice();
-  const indexById = new Map(list.map((n, i) => [n.id, i]));
-  entries.forEach((e) => {
-    const synthId = `bibnode-${e.id}`;
-    const tagged = list.some((n) => n.data?.bibleRole && (n.id === e.nodeId || n.id === synthId));
-    if (tagged) return;
-    if (e.nodeId && indexById.has(e.nodeId)) {
-      const i = indexById.get(e.nodeId);
-      list[i] = { ...list[i], data: { ...list[i].data, bibleRole: e.role, locked: true } };
-    } else if (e.url && !indexById.has(synthId)) {
-      const node = createAssetNode({ id: synthId, kind: 'image', url: e.url, label: e.name || e.role, position: { x: 60 + (list.length % 6) * 200, y: 20 }, locked: true, preserved: true });
-      node.data.bibleRole = e.role;
-      list.push(node);
-      indexById.set(synthId, list.length - 1);
-    }
-  });
-  return list;
-};
-
 const buildInitialLayerState = (project) => {
   const settings = {};
   const visibility = {};
@@ -225,7 +201,7 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
       const out = await animateOp({ // eslint-disable-line no-await-in-loop
         motion: shot.motion, camera: 'auto', refUrls: urls, refAssetIds: ids,
         firstFrameUrl: shot.firstFrameUrl, duration: shot.durationSec, resolution: shot.resolution, ratio: shot.ratio,
-        generateAudio: genAudio, seed: shot.seed,
+        generateAudio: genAudio, seed: shot.seed, modelKey: shot.modelKey,
       }, ctx);
       return { taskId: out.taskId, droppedRefs };
     } catch (e) {
@@ -247,13 +223,11 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   const initialLayerState = useMemo(() => buildInitialLayerState(project), [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [layerSettings, setLayerSettings] = useState(initialLayerState.settings);
   const [layerVisibility, setLayerVisibility] = useState(initialLayerState.visibility);
-  const layerSettingsRef = useRef(layerSettings); // latest per-agent settings for async funnels (e.g. storyboard Frames)
-  useEffect(() => { layerSettingsRef.current = layerSettings; }, [layerSettings]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(
-    // Seed bible tags from any persisted entries up front (first mount skips the
-    // project-switch effect below), so the reconciler derives the same bible.
-    seedBibleTags(applyVisibility(project.canvas?.nodes || [], initialLayerState.visibility), project.bible?.entries || []),
+    // Tagged nodes (data.bibleRole + locked) are the bible's source of truth; the
+    // reconciler derives entries from them on every change.
+    applyVisibility(project.canvas?.nodes || [], initialLayerState.visibility),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(project.canvas?.edges || []);
 
@@ -345,9 +319,9 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   // The board IS the brand kit: project.bible is DERIVED from role-tagged board nodes
   // (data.bibleRole + locked), keyed by nodeId. This REPLACES the old bible→board
   // reconciler (which went the other way) — nodes are now the source of truth. Gated
-  // on seeding (below) so a freshly-loaded project whose entries aren't yet stamped
-  // onto nodes isn't wiped before seedBibleTags runs.
-  const bibleSeededRef = useRef(project.id); // armed once a project's entries are seeded onto nodes (first mount seeds in useNodesState)
+  // on the project-switch effect (below) having loaded this project's nodes, so a
+  // freshly-switched project isn't reconciled against the previous project's nodes.
+  const bibleSeededRef = useRef(project.id); // armed for the current project once its nodes are loaded (first mount loads them in useNodesState)
   useEffect(() => {
     if (bibleSeededRef.current !== project.id) return;
     const derived = nodes
@@ -429,9 +403,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     const ls = buildInitialLayerState(project);
     setLayerSettings(ls.settings);
     setLayerVisibility(ls.visibility);
-    // Seed bible tags onto nodes BEFORE arming the reconciler so a persisted (modal-era)
-    // bible isn't derived-to-empty on the first pass. After this, tagged nodes drive it.
-    setNodes(seedBibleTags(applyVisibility(project.canvas?.nodes || [], ls.visibility), project.bible?.entries || []));
+    setNodes(applyVisibility(project.canvas?.nodes || [], ls.visibility));
     bibleSeededRef.current = project.id;
     sessionRef.current = null;
     setFilmProgress(null);
@@ -448,12 +420,6 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     setActiveLayerId(null);
     setSelectedEventId(null);
     setTimelineCollapsed(!(project.timeline?.events?.length));
-    // Bring any Story Director beats onto the spine for a project that predates the
-    // timeline (one-time; persisted events take precedence so this never duplicates).
-    if (!(project.timeline?.events || []).length) {
-      const migrated = eventsFromStoryNodes(project.canvas?.nodes || []);
-      if (migrated.length) updateTimeline((cur) => ({ ...cur, events: migrated }));
-    }
   }, [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Push canvas + layer state up to the parent (which debounce-persists to disk).
@@ -521,11 +487,12 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     for (let i = 0; i < files.length; i += 1) {
       const file = files[i];
       const kind = fileToAssetKind(file);
+      if (!kind) continue; // non-media (e.g. a text file) — not a board asset
       try {
         const dataUrl = await readFileAsDataUrl(file); // eslint-disable-line no-await-in-loop
         const node = createAssetNode({
           kind,
-          url: kind === 'text' ? '' : dataUrl,
+          url: dataUrl,
           label: file.name,
           position: { x: basePos.x + i * 40, y: basePos.y + i * 40 },
         });
@@ -837,8 +804,10 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   // take id currently being deconstructed (drives the Take node's button spinner).
   const deconstructRunRef = useRef(null);
   const [deconstructing, setDeconstructing] = useState(null);
-  // …and for the Storyboard agent (handleGenerateStoryboard lives far below).
+  // …and the Storyboard (shot-division) agent — spawnStoryboardChat lives far below.
   const storyboardRunRef = useRef(null);
+  // …and the Breakdown agent (handleBreakdown lives far below; bridged like the others).
+  const breakdownRunRef = useRef(null);
 
   // Snap a batch's origin to open board space so successive runs (and a batch vs.
   // whatever is already there) never pile onto the same spot — the overlap bug.
@@ -1081,9 +1050,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       // The clip's BEAT is the prompt (that's the shot description) — it wins over the
       // panel's idea-seeded prompt. prompt feeds inspiration; direction feeds the
       // variations agents. Bible = the look.
-      // planTask 'adShot': a clip fill is production work — preserve the refs' identity
-      // (only the freeform board Run keeps the exploratory planner persona).
-      const params = { ...settings, prompt: event.beat || settings.prompt, direction: event.beat || settings.direction || settings.prompt, planTask: 'adShot' };
+      const params = { ...settings, prompt: event.beat || settings.prompt, direction: event.beat || settings.direction || settings.prompt };
       const outs = await runAgentOp({ agent: agentId, params, inputUrls: refs, count: 1, intent: event.beat }, ctx);
       if (!outs[0]?.url) throw new Error('No keyframe generated');
       const nodeId = upsertClipNode(event.keyframeNodeId, idx, { kind: 'image', url: outs[0].url, label: `Keyframe · ${event.beat || 'clip'}` });
@@ -1126,13 +1093,34 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
         if (!take) { Message.warning('Select a Take (a rendered video) on the board first.'); return; }
         if (deconstructRunRef.current) await deconstructRunRef.current(take.id);
       } else if (activeLayerId === 'storyboard') {
-        // Storyboard a typed idea, else the SELECTED Story node (no fallback to a random
-        // story). Any SELECTED board images ride as references on every frame.
-        const idea = (activeSettings.prompt || '').trim();
+        // Storyboard = conversational shot division. Read the script from the SELECTED Story node
+        // (its prompt) → spawn the chat node bound to its column of SHOT cards.
         const selStory = nodes.find((n) => n.type === 'story' && n.selected && n.data?.prompt);
-        if (!idea && !selStory) { Message.warning('Select a Story node on the board (or type an idea), then Run.'); return; }
-        const refs = nodes.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url).map((n) => n.data.localUrl || n.data.url);
-        if (storyboardRunRef.current) await storyboardRunRef.current(idea ? { story: idea, references: refs, count: activeSettings.count } : { id: selStory.id, references: refs, count: activeSettings.count });
+        if (!selStory) { Message.warning('Select a Story node with a script first, then Run.'); return; }
+        if (storyboardRunRef.current) storyboardRunRef.current(selStory.data.prompt, activeSettings.count);
+      } else if (activeLayerId === 'shot') {
+        // Drop a fresh, EMPTY SHOT card carrying the panel's camera preset — no Story
+        // required. Same CutNode the Story node's New Shot lays; here it's a standalone
+        // rail action so you can spec a shot from scratch.
+        if (storyboardPanelRef.current) {
+          const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 220 }) : { x: 220, y: 220 };
+          const base = freeOrigin({ w: CUT_COL_W, h: CUT_ROW_H, preferred: pref });
+          const cut = nodesRef.current.filter((n) => n.type === 'cut' && String(n.id).startsWith('film-')).length;
+          const text = (activeSettings.prompt || '').trim();
+          storyboardPanelRef.current({
+            index: 0, cut, idPrefix: `film-${Date.now().toString(36)}`, title: 'Shot',
+            action: text, promptOverride: text, framing: '',
+            shotTemplate: activeSettings.shotTemplate || 'medium-shot',
+            durationSec: activeSettings.durationSec || 15, refEntryIds: [], audio: '',
+          }, base);
+          Message.success('SHOT card on the board — edit it, attach refs, then 🎬 to shoot.');
+        }
+      } else if (activeLayerId === 'breakdown') {
+        // Breakdown reads the SELECTED storyboard image → lays the whole production (bible
+        // plates + pre-wired SHOT cards). No story / idea needed — the board is the input.
+        const img = nodes.find((n) => n.selected && n.data?.kind === 'image' && (n.data?.localUrl || n.data?.url));
+        if (!img) { Message.warning('Select your storyboard image on the board first.'); return; }
+        if (breakdownRunRef.current) await breakdownRunRef.current(img.data.localUrl || img.data.url, activeSettings.genre);
       } else {
         const selNodes = nodes.filter((n) => n.selected);
         const origin = originOverride.current || undefined;
@@ -1147,7 +1135,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     } finally {
       setRunningAgents((r) => r.filter((x) => x !== lid));
     }
-  }, [activeLayerId, activeSettings, nodes, runAgent, timelineEvents, selectedEventId, fillClipWithAgent]);
+  }, [activeLayerId, activeSettings, nodes, runAgent, timelineEvents, selectedEventId, fillClipWithAgent, rfInstance, freeOrigin]);
 
   // ---- the production engine (drives the timeline; no panel) ------------------
   // The orchestration loop lives in the shared core session (createProduction). The
@@ -1297,7 +1285,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   // (the project prop updates on the next render, not in this closure).
 
   // ---- CUT cards: the review gate between intent and spend ---------------------
-  // "Make the ad" no longer fires generation — it LAYS OUT one CUT card per beat on
+  // Laying out CUT cards never fires generation — it places one CUT card per beat on
   // the board (content + camera/motion + duration + asset edges); the user refines
   // them, shoots any single card with its 🎬, and "🎬 Action" shoots the rest.
 
@@ -1394,15 +1382,26 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       refIds: panel.refEntryIds || [],
       direct: true,
     };
+    // `cols` (default 3) sets the grid width; the Shot-division panel passes cols=shot-count for
+    // ONE left-to-right row. `parentId`/`reposition` let it (re)parent the cards onto its panel
+    // group and re-place them each turn (other callers keep position on re-derive).
+    const cols = panel.cols || 3;
+    const position = { x: base.x + (panel.index % cols) * CUT_COL_W, y: base.y + Math.floor(panel.index / cols) * CUT_ROW_H };
     setNodes((ns) => {
       if (ns.some((n) => n.id === id)) {
-        // Re-derive → refresh content from the new panel, KEEP the take + asset attachments.
-        return ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...derived } } : n));
+        // Re-derive → refresh content, KEEP the take + asset attachments.
+        return ns.map((n) => (n.id === id ? {
+          ...n,
+          ...(panel.reposition ? { position } : {}),
+          ...(panel.parentId ? { parentId: panel.parentId } : {}),
+          data: { ...n.data, ...derived },
+        } : n));
       }
       const card = {
         id,
         type: 'cut',
-        position: { x: base.x + (panel.index % 3) * CUT_COL_W, y: base.y + Math.floor(panel.index / 3) * CUT_ROW_H },
+        position,
+        ...(panel.parentId ? { parentId: panel.parentId } : {}),
         data: { cut: panel.cut ?? panel.index, ...derived, assetRefs: [] },
       };
       return [...ns, card];
@@ -1435,11 +1434,14 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       refAssetIds: references.map((r) => r.assetId || null),
       firstFrameUrl: null,
       // Standard Seedance 2.0 params edited on the card (fall back to engine defaults).
-      resolution: c.data.resolution,
+      // Clamp resolution to what the chosen endpoint allows (Mini caps at 720p).
+      resolution: clampResolution(c.data.videoModel || 'seedance', c.data.resolution),
       ratio: c.data.ratio,
       generateAudio: c.data.generateAudio,
       // The card's own seed wins; else the sequence seed this shoot resolved.
       seed: c.data.seed ?? shootSeedRef.current,
+      // Which Seedance endpoint to shoot on — the card's pick (default vs Mini).
+      modelKey: c.data.videoModel || 'seedance',
       ...(keepTake && c.data.shotUrl ? { shotUrl: c.data.shotUrl } : {}),
     };
   }, []);
@@ -1744,7 +1746,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     onAttachAsset: attachRefToCut,
   }), [onPatchCut, bibleEntries, handleShootCut, attachSelectedToCut, attachRefToCut]);
 
-  const filmMode = true; // Short-Film-only suite (ad mode purged).
+  const filmMode = true; // Short-Film-only suite.
 
   // ---- Story agent: an idea/script → one long cinematic prompt → New Shot -----------
   // Each Story is an INDEPENDENT node — its whole state ({ idea, mode, prompt, complexity,
@@ -1914,62 +1916,97 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     Message.success('SHOT card on the board — edit the prompt, camera and SD params, then 🎬 to shoot.');
   }, [rfInstance, freeOrigin]);
 
-  // 📋 Storyboard → a visual storyboard PANEL on the board: one Seedream frame per story
-  // element (CUT-marked), rendered SEQUENTIALLY so each frame uses the previous as a visual
-  // reference + one shared seed. Reached from the rail Storyboard agent + the Director chat.
-  // Targets a Story node: explicit `id`, else a typed `story` idea (standalone), else the
-  // SELECTED story — NO recency fallback, so with nothing selected it just doesn't run. Each
-  // story gets its OWN panel (keyed by id). `references` (rail) or SELECTED images anchor frames.
-  const handleGenerateStoryboard = useCallback(async ({ id, story, references, count } = {}) => {
-    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
-    const stories = nodesRef.current.filter((n) => n.type === 'story');
-    // Work on the SELECTED Story node only — no recency fallback. An explicit `id` (or a
-    // typed `story` idea) overrides; otherwise nothing happens unless a story is selected.
-    const node = id ? stories.find((n) => n.id === id)
-      : (story ? null // a typed idea (rail) storyboards standalone — not bound to a node
-        : (stories.find((n) => n.selected) || null));
-    const targetId = node?.id || null;
-    const text = String(story || node?.data?.prompt || '').trim();
-    if (!text) { Message.warning('Select the Story node you want to storyboard (or type an idea), then run.'); return; }
-    // References: the explicitly-passed refs (rail) or the currently-selected board images
-    // (select your Cast & World plates first to anchor every frame on them).
-    const refs = (references && references.length)
-      ? references
-      : nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url).map((n) => n.data.localUrl || n.data.url);
-    // Frames count: an explicit caller value wins; otherwise fall back to the Storyboard agent's
-    // own "Frames" control (layerSettings.storyboard.count) so EVERY trigger — rail Run, director
-    // chat, SDK — honors it. Undefined / 0 = Auto (follow the story's authored shots).
-    const frames = Number.isFinite(Number(count)) && Number(count) > 0 ? Number(count) : layerSettingsRef.current?.storyboard?.count;
-    const PANEL_ID = `storyboard-${targetId || 'panel'}`;
-    const COLS = 5;
-    traceRef.current.startRun({ note: 'Agent · Storyboard' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
-    // Land the panel below its Story node when known, else a screen spot.
-    const pref = node ? { x: node.position?.x || 0, y: (node.position?.y || 0) + 480 } : (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 560 }) : { x: 220, y: 560 });
-    const base = freeOrigin({ w: GROUP_PAD * 2 + COLS * PLATE_COL_W, h: GROUP_HEADER + GROUP_PAD + PLATE_ROW_H, preferred: pref });
-    try {
-      await generateStoryboard({ story: text, references: refs, count: frames }, ctx, {
-        onPlan: (els) => {
-          setNodes((ns) => {
-            // Replace this story's prior storyboard panel + its frames (others untouched).
-            let next = ns.filter((n) => n.id !== PANEL_ID && n.parentId !== PANEL_ID);
-            const rows = Math.max(1, Math.ceil(els.length / COLS));
-            const grid = createGroupNode({ label: 'Storyboard', position: base, width: GROUP_PAD * 2 + COLS * PLATE_COL_W, height: GROUP_HEADER + GROUP_PAD + rows * PLATE_ROW_H });
-            next = next.concat({ ...grid, id: PANEL_ID }); // parent before children (RF ordering)
-            els.forEach((el) => {
-              const fn = createAssetNode({ kind: 'image', url: '', label: `Frame ${el.index + 1}`, position: { x: GROUP_PAD + (el.index % COLS) * PLATE_COL_W, y: GROUP_HEADER + GROUP_PAD + Math.floor(el.index / COLS) * PLATE_ROW_H } });
-              next = next.concat({ ...fn, id: `${PANEL_ID}-f${el.index}`, parentId: PANEL_ID, data: { ...fn.data, loading: true } });
-            });
-            return next;
-          });
-        },
-        onFrame: ({ index, url, error }) => {
-          setNodes((ns) => ns.map((n) => (n.id === `${PANEL_ID}-f${index}` ? { ...n, data: { ...n.data, url: url || n.data.url, loading: false, ...(error ? { error } : {}) } } : n)));
-        },
+  // ---- Storyboard = a conversational SHOT DIVISION → a panel of KEYFRAMES ------------
+  // A chat node bound to a "big panel" (a GROUP node) holding ONE keyframe STILL per shot, in a
+  // left→right row. The shot list (the breakdown) lives on the CHAT NODE (data.shots); each turn
+  // (storyboardTurn) updates it, then we render a Seedream keyframe per shot — CACHED: only shots
+  // whose prompt/template changed re-render. NO SHOT cards, NO video — keyframes are the storyboard.
+  const SB_CARD_DX = 360;                                          // panel lands right of the chat
+  const SB_PANEL_H = GROUP_HEADER + GROUP_PAD * 2 + PLATE_ROW_H;   // one row of 16:9 keyframe stills
+  const SB_COLS = 4;                                              // keyframes laid in a 4-wide grid
+
+  // Reconcile the panel's keyframe row to `shots`: keep an unchanged shot's still, (re)place a
+  // loading tile for new/changed ones, drop extras, resize — then render the changed stills async.
+  const applyKeyframes = useCallback(async (panelId, shots, prevShots, ctx) => {
+    const base = { x: GROUP_PAD, y: GROUP_HEADER + GROUP_PAD };
+    const changed = (i) => { const p = prevShots[i]; const s = shots[i]; return !(p && p.prompt === s.prompt && p.shotTemplate === s.shotTemplate); };
+    setNodes((ns) => {
+      let next = ns;
+      shots.forEach((s, i) => {
+        const id = `${panelId}-${i}`;
+        const pos = { x: base.x + (i % SB_COLS) * PLATE_COL_W, y: base.y + Math.floor(i / SB_COLS) * PLATE_ROW_H };
+        const exists = next.some((n) => n.id === id);
+        if (exists && !changed(i)) {
+          next = next.map((n) => (n.id === id ? { ...n, position: pos, parentId: panelId, data: { ...n.data, label: s.beat } } : n));
+        } else if (exists) {
+          next = next.map((n) => (n.id === id ? { ...n, position: pos, parentId: panelId, data: { ...n.data, url: '', loading: true, error: undefined, label: s.beat } } : n));
+        } else {
+          const kf = createAssetNode({ kind: 'image', url: '', label: s.beat, position: pos, layerId: 'storyboard' });
+          next = next.concat({ ...kf, id, parentId: panelId, data: { ...kf.data, loading: true } });
+        }
       });
-      Message.success('Storyboard generated');
-    } catch (e) { Message.error(`Storyboard failed: ${e.message}`); }
-  }, [apiKey, rfInstance, freeOrigin, setNodes]);
+      next = next.filter((n) => !(String(n.id).startsWith(`${panelId}-`) && (Number(String(n.id).slice(panelId.length + 1)) || 0) >= shots.length));
+      const w = GROUP_PAD * 2 + Math.min(Math.max(shots.length, 1), SB_COLS) * PLATE_COL_W;
+      const h = GROUP_HEADER + GROUP_PAD * 2 + Math.max(1, Math.ceil(shots.length / SB_COLS)) * PLATE_ROW_H;
+      return next.map((n) => (n.id === panelId ? { ...n, style: { ...n.style, width: w, height: h } } : n));
+    });
+    // Render the changed/new keyframes in parallel; fill each tile as its still lands.
+    const refs = (bibleRef.current || []).map((e) => e.url).filter(Boolean);
+    const genre = projectRef.current?.genre?.line || '';
+    await Promise.all(shots.map(async (s, i) => {
+      if (!changed(i)) return;
+      try {
+        const { url } = await storyboardKeyframe({ prompt: s.prompt, shotTemplate: s.shotTemplate, refs, genre }, ctx);
+        setNodes((ns) => ns.map((n) => (n.id === `${panelId}-${i}` ? { ...n, data: { ...n.data, url, loading: false } } : n)));
+      } catch (err) {
+        setNodes((ns) => ns.map((n) => (n.id === `${panelId}-${i}` ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
+      }
+    }));
+  }, [setNodes]);
+
+  // ONE brainstorm turn (bound to THIS chat node): append the message, run the turn, store the
+  // shot list on the node, un-busy the chat, then stream the keyframe panel. `seed` carries
+  // { panelId, script } for the FIRST turn (the just-spawned node isn't in nodesRef yet).
+  const runStoryboardTurn = useCallback(async (nodeId, message, seed) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    if (!node && !seed) return;
+    const panelId = node?.data?.panelId || seed?.panelId;
+    const script = node?.data?.script || seed?.script || '';
+    const prevShots = node?.data?.shots || [];
+    const count = node?.data?.count || seed?.count || 8; // default-8 frames (only used on the first divide)
+    const append = (from, text) => setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, messages: [...(n.data.messages || []), { from, text }] } } : n)));
+    if (message) append('you', message);
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true } } : n)));
+    traceRef.current.startRun({ note: 'Agent · Storyboard (shot division)' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
+    try {
+      const { shots, reply } = await storyboardTurn({ script, shots: prevShots, message, count, genre: projectRef.current?.genre?.line || '' }, ctx);
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: false, shots, shotCount: shots.length, messages: [...(n.data.messages || []), { from: 'agent', text: reply }] } } : n)));
+      applyKeyframes(panelId, shots, prevShots, ctx); // keyframes stream independently (each tile loads)
+    } catch (err) {
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: false, messages: [...(n.data.messages || []), { from: 'agent', text: `⚠ ${err.message}` }] } } : n)));
+    }
+  }, [apiKey, applyKeyframes, setNodes]);
+
+  // Spawn the chat node + its keyframe panel group from a script (a selected Story node).
+  const spawnStoryboardChat = useCallback((script, count) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    const text = String(script || '').trim();
+    if (!text) { Message.warning('Select a Story node with a script first.'); return; }
+    const frames = Math.max(1, Math.min(16, Math.round(Number(count) || 8)));
+    const stamp = Date.now().toString(36);
+    const nodeId = `sbchat-${stamp}`;
+    const panelId = `sbpanel-${stamp}`; // the "big panel" GROUP; the chat is bound to it
+    const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 200, y: 200 }) : { x: 160, y: 160 };
+    const pos = freeOrigin({ w: 320 + SB_CARD_DX + PLATE_COL_W, h: SB_PANEL_H, preferred: pref });
+    const cardBase = { x: pos.x + SB_CARD_DX, y: pos.y };
+    setNodes((ns) => ns.concat(
+      { id: nodeId, type: 'sbchat', position: pos, data: { messages: [], shots: [], panelId, script: text, count: frames, busy: false, shotCount: 0 } },
+      { ...createGroupNode({ label: 'Storyboard', position: cardBase, width: GROUP_PAD * 2 + PLATE_COL_W, height: SB_PANEL_H }), id: panelId },
+    ));
+    runStoryboardTurn(nodeId, '', { panelId, script: text, count: frames }); // initial divide (node not in nodesRef yet)
+  }, [apiKey, rfInstance, freeOrigin, runStoryboardTurn, setNodes]);
 
 
 
@@ -2016,14 +2053,20 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
       }
       case 'storyboard': {
         const sel = nodesRef.current.find((n) => n.type === 'story' && n.selected && n.data?.prompt);
-        if (!sel) return 'Select the Story node you want to storyboard (one with a written prompt) — I work on the selected story.';
-        if (storyboardRunRef.current) storyboardRunRef.current({ id: sel.id });
+        if (!sel) return 'Select a Story node with a script — I\'ll spin up a shot-division chat to break it into shots with you.';
+        if (storyboardRunRef.current) storyboardRunRef.current(sel.data.prompt, params.count);
         return '';
       }
       case 'deconstruct': {
         const take = nodesRef.current.find((n) => n.selected && n.data?.kind === 'video' && n.data?.url);
         if (!take) return 'Select a Take (a rendered video) on the board first, then I\'ll break it into its cuts.';
         if (deconstructRunRef.current) deconstructRunRef.current(take.id);
+        return '';
+      }
+      case 'breakdown': {
+        const img = nodesRef.current.find((n) => n.selected && n.data?.kind === 'image' && (n.data?.localUrl || n.data?.url));
+        if (!img) return 'Select your hand-drawn storyboard image on the board first, then I\'ll break it into the bible + a SHOT card per panel.';
+        if (breakdownRunRef.current) breakdownRunRef.current(img.data.localUrl || img.data.url, params.genre);
         return '';
       }
       case 'detectGenre': {
@@ -2147,6 +2190,36 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     }
   }, [runAgent, nodesForRole, classifyBoardAssets, handleAction, apiKey, onUpdateProject, rfInstance, setNodes, livePipeline, pushFilmNote, freeOrigin, runStory, createStoryNode]);
 
+  // Breakdown: a selected storyboard image → ONE Seed 2.0 Pro read → lay the bible plates
+  // (auto-tagged + locked, streamed into a Cast & World panel) AND a pre-wired SHOT card per
+  // panel (its camera template + the bible refs the shot uses). No auto-shoot — the whole board
+  // is laid out for the director to review and 🎬.
+  const handleBreakdown = useCallback(async (boardUrl, genreOverride) => {
+    if (!apiKey?.trim()) { Message.error('Add your API key first (⚙ far-left)'); return; }
+    if (!boardUrl) { Message.warning('Select your storyboard image on the board first.'); return; }
+    traceRef.current.startRun({ note: 'Agent · Breakdown' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient(apiKey.trim())) };
+    const genre = (genreOverride || '').trim() || projectRef.current?.genre?.line || '';
+    try {
+      // ONE Seed 2.0 Pro read of the storyboard → a shot per drawn panel (camera-angle-matched).
+      const { shots } = await breakdownStoryboard({ boardUrl, genre }, ctx);
+      // Lay the SAME keyframe panel the Storyboard agent produces and render a still per panel —
+      // matching each panel's camera angle. Reuses applyKeyframes (4-wide grid + streaming stills).
+      const panelId = `sbpanel-${Date.now().toString(36)}`;
+      const cols = Math.min(Math.max(shots.length, 1), SB_COLS);
+      const rows = Math.max(1, Math.ceil(shots.length / SB_COLS));
+      const w = GROUP_PAD * 2 + cols * PLATE_COL_W;
+      const h = GROUP_HEADER + GROUP_PAD * 2 + rows * PLATE_ROW_H;
+      const preferred = rfInstance ? rfInstance.screenToFlowPosition({ x: 220, y: 180 }) : { x: 120, y: 120 };
+      const pos = freeOrigin({ w, h, preferred });
+      setNodes((ns) => ns.concat({ ...createGroupNode({ label: 'Storyboard · from breakdown', position: pos, width: w, height: h }), id: panelId }));
+      await applyKeyframes(panelId, shots, [], ctx);
+      Message.success(`Breakdown read ${shots.length} panel${shots.length === 1 ? '' : 's'} → keyframes matching the camera angles`);
+    } catch (err) {
+      Message.error(err.message);
+    }
+  }, [apiKey, rfInstance, freeOrigin, applyKeyframes, setNodes]);
+
   // handleRenderMovie is declared below (it reads live timeline state); the
   // dispatch above reaches it through this ref to avoid a declaration-order knot.
   const renderMovieRef = useRef(null);
@@ -2160,7 +2233,8 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   // prompt into it from the idea (board refs stay opt-in — runStory does not feed the bible in).
   storyRunRef.current = (idea) => { const t = (idea || '').trim(); const sid = createStoryNode({ idea: t }); runStory({ id: sid, idea: t }); };
   deconstructRunRef.current = (takeId) => handleBreakdownTake(takeId);
-  storyboardRunRef.current = (opts) => handleGenerateStoryboard(opts);
+  storyboardRunRef.current = spawnStoryboardChat;
+  breakdownRunRef.current = handleBreakdown;
 
   // Render movie: stitch the timeline's rendered shots IN EVENT ORDER (so reorders
   // and trims are honored) into the final cut — same server ffmpeg + TOS as the engine.
@@ -2441,8 +2515,8 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
 
   // The director's ✕ = RESET all the way back to the "What are we making?" launcher
   // (user's explicit instruction — that IS the initial board state). So besides
-  // wiping the board/takes/idea, it CLEARS THE RECIPE (recipe:null → filmMode off →
-  // launcher shows) and closes the dock. The decision History (audit log) is kept.
+  // wiping the board/takes/idea, it CLEARS THE RECIPE (recipe:null → the launcher
+  // shows again) and closes the dock. The decision History (audit log) is kept.
   const resetFilm = useCallback(() => {
     setNodes([]);
     setEdges([]);
@@ -2470,6 +2544,9 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
   // can't live in serializable node.data).
   const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onDeconstruct: handleBreakdownTake, deconstructingId: deconstructing, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds }), [tagNode, renameNode, healNodeUrl, handleBreakdownTake, deconstructing, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds]);
 
+  // The Storyboard chat node runs one brainstorm turn per message, scoped to its own cards.
+  const sbChatCtx = useMemo(() => ({ onTurn: runStoryboardTurn }), [runStoryboardTurn]);
+
   // Handlers only — each Story node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Story element on the board.
   const storyCtx = useMemo(() => ({
@@ -2486,6 +2563,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
     <AssetNodeContext.Provider value={tagCtx}>
     <CutContext.Provider value={cutCtx}>
     <StoryScriptContext.Provider value={storyCtx}>
+    <StoryboardChatContext.Provider value={sbChatCtx}>
     <div style={{ display: 'flex', height: '82vh', border: '1px solid #e5e6eb', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
       <LayerRail
         activeLayerId={activeLayerId}
@@ -2745,6 +2823,7 @@ const FilmCanvasInner = ({ project, apiKey, onUpdateProject }) => {
         />
       ) : null}
     </div>
+    </StoryboardChatContext.Provider>
     </StoryScriptContext.Provider>
     </CutContext.Provider>
     </AssetNodeContext.Provider>

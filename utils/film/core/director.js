@@ -67,12 +67,12 @@ export const ACTION_DESCRIBE = {
   inspiration: 'generate fresh reference imagery from a description they give',
   characterVariations: 'variations of a person/character: wardrobe, expression, angle',
   locationVariations: 'coverage variations of a location/place: angle, time of day, weather',
-  story: 'write/shape the STORY — pick this for ANY film premise, idea, concept or script the user gives. THE STORY IS THE FIRST THING WE MAKE FROM AN IDEA, before casting — so a fresh opening premise like "cowboys vs a grizzly" goes HERE. Produces an editable cinematic prompt the user turns into a SHOT card',
-  storyboard: 'break the script into a SHOT LIST and brainstorm the shot division — a chat lands on the board bound to a column of SHOT cards. Pick when they say storyboard / shot list / break this into shots / shot division / cover this scene (needs a Story node with a script selected).',
+  story: 'lay the BRIEF — pick this for ANY film premise, idea, concept or script the user gives. THE BRIEF IS THE FIRST THING WE MAKE FROM AN IDEA, before casting — so a fresh opening premise like "cowboys vs a grizzly" goes HERE. Drops a Brief card holding their words VERBATIM; Cast & World, Storyboard and New Shot run from the card',
+  storyboard: 'break the script into a SHOT LIST and brainstorm the shot division — a chat lands on the board bound to a grid of keyframe STILLS (visual exploration, images only, nothing shootable). Pick when they say storyboard / shot list / cover this scene (needs a Brief node with a script selected). NOT for making shootable cards — that is `split`.',
+  split: 'the PRODUCTION split: break the brief into sequential SHOOTABLE ≤15s SHOT cards, wording and timestamps preserved per card. Pick when they say split / break into shots for filming / make this shootable / it is too long for one take (needs a Brief node selected). NOT the visual storyboard — no images are generated.',
   detectGenre: 'read the film\'s genre & tone — pick ONLY when the user explicitly asks about genre/tone, or as the first move of Cast & World. NOT for an opening premise (that is `story`).',
   castDraft: 'generate the cast & location plates from the idea — Cast & World (now AFTER the story). Detects the genre first if none is set.',
-  deconstruct: 'break a rendered TAKE into its cuts — key-frame stills + one SHOT card per cut. Pick when they say deconstruct / break down / split / detail this take (needs a Take selected on the board).',
-  breakdown: 'read a hand-drawn STORYBOARD image into a grid of keyframe stills — one per panel, reproducing each panel\'s camera angle (the same keyframe panel the Storyboard agent builds). Pick when they say break down / read / ingest this storyboard / board / sketch (needs a storyboard image selected on the board).',
+  deconstruct: 'break a rendered TAKE into its cuts — key-frame stills + one SHOT card per cut. Pick when they say deconstruct / break down / detail THIS TAKE (needs a Take, a rendered video, selected on the board). NOT for splitting a brief into shootable cards — that is `split`.',
   nextStep: 'they ask to continue or what to do next ("continue", "next", "what now", "go on") — advance the pipeline to its next concrete step',
   stitch: 'assemble the rendered shots into the final cut — pick when they say stitch / render / assemble the film',
   classify: 'sort the board\'s untagged images into roles — pick when they ask to tag / sort / organize what they have',
@@ -81,7 +81,7 @@ export const ACTION_DESCRIBE = {
   unknown: 'none of the above fit and it is not answerable',
 };
 
-export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'storyboard', 'detectGenre', 'castDraft', 'deconstruct', 'breakdown', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
+export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'storyboard', 'split', 'detectGenre', 'castDraft', 'deconstruct', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
 
 export const routeStudioAction = async ({ message = '', context = '', actions = FILM_ACTIONS, config } = {}, ctx) => {
   if (!String(message).trim()) return null;
@@ -100,7 +100,9 @@ export const routeStudioAction = async ({ message = '', context = '', actions = 
   return {
     action,
     beat: s(j.beat),
-    prompt: s(j.prompt),
+    // The prompt may be a pasted SCRIPT the Brief must hold VERBATIM — the template
+    // demands verbatim extraction, so give it real room (300 would silently truncate).
+    prompt: s(j.prompt, 20000),
     direction: s(j.direction),
     note: s(j.note),
     // For 'answer' the say IS the answer — give it room; proposals stay short.

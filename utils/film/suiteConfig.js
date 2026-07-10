@@ -22,8 +22,10 @@ import {
 
 export const ROOT_CONFIG = {
   models: {
-    seedream: 'ep-20260501195034-hj78f',   // Seedream 5.0 image endpoint
+    seedream: 'ep-20260501195034-hj78f',        // Seedream 5.0 Lite image endpoint (default)
+    seedreamPro: 'dola-seedream-5-0-pro-260628', // Seedream 5.0 Pro (latest; up to 10 reference images)
     seedance: 'ep-20260415171928-pdvvr',    // Seedance 2.0 video endpoint (default)
+    seedanceFast: 'ep-20260701151623-f94zq', // Seedance 2.0 Fast (full-quality, faster than the default)
     seedanceMini: 'ep-20260629005443-n7rjn', // Seedance 2.0 Mini (faster/cheaper — opt-in per SHOT card)
     reasoner: 'seed-2-0-pro-260328',        // Seed 2.0 Pro (multimodal reasoning / suggestions)
   },
@@ -101,6 +103,37 @@ export const VIDEO_MODEL_OPTIONS = [
   { key: 'seedance', label: 'Seedance 2.0' },
   { key: 'seedanceMini', label: 'Seedance 2.0 Mini' },
 ];
+
+// The Seedream (image) models the Storyboard keyframes can render on. `key` indexes
+// ROOT_CONFIG.models; the storyboard stores the key in data.imageModel ('seedream' = Lite = default).
+// Pro accepts up to 10 reference images; Lite is capped lower.
+export const IMAGE_MODEL_OPTIONS = [
+  { key: 'seedream', label: 'Seedream 5.0 Lite' },
+  { key: 'seedreamPro', label: 'Seedream 5.0 Pro' },
+];
+export const IMAGE_REF_CAP = { seedream: 6, seedreamPro: 10 };
+export const imageRefCap = (key) => IMAGE_REF_CAP[key] || 6;
+// Seedream 5.0 Pro caps the image AREA at 4,194,304 px (2048²) — the 2K 16:9 (2848×1600 = 4.56MP)
+// exceeds it, so Pro renders at the largest 16:9 under the cap (2560×1440 = 3.69MP). Lite allows 2K.
+export const keyframeImageSize = (key) => (key === 'seedreamPro' ? '2560x1440' : '2848x1600');
+// Clamp ANY size for the chosen image model: Lite passes through; for Pro an explicit
+// 'WxH' over the area cap scales down to fit (aspect kept, snapped to multiples of 16),
+// and a bare tier name ('2K'/'4K' — the model would pick its own, possibly over-cap,
+// dimensions) becomes a safe explicit square. Used by cast plates + variations when
+// the user routes them to Pro.
+export const clampSizeForModel = (modelKey, size) => {
+  if (modelKey !== 'seedreamPro') return size;
+  const s = String(size || '').trim();
+  const m = /^(\d+)[xX](\d+)$/.exec(s);
+  if (!m) return '2048x2048';
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  const MAX = 4194304; // 2048²
+  if (!w || !h || w * h <= MAX) return s;
+  const k = Math.sqrt(MAX / (w * h));
+  const snap = (v) => Math.max(64, Math.floor((v * k) / 16) * 16);
+  return `${snap(w)}x${snap(h)}`;
+};
 
 // Resolutions allowed per Seedance endpoint: the standard one goes up to 4K; Mini caps at 720p
 // (no 1080p, no 4K). Shared by the CutNode dropdown AND the shoot path so the two never diverge.

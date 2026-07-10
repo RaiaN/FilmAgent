@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox } from '@arco-design/web-react';
-import { IconLoading, IconExpand } from '@arco-design/web-react/icon';
+import { IconLoading, IconExpand, IconEdit, IconScissor, IconEye } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
@@ -15,7 +15,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], onShootCut: null, onAttachSelected: null, onAttachAsset: null,
+  onPatchCut: null, bibleEntries: [], onShootCut: null, onAttachSelected: null, onAttachAsset: null, onSplitCut: null, onDevelopCut: null, onPrevizCut: null,
 });
 
 const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
@@ -43,7 +43,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onAttachSelected, onAttachAsset } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onAttachSelected, onAttachAsset, onSplitCut, onDevelopCut, onPrevizCut } = useContext(CutContext);
   const patch = (p) => onPatchCut && onPatchCut(id, p);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
@@ -109,7 +109,7 @@ const CutNodeInner = ({ id, data, selected }) => {
       onDragOver={onDragOver}
       onDragLeave={() => setDragOver(false)}
       onDrop={onDrop}
-      style={{ width: 300, background: '#101418', borderRadius: 10, border: `2px solid ${dragOver ? '#f7ba1e' : borderColor}`, boxShadow: selected ? '0 0 0 3px rgba(247,186,30,0.15)' : '0 1px 4px rgba(0,0,0,0.2)', overflow: 'hidden', color: '#fff' }}
+      style={{ width: 500, background: '#101418', borderRadius: 10, border: `2px solid ${dragOver ? '#f7ba1e' : borderColor}`, boxShadow: selected ? '0 0 0 3px rgba(247,186,30,0.15)' : '0 1px 4px rgba(0,0,0,0.2)', overflow: 'hidden', color: '#fff' }}
     >
       {/* invisible target handle — the asset→cut prerequisite edges land here */}
       <Handle type="target" position={Position.Left} style={{ opacity: 0, pointerEvents: 'none' }} />
@@ -165,7 +165,14 @@ const CutNodeInner = ({ id, data, selected }) => {
         <div>
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
-            <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
+            <span style={{ display: 'inline-flex', gap: 2 }}>
+              <Button className="nodrag" size="mini" type="text" icon={<IconEye />} disabled={!onPrevizCut || data.splitting || data.developing} onClick={() => onPrevizCut && onPrevizCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Previz — stage this shot as a photoreal blocking frame (this card's text + this card's attached refs only). Mask it on the frame into a color plate that guides 🎬.">Previz</Button>
+              {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
+                  re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
+              <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconEdit />} disabled={!onDevelopCut || data.developing || data.splitting} onClick={() => onDevelopCut && onDevelopCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Develop — rewrite this prompt into one cinematic Seedance prompt (tight, close to your text; events preserved). Re-runs always start from your ORIGINAL text.">Develop</Button>
+              <Button className="nodrag" size="mini" type="text" icon={data.splitting ? <IconLoading /> : <IconScissor />} disabled={!onSplitCut || data.splitting || data.developing} onClick={() => onSplitCut && onSplitCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Split — break this shot into multiple ≤15s SHOT cards in its slot (wording + timestamps preserved). This card is replaced; any rendered takes stay on the board.">Split</Button>
+              <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
+            </span>
           </div>
           <Input.TextArea className="nodrag nowheel" value={data.promptOverride || ''} onChange={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt — Expand to @-mention references" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
         </div>
@@ -257,7 +264,7 @@ const CutNodeInner = ({ id, data, selected }) => {
               <span
                 className="nodrag"
                 onClick={() => onAttachSelected(id)}
-                title="Attach the board images you have selected to this shot (or drag any asset onto the card)"
+                title="Attach the board images you have selected to this shot. A selected blocking plate also drops its LAYOUT binding line into the prompt."
                 style={{
                   display: 'inline-flex', alignItems: 'center', cursor: 'pointer',
                   padding: '1px 6px', borderRadius: 10, fontSize: 10,

@@ -293,9 +293,11 @@ const SeedancePlayground = ({
                 position: 'bl',
             }}
           >
-            {modelOptions.map(opt => (
-              <Select.Option key={opt} value={opt}>{opt}</Select.Option>
-            ))}
+            {modelOptions.map(opt => {
+              const value = typeof opt === 'string' ? opt : opt.value;
+              const label = typeof opt === 'string' ? opt : opt.label;
+              return <Select.Option key={value} value={value}>{label}</Select.Option>;
+            })}
           </Select>
           {onRefreshModels && (
               <Tooltip content="Refresh Model List">

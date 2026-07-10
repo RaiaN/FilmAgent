@@ -1,9 +1,9 @@
 import { createContext, memo, useContext, useEffect, useRef, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Tag, Select, Button } from '@arco-design/web-react';
-import { IconLock, IconUnlock, IconLoading, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconScissor, IconPlus, IconCheck, IconDownload } from '@arco-design/web-react/icon';
+import { IconLock, IconUnlock, IconLoading, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconScissor, IconPlus, IconCheck, IconDownload, IconRefresh, IconExpand, IconBgColors, IconPen } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
-import { BIBLE_ROLES, BIBLE_ROLE_META } from '../../../utils/film/recipes';
+import { BIBLE_ROLES, BIBLE_ROLE_META, SHOT_TEMPLATES } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import EditableLabel from './EditableLabel';
 
@@ -12,7 +12,12 @@ const { Text } = Typography;
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onDeconstruct: null, deconstructingId: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null });
+export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onDeconstruct: null, deconstructingId: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onEditArrows: null });
+
+// Storyboard keyframe controls (the per-frame edit loop): pick a camera angle / facial expression
+// and re-render just that still. Camera options reuse the shared shot-template library.
+const SHOT_TEMPLATE_OPTIONS = SHOT_TEMPLATES.map((t) => ({ label: t.name, value: t.id }));
+const EXPRESSION_OPTIONS = ['neutral', 'slight smile', 'smiling', 'laughing', 'surprised', 'shocked', 'angry', 'sad', 'crying', 'fearful', 'worried', 'determined', 'thoughtful'].map((e) => ({ label: e, value: e }));
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
 // colour for its badge so the cast & world read at a glance on the board.
@@ -44,7 +49,7 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, cacheUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole, onRename, onImgError, onDeconstruct, deconstructingId, onAddToTimeline, onRemoveFromTimeline, onTimelineIds } = useContext(AssetNodeContext);
+  const { onTagRole, onRename, onImgError, onDeconstruct, deconstructingId, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onEditArrows } = useContext(AssetNodeContext);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
   const tint = bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
 
@@ -95,7 +100,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
   return (
     <div
       style={{
-        width: isLocation ? 360 : 220,
+        width: data.sheet ? 760 : ((isLocation || data.previz || data.previzMask) ? 360 : 220),
         background: '#fff',
         borderRadius: 10,
         // A bible-tagged node wears its role colour as the border so the cast & world
@@ -128,7 +133,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
           )}
           {/* Untagged, no suggestion → a quiet tag picker, so ANY image (e.g. an
               Inspiration result) can be locked into the bible right on its card. */}
-          {!bibleRole && !data.meta?.suggestedRole && kind === 'image' && (
+          {!bibleRole && !data.meta?.suggestedRole && !data.keyframe && kind === 'image' && (
             <span className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', minWidth: 0 }} title="Tag this image into the bible — tagged assets anchor every shot">
               <Select
                 size="mini"
@@ -253,6 +258,51 @@ const AssetNodeInner = ({ id, data, selected }) => {
           <Text type="secondary" style={{ fontSize: 12 }}>empty</Text>
         )}
       </div>
+
+      {/* Storyboard keyframe controls — change camera angle / facial expression, or ↻ regenerate
+          this still. Director-facing direct edits (no prompting). Only on keyframe nodes. */}
+      {data.keyframe && onEditKeyframe && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
+          <Select
+            size="mini" value={data.shotTemplate || undefined} placeholder="camera ▾"
+            onChange={(v) => onEditKeyframe(id, { shotTemplate: v })}
+            options={SHOT_TEMPLATE_OPTIONS} style={{ flex: 1, minWidth: 0 }}
+            triggerProps={{ autoAlignPopupWidth: false }} showSearch
+            title="Camera angle"
+          />
+          <Select
+            size="mini" value={data.expression || undefined} placeholder="expression" allowClear
+            onChange={(v) => onEditKeyframe(id, { expression: v || '' })}
+            options={EXPRESSION_OPTIONS} style={{ flex: 1, minWidth: 0 }}
+            triggerProps={{ autoAlignPopupWidth: false }} title="Facial expression"
+          />
+          <Button size="mini" className="nodrag" icon={<IconRefresh />} onClick={(e) => { e.stopPropagation(); onEditKeyframe(id, {}); }} title="Regenerate this keyframe" style={{ flexShrink: 0 }} />
+          {onExpandKeyframe && (
+            <Button size="mini" className="nodrag" icon={<IconExpand />} onClick={(e) => { e.stopPropagation(); onExpandKeyframe(id); }} title="Expand — edit prompt & references" style={{ flexShrink: 0 }} />
+          )}
+        </div>
+      )}
+
+      {/* Previz pass 2 — Mask: reproduce this frame with every person as a flat color
+          silhouette (identity scrub). The masked plate then gets its own attach button:
+          one tap puts it on its SHOT card (reference chip + the editable LAYOUT
+          binding line in the card's prompt). No drag & drop anywhere. */}
+      {data.previz && url && onMaskPrevis && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
+          <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconBgColors />} onClick={(e) => { e.stopPropagation(); onMaskPrevis(id); }} title="Mask — same frame, every person becomes a flat color silhouette (blue, green, yellow, red, purple left to right). Identities are scrubbed; the plate carries pure layout into the shoot.">Mask</Button>
+          {onEditArrows && (
+            <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconPen />} onClick={(e) => { e.stopPropagation(); onEditArrows(id); }} title="Arrows — draw motion paths on this frame: a colored arrow = that character's movement (tail → head), WHITE = the camera's move. Baked into the image; the attach lock explains them to Seedance.">{(data.arrows || []).length ? `Arrows · ${data.arrows.length}` : 'Arrows'}</Button>
+          )}
+        </div>
+      )}
+      {data.previzMask && url && onAttachPlate && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
+          <Button size="mini" type="primary" className="nodrag" style={{ flex: 1.4 }} icon={<IconPlus />} onClick={(e) => { e.stopPropagation(); onAttachPlate(id); }} title="Attach this blocking plate to its SHOT card (the card it was previzzed from, else the selected card): it becomes a reference AND the editable FIRST FRAME lock lands in the card's prompt — fix the [Image N] numbers to the reference badges.">Attach to SHOT card</Button>
+          {onEditArrows && (
+            <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconPen />} onClick={(e) => { e.stopPropagation(); onEditArrows(id); }} title="Arrows — draw motion paths on this plate: a colored arrow = that silhouette's movement (tail → head), WHITE = the camera's move. Baked into the plate; the attach lock explains them to Seedance.">{(data.arrows || []).length ? `Arrows · ${data.arrows.length}` : 'Arrows'}</Button>
+          )}
+        </div>
+      )}
 
       {data.error && (
         <div style={{ padding: '4px 8px', background: '#fff1f0' }}>

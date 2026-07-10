@@ -196,6 +196,47 @@ export const composeFilmShotPrompt = ({ prompt = '', shotTemplate = '', cinemato
   ].filter(Boolean).join('\n\n');
 };
 
+// The KEYFRAME prompt (Seedream 5.0, one still per shot). The reference-aware shot division writes
+// the figure-addressed BODY (subject via [Image N] + what to keep from each, secondary subjects,
+// environment, lighting/mood); here we WRAP it with line 1 (framing · angle · lens · style, from the
+// shot template) and the finish line (DOF · grain · resolution + global rules). The shot's reference
+// plates attach in [Image 1..N] order, so "[Image N]" in the body maps to the Nth attached image.
+export const composeKeyframePrompt = ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '' } = {}) => {
+  const t = SHOT_TEMPLATE_BY_ID[shotTemplate] || {};
+  const cine = String(t.cinematography || '').split(',').map((s) => s.trim());
+  const lens = cine[0] || '';
+  const dof = cine[1] || 'balanced depth of field';
+  const framing = t.framing || 'medium shot';
+  const angle = t.angle || 'eye-level';
+  const sty = String(style || '').trim();
+  const styleClause = sty && sty.toLowerCase() !== 'auto' ? `, ${sty} aesthetic` : '';
+  const line1 = `Cinematic ${framing}, ${angle}${lens ? `, ${lens} lens` : ''}${styleClause}.`;
+  const exp = String(expression || '').trim();
+  const eth = String(ethnicity || '').trim();
+  const overrides = [
+    exp ? `Facial expression: ${exp}.` : '',
+    eth && eth.toLowerCase() !== 'unspecified' ? `The people are ${eth}.` : '',
+  ].filter(Boolean).join(' ');
+  const line6 = `${dof}, fine film grain, photo-realistic, high resolution. Characters never look at the camera; no on-image text, captions or watermarks.`;
+  return [line1, [String(body || '').trim(), overrides].filter(Boolean).join(' '), line6].filter(Boolean).join('\n');
+};
+
+// The SINGLE-IMAGE storyboard SHEET (Storyboard "Single image" mode): ONE Seedream image of the
+// whole board — a grid of numbered panels, one per shot, in a cohesive look. Composed from the same
+// division `shots` (their beats + [Image N]-addressed bodies, condensed); the reference pool attaches
+// in [Image 1..N] order so a body's [Image N] maps to the Nth attached image and the cast stays
+// consistent across panels. Small panel numbers only — Seedream's text is unreliable, so no captions.
+export const composeStoryboardSheetPrompt = ({ shots = [], style = '', title = '' } = {}) => {
+  const n = Math.max(1, shots.length);
+  const cols = Math.min(n, 4);
+  const rows = Math.max(1, Math.ceil(n / cols));
+  const panels = shots.map((s, i) => `Panel ${i + 1}${s.beat ? ` — ${String(s.beat).trim()}` : ''}: ${String(s.body || '').replace(/\s+/g, ' ').trim().slice(0, 220)}`).join(' ');
+  const sty = String(style || '').trim();
+  const styleClause = sty && sty.toLowerCase() !== 'auto' ? `${sty} aesthetic, ` : '';
+  const titleClause = String(title || '').trim() ? `titled "${String(title).trim().slice(0, 50)}", ` : '';
+  return `A single cinematic STORYBOARD SHEET ${titleClause}laid out as a clean ${rows}×${cols} grid of ${n} numbered panels (left-to-right, top-to-bottom), each a distinct cinematic film still. ${panels} ${styleClause}One cohesive colour grade, lighting and world across ALL panels; keep every recurring character, prop and place consistent using the reference images. A small panel number in the top-left corner of each panel; otherwise no on-image text, captions or watermarks. Characters never look at the camera.`;
+};
+
 // ---- the Short Film recipe ---------------------------------------------------------
 // A film GROWS chunk by chunk: generate 10–15s → validate → correct by aspects →
 // continue (not planned-and-batched upfront). Character consistency

@@ -11,6 +11,7 @@ import {
 } from '@arco-design/web-react';
 import { IconPlayArrow, IconClose } from '@arco-design/web-react/icon';
 import { AGENT_MAP, IMAGE_RESOLUTIONS } from '../../../utils/film/agents';
+import { IMAGE_MODEL_OPTIONS } from '../../../utils/film/suiteConfig';
 import { CAMERA_MOVES, SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
@@ -27,6 +28,10 @@ const DURATION_OPTIONS = ['auto', 2, 4, 5, 10];
 const LENS_OPTIONS = ['auto', 'clean spherical', 'anamorphic (oval bokeh + flares)', 'vintage uncoated', 'macro'];
 const FOCAL_OPTIONS = ['auto', '14mm', '24mm', '35mm', '50mm', '85mm', '135mm'];
 const APERTURE_OPTIONS = ['auto', 'f/1.4', 'f/2', 'f/2.8', 'f/4', 'f/5.6', 'f/8'];
+// Storyboard consistency lever — the customer's race-drift fix. Free-typeable (allowCreate).
+const ETHNICITY_OPTIONS = ['Unspecified', 'South Asian', 'East Asian', 'Southeast Asian', 'Black / African', 'White / Caucasian', 'Hispanic / Latino', 'Middle Eastern', 'Indigenous', 'Mixed'];
+// Storyboard look — feeds keyframe line 1. Auto = the shot division picks a fitting aesthetic.
+const STYLE_OPTIONS = ['Auto', 'photo-real', 'cinematic', 'retro', 'noir', 'anime', 'comic / graphic novel', 'watercolor', 'documentary'];
 
 // Compact labeled select used in the cinematography grid.
 const MiniSelect = ({ label, value, onChange, options }) => (
@@ -36,7 +41,7 @@ const MiniSelect = ({ label, value, onChange, options }) => (
   </div>
 );
 
-export const SettingsControls = ({ layer, settings, setSettings }) => {
+export const SettingsControls = ({ layer, settings, setSettings, imageAssets = [] }) => {
   const update = (patch) => setSettings({ ...settings, ...patch });
 
   if (layer.id === 'animate') {
@@ -131,6 +136,11 @@ export const SettingsControls = ({ layer, settings, setSettings }) => {
             autoSize={{ minRows: 3, maxRows: 6 }}
           />
         </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Image model</Text>
+          <Select size="small" style={{ width: '100%' }} value={settings.imageModel || 'seedream'} onChange={(v) => update({ imageModel: v })}
+            options={IMAGE_MODEL_OPTIONS.map((m) => ({ label: m.label, value: m.key }))} />
+        </div>
       </Space>
     );
   }
@@ -139,12 +149,12 @@ export const SettingsControls = ({ layer, settings, setSettings }) => {
     return (
       <Space direction="vertical" style={{ width: '100%' }} size="small">
         <div>
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Film idea</Text>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Your brief</Text>
           <Input.TextArea
             value={settings.prompt || ''}
             onChange={(value) => update({ prompt: value })}
-            placeholder="one sentence: what happens in this film… e.g. 'a lighthouse keeper befriends the sea monster wrecking the ships' — leave blank to use the project's idea"
-            autoSize={{ minRows: 3, maxRows: 6 }}
+            placeholder="an idea, a description or a full script — lands on the board VERBATIM as a Brief card (leave blank for an empty card to type into)"
+            autoSize={{ minRows: 3, maxRows: 8 }}
           />
         </div>
       </Space>
@@ -181,12 +191,105 @@ export const SettingsControls = ({ layer, settings, setSettings }) => {
   }
 
   if (layer.id === 'storyboard') {
+    const refs = settings.refs || [];
+    const toggleRef = (id) => update({ refs: refs.includes(id) ? refs.filter((x) => x !== id) : [...refs, id] });
     return (
       <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <Text type="secondary" style={{ fontSize: 12 }}>Select a Story node with a script, then Run — a chat lands on the board and breaks it into a grid of keyframe stills you brainstorm and refine together.</Text>
         <div>
-          <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>Frames</Text>
-          <InputNumber min={1} max={16} value={settings.count} onChange={(v) => update({ count: v })} placeholder="8" style={{ width: 90 }} />
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Output</Text>
+          <Select size="small" style={{ width: '100%' }} value={settings.mode || 'multiple'} onChange={(v) => update({ mode: v })}
+            options={[{ label: 'Multiple images (keyframe grid)', value: 'multiple' }, { label: 'Single image (one storyboard sheet)', value: 'single' }]} />
+        </div>
+        <Space>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Frames</Text>
+            <InputNumber min={1} max={16} value={settings.count} onChange={(v) => update({ count: v })} placeholder="8" style={{ width: 90 }} />
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Style</Text>
+            <Select allowCreate size="small" style={{ width: 150 }} placeholder="Auto"
+              value={settings.style || undefined} onChange={(v) => update({ style: v })}
+              options={STYLE_OPTIONS.map((s) => ({ label: s, value: s }))} />
+          </div>
+        </Space>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Image model</Text>
+          <Select size="small" style={{ width: '100%' }} value={settings.imageModel || 'seedream'} onChange={(v) => update({ imageModel: v })}
+            options={IMAGE_MODEL_OPTIONS.map((m) => ({ label: m.label, value: m.key }))} />
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Ethnicity (optional) — keeps characters from drifting</Text>
+          <Select allowCreate allowClear size="small" style={{ width: '100%' }} placeholder="Unspecified"
+            value={settings.ethnicity || undefined} onChange={(v) => update({ ethnicity: v })}
+            options={ETHNICITY_OPTIONS.map((e) => ({ label: e, value: e }))} />
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>References (optional) — tick board images to anchor characters &amp; props</Text>
+          {imageAssets.length === 0 ? (
+            <Text type="secondary" style={{ fontSize: 11, opacity: 0.7 }}>Drop character / prop images on the board to use them as references.</Text>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 176, overflowY: 'auto' }}>
+              {imageAssets.map((a) => {
+                const on = refs.includes(a.id);
+                return (
+                  <div key={a.id} onClick={() => toggleRef(a.id)} title={a.label}
+                    style={{ position: 'relative', width: 54, height: 54, borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: on ? '2px solid #165dff' : '2px solid transparent', boxShadow: on ? 'none' : 'inset 0 0 0 1px #e5e6eb' }}>
+                    <img src={a.url} alt={a.label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    {on && <div style={{ position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%', background: '#165dff', color: '#fff', fontSize: 11, lineHeight: '16px', textAlign: 'center' }}>✓</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </Space>
+    );
+  }
+
+  if (layer.id === 'previz') {
+    const refs = settings.refs || [];
+    const toggleRef = (id) => update({ refs: refs.includes(id) ? refs.filter((x) => x !== id) : [...refs, id] });
+    return (
+      <Space direction="vertical" style={{ width: '100%' }} size="small">
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Scene text</Text>
+          <Input.TextArea
+            value={settings.prompt || ''}
+            onChange={(value) => update({ prompt: value })}
+            placeholder="paste anything — a brief, a sub-brief, or a layout idea: 'five people around a long dinner table, the matriarch at the head, two men standing'"
+            autoSize={{ minRows: 4, maxRows: 10 }}
+          />
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Camera (optional)</Text>
+          <Select size="small" style={{ width: '100%' }} placeholder="let the model choose" allowClear showSearch
+            value={settings.shotTemplate || undefined} onChange={(v) => update({ shotTemplate: v || '' })}
+            filterOption={(input, option) => String(option.props.children).toLowerCase().includes(input.toLowerCase())}>
+            {SHOT_TEMPLATES_BY_CATEGORY.map(({ category, templates }) => (
+              <Select.OptGroup key={category} label={category}>
+                {templates.map((t) => <Select.Option key={t.id} value={t.id}>{t.name}</Select.Option>)}
+              </Select.OptGroup>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>References (optional) — tick board images to stage YOUR set; nothing is used unless ticked</Text>
+          {imageAssets.length === 0 ? (
+            <Text type="secondary" style={{ fontSize: 11, opacity: 0.7 }}>No board images yet — previz will invent the set from the text alone.</Text>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 176, overflowY: 'auto' }}>
+              {imageAssets.map((a) => {
+                const on = refs.includes(a.id);
+                return (
+                  <div key={a.id} onClick={() => toggleRef(a.id)} title={a.label}
+                    style={{ position: 'relative', width: 54, height: 54, borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: on ? '2px solid #165dff' : '2px solid transparent', boxShadow: on ? 'none' : 'inset 0 0 0 1px #e5e6eb' }}>
+                    <img src={a.url} alt={a.label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    {on && <div style={{ position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%', background: '#165dff', color: '#fff', fontSize: 11, lineHeight: '16px', textAlign: 'center' }}>✓</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </Space>
     );
@@ -194,18 +297,6 @@ export const SettingsControls = ({ layer, settings, setSettings }) => {
 
   if (layer.id === 'deconstruct') {
     return null; // no settings — the describe + the "select a video" tag say it all
-  }
-
-  if (layer.id === 'breakdown') {
-    return (
-      <Space direction="vertical" style={{ width: '100%' }} size="small">
-        <Text type="secondary" style={{ fontSize: 12 }}>Select your hand-drawn storyboard on the board, then Run — it reads each panel and lays a grid of keyframe stills matching their camera angles.</Text>
-        <div>
-          <Text type="secondary" style={{ fontSize: 12 }}>Genre &amp; tone (optional)</Text>
-          <Input value={settings.genre || ''} onChange={(v) => update({ genre: v })} placeholder="e.g. 'gritty desert western' — or leave blank to read it from the board" />
-        </div>
-      </Space>
-    );
   }
 
   // character / location variations share the same control shape
@@ -232,11 +323,16 @@ export const SettingsControls = ({ layer, settings, setSettings }) => {
           <Select value={settings.size} onChange={(v) => update({ size: v })} style={{ width: 90 }} options={SIZE_OPTIONS.map((s) => ({ label: s, value: s }))} />
         </div>
       </Space>
+      <div>
+        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Image model</Text>
+        <Select size="small" style={{ width: '100%' }} value={settings.imageModel || 'seedream'} onChange={(v) => update({ imageModel: v })}
+          options={IMAGE_MODEL_OPTIONS.map((m) => ({ label: m.label, value: m.key }))} />
+      </div>
     </Space>
   );
 };
 
-const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun, onClose, apiKeyPresent, clipMode, clipLabel, onClearClip }) => {
+const LayerPanel = ({ layerId, settings, setSettings, selection, imageAssets = [], running, onRun, onClose, apiKeyPresent, clipMode, clipLabel, onClearClip }) => {
   const layer = AGENT_MAP[layerId];
   if (!layer) return null;
 
@@ -291,7 +387,7 @@ const LayerPanel = ({ layerId, settings, setSettings, selection, running, onRun,
           </div>
         )}
 
-        <SettingsControls layer={layer} settings={settings} setSettings={setSettings} />
+        <SettingsControls layer={layer} settings={settings} setSettings={setSettings} imageAssets={imageAssets} />
       </div>
 
       <div style={{ padding: 12, borderTop: '1px solid #f2f3f5' }}>

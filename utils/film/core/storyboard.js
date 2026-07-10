@@ -7,9 +7,9 @@
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
-import { renderTemplate, getModel, getRuntime } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
-import { composeSeedancePrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
+import { composeSeedancePrompt, composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
 import { parseJson } from './director';
 import { withRetry, isTransient } from './retry';
 import { isImagePolicyError } from './operations';
@@ -120,24 +120,27 @@ export const readStoryboard = async ({ idea, genre = '', targetSeconds = 90, bib
   return { anchors, panels, arc: resolveArc(arcId, arcWhy, panels) };
 };
 
-// ---- Story agent: an idea or a pasted script → ONE long cinematic prompt -----------
-// A direct rewrite (no JSON, no key events, no appearances): the concept becomes a single
-// continuous cinematic narrative with clear subjects + a clear story arc — CUT-structured
-// in the model's head but with NO CUT markers in the output, no characters facing camera,
-// and explicit eyelines (what each character is looking at). The prompt feeds a New Shot.
+// ---- Develop (the Brief node's OPT-IN rewrite): idea or script → ONE cinematic prompt --
+// A direct rewrite (no JSON, no key events, no appearances): the brief becomes a single
+// continuous cinematic narrative with clear subjects + a clear story arc, split by explicit
+// CUT markers (see story.prompt.system — Deconstruct reads them), no characters facing
+// camera, and explicit eyelines (what each character is looking at). Only New Shot consumes
+// this — Cast & World and Storyboard read the brief VERBATIM, never the rewrite.
 // `complexity` (light | medium | deep) tunes HOW MUCH the rewrite expands the source.
 const REWRITE_DEPTH = {
   light: 'DEPTH: keep it CONCISE and close to the source — a short, tight prompt; minimal embellishment, do not invent beyond the idea.',
   medium: 'DEPTH: develop a clear arc and vivid subjects with moderate cinematic detail.',
   deep: 'DEPTH: elaborate RICHLY — a long, immersive prompt with layered staging, atmosphere, lighting and texture, and a fully developed arc; expand the idea into a vivid scene.',
 };
+// 'preserve' must be REAL, not a label: a pasted script is the director's OWN text.
+const PRESERVE_SCRIPT = 'PRESERVE: this is the director\'s own script — keep every stated event, in the stated order, and keep EVERY line of dialogue VERBATIM: word-for-word, in quotes, in its original language (never translate, paraphrase or drop a line). Do not invent, drop or reorder events. Only add cinematic staging, eyelines and atmosphere.';
 export const writeFilmPrompt = async ({ idea, source = '', complexity = 'medium', config } = {}, ctx) => {
   const t = String(idea || '').trim();
   const src = String(source || '').trim();
   if (!t && !src) throw new Error('The story needs an idea or a script first.');
   const depth = REWRITE_DEPTH[complexity] || REWRITE_DEPTH.medium;
   const { content } = await ctx.client.reason({
-    prompt: renderTemplate('story.prompt.user', { story: (src || t).slice(0, 6000), depth }),
+    prompt: renderTemplate('story.prompt.user', { story: (src || t).slice(0, 6000), depth, preserve: src ? PRESERVE_SCRIPT : '' }),
     systemPrompt: renderTemplate('story.prompt.system'),
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -147,25 +150,104 @@ export const writeFilmPrompt = async ({ idea, source = '', complexity = 'medium'
   return { mode: src ? 'preserve' : 'expand', prompt };
 };
 
+// ---- Split: a brief (or an oversized shot prompt) → sequential ≤15s SHOT segments ------
+// SEGMENTATION, not rewriting (one reason() call, no code parsing): wording, details and
+// timestamps are PRESERVED per segment; durations come from timestamp deltas when present,
+// else the model's estimate (clamped 5–15s here). Used by the Brief node's "Split into
+// Shots", the SHOT card's ✂ and the director-chat `split` action.
+const MAX_SPLIT_SEGMENTS = 24;
+export const splitIntoShots = async ({ text, count, config } = {}, ctx) => {
+  const brief = String(text || '').trim();
+  if (!brief) throw new Error('The split needs a brief or a shot prompt first.');
+  // `count` is a GOAL, not a hard number: the 5–15s-per-segment physics always wins
+  // (a 60s brief cannot fit 3 segments), so the model aims for it and the duration
+  // rule breaks ties. Absent → fewest possible.
+  const goal = Number.isFinite(Number(count)) && Number(count) >= 2 ? Math.min(MAX_SPLIT_SEGMENTS, Math.round(Number(count))) : null;
+  // The brief is injected AFTER the template render via a sentinel: renderTemplate's
+  // whitespace collapse would mangle screenplay indentation / aligned timestamp columns,
+  // and the split's whole contract is that the user's text survives byte-for-byte.
+  const SLOT = '@@BRIEF@@';
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('split.user', { brief: SLOT }).split(SLOT).join(brief.slice(0, 12000)),
+    systemPrompt: renderTemplate('split.system', {
+      maxShots: String(MAX_SPLIT_SEGMENTS),
+      countGoal: goal ? `The director asked for ${goal} segments — aim for exactly ${goal} when the 5-15 second rule allows it; the duration rule always wins, so otherwise get as close to ${goal} as possible.` : '',
+    }),
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const arr = Array.isArray(raw.segments) ? raw.segments : (Array.isArray(raw) ? raw : []);
+  const segments = arr.map((s, i) => ({
+    beat: String(s?.beat || s?.title || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
+    text: String(s?.text || s?.content || '').trim(),
+    durationSec: clampDuration(s?.durationSec),
+  })).filter((s) => s.text).slice(0, MAX_SPLIT_SEGMENTS);
+  if (!segments.length) throw new Error('The split came back empty — try rephrasing the brief.');
+  return { segments };
+};
+
+// ---- Previz: any text → a photoreal BLOCKING frame (Seedream 5.0 Pro) -------------------
+// Pass 1 of the previz chain: stage the scene photoreal with INVENTED stand-ins — set,
+// camera and blocking a director can judge like a film still. `references` are ONLY what
+// the user explicitly ticked/attached (never read silently); `camera` is an optional
+// cinematography line from the shot-template library. The scene text is injected via a
+// sentinel so renderTemplate's whitespace collapse never touches the user's words.
+export const previsFrame = async ({ text, camera = '', references = [], config } = {}, ctx) => {
+  const scene = String(text || '').trim();
+  if (!scene) throw new Error('Previz needs a scene description first.');
+  const SLOT = '@@SCENE@@';
+  const prompt = renderTemplate('previz.frame', { scene: SLOT, camera: String(camera || '').trim() })
+    .split(SLOT).join(scene.slice(0, 4000));
+  const images = (references || []).filter(Boolean).slice(0, imageRefCap('seedreamPro'));
+  const { url } = await ctx.client.generateImage({
+    prompt,
+    referenceImages: images,
+    size: keyframeImageSize('seedreamPro'),
+    model: getModel('seedreamPro', config) || getModel('seedream', config),
+  });
+  if (!url) throw new Error('No previz frame URL in response');
+  return { url };
+};
+
+// Pass 2: MASK — an image EDIT that reproduces the previz frame but replaces every person
+// with a flat solid-color silhouette (left→right: blue, green, yellow, red, purple). The
+// invented identities die here; the plate carries pure geometry into the shoot.
+export const maskFrame = async ({ url, config } = {}, ctx) => {
+  const src = String(url || '').trim();
+  if (!src) throw new Error('Mask needs a previz frame first.');
+  const { url: out } = await ctx.client.generateImage({
+    prompt: renderTemplate('previz.mask'),
+    referenceImages: [src],
+    size: keyframeImageSize('seedreamPro'),
+    model: getModel('seedreamPro', config) || getModel('seedream', config),
+  });
+  if (!out) throw new Error('No masked plate URL in response');
+  return { url: out };
+};
+
 // ---- Storyboard: a conversational SHOT DIVISION — script → a shot list, turn by turn ----
 // The Storyboard agent is a cinematographer you brainstorm WITH. Each turn takes the script,
 // the CURRENT shot list (read off the cards) and the director's message, and returns the FULL
 // updated shot list + a one-line reply. The canvas reconciles the list into a column of SHOT
 // cards (each a real CutNode = a Seedance prompt). No frames are rendered here — the shot list
 // IS the storyboard; the picture is shooting a card. Camera = a shotTemplate id from the library.
-export const storyboardTurn = async ({ script = '', shots = [], message = '', genre = '', count, config } = {}, ctx) => {
+export const storyboardTurn = async ({ script = '', shots = [], message = '', style = '', references = [], count, config } = {}, ctx) => {
   const n = Math.max(1, Math.min(16, Math.round(Number(count) || 8))); // default 8 frames; 1–16
+  const refs = (references || []).filter(Boolean).slice(0, 10);        // the reference pool → [Image 1..N] (Pro caps at 10)
   const current = (shots || []).map((s, i) => ({
-    n: i + 1, beat: s.beat || '', prompt: s.prompt || '', shotTemplate: s.shotTemplate || '', durationSec: s.durationSec || 10,
+    n: i + 1, beat: s.beat || '', shotTemplate: s.shotTemplate || '', figures: s.figures || [], body: s.body || '', expression: s.expression || '', durationSec: s.durationSec || 10,
   }));
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('storyboard.turn.user', {
       script: String(script || '').trim() || '(none given)',
-      genre: genre || 'unspecified',
+      style: String(style || '').trim() || 'auto',
+      refCount: String(refs.length),
       shots: JSON.stringify(current),
       message: String(message || '').trim() || '(start: break this into a shot list)',
     }),
-    systemPrompt: renderTemplate('storyboard.turn.system', { templates: shotTemplateCatalog(), count: String(n) }),
+    systemPrompt: renderTemplate('storyboard.turn.system', { templates: shotTemplateCatalog(), count: String(n), refCount: String(refs.length) }),
+    images: refs, // the reference plates — the reasoner SEES them as [Image 1..N] and assigns per shot
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
@@ -173,32 +255,77 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', ge
   const arr = Array.isArray(raw.shots) ? raw.shots : (Array.isArray(raw) ? raw : []);
   const out = arr.map((s, i) => {
     const tpl = SHOT_TEMPLATE_BY_ID[s?.shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
+    // Validate the assigned figures against the pool (1..N, deduped); guarantee ≥1 when refs exist.
+    let figures = Array.isArray(s?.figures) ? [...new Set(s.figures.map((x) => Number(x)).filter((x) => x >= 1 && x <= refs.length))] : [];
+    if (!figures.length && refs.length) figures = [1];
     return {
       beat: String(s?.beat || s?.title || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
-      prompt: String(s?.prompt || s?.action || '').replace(/\s+/g, ' ').trim().slice(0, 600),
       shotTemplate: tpl.id,
+      figures,
+      body: String(s?.body || s?.prompt || s?.action || '').replace(/\s+/g, ' ').trim().slice(0, 900),
+      expression: String(s?.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),
       durationSec: clampDuration(s?.durationSec),
     };
-  }).filter((s) => s.prompt);
+  }).filter((s) => s.body);
   if (!out.length) throw new Error('The shot read came back empty — try rephrasing.');
   const reply = String(raw.reply || '').replace(/\s+/g, ' ').trim().slice(0, 400) || 'Updated the shot list.';
   return { shots: out, reply };
 };
 
-// ONE storyboard KEYFRAME: a Seedream still that LOCKS the shot's camera, framing, blocking and
-// mood. Composed from the shot's prompt + the chosen template's cinematography; the project's
-// bible refs (cast/world) anchor the subjects so the storyboard stays consistent. No video — this
-// is a planning still (the storyboard frame). One call per shot; the canvas streams them.
-export const storyboardKeyframe = async ({ prompt = '', shotTemplate = '', refs = [], genre = '', config } = {}, ctx) => {
-  const cine = shotTemplateCinematography(shotTemplate, genre);
+// ONE storyboard KEYFRAME: a Seedream 5.0 still per shot. The `body` (written by the reference-aware
+// division) addresses each reference as [Image N] with what to keep from it; `refs` are the shot's
+// reference plates IN [Image 1..N] ORDER (the caller resolves + renumbers them). NOT a blend — each
+// image is a distinct addressed subject. composeKeyframePrompt wraps the body with the camera + finish
+// lines. Style/expression/ethnicity are optional overrides. One call per shot; the canvas streams them.
+export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedream', config } = {}, ctx) => {
+  const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
   const { url } = await ctx.client.generateImage({
-    prompt: renderTemplate('storyboard.keyframe', { action: String(prompt || '').trim(), cine }),
-    referenceImages: (refs || []).filter(Boolean).slice(0, 4),
-    size: resolveImageSize('2K', '16:9'),
-    model: getModel('seedream', config),
+    prompt: composeKeyframePrompt({ body, shotTemplate, style, expression, ethnicity }),
+    referenceImages: images,
+    size: keyframeImageSize(imageModel),
+    model: getModel(imageModel, config) || getModel('seedream', config),
   });
   if (!url) throw new Error('No keyframe URL in response');
   return { url };
+};
+
+// SINGLE-IMAGE mode: render the WHOLE storyboard as ONE sheet (a grid of numbered panels). Composed
+// from the division `shots` + the full reference pool (attached in [Image 1..N] order, so the panel
+// bodies' [Image N] map correctly and the cast stays consistent). One Seedream call → one image.
+export const storyboardSheet = async ({ shots = [], style = '', title = '', references = [], imageModel = 'seedream', config } = {}, ctx) => {
+  const images = (references || []).filter(Boolean).slice(0, imageRefCap(imageModel));
+  const { url } = await ctx.client.generateImage({
+    prompt: composeStoryboardSheetPrompt({ shots, style, title }),
+    referenceImages: images,
+    size: keyframeImageSize(imageModel),
+    model: getModel(imageModel, config) || getModel('seedream', config),
+  });
+  if (!url) throw new Error('No storyboard sheet URL in response');
+  return { url };
+};
+
+// Re-derive ONE shot's [Image N] body for a chosen figure set — the Expand editor's "Re-derive from
+// references" (run after the director toggles/adds references on a keyframe). Sees the WHOLE pool as
+// [Image 1..N] (same numbering as the division) and rewrites just this shot's body to address
+// `figures` with roles + keep-identity. Returns { body, expression } in GLOBAL [Image N] numbering.
+export const storyboardShotBody = async ({ script = '', beat = '', figures = [], style = '', references = [], config } = {}, ctx) => {
+  const refs = (references || []).filter(Boolean).slice(0, 8);
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('storyboard.shot.user', {
+      script: String(script || '').trim() || '(none given)',
+      beat: beat || 'this shot',
+      style: String(style || '').trim() || 'auto',
+      figures: JSON.stringify((figures || []).filter((x) => x >= 1 && x <= refs.length)),
+    }),
+    systemPrompt: renderTemplate('storyboard.shot.system', { refCount: String(refs.length) }),
+    images: refs,
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const body = String(raw.body || raw.prompt || '').replace(/\s+/g, ' ').trim().slice(0, 900);
+  if (!body) throw new Error('The shot rewrite came back empty.');
+  return { body, expression: String(raw.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40) };
 };
 
 // ---- Deconstruct: a rendered Take → its CUTs (the bridge to Directing) -------------
@@ -300,7 +427,7 @@ export const detectGenre = async ({ idea, config } = {}, ctx) => {
 // prompt) into bible PLATES. Used by castFromIdea (the Cast & World idea read). Each plate carries
 // its source asset id + a `primary` flag (the identity anchor: the FACE for a character, the single
 // plate otherwise). Streams onPlan/onEntry; the canvas tags/locks the plates.
-export const castDraftFromParsed = async ({ arr, style = '', config } = {}, ctx, hooks = {}) => {
+export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedream', config } = {}, ctx, hooks = {}) => {
   const onPlan = hooks.onPlan || (() => {});
   const onEntry = hooks.onEntry || (() => {});
   // The shared style rides on EVERY plate — consistency by construction.
@@ -362,8 +489,9 @@ export const castDraftFromParsed = async ({ arr, style = '', config } = {}, ctx,
       () => ctx.client.generateImage({
         prompt: policyHit ? `${prompt} Keep it tasteful and non-graphic.` : prompt,
         ...(refUrl ? { referenceImages: [refUrl] } : {}),
-        size,
-        model: getModel('seedream', config),
+        // Pro caps the image AREA at 2048² — the 4K plate sizes scale down to fit there.
+        size: clampSizeForModel(imageModel, size),
+        model: getModel(imageModel, config) || getModel('seedream', config),
       }),
       { tries: 4, baseMs: 2500, shouldRetry: (err) => isTransient(err) || isImagePolicyError(err), onRetry: (err) => { if (isImagePolicyError(err)) policyHit = true; } },
     );
@@ -391,7 +519,7 @@ export const castDraftFromParsed = async ({ arr, style = '', config } = {}, ctx,
 
 // Idea → cast & world (the original entry): one read derives the asset list, then the shared
 // renderer draws the bible plates.
-export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks = {}) => {
+export const castFromIdea = async ({ idea, genre = '', imageModel = 'seedream', config } = {}, ctx, hooks = {}) => {
   const t = String(idea || '').trim();
   if (!t) throw new Error('The production draft needs the film idea.');
   const { content } = await ctx.client.reason({
@@ -404,36 +532,5 @@ export const castFromIdea = async ({ idea, genre = '', config } = {}, ctx, hooks
   const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.assets) ? raw.assets : null);
   if (!arr || !arr.length) throw new Error('The production draft returned nothing — provide bible images or rephrase the idea.');
   const style = (raw && !Array.isArray(raw) && String(raw.style || '').trim()) || '';
-  return castDraftFromParsed({ arr, style, config }, ctx, hooks);
-};
-
-// Breakdown: a director's STORYBOARD image → a SHOT LIST that mirrors each drawn panel, in ONE
-// Seed 2.0 Pro read (no annotations required). The focus is CAMERA ANGLE — for each panel the
-// model picks the camera template whose framing/angle matches the drawing and describes what's
-// framed. Returns the normalized shots `{ beat, prompt, shotTemplate, durationSec }` (the SAME
-// shape `storyboardTurn` returns), so the canvas renders a keyframe still per panel — the same
-// keyframe panel the Storyboard agent produces. NO bible plates, NO SHOT cards.
-export const breakdownStoryboard = async ({ boardUrl, genre = '', config } = {}, ctx) => {
-  if (!boardUrl) throw new Error('Breakdown needs a storyboard image — select one on the board first.');
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('breakdown.read.user', { genre: genre || 'unspecified' }),
-    systemPrompt: renderTemplate('breakdown.read.system', { templates: shotTemplateCatalog() }),
-    images: [boardUrl],
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const raw = parseJson(content) || {};
-  const arr = Array.isArray(raw.shots) ? raw.shots : (Array.isArray(raw) ? raw : []);
-  // Normalize each panel → a shot: resolve/fallback the camera-template id, clamp the duration.
-  const shots = arr.map((s, i) => {
-    const tpl = SHOT_TEMPLATE_BY_ID[s?.shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
-    return {
-      beat: String(s?.beat || s?.title || `Panel ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
-      prompt: String(s?.prompt || s?.action || '').replace(/\s+/g, ' ').trim().slice(0, 600),
-      shotTemplate: tpl.id,
-      durationSec: clampDuration(s?.durationSec),
-    };
-  }).filter((s) => s.prompt);
-  if (!shots.length) throw new Error('The breakdown read found no panels — try a clearer storyboard.');
-  return { shots };
+  return castDraftFromParsed({ arr, style, imageModel, config }, ctx, hooks);
 };

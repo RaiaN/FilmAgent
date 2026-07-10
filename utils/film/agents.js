@@ -22,9 +22,9 @@ export const AGENT_COLORS = {
   cast: '#9a5b13',                 // bronze (pre-production: cast & world)
   story: '#f7ba1e',                // gold (the narrative spine: key events)
   storyboard: '#4e5969',           // graphite (the shot plan)
+  previz: '#3491fa',               // sky blue (blocking: previz frame → masked plate)
   deconstruct: '#0fc6c2',          // teal (a Take → its cuts + key frames)
   shot: '#d9488f',                 // rose (a single SHOT card)
-  breakdown: '#7a3fd6',            // violet (a storyboard → bible + shots)
 };
 
 const browserCtx = (apiKey) => ({ client: createBrowserClient(apiKey) });
@@ -145,14 +145,14 @@ export const characterVariationsAgent = {
   consumes: ['image'],
   needsSelection: true,
   grouped: true,
-  defaultSettings: { count: 4, size: '2K', direction: '' },
+  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: 'seedream' },
   describe: 'Plans distinct variations of the selected character, identity preserved.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one character image first');
     const src = refUrl(anchor);
     const result = await ops.characterVariations(
-      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size },
+      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: settings.imageModel || 'seedream' },
       ctx || browserCtx(apiKey),
       variationHooks('characterVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
@@ -169,14 +169,14 @@ export const locationVariationsAgent = {
   consumes: ['image'],
   needsSelection: true,
   grouped: true,
-  defaultSettings: { count: 4, size: '2K', direction: '' },
+  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: 'seedream' },
   describe: 'Plans distinct coverage of the selected location, architecture preserved.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one location image first');
     const src = refUrl(anchor);
     const result = await ops.locationVariations(
-      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size },
+      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: settings.imageModel || 'seedream' },
       ctx || browserCtx(apiKey),
       variationHooks('locationVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
@@ -249,11 +249,11 @@ export const castAgent = {
   color: AGENT_COLORS.cast,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '' },
+  defaultSettings: { prompt: '', imageModel: 'seedream' },
   describe: 'Drafts the film\'s recurring assets — characters, creatures, locations and key props/vehicles — in one shared look, as bible candidates.',
   async run({ prompt, settings = {}, apiKey, ctx, onPlan, onEntry, onError }) {
     const entries = await castFromIdea(
-      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '' },
+      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '', imageModel: settings.imageModel || 'seedream' },
       ctx || browserCtx(apiKey),
       { onPlan, onEntry, onError: (msg) => { if (onError) onError([msg]); } },
     );
@@ -261,20 +261,21 @@ export const castAgent = {
   },
 };
 
-// The STORY agent: an idea (or a pasted script) → ONE long cinematic prompt (clear subjects
-// + story arc, CUT-structured but no CUT markers, no facing-camera, explicit eyelines). Text
-// only — no key events, no appearances, no board reference assets. On the canvas the rail Run
-// is intercepted (handleRun → ensureStoryNode + runStory, which drives the editable Story
-// card); this run() is the headless/SDK entry.
+// The BRIEF agent: a container for the user's OWN words — an idea, a description or a full
+// script — held VERBATIM (no automatic rewrite). On the canvas the rail Run is intercepted
+// (handleRun → createStoryNode: the card lands instantly); Cast & World and Storyboard read
+// the brief verbatim, and Develop (opt-in, runStory) rewrites it into ONE long cinematic
+// prompt (clear subjects + arc, explicit CUT markers, no facing-camera, explicit eyelines)
+// which only New Shot consumes. This run() is the headless/SDK entry to that same rewrite.
 export const storyAgent = {
   id: 'story',
-  label: 'Story',
+  label: 'Brief',
   icon: 'story',
   color: AGENT_COLORS.story,
   consumes: [],
   needsSelection: false,
   defaultSettings: { prompt: '' },
-  describe: 'Rewrites your idea or script into one long cinematic prompt — subjects, arc, eyelines — as an editable Story card.',
+  describe: 'Holds your idea, description or script VERBATIM as a Brief card — storyboard it, draft Cast & World, or drop it verbatim on a SHOT card; Develop (opt-in) rewrites it into one cinematic prompt that New Shot then uses instead.',
   async run({ prompt, settings = {}, apiKey, ctx }) {
     const story = await writeFilmPrompt(
       {
@@ -316,7 +317,7 @@ export const deconstructAgent = {
 // The STORYBOARD agent: the STORY → a visual storyboard, frame by frame. One Seedream
 // frame per story element (CUT-marked), rendered SEQUENTIALLY — each frame uses the
 // PREVIOUS frame as a visual reference and ONE shared seed for consistency. No bible refs.
-// Storyboard = a conversational SHOT DIVISION: select a Story node and Run, and a chat node
+// Storyboard = a conversational SHOT DIVISION: select a Brief node and Run, and a chat node
 // lands on the board bound to a column of SHOT cards. You brainstorm the shot list with a
 // cinematographer; each turn it updates the cards. Canvas-only (it lays a chat node + cards) —
 // the run() guards the headless/SDK path like cast/shot/breakdown.
@@ -327,10 +328,31 @@ export const storyboardAgent = {
   color: AGENT_COLORS.storyboard,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { genre: '', count: 8 },
-  describe: 'Brainstorm the shot division with a cinematographer. Select a Story node and Run — a chat lands on the board, bound to a grid of keyframe stills (default 8) it builds and refines as you talk.',
+  defaultSettings: { genre: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: 'seedream', mode: 'multiple' },
+  describe: 'Brainstorm the shot division with a cinematographer. Select a Brief node and Run — a chat lands on the board, bound to a grid of keyframe stills (default 8) it builds and refines as you talk. Optionally tick board images as references to anchor characters & props.',
   async run() {
     throw new Error('The Storyboard agent lays a chat node + SHOT cards on the canvas — run it from the board.');
+  },
+};
+
+// The PREVIZ agent: paste ANY scene text (a brief, a sub-brief, a layout idea, a shot's
+// prompt) → ONE photoreal BLOCKING frame (Seedream 5.0 Pro): set, camera and figure
+// placement with invented stand-ins. The frame's Mask button then scrubs identities to a
+// flat color-silhouette plate — pure geometry that guides the shoot (plate = layout,
+// cast plates = identity, bound by a color line in the shot prompt). No selection
+// reading, no silent refs — only the panel's ticked references ride along. On the canvas
+// the rail Run is intercepted (handleRun → runPrevizFrame); this run() is canvas-only.
+export const previzAgent = {
+  id: 'previz',
+  label: 'Previz',
+  icon: 'previz',
+  color: AGENT_COLORS.previz,
+  consumes: [],
+  needsSelection: false,
+  defaultSettings: { prompt: '', shotTemplate: '', refs: [] },
+  describe: 'Paste any scene text → a photoreal PREVIZ frame: set, camera and blocking with stand-in people. Mask it on the card into a color blocking plate that guides the shot — tick references to use YOUR set.',
+  async run() {
+    throw new Error('The Previz agent lays image nodes on the canvas — run it from the board.');
   },
 };
 
@@ -351,33 +373,16 @@ export const shotAgent = {
   },
 };
 
-// Breakdown: select a director's STORYBOARD image → ONE Seed 2.0 Pro read → lays a keyframe
-// still per drawn panel (matching its camera angle), in the SAME panel the Storyboard agent
-// produces. Canvas-only like cast/shot — it lays board nodes (not a headless op; guarded run()).
-export const breakdownAgent = {
-  id: 'breakdown',
-  label: 'Breakdown',
-  icon: 'breakdown',
-  color: AGENT_COLORS.breakdown,
-  consumes: ['image'],
-  needsSelection: true,
-  defaultSettings: { genre: '' },
-  describe: 'Select a hand-drawn storyboard — Seed 2.0 Pro reads it panel by panel and lays a grid of keyframe stills that reproduce each panel\'s camera angle (the same keyframe panel the Storyboard agent builds). No annotations needed.',
-  async run() {
-    throw new Error('The Breakdown agent lays a keyframe panel on the canvas — run it from the board.');
-  },
-};
-
 export const AGENTS = [
-  inspirationAgent,
   storyAgent,
   storyboardAgent,
+  previzAgent,
   shotAgent,
   castAgent,
   characterVariationsAgent,
   locationVariationsAgent,
   deconstructAgent,
-  breakdownAgent,
+  inspirationAgent,
 ];
 
 export const AGENT_MAP = AGENTS.reduce((acc, a) => {

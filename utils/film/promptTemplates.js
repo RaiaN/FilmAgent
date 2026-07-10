@@ -84,42 +84,6 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: 'Film idea: {idea}\nGenre & tone: {genre}\n\nThe shared visual style MUST embody that genre & tone, and every asset must fit it. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
   },
 
-  // The storyboard KEYFRAME prompt — one still per shot, shared by the Storyboard agent AND
-  // Breakdown. Wraps the shot's action + its cinematography line into a cinematic frame; the
-  // bible reference images anchor the subjects so the keyframes stay consistent.
-  'storyboard.keyframe': {
-    agent: 'Storyboard',
-    label: 'Storyboard keyframe (the still per shot)',
-    vars: ['{action}', '{cine}'],
-    text: 'A cinematic STORYBOARD KEYFRAME — a single still that LOCKS the shot\'s camera, framing, blocking and mood: {action}. Camera & look: {cine}. Use the reference image(s) for the EXACT characters, wardrobe, places and visual style — keep them consistent across the storyboard. Filmic lighting and composition; characters never look at the camera. No on-image text, captions or watermarks.',
-  },
-  'breakdown.read.system': {
-    agent: 'Breakdown',
-    label: 'Read a storyboard → keyframe shots (system)',
-    vars: ['{templates}'],
-    text: `You are a cinematographer reading a director's STORYBOARD — hand-drawn panels, often with NO written labels. Work ONLY from what is DRAWN; treat any handwriting as a bonus hint, never a requirement. Read the panels in reading order (left-to-right, top-to-bottom, by column).
-
-Produce ONE shot per panel, in reading order — a clean keyframe that REPRODUCES THAT PANEL'S CAMERA ANGLE. Your single focus is CAMERA ANGLE: match how the panel is framed and angled as closely as you can.
-
-For each panel:
-• Choose the single best-fit camera setup from the SHOT TEMPLATE LIBRARY below, by its EXACT id — the one whose framing and angle match the DRAWING. Read FRAMING from how large the figures are drawn (tiny figures in a big space = wide; a head filling the panel = close-up; a foreground shoulder/back-of-head against a distant figure = over-the-shoulder). Read ANGLE from the horizon and vantage (looking UP at a figure = low angle; looking DOWN = high angle; eye-level = neutral). Read MOVEMENT from any drawn arrows (inward arrows = push-in; a curved sweep = an orbit/arc) and pick a template whose move matches; if NO arrow is drawn, pick a STATIC template — never invent a move.
-{templates}
-• Describe what is IN THE FRAME, present-tense — the subjects, their pose, their orientation and EYELINE — read from the drawing, enough to render a clean cinematic still that matches the panel. Keep attention inside the scene; characters never look at the camera.
-
-Return ONLY a JSON object — no prose, no code fences:
-{
-  "shots": [
-    {"panel": <1-based, in order>, "beat": "<2–4 word shot name>", "shotTemplate": "<exact id from the library>", "prompt": "<present-tense description of the framed action + orientation/eyeline that matches the panel>", "durationSec": <5–15>}
-  ]
-}
-ONE shot per panel, in reading order. Describe ONLY what is drawn; do not invent panels that aren't on the board. NEVER put text, captions or watermarks in any image prompt.`,
-  },
-  'breakdown.read.user': {
-    agent: 'Breakdown',
-    label: 'Read a storyboard (instruction)',
-    vars: ['{genre}'],
-    text: 'The attached image is the director\'s storyboard. Genre & tone (if known): {genre}.\nRead it panel by panel and return the JSON: ONE shot per panel, each with the camera-template id that matches the drawn camera angle and a description of what is framed. Focus on reproducing each panel\'s CAMERA ANGLE.',
-  },
   // ---- Story agent: an idea/script → ONE long cinematic prompt (Seed 2.0 Pro rewrite) -
   // No JSON, no key events, no appearances — a direct rewrite to a single continuous
   // cinematic narrative: clear subjects + story arc, structured into shots with explicit
@@ -134,8 +98,45 @@ ONE shot per panel, in reading order. Describe ONLY what is drawn; do not invent
   'story.prompt.user': {
     agent: 'Story',
     label: 'Rewrite to a cinematic prompt (instruction)',
-    vars: ['{story}', '{depth}'],
-    text: '{story}\n\n{depth}',
+    vars: ['{story}', '{depth}', '{preserve}'],
+    text: '{story}\n\n{depth}\n{preserve}',
+  },
+
+  // ---- Split: a brief (or an oversized shot prompt) → sequential ≤15s SHOT segments --
+  // SEGMENTATION, not rewriting: the model splits the text into shootable pieces and
+  // PRESERVES the wording, every detail and any timestamps — never summarizes, never
+  // invents. Durations come from timestamp deltas when the text has them, else the
+  // model estimates one per segment (clamped 5–15s in code).
+  'split.system': {
+    agent: 'Story',
+    label: 'Split into shots (system)',
+    vars: ['{maxShots}', '{countGoal}'],
+    text: 'You are a 1st assistant director preparing VIDEO-GENERATION segments. Split the brief below into the FEWEST possible sequential segments — each segment is ONE 5-15 second SCENE CHUNK that a video model shoots in a single pass. A segment normally CONTAINS several cuts, camera angles, actions and dialogue lines — NEVER split per camera setup, per action or per line of dialogue; start a new segment only when the running one would exceed 15 seconds (or at a hard scene change). If the brief contains timestamps, cut exactly at the timestamp boundaries and derive each duration from its time span; subdivide a timestamped span only when it exceeds 15 seconds, into as few 5-15s pieces as possible. PRESERVE the author\'s wording and every detail inside each segment — do not summarize, do not paraphrase, do not invent content; keep timestamps exactly as written and keep EVERY line of dialogue word-for-word, in quotes, in its original language (never translate or drop a line). If the brief has trailing GLOBAL sections that apply to the whole film (environment, camera flow, aesthetic, audio), do not turn them into segments — carry their relevant lines verbatim into EVERY segment, so each segment stands alone for shooting. {countGoal} At most {maxShots} segments. Return ONLY JSON: {"segments":[{"beat":"3-6 word shot title","text":"the segment content, wording preserved","durationSec":10}]}',
+  },
+  'split.user': {
+    agent: 'Story',
+    label: 'Split into shots (brief)',
+    vars: ['{brief}'],
+    text: '{brief}',
+  },
+
+  // ---- Previz: any text → a photoreal BLOCKING frame; Mask scrubs it to a color plate --
+  // Pass 1 stages the scene photoreal with INVENTED stand-ins (easy to judge like a film
+  // still). Pass 2 is an image EDIT that replaces every person with a flat solid-color
+  // silhouette, left→right (blue, green, yellow, red, purple) — identities die there, so
+  // the plate carries pure GEOMETRY into the shoot (Seedance gets plate = layout + cast
+  // plates = identity, bound by a color line in the shot prompt).
+  'previz.frame': {
+    agent: 'Previz',
+    label: 'Previz frame (photoreal blocking)',
+    vars: ['{scene}', '{camera}'],
+    text: 'A single photorealistic cinematic film still — a PREVIZ blocking frame. {camera} SCENE: {scene} Stage every person described at their stated position, scale, orientation and eyeline, in a real coherent set with natural cinematic light and grade; the people are realistic generic stand-ins (their identity does not matter). Characters never look at the camera. No text, captions or watermarks.',
+  },
+  'previz.mask': {
+    agent: 'Previz',
+    label: 'Mask the previz (identity scrub)',
+    vars: [],
+    text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting and composition — but replace EVERY person with a FLAT solid-color silhouette: hard edges, completely filled with one color, no facial features, no clothing detail, no shading. Assign the colors left to right: blue, then green, then yellow, then red, then purple (repeat the sequence if there are more figures). Each silhouette keeps its person\'s exact position, scale and pose. Everything that is not a person stays photorealistic and identical to [Image 1]. No text or watermarks.',
   },
 
   // ---- Deconstruct: a rendered Take → its CUTs (Seed 2.0 Pro VLM watches the video) ---
@@ -158,22 +159,28 @@ ONE shot per panel, in reading order. Describe ONLY what is drawn; do not invent
   'storyboard.turn.system': {
     agent: 'Storyboard',
     label: 'Shot division — brainstorm the shot list (system)',
-    vars: ['{templates}', '{count}'],
-    text: `You are a film DIRECTOR and CINEMATOGRAPHER brainstorming the SHOT DIVISION of a scene WITH the director — turn by turn. You break the script into a SHOT LIST: a sequence of camera shots that tell the scene with good coverage, pacing and emotional flow.
+    vars: ['{templates}', '{count}', '{refCount}'],
+    text: `You are a film DIRECTOR + CINEMATOGRAPHER + storyboard artist breaking a scene into a SHOT LIST — one keyframe per shot — WITH the director, turn by turn, with good coverage, pacing and emotional flow.
 
-You are given the SCRIPT, the CURRENT shot list (may be empty on the first turn), and the director's latest MESSAGE. Apply the message and return the FULL updated shot list — keep the shots the director didn't ask to change (don't silently rewrite them), add/cut/re-order/re-frame only what the message calls for. On the FIRST turn (empty list), divide the whole script into EXACTLY {count} shots — collapse or expand the action to land on {count} well-chosen, distinct shots that cover the scene. (After that, follow the director: add/cut shots only when the message asks.)
+You are given the SCRIPT, the CURRENT shot list (may be empty), the director's latest MESSAGE, and {refCount} REFERENCE IMAGES attached as [Image 1] … [Image {refCount}] — the film's cast, props and places ({refCount} may be 0). Apply the message and return the FULL updated shot list — keep the shots the director didn't ask to change; add/cut/re-order/re-frame only what the message calls for. On the FIRST turn (empty list), divide the script into EXACTLY {count} well-chosen, distinct shots.
 
-For EACH shot:
-• Choose the single best-fit camera setup from the SHOT TEMPLATE LIBRARY below, by its EXACT id — this sets the size, angle and movement:
+For EACH shot produce:
+• shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY below (it carries framing/angle/lens — do NOT restate the camera in the body):
 {templates}
-• Write the "prompt" — a vivid present-tense description of what is ON SCREEN (who does what, where, orientation/eyeline; characters never look at the camera). This is the shot's Seedance prompt; the chosen template already carries the framing/angle/movement, so do NOT restate the camera in the prompt.
-• Coverage is welcome: a single beat can become several shots (e.g. wide + OTS each way + a CU) — just add them as consecutive shots.
-• "beat" = a 2–4 word shot name; "durationSec" = 5–15.
+• figures — the numbers of the reference images that APPEAR in this shot (e.g. [1,3]); refer to each by that SAME number in the body. Use AT LEAST ONE reference in every shot when references exist; use [] only when none are attached.
+• body — the shot as a Seedream keyframe: 2–5 sentences, addressing each reference explicitly as [Image N], in this order:
+   (1) SUBJECT — "The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged" (for a place/object: "the exact <place/object> in [Image N]"); optionally "wearing the wardrobe / colour scheme from [Image M]"; then their action / pose and gaze. Describe the subject's appearance to MATCH its reference image.
+   (2) SECONDARY subjects via their own [Image K] + what they do (only if present).
+   (3) ENVIRONMENT — location, key set details, time of day.
+   (4) LIGHTING, colour grade, mood / narrative tone.
+   Do NOT restate camera / lens / composition (added from the template). Characters never look at the camera; no on-image text or watermarks.
+• expression — 1–3 words for the main subject's expression (or "").
+• durationSec — 5–15.
 
 Return ONLY a JSON object — no prose, no code fences:
 {
   "shots": [
-    {"beat": "<2–4 word name>", "shotTemplate": "<exact id from the library>", "prompt": "<what's on screen, present tense>", "durationSec": <5–15>}
+    {"beat": "<2–4 word name>", "shotTemplate": "<exact id>", "figures": [<ints>], "body": "<the [Image N]-addressed description>", "expression": "<word or empty>", "durationSec": <5–15>}
   ],
   "reply": "<ONE short line to the director: what you changed / a question back>"
 }`,
@@ -181,8 +188,21 @@ Return ONLY a JSON object — no prose, no code fences:
   'storyboard.turn.user': {
     agent: 'Storyboard',
     label: 'Shot division — brainstorm the shot list (instruction)',
-    vars: ['{script}', '{genre}', '{shots}', '{message}'],
-    text: 'SCRIPT:\n"""\n{script}\n"""\nGenre & tone: {genre}\n\nCURRENT shot list (JSON, in order): {shots}\n\nDirector\'s message: {message}\n\nApply it and return the JSON object — the FULL updated shot list + your one-line reply.',
+    vars: ['{script}', '{style}', '{refCount}', '{shots}', '{message}'],
+    text: 'SCRIPT:\n"""\n{script}\n"""\nStyle / aesthetic: {style} (if "auto", pick a look that fits the script + references).\n{refCount} reference images are attached as [Image 1..N].\n\nCURRENT shot list (JSON, in order): {shots}\n\nDirector\'s message: {message}\n\nApply it and return the JSON — the FULL updated shot list (each shot addressing its references by [Image N], at least one when references exist) + your one-line reply.',
+  },
+  // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
+  'storyboard.shot.system': {
+    agent: 'Storyboard',
+    label: 'Re-derive one keyframe body for its references (system)',
+    vars: ['{refCount}'],
+    text: `You are a cinematographer writing ONE storyboard keyframe's description. {refCount} reference images are attached as [Image 1] … [Image {refCount}] (the film's cast, props and places). Write the shot's BODY: 2–5 sentences addressing each reference this shot uses explicitly as [Image N], in this order — (1) SUBJECT: "The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged" (for a place/object: "the exact <place/object> in [Image N]"); optionally "wearing the wardrobe / colour scheme from [Image M]"; then action / pose and gaze, described to MATCH the reference. (2) SECONDARY subjects via their own [Image K] + what they do. (3) ENVIRONMENT — location, key set details, time of day. (4) LIGHTING, colour grade, mood. Do NOT restate camera / lens / composition. Characters never look at the camera; no on-image text. Return ONLY JSON — no prose, no code fences: {"body":"<the [Image N]-addressed description>","expression":"<1–3 words or empty>"}.`,
+  },
+  'storyboard.shot.user': {
+    agent: 'Storyboard',
+    label: 'Re-derive one keyframe body (instruction)',
+    vars: ['{script}', '{beat}', '{style}', '{figures}'],
+    text: 'SCRIPT (context):\n"""\n{script}\n"""\nShot: "{beat}". Style / aesthetic: {style}.\nThis shot features reference images {figures} (their [Image N] numbers) — feature EXACTLY those, addressing each by its [Image N] number.\nReturn the JSON: the body + expression.',
   },
 
   // ---- Story Director (headless Service API ONLY) ----

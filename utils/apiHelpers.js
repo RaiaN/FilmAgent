@@ -47,7 +47,9 @@ export const constructWorkflowSeedreamPayload = (formValues) => {
     };
 
     if (formValues.image && formValues.image.length > 0) {
-      requestBody.image = formValues.image;
+      // Respect the model's reference-image cap (Lite 6, Pro 10) so we never send more than it accepts.
+      const cap = MODEL_CAPABILITIES[formValues.model]?.max_ref_images;
+      requestBody.image = cap ? formValues.image.slice(0, cap) : formValues.image;
     }
 
     return requestBody;
@@ -153,13 +155,23 @@ export const constructAssetUploadPayload = (formValues) => {
 };
 
 export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) => {
+    // Only the Seedream (image) and Seedance (video) tabs tailor their fields by model.
+    // Other tabs (film-agent, speech, asset-upload, llm) carry no `model`, so there is
+    // nothing to tailor — return early instead of warning about an empty model.
+    if (activeModelId !== 'seedream' && activeModelId !== 'seedance') {
+        return prevSchema;
+    }
+
     const model = formValues.model || '';
-    
+
     // Get capabilities - MUST exist for the selected model
     const caps = MODEL_CAPABILITIES[model];
 
     if (!caps) {
-        console.warn(`[updateUiSchemaVisibility] Missing capabilities for model: ${model}. UI might be incorrect.`);
+        // Only a real (non-empty) model missing its caps is worth flagging.
+        if (model) {
+            console.warn(`[updateUiSchemaVisibility] Missing capabilities for model: ${model}. UI might be incorrect.`);
+        }
         return prevSchema; // Return schema unchanged if capabilities are missing
     }
 

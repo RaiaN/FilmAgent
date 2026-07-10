@@ -4,6 +4,7 @@ import { IconCode, IconStar, IconRefresh, IconBook } from '@arco-design/web-reac
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructWorkflowSeedreamPayload } from '../utils/apiHelpers';
+import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
 import { getApiKey } from '../utils/apiKeyStore';
 import { getEndpointUrl } from '../utils/config';
 
@@ -66,6 +67,11 @@ const SeedreamPlayground = ({
   };
 
   const handleCopyCode = (type) => {
+      const runs = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 20);
+      if (runs > 1) {
+          Message.warning('Copy code exports a single image request. Multi-image mode runs parallel requests from this app.');
+          return;
+      }
       const payload = constructWorkflowSeedreamPayload(formValues);
       const endpointUrl = getEndpointUrl('image');
       let code = '';
@@ -108,6 +114,11 @@ const SeedreamPlayground = ({
 
   const modelOptions = getFieldOptions('model');
   const sizeOptions = getFieldOptions('size');
+  const selectedModel = modelOptions.find((o) => (typeof o === 'string' ? o : o.value) === formValues.model);
+  const modelLabel = selectedModel ? (typeof selectedModel === 'string' ? selectedModel : selectedModel.label) : 'This model';
+  const maxRefImages = MODEL_CAPABILITIES[formValues.model]?.max_ref_images || 6;
+  const refImages = formValues.image || [];
+  const parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 20);
   return (
     <div className={styles.playgroundContainer}>
       {/* Header */}
@@ -124,9 +135,11 @@ const SeedreamPlayground = ({
                 position: 'bl',
             }}
           >
-            {modelOptions.map(opt => (
-              <Select.Option key={opt} value={opt}>{opt}</Select.Option>
-            ))}
+            {modelOptions.map(opt => {
+              const value = typeof opt === 'string' ? opt : opt.value;
+              const label = typeof opt === 'string' ? opt : opt.label;
+              return <Select.Option key={value} value={value}>{label}</Select.Option>;
+            })}
           </Select>
           {onRefreshModels && (
               <Tooltip content="Refresh Model List">
@@ -156,6 +169,9 @@ const SeedreamPlayground = ({
           {/* Left: Image Inputs */}
           <div className={styles.imageInputs}>
             {/* Reference Image Upload */}
+            <div style={{ fontSize: 12, color: '#86909c', marginBottom: 8 }}>
+                Reference images — up to {maxRefImages} for {modelLabel}.
+            </div>
             <Upload
                 listType="picture-card"
                 multiple
@@ -176,6 +192,10 @@ const SeedreamPlayground = ({
                     // Let's try to adapt Arco Upload but keep it minimal.
                 }}
                 beforeUpload={(file) => {
+                    if (refImages.length >= maxRefImages) {
+                        Message.warning(`${modelLabel} accepts up to ${maxRefImages} reference images`);
+                        return false;
+                    }
                     // Bridge to existing image upload logic
                     const mockEvent = { target: { files: [file] } };
                     handleImageUpload(mockEvent, 'image');
@@ -237,6 +257,21 @@ const SeedreamPlayground = ({
             </div>
           )}
 
+          {/* Number of images to generate (parallel runs) */}
+          <div className={styles.toolChip}>
+              <span style={{ marginRight: 8 }}>🖼️ Images</span>
+              <Select
+                  value={parallelCount}
+                  onChange={(val) => handleInputChange('parallelCount', Number(val))}
+                  style={{ width: 72 }}
+                  size="small"
+              >
+                  {[1, 5, 10, 20].map((opt) => (
+                      <Select.Option key={opt} value={opt}>{opt}</Select.Option>
+                  ))}
+              </Select>
+          </div>
+
           {/* Submit */}
           <Dropdown droplist={codeMenu} trigger="click" position="bl">
               <Tooltip content="Copy code snippet (API Key not included)">
@@ -252,7 +287,7 @@ const SeedreamPlayground = ({
             size="large"
             style={{ marginLeft: 0 }}
           >
-            {loading ? 'Generating...' : 'Generate ➔'}
+            {loading ? `Generating ${parallelCount}x...` : parallelCount > 1 ? `Generate ${parallelCount}x ➔` : 'Generate ➔'}
           </Button>
         </div>
       </form>

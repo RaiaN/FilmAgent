@@ -1,27 +1,24 @@
-import modelsData from './models.json';
 import { generateAssetGroupId } from './assetGroupId';
+import { ROOT_CONFIG } from './film/suiteConfig';
 
-const DEFAULT_SEEDANCE_MODEL = 'ep-20260415171928-pdvvr';
-const DEFAULT_SEEDREAM_MODEL = 'ep-20260501195034-hj78f';
+// Seedream (image) endpoints for the Tools → Image dropdown — Lite + Pro. Endpoint ids
+// come from the suite-config registry (ROOT_CONFIG.models) so the tab and the film suite
+// share one source; `label` is the dropdown name. `.filter` drops any id not configured yet.
+const DEFAULT_SEEDREAM_MODEL = ROOT_CONFIG.models.seedream;
+const seedreamEndpoints = [
+    { value: ROOT_CONFIG.models.seedream, label: 'Seedream 5.0 Lite' },
+    { value: ROOT_CONFIG.models.seedreamPro, label: 'Seedream 5.0 Pro' },
+].filter((o) => o.value);
 
-// Helper to filter models from the JSON
-const getModelsByFilter = (filterFn) => {
-    const models = modelsData.data || [];
-    // Sort by created date descending
-    models.sort((a, b) => (b.created || 0) - (a.created || 0));
-    return models.filter(filterFn).map(m => m.id);
-};
-
-// Seedream Models
-const seedreamModels = getModelsByFilter(m => m.id === DEFAULT_SEEDREAM_MODEL);
-
-// Seedance Models
-const seedanceModels = getModelsByFilter(m => 
-    (m.domain === 'VideoGeneration' || 
-    (m.task_type && (m.task_type.includes('ImageToVideo') || m.task_type.includes('TextToVideo'))) ||
-    m.id.startsWith('seedance')) &&
-    !m.id.startsWith('seedream') && !m.id.startsWith('seededit')
-);
+// Seedance (video) endpoints for the Tools → Video dropdown. Endpoint ids come from
+// the suite-config registry (ROOT_CONFIG.models) so they live in one place; `label`
+// is the human name shown in the dropdown. `.filter` drops any id not configured yet.
+const DEFAULT_SEEDANCE_MODEL = ROOT_CONFIG.models.seedance;
+const seedanceEndpoints = [
+    { value: ROOT_CONFIG.models.seedance, label: 'Seedance 2.0' },
+    { value: ROOT_CONFIG.models.seedanceFast, label: 'Seedance 2.0 Fast' },
+    { value: ROOT_CONFIG.models.seedanceMini, label: 'Seedance 2.0 Mini' },
+].filter((o) => o.value);
 
 // LLM Models — explicit list, newest first
 const LLM_MODEL_IDS = [
@@ -41,9 +38,9 @@ export const baseSchemas = {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: seedreamModels.length > 0 ? seedreamModels : [DEFAULT_SEEDREAM_MODEL],
+        options: seedreamEndpoints,
         defaultValue: DEFAULT_SEEDREAM_MODEL,
-        description: 'Seedream model id used for generation.',
+        description: 'Seedream endpoint. Pro is the latest (up to 10 reference images) but caps output area at 2048² (no 4K); Lite allows 2K/4K and up to 6 refs.',
       },
       {
         key: 'prompt',
@@ -56,7 +53,7 @@ export const baseSchemas = {
         key: 'image',
         label: 'Reference Images',
         type: 'image-list',
-        description: 'Optional reference images (URL or Base64). Up to 14 images for multi-image blending.',
+        description: 'Optional reference images (URL or Base64) for multi-image blending. Max depends on the model — 6 for Lite, 10 for Pro.',
       },
       {
         key: 'size',
@@ -72,7 +69,7 @@ export const baseSchemas = {
       prompt: 'A hero product shot of a premium skincare bottle on a minimal studio set.',
       size: '2K',
       image: [],
-      parallelCount: 5,
+      parallelCount: 1,
     },
   },
   llm: {
@@ -124,12 +121,9 @@ export const baseSchemas = {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: seedanceModels.length > 0 ? seedanceModels : [
-            // Seedance Models Only
-            DEFAULT_SEEDANCE_MODEL
-        ],
+        options: seedanceEndpoints,
         defaultValue: DEFAULT_SEEDANCE_MODEL,
-        description: 'Seedance model id used for video generation.',
+        description: 'Seedance endpoint used for video generation. Fast trades a little fidelity for speed; Mini is the cheapest and caps at 720p.',
       },
       {
         key: 'prompt',
@@ -203,9 +197,7 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: seedanceModels.includes(DEFAULT_SEEDANCE_MODEL)
-        ? DEFAULT_SEEDANCE_MODEL
-        : (seedanceModels.length > 0 ? seedanceModels[0] : DEFAULT_SEEDANCE_MODEL),
+      model: DEFAULT_SEEDANCE_MODEL,
       prompt: 'A cinematic shot of a futuristic city with flying cars.',
       reference_image_refs: [],
       reference_video_refs: [],

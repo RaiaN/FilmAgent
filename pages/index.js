@@ -161,11 +161,25 @@ export default function Home() {
         model: newModelId,
         ...(activeModelId === 'seedance' ? (() => {
           const caps = MODEL_CAPABILITIES[newModelId] || MODEL_CAPABILITIES.default;
+          const resOk = !caps.resolutions || caps.resolutions.includes(prev.resolution);
           return {
             reference_image_refs: caps.supports_ref_images ? prev.reference_image_refs : [],
             reference_video_refs: caps.supports_ref_videos ? prev.reference_video_refs : [],
             reference_audios: caps.supports_ref_audios ? prev.reference_audios : [],
             generate_audio: caps.supports_audio ? prev.generate_audio : false,
+            // Mini caps at 720p — drop an out-of-range resolution so we never send one the endpoint rejects.
+            resolution: resOk ? prev.resolution : (caps.resolutions.includes('720p') ? '720p' : caps.resolutions[0]),
+          };
+        })() : {}),
+        ...(activeModelId === 'seedream' ? (() => {
+          const caps = MODEL_CAPABILITIES[newModelId] || MODEL_CAPABILITIES.default;
+          const sizes = (caps.sizes || []).filter((s) => s !== 'Custom');
+          const cap = caps.max_ref_images;
+          return {
+            // Pro has no 4K (2048² area cap) — snap an out-of-range size to a valid one.
+            size: (!sizes.length || sizes.includes(prev.size)) ? prev.size : (sizes.includes('2K') ? '2K' : sizes[0]),
+            // Trim references beyond the new model's cap (Lite 6 / Pro 10).
+            image: cap && (prev.image || []).length > cap ? prev.image.slice(0, cap) : prev.image,
           };
         })() : {}),
     }));
@@ -324,7 +338,7 @@ export default function Home() {
       let parallelCount = 1;
 
       if (activeModelId === 'seedream') {
-          parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 5, 1), 5);
+          parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 20);
           requestBody = constructWorkflowSeedreamPayload(formValues);
       } else if (activeModelId === 'seedance') {
           endpoint = '/api/seedance';
@@ -394,7 +408,17 @@ export default function Home() {
       };
 
       let nextResult;
-      if ((activeModelId === 'seedance' || activeModelId === 'seedream') && parallelCount > 1) {
+      if (activeModelId === 'seedream') {
+        // Each plate fetches its own image — the image analog of Seedance's per-card polling.
+        // Hand the cards the request so they render immediately with a spinner and stream in
+        // independently, instead of awaiting all N here. The cards attach the API key themselves.
+        nextResult = {
+          batch: true,
+          parallelCount,
+          request: requestBody,
+          items: Array.from({ length: parallelCount }, (_, index) => ({ requestIndex: index + 1 })),
+        };
+      } else if (activeModelId === 'seedance' && parallelCount > 1) {
         const batchResponses = await Promise.all(
           Array.from({ length: parallelCount }, (_, index) => executeRequest(index + 1))
         );

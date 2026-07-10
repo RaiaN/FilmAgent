@@ -3,7 +3,7 @@
 // The canvas and the headless SDK both call these; only the injected `client`
 // differs. Prompts/models resolve through suiteConfig (root ← client ← per-call).
 
-import { renderTemplate, getModel, getRuntime } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, clampSizeForModel } from '../suiteConfig';
 import { withRetry } from './retry';
 
 // Variation "axes" and styles are no longer hardcoded pools — the agentic
@@ -134,20 +134,20 @@ export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, cou
   return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
 };
 
-export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', config } = {}, ctx, hooks) => {
+export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = 'seedream', config } = {}, ctx, hooks) => {
   if (!imageUrl) throw new Error('characterVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'characterVariations', count: n, direction, references: [imageUrl], config }, ctx);
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label } }));
-  return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, hooks);
+  return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) || getModel('seedream', config) }, ctx, hooks);
 };
 
-export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', config } = {}, ctx, hooks) => {
+export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = 'seedream', config } = {}, ctx, hooks) => {
   if (!imageUrl) throw new Error('locationVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'locationVariations', count: n, direction, references: [imageUrl], config }, ctx);
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label } }));
-  return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, hooks);
+  return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) || getModel('seedream', config) }, ctx, hooks);
 };
 
 // Compose the camera/lens preamble + motion into a single Seedance prompt.

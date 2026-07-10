@@ -177,8 +177,9 @@ export const serializeNodes = (nodes) => {
   return [...parentless, ...children].map((n) => {
     // Drop transient/heavy fields so project.json stays lean:
     // localUrl is a huge base64 thumbnail; loading/preserving/busy/shooting/
-    // storyboarding/phase are in-flight flags (a Story node carries its own state).
-    const { localUrl, loading, preserving, busy, shooting, storyboarding, casting, phase, ...persistData } = n.data || {};
+    // storyboarding/casting/boarding/phase are in-flight flags (a Brief node
+    // carries its own state).
+    const { localUrl, loading, preserving, busy, shooting, storyboarding, casting, boarding, splitting, developing, phase, ...persistData } = n.data || {};
     return {
       id: n.id,
       type: n.type,

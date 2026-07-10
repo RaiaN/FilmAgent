@@ -7,12 +7,11 @@ import {
   IconLocation,
   IconVideoCamera,
   IconBranch,
-  IconThunderbolt,
   IconApps,
   IconUserGroup,
   IconScissor,
   IconCamera,
-  IconList,
+  IconEye,
 } from '@arco-design/web-react/icon';
 
 export const AGENT_ICONS = {
@@ -22,10 +21,10 @@ export const AGENT_ICONS = {
   film: IconVideoCamera, // Animate
   story: IconBranch,     // Story Director
   board: IconApps,       // Storyboard (the panel grid)
+  previz: IconEye,       // Previz (photoreal blocking frame → masked plate)
   cast: IconUserGroup,   // Cast & World (the ensemble: characters/monsters + places)
   deconstruct: IconScissor, // Deconstruct (a Take → its cuts + key frames)
   shot: IconCamera,      // Shot (drops an empty SHOT card)
-  breakdown: IconList,   // Breakdown (a storyboard → bible + shots)
 };
 
 export const agentIcon = (key) => AGENT_ICONS[key] || IconStar;

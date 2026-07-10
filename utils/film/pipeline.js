@@ -21,10 +21,10 @@ export const FILM_PIPELINE = [
   },
   {
     id: 'storyboard',
-    label: 'Story',
+    label: 'Brief',
     agents: ['story'],
-    gate: 'write the story, then New Shot to drop a SHOT card',
-    produces: 'an editable cinematic prompt from your idea → a SHOT card (and an optional visual storyboard)',
+    gate: 'write the brief, then Storyboard it or drop a SHOT card',
+    produces: 'your idea/script held VERBATIM on a Brief card → Cast & World, a storyboard, or a developed cinematic prompt for a SHOT card',
   },
   {
     id: 'casting',
@@ -69,8 +69,8 @@ export const pipelineStatus = ({ idea = '', storyPrompt = '', bibleEntries = [],
 
   const status = {
     ideation: hasIdea ? 'done' : (candidates > 0 ? 'inProgress' : 'todo'),
-    // Story keys off the WRITTEN PROMPT, never SHOT cards — so deleting a card never
-    // regresses Story, and Story/Shots are not conflated.
+    // Brief keys off the user's VERBATIM brief text, never SHOT cards or the (opt-in)
+    // developed prompt — so skipping Develop or deleting a card never regresses it.
     storyboard: hasStory ? 'done' : 'todo',
     casting: (hasCast && hasPlace) ? 'done' : (bibleEntries.length ? 'inProgress' : 'todo'),
     filming: shot > 0 ? (total > 0 && shot >= total ? 'done' : 'inProgress') : 'todo',
@@ -78,7 +78,7 @@ export const pipelineStatus = ({ idea = '', storyPrompt = '', bibleEntries = [],
   };
   const note = {
     ideation: hasIdea ? 'idea set' : (candidates ? `${candidates} candidate(s), no idea yet` : 'no idea yet'),
-    storyboard: hasStory ? 'story written' : 'no story yet',
+    storyboard: hasStory ? 'brief written' : 'no brief yet',
     casting: [hasCast ? 'cast ✓' : 'no cast', hasPlace ? 'places ✓' : 'no places'].join(' · '),
     filming: total ? `${shot}/${total} shot` : '—',
     finalCut: filmUrl ? 'film ready' : 'not stitched',

@@ -41,6 +41,7 @@ export default async function imagineHandler(req, res) {
     size = '2K',
     model,                 // optional override; defaults to the suite's Seedream model
     seed,                  // optional fixed seed (the Storyboard holds it constant across frames)
+    optimizePrompt,        // Seedream 5.0 Pro "thinking" prompt optimization (text-to-image only)
   } = req.body || {};
   const seedreamModel = model || ROOT_CONFIG.models.seedream;
 
@@ -93,6 +94,11 @@ export default async function imagineHandler(req, res) {
       body.image = refs; // Seedream multi-image blend
     }
     if (seed != null && seed !== '') body.seed = Number(seed);
+    // Prompt optimization with THINKING (Seedream 5.0 Pro): the model reasons about the
+    // prompt before rendering. Per the API this exists for TEXT-TO-IMAGE only — it is
+    // rejected alongside reference images — so it rides ONLY on ref-free requests.
+    // Callers may pass the flag unconditionally; the gate lives here, once.
+    if (optimizePrompt && refs.length === 0) body.optimize_prompt_options = { thinking: 'enabled' };
 
     const response = await fetch(`${endpointBase}/images/generations`, {
       method: 'POST',

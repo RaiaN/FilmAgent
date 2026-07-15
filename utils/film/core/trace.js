@@ -100,6 +100,7 @@ export const createTrace = () => {
         else if (kind === 'reason') rec.result = oneLine(out && out.content, 360);
         else if (kind === 'startVideo') rec.result = `task ${(out && out.taskId) || '?'}`;
         else if (kind === 'pollVideo') rec.result = abbrevUrl(out && out.videoUrl);
+        else if (kind === 'generateSpeech') rec.result = `${(out && out.bytes) || 0} bytes · ${(out && out.format) || 'mp3'}`;
         notify();
         return out;
       } catch (err) {
@@ -116,6 +117,7 @@ export const createTrace = () => {
       generateImage: (args = {}) => timed('generateImage', { prompt: oneLine(args.prompt), refs: refsWithRoles(args.referenceImages), model: args.model, size: args.size }, () => client.generateImage(args)),
       startVideo: (args = {}) => timed('startVideo', { prompt: oneLine((args.content || []).map((c) => c && c.text).filter(Boolean).join(' ')), model: args.model, duration: args.duration, resolution: args.resolution }, () => client.startVideo(args)),
       pollVideo: (args = {}) => timed('pollVideo', { task: args.taskId }, () => client.pollVideo(args)),
+      ...(client.generateSpeech ? { generateSpeech: (args = {}) => timed('generateSpeech', { prompt: oneLine(args.text), model: args.model, voice: args.voice }, () => client.generateSpeech(args)) } : {}),
     };
   };
 

@@ -59,9 +59,11 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
   const [saving, setSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
 
+  // Opening the canvas mints a WORKING TITLE (a film-flavoured word pair from
+  // randomFilmTitle) instead of another "Untitled" — rename any time in the header.
   const makeScratch = useCallback(() => emptyProject({
     id: randomId(),
-    title: 'Untitled (scratch)',
+    title: '',
     language: formValues.language || 'en',
     targetMinutes: formValues.targetMinutes || 4,
   }), [formValues.language, formValues.targetMinutes]);

@@ -5,10 +5,18 @@ import { emptyBible, emptyTimeline } from './timelineModel';
 
 export const PROJECT_VERSION = 2;
 
+// A working title for a project the user never named — a film-flavoured word pair
+// ("Velvet Monsoon", "Paper Comet") beats a wall of "Untitled Film"s in the recent
+// list. Pure code (no model call at open); the user renames in the header any time.
+const TITLE_ADJ = ['Velvet', 'Paper', 'Silent', 'Neon', 'Amber', 'Hollow', 'Iron', 'Golden', 'Crimson', 'Winter', 'Feral', 'Broken', 'Electric', 'Midnight', 'Salt', 'Wild', 'Pale', 'Distant', 'Burning', 'Glass'];
+const TITLE_NOUN = ['Monsoon', 'Comet', 'Harbour', 'Lantern', 'Orchard', 'Tide', 'Signal', 'Vertigo', 'Mirage', 'Ember', 'Meridian', 'Sparrow', 'Static', 'Horizon', 'Parade', 'Reverie', 'Thunder', 'Compass', 'Falcon', 'Aurora'];
+export const randomFilmTitle = () =>
+  `Project "${TITLE_ADJ[Math.floor(Math.random() * TITLE_ADJ.length)]} ${TITLE_NOUN[Math.floor(Math.random() * TITLE_NOUN.length)]}"`;
+
 export const emptyProject = ({ id, title, language, targetMinutes }) => ({
   version: PROJECT_VERSION,
   id,
-  title: title || 'Untitled Film',
+  title: title || randomFilmTitle(),
   language: language || 'en',
   targetMinutes: targetMinutes || 4,
   // The confirmed genre LINE — set when the Cast & World flow locks genre; drives the

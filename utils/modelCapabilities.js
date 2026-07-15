@@ -23,9 +23,10 @@ export const MODEL_CAPABILITIES = {
     },
     // Seedream 5.0 Pro endpoint — output area caps at 2048² (4.19MP): no 4K, so explicit
     // sub-cap sizes; accepts up to 10 refs. Mirrors IMAGE_REF_CAP.seedreamPro (10).
+    // 'thinking' = optimize_prompt_options {thinking:'enabled'} — TEXT-TO-IMAGE only.
     'dola-seedream-5-0-pro-260628': {
         sizes: ['2560x1440', '1440x2560', '2048x2048'],
-        optimize_prompt_modes: ['standard'],
+        optimize_prompt_modes: ['standard', 'thinking'],
         sequential_generation: true,
         guidance_scale: false,
         supports_watermark: true,

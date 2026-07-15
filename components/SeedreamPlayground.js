@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Select, Input, Button, Upload, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
+import { Select, Input, Button, Upload, Dropdown, Menu, Message, Tooltip, Checkbox } from '@arco-design/web-react';
 import { IconCode, IconStar, IconRefresh, IconBook } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
@@ -271,6 +271,23 @@ const SeedreamPlayground = ({
                   ))}
               </Select>
           </div>
+
+          {/* Prompt optimization with thinking — Seedream 5.0 Pro, text-to-image only */}
+          {(MODEL_CAPABILITIES[formValues.model]?.optimize_prompt_modes || []).includes('thinking') && (
+            <Tooltip content={refImages.length > 0
+              ? 'Thinking applies to text-to-image only — remove the reference images to use it'
+              : 'The model reasons about your prompt before rendering — better composition, slower'}>
+              <div className={styles.toolChip} style={refImages.length > 0 ? { opacity: 0.45 } : undefined}>
+                <Checkbox
+                    checked={!!formValues.optimizeThinking}
+                    disabled={refImages.length > 0}
+                    onChange={(checked) => handleInputChange('optimizeThinking', checked)}
+                >
+                    🧠 Thinking
+                </Checkbox>
+              </div>
+            </Tooltip>
+          )}
 
           {/* Submit */}
           <Dropdown droplist={codeMenu} trigger="click" position="bl">

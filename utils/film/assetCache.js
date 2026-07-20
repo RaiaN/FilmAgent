@@ -1,15 +1,16 @@
-// Client helper for the beside-the-project local asset cache (/api/film/asset).
-// Fetches a generated asset's bytes into the project's own assets/ folder and returns a
-// stable same-origin URL for display, so the canvas survives the remote URL's expiry.
-// Best-effort: returns null on any failure (the board falls back to the remote url).
+// Client helper for the GLOBAL local media store (/api/film/media). Checks a
+// generated/uploaded asset's bytes into ~/.modelark-starter-kit/media and returns a
+// stable same-origin URL for display, so boards survive the remote URL's expiry —
+// in EVERY project mode (scratch / browser-folder / path); no project id needed.
+// Returns null on failure — the caller (the canvas check-in effect) retries with backoff.
 
-export const cacheAssetLocal = async ({ id, url }) => {
-  if (!id || !url) return null;
+export const cacheAssetLocal = async ({ url }) => {
+  if (!url) return null;
   try {
-    const res = await fetch('/api/film/asset', {
+    const res = await fetch('/api/film/media', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, url }),
+      body: JSON.stringify({ url }),
     });
     if (!res.ok) return null;
     const data = await res.json();

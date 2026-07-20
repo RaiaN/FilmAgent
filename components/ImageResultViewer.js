@@ -75,22 +75,27 @@ const SingleImageResult = ({ result }) => {
 };
 
 // One image "plate": fetches its own /api/seedream request and streams in independently,
-// mirroring how each Seedance VideoTaskResultCard polls its own task. The card attaches the
-// API key itself (like the video cards) so it never lives in shared result state.
-const ImageTaskResultCard = ({ request, title }) => {
-  const [status, setStatus] = useState('generating');
-  const [data, setData] = useState(null);
+// mirroring how each Seedance VideoTaskResultCard polls its own task. The OUTCOME is written
+// back into the parent-owned result slot (`initial` + onStarted/onSettled): the viewer sits
+// under a per-tab conditional render, so anything held only in card state dies on a tab
+// switch — worse, a remounted card would re-fetch and PAY for the image again. With the
+// slot as the source of truth: settled slots render instantly on remount (no refetch), and
+// a slot marked `started` just waits — the orphaned first fetch still lands via onSettled
+// (the parent survives the switch).
+const ImageTaskResultCard = ({ request, title, initial, onStarted, onSettled }) => {
+  const settled = initial && (initial.settled || initial.error || initial.data?.length || initial.imageUrl);
+  const [, force] = useState(0); // slot updates arrive via props; local state only drives re-render on late settle
   const requestRef = useRef(null);
 
-  // Fetch once per request. Keying on the request object's identity (not a boolean) means we
-  // re-generate when a new Generate hands us a fresh request, skip unrelated re-renders, and —
-  // because the ref persists across React StrictMode's double effect invoke — never double-fire,
-  // which for image generation would otherwise mean paying for two images per plate in dev.
+  // Fetch once per request — and only when this slot has neither settled nor started.
+  // Keying on the request object's identity (not a boolean) means a new Generate (fresh
+  // request object) re-generates, unrelated re-renders are skipped, and the ref guard
+  // survives React StrictMode's double effect invoke (no double-billing in dev).
   useEffect(() => {
+    if (settled || initial?.started) return;
     if (requestRef.current === request) return;
     requestRef.current = request;
-    setStatus('generating');
-    setData(null);
+    if (onStarted) onStarted();
     (async () => {
       try {
         const response = await fetch('/api/seedream', {
@@ -99,45 +104,40 @@ const ImageTaskResultCard = ({ request, title }) => {
           body: JSON.stringify({ ...request, apiKey: getApiKey() }),
         });
         const json = await response.json();
-        if (requestRef.current !== request) return; // superseded by a newer generation
-        if (response.ok) {
-          setData(json);
-          setStatus('succeeded');
-        } else {
-          setData({ error: json?.error || 'Request failed', details: json?.details });
-          setStatus('failed');
-        }
+        if (onSettled) onSettled(response.ok ? { ...json, settled: true } : { error: json?.error || 'Request failed', details: json?.details, settled: true });
+        force((x) => x + 1);
       } catch (error) {
-        if (requestRef.current !== request) return;
-        setData({ error: 'Request failed', details: error.message });
-        setStatus('failed');
+        if (onSettled) onSettled({ error: 'Request failed', details: error.message, settled: true });
+        force((x) => x + 1);
       }
     })();
-  }, [request]);
+  }, [request, settled, initial?.started, onStarted, onSettled]);
 
   return (
     <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '0.75rem', background: '#fafafa' }}>
       <div style={{ fontSize: 11, fontWeight: 600, color: '#165dff', marginBottom: 8 }}>{title}</div>
-      {status === 'generating' ? (
+      {!settled ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 160, color: '#86909c', gap: 8 }}>
           <IconSync spin style={{ fontSize: 24 }} />
           <span style={{ fontSize: 12 }}>Generating…</span>
         </div>
       ) : (
-        <SingleImageResult result={data} />
+        <SingleImageResult result={initial} />
       )}
     </div>
   );
 };
 
-const ImageResultViewer = ({ result }) => {
+const ImageResultViewer = ({ result, onItemPatch }) => {
   if (!result) return null;
 
   if (result.error) {
     return <div className="result">{typeof result.error === 'string' ? result.error : JSON.stringify(result.error)}</div>;
   }
 
-  // Streaming plates: each card fetches its own image (mirrors Seedance's per-card polling).
+  // Streaming plates: each card fetches its own image (mirrors Seedance's per-card polling)
+  // and settles its outcome INTO the parent-owned slot via onItemPatch, so finished images
+  // survive tab switches and a remount never re-fetches (= never re-bills).
   if (result.batch && result.request && Array.isArray(result.items)) {
     return (
       <div style={{ marginTop: '1.5rem' }}>
@@ -150,6 +150,9 @@ const ImageResultViewer = ({ result }) => {
               key={item.requestIndex || idx}
               request={result.request}
               title={`#${item.requestIndex || idx + 1}`}
+              initial={item}
+              onStarted={onItemPatch ? () => onItemPatch(item.requestIndex || idx + 1, { started: true }) : null}
+              onSettled={onItemPatch ? (payload) => onItemPatch(item.requestIndex || idx + 1, payload) : null}
             />
           ))}
         </div>

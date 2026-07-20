@@ -1,12 +1,13 @@
 import { Typography } from '@arco-design/web-react';
+import { IconFile } from '@arco-design/web-react/icon';
 import { AGENTS } from '../../../utils/film/agents';
 import { agentIcon } from './agentIcons';
 
 const { Text } = Typography;
 
-// Right-click context menu listing the agent layers. Each item is enabled when the
-// current selection satisfies that layer's requirements.
-const CanvasContextMenu = ({ x, y, maxHeight, selection, onPick, onClose }) => {
+// Right-click context menu: the agent layers (each opens its configuration panel)
+// plus the plain board elements — a Text note lands directly at the click point.
+const CanvasContextMenu = ({ x, y, maxHeight, selection, onPick, onAddNote, onClose }) => {
   const withUrl = (selection || []).filter((n) => n.data?.url);
   const imageCount = withUrl.filter((n) => n.data?.kind === 'image').length;
   const countFor = (layer) => withUrl.filter((n) => (layer.consumes || []).includes(n.data?.kind)).length;
@@ -42,6 +43,18 @@ const CanvasContextMenu = ({ x, y, maxHeight, selection, onPick, onClose }) => {
             {withUrl.length > 0 ? `${withUrl.length} selected` : 'Nothing selected'} · run an agent
           </Text>
         </div>
+        {onAddNote && (
+          <div
+            onClick={onAddNote}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f2f3f5' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#f7f8fa'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: '#b06f10', flexShrink: 0 }} />
+            <IconFile style={{ fontSize: 16, color: '#b06f10' }} />
+            <Text style={{ fontSize: 13 }}>Text note</Text>
+          </div>
+        )}
         {AGENTS.map((layer) => {
           const Icon = agentIcon(layer.icon);
           const minSel = layer.minSelection || 1;

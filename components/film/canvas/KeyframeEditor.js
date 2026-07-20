@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Modal, Input, Select, InputNumber, Button, Typography, Message } from '@arco-design/web-react';
+import { Modal, Input, Select, Button, Typography, Message } from '@arco-design/web-react';
 import { IconPlus, IconCheck } from '@arco-design/web-react/icon';
 import { SHOT_TEMPLATES } from '../../../utils/film/recipes';
 
@@ -8,14 +8,15 @@ const SHOT_OPTS = SHOT_TEMPLATES.map((t) => ({ label: t.name, value: t.id }));
 const EXPR_OPTS = ['neutral', 'slight smile', 'smiling', 'laughing', 'surprised', 'shocked', 'angry', 'sad', 'crying', 'fearful', 'worried', 'determined', 'thoughtful'].map((e) => ({ label: e, value: e }));
 
 // The Expand editor: see + edit ONE keyframe's whole shot — the [Image N] body, its references
-// (toggle / add from the board), camera, expression, duration — then Regenerate. Reference numbers
-// are GLOBAL (the pool = [Image 1..N]); the canvas renumbers them to attach order at render time.
+// (toggle / add from the board), camera, expression — then Regenerate. (Duration is NOT here:
+// a still has no duration; pacing edits belong to the chat revision and the promoted SHOT card.)
+// Reference numbers are GLOBAL (the pool = [Image 1..N]); the canvas renumbers them to attach
+// order at render time.
 export default function KeyframeEditor({ shot = {}, pool = [], preview, loading, imageAssets = [], onClose, onSave, onRederive, onAddRef }) {
   const [body, setBody] = useState(String(shot.body || ''));
   const [figures, setFigures] = useState(Array.isArray(shot.figures) ? shot.figures : []);
   const [shotTemplate, setShotTemplate] = useState(shot.shotTemplate || 'medium-shot');
   const [expression, setExpression] = useState(shot.expression || '');
-  const [durationSec, setDurationSec] = useState(shot.durationSec || 10);
   const [rederiving, setRederiving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -34,20 +35,21 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
     try { const n = await onAddRef(url); if (n) { setFigures((f) => (f.includes(n) ? f : [...f, n].sort((a, b) => a - b))); setAddOpen(false); } }
     catch (e) { Message.error(e.message); }
   };
-  const doRegenerate = () => onSave({ body: body.trim(), figures, shotTemplate, expression, durationSec });
+  const doRegenerate = () => onSave({ body: body.trim(), figures, shotTemplate, expression });
 
   return (
-    <Modal visible title={`Edit shot — ${shot.beat || 'keyframe'}`} onCancel={onClose} footer={null} style={{ width: 740 }} unmountOnExit>
-      <div style={{ display: 'flex', gap: 16 }}>
-        <div style={{ width: 260, flexShrink: 0 }}>
+    <Modal visible title={`Edit shot — ${shot.beat || 'keyframe'}`} onCancel={onClose} footer={null} style={{ width: 1040, maxWidth: '94vw' }} unmountOnExit>
+      <div style={{ display: 'flex', gap: 18 }}>
+        {/* The STILL is what's being judged — give it the room. */}
+        <div style={{ flex: '1.15 1 0', minWidth: 0, alignSelf: 'flex-start' }}>
           {preview ? (
-            <img src={preview} alt="keyframe" style={{ width: '100%', borderRadius: 8, display: 'block' }} />
+            <img src={preview} alt="keyframe" style={{ width: '100%', maxHeight: '68vh', objectFit: 'contain', borderRadius: 8, display: 'block', background: '#101418' }} />
           ) : (
-            <div style={{ height: 150, background: '#f2f3f5', borderRadius: 8 }} />
+            <div style={{ height: 280, background: '#f2f3f5', borderRadius: 8 }} />
           )}
           {loading && <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>Rendering…</Text>}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: '1 1 0', minWidth: 320 }}>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>References — tick which appear in this shot (the prompt refers to them as [Image N])</Text>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
             {pool.map((url, i) => {
@@ -91,10 +93,6 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
             <div style={{ flex: 1 }}>
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Expression</Text>
               <Select size="small" allowClear allowCreate value={expression || undefined} onChange={(v) => setExpression(v || '')} options={EXPR_OPTS} style={{ width: '100%' }} />
-            </div>
-            <div>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Dur (s)</Text>
-              <InputNumber size="small" min={5} max={15} value={durationSec} onChange={setDurationSec} style={{ width: 72 }} />
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>

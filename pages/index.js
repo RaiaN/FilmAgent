@@ -107,6 +107,24 @@ export default function Home() {
   }, [activeModelId]);
   const [modelCapabilities] = useState({}); // Store model metadata
 
+  // A Seedream batch card settling its slot. Writes to the 'seedream' key EXPLICITLY —
+  // never activeModelId — because results routinely land while the user is on another
+  // tab; the slot object is what makes finished plates survive tab switches (and stops
+  // a remounted card from re-fetching = re-billing the image).
+  const patchSeedreamItem = useCallback((requestIndex, patch) => {
+    setResultStateByModel((prev) => {
+      const cur = prev.seedream;
+      if (!cur?.batch || !Array.isArray(cur.items)) return prev;
+      return {
+        ...prev,
+        seedream: {
+          ...cur,
+          items: cur.items.map((it, i) => ((it.requestIndex || i + 1) === requestIndex ? { ...it, ...patch } : it)),
+        },
+      };
+    });
+  }, []);
+
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -668,6 +686,7 @@ export default function Home() {
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}
+                          onItemPatch={patchSeedreamItem}
                         />
                       )}
                 </div>

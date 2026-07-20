@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Button,
   Input,
@@ -17,6 +17,7 @@ import {
   IconSettings,
   IconPlus,
   IconCode,
+  IconCloudDownload,
 } from '@arco-design/web-react/icon';
 import FilmCanvas from './canvas/FilmCanvas';
 import PromptSettings from './PromptSettings';
@@ -27,6 +28,7 @@ import {
   pickProjectFolder,
   saveProjectAny,
 } from '../../utils/film/projectStore';
+import { saveProjectToCloud, listCloudProjects, loadCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
 
 const { Title, Text } = Typography;
 
@@ -68,11 +70,91 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
     targetMinutes: formValues.targetMinutes || 4,
   }), [formValues.language, formValues.targetMinutes]);
 
-  // Create the scratch project on the client only (avoids SSR/CSR hydration
-  // mismatch from random id + timestamps). The canvas appears immediately.
+  // ---- refresh restore + cloud autosave state --------------------------------------
+  // The autosave baseline: the last project JSON that reached the cloud (skip identical
+  // saves) + an in-flight guard + a kill switch when TOS isn't configured (starter-kit
+  // clones without credentials must not retry every debounce tick).
+  const cloudAutoRef = useRef({ busy: false, lastJson: '', disabled: false, lastAt: 0 });
+  const [cloudSavedAt, setCloudSavedAt] = useState(null);
+
+  // On mount: RESTORE the last-open project (cloud id or folder path from localStorage)
+  // so a page refresh keeps the board — else mint the usual scratch. Client-only (avoids
+  // SSR/CSR hydration mismatch from random id + timestamps).
   useEffect(() => {
-    setProject((prev) => prev || makeScratch());
+    let cancelled = false;
+    (async () => {
+      const ptr = getLastProjectPointer();
+      if (ptr?.kind === 'cloud' && ptr.id) {
+        try {
+          const r = await loadCloudProject(ptr.id);
+          if (cancelled) return;
+          setProject(r.project);
+          cloudAutoRef.current.lastJson = JSON.stringify(r.project);
+          setCloudSavedAt(r.savedAt ? new Date(r.savedAt) : null);
+          prefetchCloudMedia(r.media);
+          Message.success(`Restored “${r.name}” from cloud autosave${r.savedAt ? ` (${new Date(r.savedAt).toLocaleTimeString()})` : ''}`);
+          return;
+        } catch { /* stale pointer / TOS unavailable — fall through to scratch */ }
+      } else if (ptr?.kind === 'path' && ptr.path) {
+        try {
+          const res = await loadProjectAny({ kind: 'path', path: ptr.path });
+          if (cancelled) return;
+          setProject(res.project);
+          setStorage({ kind: 'path', path: ptr.path });
+          setDisplayPath(res.displayPath || ptr.path);
+          setLastSavedAt(new Date());
+          Message.success(`Reopened "${res.project.title}"`);
+          return;
+        } catch { /* folder gone — fall through */ }
+      }
+      if (!cancelled) setProject((prev) => prev || makeScratch());
+    })();
+    return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // CLOUD AUTOSAVE — the real "auto" save: ~8s after changes settle, the whole project
+  // lands in the cloud manifest (bytes were already mirrored at generation, so this is
+  // just the JSON). Runs in EVERY mode once the board has any work; the pointer follows,
+  // so refresh restores exactly. Quiet on failure (the next change retries); disabled
+  // for the session when TOS isn't configured at all.
+  const cloudAutosave = useCallback(async (proj) => {
+    const st = cloudAutoRef.current;
+    if (!proj?.id || st.busy || st.disabled) return;
+    if (!(proj.canvas?.nodes || []).length) return; // an empty scratch isn't worth a manifest
+    const json = JSON.stringify(proj);
+    if (json === st.lastJson) return;
+    st.busy = true;
+    try {
+      const r = await saveProjectToCloud(proj);
+      st.lastJson = json;
+      st.lastAt = Date.now();
+      setCloudSavedAt(new Date());
+      setLastProjectPointer({ kind: 'cloud', id: r.projectId });
+    } catch (e) {
+      if (/TOS is not configured/i.test(e.message)) st.disabled = true;
+      else console.warn('[cloud autosave] failed (will retry on next change):', e.message);
+    } finally {
+      st.busy = false;
+    }
+  }, []);
+
+  // CADENCE: a plain 15s interval — no debounce, no resets, no special cases. Every
+  // tick saves IF the project changed (the lastJson fingerprint makes identical states
+  // free), so churn or calm, the cloud is never more than ~15s behind the board.
+  const projectStateRef = useRef(project);
+  useEffect(() => { projectStateRef.current = project; }, [project]);
+  useEffect(() => {
+    const iv = setInterval(() => { if (projectStateRef.current) cloudAutosave(projectStateRef.current); }, 15000);
+    return () => clearInterval(iv);
+  }, [cloudAutosave]);
+
+  // Flush when the tab hides (switching away / closing) — narrows the 15s window to
+  // ~zero for deliberate leaves; only a hard kill mid-interval can lose seconds.
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden' && projectStateRef.current) cloudAutosave(projectStateRef.current); };
+    document.addEventListener('visibilitychange', onHide);
+    return () => document.removeEventListener('visibilitychange', onHide);
+  }, [cloudAutosave]);
 
   const refreshRecent = useCallback(async () => {
     try {
@@ -113,6 +195,8 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
       setStorage(nextStorage);
       setDisplayPath(result.displayPath);
       setLastSavedAt(new Date());
+      cloudAutoRef.current.lastJson = ''; // a different project — re-arm the autosave baseline
+      if (nextStorage.kind === 'path') setLastProjectPointer({ kind: 'path', path: nextStorage.path });
       refreshRecent();
       Message.success(`Loaded "${result.project.title}"`);
     } catch (err) {
@@ -157,6 +241,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
         || '',
       );
       setLastSavedAt(new Date());
+      if (nextStorage.kind === 'path') setLastProjectPointer({ kind: 'path', path: nextStorage.path });
       refreshRecent();
       Message.success('Saved to folder — auto-save is now on');
     } catch (err) {
@@ -195,11 +280,59 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
   };
 
   const handleNewScratch = () => {
+    // Leaving a board behind must never cost work — flush it to its cloud manifest first.
+    if (project && (project.canvas?.nodes || []).length) cloudAutosave(project);
     setProject(makeScratch());
     setStorage(null);
     setDisplayPath('');
     setLastSavedAt(null);
-    Message.info('New scratch canvas');
+    setCloudSavedAt(null);
+    cloudAutoRef.current.lastJson = '';
+    clearLastProjectPointer(); // refresh must NOT resurrect the project the user just left
+    Message.info('New scratch canvas — cloud autosave arms as soon as you add work');
+  };
+
+  // ---- Cloud save / open (TOS-backed; works from ANY mode, scratch included) --------
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudPicker, setCloudPicker] = useState({ visible: false, items: null });
+
+  const handleCloudOpenClick = async () => {
+    setCloudPicker({ visible: true, items: null });
+    try {
+      const items = await listCloudProjects();
+      setCloudPicker((p) => (p.visible ? { ...p, items } : p));
+    } catch (e) {
+      Message.error(`Cloud list failed: ${e.message}`);
+      setCloudPicker({ visible: false, items: null });
+    }
+  };
+
+  const handleCloudPick = async (id) => {
+    setCloudPicker({ visible: false, items: null });
+    setCloudBusy(true);
+    try {
+      // Switching projects must never cost work: flush the OUTGOING board to its own
+      // cloud manifest first (no-ops when unchanged/empty), THEN swap. No dialog — the
+      // save IS the safety.
+      if (project && (project.canvas?.nodes || []).length) await cloudAutosave(project);
+      const r = await loadCloudProject(id);
+      setProject(r.project);
+      // A cloud-loaded project lands as a live in-memory canvas — cloud autosave keeps
+      // it saved from here, and the pointer makes refresh restore it. The board renders
+      // immediately; media streams through the read-through cache — prefetch warms the rest.
+      setStorage(null);
+      setDisplayPath('');
+      setLastSavedAt(null);
+      cloudAutoRef.current.lastJson = JSON.stringify(r.project);
+      setCloudSavedAt(r.savedAt ? new Date(r.savedAt) : null);
+      setLastProjectPointer({ kind: 'cloud', id });
+      prefetchCloudMedia(r.media);
+      Message.success(`“${r.name}” loaded from cloud — previews stream in as tiles first paint`);
+    } catch (e) {
+      Message.error(`Cloud load failed: ${e.message}`);
+    } finally {
+      setCloudBusy(false);
+    }
   };
 
   const patchProject = (patch) => setProject((prev) => ({ ...prev, ...patch }));
@@ -234,6 +367,30 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
       </Modal>
 
       <Modal
+        title="Open from cloud"
+        visible={cloudPicker.visible}
+        footer={null}
+        onCancel={() => setCloudPicker({ visible: false, items: null })}
+      >
+        {cloudPicker.items === null ? (
+          <Text type="secondary">Loading cloud projects…</Text>
+        ) : cloudPicker.items.length === 0 ? (
+          <Text type="secondary">No cloud saves yet — click “Cloud save” on a project first.</Text>
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {cloudPicker.items.map((it) => (
+              <Button key={it.projectId} long onClick={() => handleCloudPick(it.projectId)} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name || it.projectId}</span>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {it.savedAt ? new Date(it.savedAt).toLocaleString() : ''} · {it.mediaCount} media
+                </Text>
+              </Button>
+            ))}
+          </Space>
+        )}
+      </Modal>
+
+      <Modal
         title="Project settings"
         visible={settingsOpen}
         onOk={() => setSettingsOpen(false)}
@@ -256,6 +413,14 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
                 <Select value={project.targetMinutes} onChange={(v) => patchProject({ targetMinutes: v })} style={{ width: 130 }} options={[3, 4, 5].map((m) => ({ label: `${m} min`, value: m }))} />
               </div>
             </Space>
+            {isScratch && (
+              <div>
+                <Button size="small" icon={<IconFolderAdd />} loading={saving} onClick={handleSaveToFolder}>Bind to a local folder…</Button>
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                  Optional — cloud autosave already keeps this project safe; a folder adds a local copy (offline / zip / git).
+                </Text>
+              </div>
+            )}
           </Space>
         )}
       </Modal>
@@ -301,14 +466,10 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
         <Space wrap>
           <Text type="secondary" style={{ fontSize: 12 }}>
             {isScratch
-              ? 'In-memory — not persisted'
-              : saving ? 'Saving…' : lastSavedAt ? `Saved ${lastSavedAt.toLocaleTimeString()}` : 'Auto-save on'}
+              ? (cloudSavedAt ? `Cloud autosave ☁ ${cloudSavedAt.toLocaleTimeString()}` : 'Cloud autosave arms once you add work')
+              : saving ? 'Saving…' : lastSavedAt ? `Saved ${lastSavedAt.toLocaleTimeString()}${cloudSavedAt ? ` · ☁ ${cloudSavedAt.toLocaleTimeString()}` : ''}` : 'Auto-save on'}
           </Text>
-          {isScratch && (
-            <Button type="primary" size="small" icon={<IconFolderAdd />} loading={saving} onClick={handleSaveToFolder}>
-              Save to folder…
-            </Button>
-          )}
+          <Button size="small" icon={<IconCloudDownload />} loading={cloudBusy} onClick={handleCloudOpenClick} title="Open a cloud project — autosave keeps every project in your TOS bucket as you work; restore the full board on any machine">Cloud open</Button>
           <Button size="small" icon={<IconCode />} onClick={() => setPromptsOpen(true)}>Prompts</Button>
           <Button size="small" icon={<IconSettings />} onClick={() => setSettingsOpen(true)}>Project</Button>
           <Button size="small" icon={<IconFolder />} onClick={handleOpenExisting}>Open…</Button>
@@ -329,7 +490,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
 
       {!isScratch ? null : (
         <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
-          This is a scratch canvas — work lives in memory and is lost on refresh. Click <b>Save to folder…</b> to persist it; after that everything auto-saves.
+          Cloud autosave keeps this canvas in your TOS bucket as you work — a refresh restores it automatically. <b>Save to folder…</b> additionally binds it to a local folder.
         </Text>
       )}
 

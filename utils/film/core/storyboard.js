@@ -193,18 +193,21 @@ export const splitIntoShots = async ({ text, count, config } = {}, ctx) => {
 // the user explicitly ticked/attached (never read silently); `camera` is an optional
 // cinematography line from the shot-template library. The scene text is injected via a
 // sentinel so renderTemplate's whitespace collapse never touches the user's words.
-export const previsFrame = async ({ text, camera = '', references = [], config } = {}, ctx) => {
+export const previsFrame = async ({ text, camera = '', references = [], thinking = false, config } = {}, ctx) => {
   const scene = String(text || '').trim();
   if (!scene) throw new Error('Previz needs a scene description first.');
   const SLOT = '@@SCENE@@';
   const prompt = renderTemplate('previz.frame', { scene: SLOT, camera: String(camera || '').trim() })
     .split(SLOT).join(scene.slice(0, 4000));
   const images = (references || []).filter(Boolean).slice(0, imageRefCap('seedreamPro'));
-  const { url } = await ctx.client.generateImage({
+  const { url, cacheUrl } = await ctx.client.generateImage({
     prompt,
     referenceImages: images,
     size: keyframeImageSize('seedreamPro'),
     model: getModel('seedreamPro', config) || getModel('seedream', config),
+    // Pro "thinking" prompt optimization — the transport applies it only when the
+    // request ends up TEXT-TO-IMAGE (any ticked reference disables it, per the API).
+    optimizePrompt: !!thinking,
   });
   if (!url) throw new Error('No previz frame URL in response');
   return { url };
@@ -213,17 +216,41 @@ export const previsFrame = async ({ text, camera = '', references = [], config }
 // Pass 2: MASK — an image EDIT that reproduces the previz frame but replaces every person
 // with a flat solid-color silhouette (left→right: blue, green, yellow, red, purple). The
 // invented identities die here; the plate carries pure geometry into the shoot.
-export const maskFrame = async ({ url, config } = {}, ctx) => {
+export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => {
   const src = String(url || '').trim();
   if (!src) throw new Error('Mask needs a previz frame first.');
-  const { url: out } = await ctx.client.generateImage({
-    prompt: renderTemplate('previz.mask'),
+  // WHAT to mask: the user's words VERBATIM (sentinel slot — renderTemplate never
+  // touches them), or the classic every-person scrub when left empty.
+  const SLOT = '@@MASK@@';
+  const targets = String(instruction || '').trim().slice(0, 1000) || 'EVERY person in the frame';
+  const { url: out, cacheUrl } = await ctx.client.generateImage({
+    prompt: renderTemplate('previz.mask', { targets: SLOT }).split(SLOT).join(targets),
     referenceImages: [src],
     size: keyframeImageSize('seedreamPro'),
     model: getModel('seedreamPro', config) || getModel('seedream', config),
   });
   if (!out) throw new Error('No masked plate URL in response');
-  return { url: out };
+  return { url: out, cacheUrl };
+};
+
+// Free-form EDIT of ANY board image: reproduce the frame with ONE user-typed change
+// applied. The instruction is injected VERBATIM via a sentinel (renderTemplate's
+// whitespace collapse never touches the user's words); the image rides as the only ref.
+export const editFrame = async ({ url, instruction, config } = {}, ctx) => {
+  const src = String(url || '').trim();
+  const want = String(instruction || '').trim();
+  if (!src) throw new Error('Edit needs the image first.');
+  if (!want) throw new Error('Describe the change first.');
+  const SLOT = '@@EDIT@@';
+  const prompt = renderTemplate('previz.edit', { instruction: SLOT }).split(SLOT).join(want.slice(0, 2000));
+  const { url: out, cacheUrl } = await ctx.client.generateImage({
+    prompt,
+    referenceImages: [src],
+    size: keyframeImageSize('seedreamPro'),
+    model: getModel('seedreamPro', config) || getModel('seedream', config),
+  });
+  if (!out) throw new Error('No edited frame URL in response');
+  return { url: out, cacheUrl };
 };
 
 // ---- Storyboard: a conversational SHOT DIVISION — script → a shot list, turn by turn ----
@@ -277,31 +304,31 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
 // reference plates IN [Image 1..N] ORDER (the caller resolves + renumbers them). NOT a blend — each
 // image is a distinct addressed subject. composeKeyframePrompt wraps the body with the camera + finish
 // lines. Style/expression/ethnicity are optional overrides. One call per shot; the canvas streams them.
-export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedream', config } = {}, ctx) => {
+export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedreamPro', config } = {}, ctx) => {
   const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
-  const { url } = await ctx.client.generateImage({
+  const { url, cacheUrl } = await ctx.client.generateImage({
     prompt: composeKeyframePrompt({ body, shotTemplate, style, expression, ethnicity }),
     referenceImages: images,
     size: keyframeImageSize(imageModel),
     model: getModel(imageModel, config) || getModel('seedream', config),
   });
   if (!url) throw new Error('No keyframe URL in response');
-  return { url };
+  return { url, cacheUrl };
 };
 
 // SINGLE-IMAGE mode: render the WHOLE storyboard as ONE sheet (a grid of numbered panels). Composed
 // from the division `shots` + the full reference pool (attached in [Image 1..N] order, so the panel
 // bodies' [Image N] map correctly and the cast stays consistent). One Seedream call → one image.
-export const storyboardSheet = async ({ shots = [], style = '', title = '', references = [], imageModel = 'seedream', config } = {}, ctx) => {
+export const storyboardSheet = async ({ shots = [], style = '', title = '', references = [], imageModel = 'seedreamPro', config } = {}, ctx) => {
   const images = (references || []).filter(Boolean).slice(0, imageRefCap(imageModel));
-  const { url } = await ctx.client.generateImage({
+  const { url, cacheUrl } = await ctx.client.generateImage({
     prompt: composeStoryboardSheetPrompt({ shots, style, title }),
     referenceImages: images,
     size: keyframeImageSize(imageModel),
     model: getModel(imageModel, config) || getModel('seedream', config),
   });
   if (!url) throw new Error('No storyboard sheet URL in response');
-  return { url };
+  return { url, cacheUrl };
 };
 
 // Re-derive ONE shot's [Image N] body for a chosen figure set — the Expand editor's "Re-derive from
@@ -329,36 +356,41 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 };
 
 // ---- Deconstruct: a rendered Take → its CUTs (the bridge to Directing) -------------
-// The Seed 2.0 Pro VLM WATCHES the Take and breaks it into distinct CUTs — per CUT the
-// action, the best-fit SHOT TEMPLATE + cinematography, the subjects, and a few KEY
-// TIMESTAMPS (the meaningful frames to grab for visual grounding). No marker parsing —
-// the model reads the picture. Feeds per-CUT SHOT cards + key-frame ingredients.
-export const deconstructTake = async ({ videoUrl, prompt = '', genre = '', bible = [], config } = {}, ctx) => {
-  if (!videoUrl) throw new Error('Deconstruct needs a Take video.');
-  const clamp = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
-  const castList = (bible || []).filter((e) => e && e.name).map((e) => `${e.role}: ${e.name}`).join(' · ') || '(none given)';
+// SHOT-card Re-derive: BIND an existing prompt to the card's reference images — the
+// wording/structure/action survive EXACTLY (Develop's output must not be flattened
+// into a still description); the only change is [Image N] tags matching the badge
+// order. Sentinel slot keeps the prompt verbatim through the template.
+export const bindShotPromptToRefs = async ({ prompt, references = [], config } = {}, ctx) => {
+  const text = String(prompt || '').trim();
+  if (!text) throw new Error('Re-derive needs the shot prompt.');
+  if (!references.length) throw new Error('Re-derive needs the reference images.');
+  const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
-    prompt: renderTemplate('deconstruct.user', { prompt: clamp(prompt, 2000), castList }),
-    systemPrompt: renderTemplate('deconstruct.system', { templates: shotTemplateCatalog() }),
-    video: videoUrl,
+    prompt: renderTemplate('cut.rederive.user', { refCount: references.length, prompt: SLOT }).split(SLOT).join(text.slice(0, 6000)),
+    systemPrompt: renderTemplate('cut.rederive.system', { refCount: references.length }),
+    images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
-  const parsed = parseJson(content);
-  const arr = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.cuts) ? parsed.cuts : []);
-  const cuts = arr.map((c, i) => {
-    const tpl = SHOT_TEMPLATE_BY_ID[c?.shotTemplate] ? c.shotTemplate : '';
-    return {
-      index: i,
-      action: clamp(c?.action, 600),
-      shotTemplate: tpl,
-      cinematography: clamp(c?.cinematography, 220) || shotTemplateCinematography(tpl, genre),
-      subjects: (Array.isArray(c?.subjects) ? c.subjects : []).map((s) => clamp(s, 60)).filter(Boolean).slice(0, 6),
-      keyTimestamps: (Array.isArray(c?.keyTimestamps) ? c.keyTimestamps : []).map(Number).filter((t) => Number.isFinite(t) && t >= 0).slice(0, 6),
-    };
-  }).filter((c) => c.action);
-  if (!cuts.length) throw new Error('Deconstruct found no cuts in the Take.');
-  return { cuts };
+  const body = String(content || '').trim();
+  if (!body) throw new Error('The re-derive came back empty.');
+  return { body };
+};
+
+// Take Viewer 📝: ONE extracted still → prompt-ready text (subjects, blocking, setting,
+// camera, light) via the Seed 2.0 Pro VLM. One explicit tap = one call; the canvas
+// lands the text as an editable NOTE node beside the take. Returns { text }.
+export const describeFrame = async ({ imageUrl, config } = {}, ctx) => {
+  if (!imageUrl) throw new Error('Describe needs the extracted frame.');
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('deconstruct.describeFrame', {}),
+    images: [imageUrl],
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const text = String(content || '').trim();
+  if (!text) throw new Error('The frame description came back empty.');
+  return { text };
 };
 
 // A panel → one direct-to-video blueprint shot (production.js shot.direct): the
@@ -427,7 +459,7 @@ export const detectGenre = async ({ idea, config } = {}, ctx) => {
 // prompt) into bible PLATES. Used by castFromIdea (the Cast & World idea read). Each plate carries
 // its source asset id + a `primary` flag (the identity anchor: the FACE for a character, the single
 // plate otherwise). Streams onPlan/onEntry; the canvas tags/locks the plates.
-export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedream', config } = {}, ctx, hooks = {}) => {
+export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedreamPro', thinking = false, config } = {}, ctx, hooks = {}) => {
   const onPlan = hooks.onPlan || (() => {});
   const onEntry = hooks.onEntry || (() => {});
   // The shared style rides on EVERY plate — consistency by construction.
@@ -492,6 +524,9 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedr
         // Pro caps the image AREA at 2048² — the 4K plate sizes scale down to fit there.
         size: clampSizeForModel(imageModel, size),
         model: getModel(imageModel, config) || getModel('seedream', config),
+        // Pro "thinking" prompt optimization — applies to the TEXT-TO-IMAGE plates
+        // (faces/places/props); the body sheet refs its face, so the transport drops it there.
+        optimizePrompt: !!thinking && imageModel === 'seedreamPro',
       }),
       { tries: 4, baseMs: 2500, shouldRetry: (err) => isTransient(err) || isImagePolicyError(err), onRetry: (err) => { if (isImagePolicyError(err)) policyHit = true; } },
     );
@@ -501,7 +536,7 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedr
       // A body plate waits on its face's URL so the sheet inherits the exact face.
       const out = await genImage(p.prompt, p.refFrom ? urlByKey[p.refFrom] : null, p.size);
       urlByKey[p.key] = out.url;
-      const entry = { id: p.key, role: p.role, name: p.name, url: out.url, locked: true, assetId: p.assetId, primary: p.primary };
+      const entry = { id: p.key, role: p.role, name: p.name, url: out.url, cacheUrl: out.cacheUrl || null, locked: true, assetId: p.assetId, primary: p.primary };
       entries.push(entry);
       onEntry(entry, idx);
     } catch {
@@ -519,11 +554,13 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedr
 
 // Idea → cast & world (the original entry): one read derives the asset list, then the shared
 // renderer draws the bible plates.
-export const castFromIdea = async ({ idea, genre = '', imageModel = 'seedream', config } = {}, ctx, hooks = {}) => {
+export const castFromIdea = async ({ idea, genre = '', ethnicity = '', imageModel = 'seedreamPro', thinking = false, config } = {}, ctx, hooks = {}) => {
   const t = String(idea || '').trim();
   if (!t) throw new Error('The production draft needs the film idea.');
   const { content } = await ctx.client.reason({
-    prompt: renderTemplate('storyboard.cast.user', { idea: t, genre: genre || 'unspecified' }),
+    // Ethnicity steers the PLANNER (which writes every character description), so all
+    // plates inherit it consistently — same race-drift lever as the storyboard's.
+    prompt: renderTemplate('storyboard.cast.user', { idea: t, genre: genre || 'unspecified', ethnicity: String(ethnicity || '').trim() || 'unspecified — pick what fits the story' }),
     systemPrompt: renderTemplate('storyboard.cast.system'),
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -532,5 +569,5 @@ export const castFromIdea = async ({ idea, genre = '', imageModel = 'seedream', 
   const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.assets) ? raw.assets : null);
   if (!arr || !arr.length) throw new Error('The production draft returned nothing — provide bible images or rephrase the idea.');
   const style = (raw && !Array.isArray(raw) && String(raw.style || '').trim()) || '';
-  return castDraftFromParsed({ arr, style, imageModel, config }, ctx, hooks);
+  return castDraftFromParsed({ arr, style, imageModel, thinking, config }, ctx, hooks);
 };

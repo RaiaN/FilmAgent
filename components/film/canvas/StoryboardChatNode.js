@@ -1,30 +1,155 @@
-import { createContext, memo, useContext } from 'react';
-import { Typography } from '@arco-design/web-react';
-import { IconMessage } from '@arco-design/web-react/icon';
+import { createContext, memo, useContext, useMemo, useState } from 'react';
+import { Button, Typography } from '@arco-design/web-react';
+import { IconMessage, IconPlus, IconPlayArrow } from '@arco-design/web-react/icon';
 import ChatThread from './ChatThread';
+import { imageRefCap } from '../../../utils/film/suiteConfig';
 
 const { Text } = Typography;
 
-// Bridge from the chat node back to FilmCanvas's turn handler (functions can't live in
+// Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data) — same context pattern as CutContext / StoryScriptContext.
-export const StoryboardChatContext = createContext({ onTurn: null });
+export const StoryboardChatContext = createContext({
+  onTurn: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null,
+});
 
-// The Storyboard agent's conversational element: a chat bound to a column of SHOT cards. You
-// brainstorm the shot division; each message runs ONE turn (onTurn → FilmCanvas) that updates
-// the bound cards and appends the agent's reply. The shots themselves live on the cards (the
-// column to the right), not here — this node only holds the conversation.
+// Same role palette as the SHOT card's reference chips — the two blocks must read as one system.
+const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
+const REF_BADGE = { fontSize: 9, background: 'rgba(0,0,0,0.28)', borderRadius: 8, padding: '0 4px' };
+const asRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
+
+// The Storyboard agent's conversational element: a chat bound to a panel of keyframe stills.
+// Between the header and the chat sits the REFERENCE POOL — the SHOT card's REFERENCES block,
+// adapted: bible entries as toggle chips (ON = filled + its [Image N] badge in POOL ORDER —
+// exactly the numbering the division and the keyframes use), loose board refs as grey chips
+// (click to remove), and "+ board image" to add any board image mid-conversation. The next
+// turn / render reads the live pool; finished stills keep their frames.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onTurn } = useContext(StoryboardChatContext);
+  const { onTurn, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef } = useContext(StoryboardChatContext);
   const messages = data.messages || [];
   const count = data.shotCount || 0;
+  const [addOpen, setAddOpen] = useState(false);
+  const pool = useMemo(() => (data.refs || []).map(asRef).filter((r) => r.url), [data.refs]);
+  const cap = imageRefCap(data.imageModel || 'seedreamPro');
+  const bible = bibleEntries || [];
+  // Pool refs with no bible identity (panel-picked loose images, "+ board image" adds).
+  const loose = pool.filter((r) => !bible.some((b) => (r.entryId && b.id === r.entryId) || b.url === r.url));
+  const addable = (imageAssets || []).filter((a) => !pool.some((r) => r.url === a.url || (r.nodeId && r.nodeId === a.id)));
   return (
-    <div style={{ width: 320, height: 380, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+    <div style={{ width: 320, height: 470, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
       <div style={{ height: 4, background: '#4e5969' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderBottom: '1px solid #f2f3f5' }}>
         <IconMessage style={{ color: '#4e5969', fontSize: 14 }} />
         <Text bold style={{ fontSize: 12, flex: 1 }} ellipsis>Storyboard · shot division</Text>
         {count > 0 && <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>{count} {count === 1 ? 'shot' : 'shots'}</Text>}
       </div>
+      <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '5px 8px', borderBottom: '1px solid #f2f3f5', maxHeight: 118, overflowY: 'auto', flexShrink: 0 }}>
+        <Text style={{ color: '#86909c', fontSize: 9, fontWeight: 700, display: 'block', marginBottom: 3 }}>
+          REFERENCES → [Image1…{Math.min(pool.length, cap) || 'N'}] · click to toggle
+        </Text>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {bible.map((b) => {
+            const i = pool.findIndex((r) => (r.entryId && r.entryId === b.id) || r.url === b.url);
+            const on = i >= 0;
+            const nIdx = i + 1;
+            const sent = on && nIdx <= cap;
+            const color = ROLE_COLOR[b.role] || '#86909c';
+            return (
+              <span
+                key={b.id}
+                onClick={() => onToggleBibleRef && onToggleBibleRef(id, b)}
+                title={`${b.name || b.role}${on ? ` — [Image ${nIdx}] in the pool; click to remove` : ' — click to add to the reference pool'}`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                  padding: '1px 6px', borderRadius: 10, fontSize: 10,
+                  border: `1px solid ${color}`,
+                  background: on ? color : 'transparent',
+                  color: on ? '#fff' : color,
+                  opacity: on ? 1 : 0.55,
+                }}
+              >
+                {sent && <b style={REF_BADGE}>{nIdx}</b>}
+                {b.url ? <img src={b.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
+                {(b.name || b.role).slice(0, 14)}
+              </span>
+            );
+          })}
+          {loose.map((r) => {
+            const i = pool.findIndex((p) => p.url === r.url);
+            const nIdx = i + 1;
+            const sent = nIdx <= cap;
+            return (
+              <span
+                key={r.url}
+                onClick={() => onRemoveRef && onRemoveRef(id, r.url)}
+                title={`${r.label || 'reference'} — [Image ${nIdx}] in the pool (board image); click to remove`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                  padding: '1px 6px', borderRadius: 10, fontSize: 10,
+                  border: '1px solid #e5e6eb', background: '#e5e6eb', color: '#1d2129',
+                }}
+              >
+                {sent && <b style={REF_BADGE}>{nIdx}</b>}
+                <img src={r.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} />
+                {(r.label || 'ref').slice(0, 14)}
+              </span>
+            );
+          })}
+          {onAddBoardRef && (
+            <span
+              onClick={() => setAddOpen((v) => !v)}
+              title="Add any board image to the reference pool — it becomes [Image N+1]; the next division turn and renders can use it"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer',
+                padding: '1px 6px', borderRadius: 10, fontSize: 10,
+                border: '1px dashed #86909c', color: '#86909c',
+              }}
+            >
+              <IconPlus style={{ fontSize: 10 }} /> board image
+            </span>
+          )}
+        </div>
+        {addOpen && (
+          <div style={{ marginTop: 4, padding: 6, border: '1px solid #e5e6eb', borderRadius: 6, maxHeight: 96, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {addable.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: 10 }}>Every board image is already in the pool.</Text>
+            ) : (
+              addable.map((a) => (
+                <img
+                  key={a.id}
+                  src={a.url}
+                  alt={a.label}
+                  title={a.label}
+                  onClick={() => { onAddBoardRef(id, a.id); setAddOpen(false); }}
+                  style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', border: '1px solid #e5e6eb' }}
+                />
+              ))
+            )}
+          </div>
+        )}
+        {pool.length > cap && (
+          <Text style={{ color: '#ff7d00', fontSize: 9, display: 'block', marginTop: 2 }}>
+            first {cap} ride per render ({(data.imageModel || 'seedreamPro') === 'seedreamPro' ? 'Pro' : 'Lite'} reference cap)
+          </Text>
+        )}
+      </div>
+      {/* The element lands INERT — this button IS the first division's explicit tap
+          (1 LLM turn + the renders). Typing a first message instead also divides,
+          steered by your words. Gone once shots exist; iteration is the chat. */}
+      {(data.shots || []).length === 0 && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
+          <Button
+            size="small" type="primary" long loading={!!data.busy}
+            icon={<IconPlayArrow />}
+            onClick={() => onTurn && onTurn(id, '')}
+            style={{ background: '#4e5969', borderColor: '#4e5969' }}
+          >
+            {data.busy ? 'Dividing…' : `Divide into ${count > 0 ? count : (data.count || 8)} shots`}
+          </Button>
+          <Text type="secondary" style={{ fontSize: 9, display: 'block', marginTop: 3, textAlign: 'center' }}>
+            1 LLM division + {(data.mode || 'multiple') === 'single' ? 'one sheet render' : `${data.count || 8} still renders`} — or type guidance below first
+          </Text>
+        </div>
+      )}
       <div style={{ flex: 1, minHeight: 0 }}>
         <ChatThread messages={messages} busy={!!data.busy} onSend={(text) => onTurn && onTurn(id, text)} />
       </div>

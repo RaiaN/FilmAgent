@@ -105,11 +105,12 @@ export const VIDEO_MODEL_OPTIONS = [
 ];
 
 // The Seedream (image) models the Storyboard keyframes can render on. `key` indexes
-// ROOT_CONFIG.models; the storyboard stores the key in data.imageModel ('seedream' = Lite = default).
+// ROOT_CONFIG.models; agents store the key in settings/data.imageModel
+// ('seedreamPro' = Pro = the suite-wide DEFAULT since 2026-07-10; 'seedream' = Lite).
 // Pro accepts up to 10 reference images; Lite is capped lower.
 export const IMAGE_MODEL_OPTIONS = [
-  { key: 'seedream', label: 'Seedream 5.0 Lite' },
   { key: 'seedreamPro', label: 'Seedream 5.0 Pro' },
+  { key: 'seedream', label: 'Seedream 5.0 Lite' },
 ];
 export const IMAGE_REF_CAP = { seedream: 6, seedreamPro: 10 };
 export const imageRefCap = (key) => IMAGE_REF_CAP[key] || 6;

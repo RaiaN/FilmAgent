@@ -32,14 +32,40 @@ async function seedHandler(req, res) {
   // Honor a caller-provided model; default to the suite's reasoner model.
   const resolvedModelId = modelId || ROOT_CONFIG.models.reasoner;
 
+  // The reasoner's backend re-downloads any http(s) image we pass — and Seedream 5.0
+  // PRO outputs live on signed TOS URLs it cannot fetch (400 "Error while downloading:
+  // …dola-seedream-5-0-pro/…"). Same cure as /api/film/imagine: download each image
+  // HERE and inline it as base64, so the model never fetches anything itself.
+  // data:/asset: references pass straight through.
+  const inlineImage = async (ref) => {
+    if (typeof ref !== 'string') return ref;
+    // A relative media-STORE url (an extracted take frame, any checked-in asset whose
+    // data: url was swapped) — absolutize against our own host so the loopback fetch
+    // below rides the store's read-through GET (local disk, else the TOS mirror).
+    if (/^\/api\/film\/media\?key=/.test(ref)) ref = `http://${req.headers.host}${ref}`;
+    if (!/^https?:\/\//i.test(ref)) return ref;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+    try {
+      const resp = await fetch(ref, { signal: ctrl.signal });
+      if (!resp.ok) {
+        throw new Error(`Reference image could not be loaded (HTTP ${resp.status}). Generated images expire after ~24h — regenerate the plate, then try again.`);
+      }
+      const type = resp.headers.get('content-type') || 'image/jpeg';
+      const buf = Buffer.from(await resp.arrayBuffer());
+      return `data:${type};base64,${buf.toString('base64')}`;
+    } finally { clearTimeout(timer); }
+  };
+
   try {
+    const inlinedImages = await Promise.all(imageList.map(inlineImage));
     // Seed 2.0 Pro family uses the /responses API + input formatting.
     const isPro260328 = resolvedModelId.startsWith('seed-2-0-pro');
     
     // For seed-2-0-pro-260328, we use /responses and input formatting
     if (isPro260328) {
       const inputContent = [{ type: 'input_text', text: prompt }];
-      imageList.forEach(img => {
+      inlinedImages.forEach(img => {
           inputContent.push({ type: 'input_image', image_url: img });
       });
       if (video) {
@@ -79,14 +105,21 @@ async function seedHandler(req, res) {
       });
 
       let response = await callResponses(payload);
-      // If the reasoning params (thinking / reasoning_effort) tripped the request,
-      // retry once WITHOUT them so the suite still works even if the depth-control
-      // shape is wrong for this endpoint. Log the real reason so the correct shape
-      // is diagnosable in the dev terminal.
+      // If the THINKING param itself tripped the request, retry once without it. Only
+      // when the error actually names the reasoning controls — any other 400 (e.g. a
+      // reference-download failure) surfaces immediately instead of a pointless,
+      // mislabeled retry.
       if (!response.ok && payload.thinking) {
         const firstErr = await response.text().catch(() => '');
-        console.warn(`[seed] thinking param rejected (${response.status}) — retrying without it. Reason: ${firstErr.slice(0, 400)}`);
-        response = await callResponses({ model: payload.model, stream: payload.stream, input: payload.input });
+        if (/thinking|reasoning/i.test(firstErr)) {
+          console.warn(`[seed] thinking param rejected (${response.status}) — retrying without it. Reason: ${firstErr.slice(0, 400)}`);
+          response = await callResponses({ model: payload.model, stream: payload.stream, input: payload.input });
+        } else {
+          let errData;
+          try { errData = JSON.parse(firstErr); } catch { errData = { error: { message: firstErr.slice(0, 400) } }; }
+          const apiMsg = errData?.error?.message || errData?.message || `Seed API error (${response.status})`;
+          return res.status(response.status).json({ error: apiMsg, details: errData });
+        }
       }
 
       const responseText = await response.text();
@@ -134,7 +167,7 @@ async function seedHandler(req, res) {
 
     if (imageList.length > 0 || video) {
       const content = [{ type: 'text', text: prompt }];
-      imageList.forEach(img => {
+      inlinedImages.forEach(img => {
         content.push({ type: 'image_url', image_url: { url: img } });
       });
       if (video) {
@@ -176,7 +209,10 @@ async function seedHandler(req, res) {
 
     return res.status(200).json({ content });
   } catch (error) {
-    return res.status(500).json({ error: 'Request failed', details: error.message });
+    // Node's fetch buries the real network reason (ECONNRESET / ENOTFOUND / ETIMEDOUT)
+    // in error.cause — surface it, or "fetch failed" is all anyone ever sees.
+    const cause = [error.cause?.code, error.cause?.message].filter(Boolean).join(' ');
+    return res.status(500).json({ error: 'Request failed', details: cause ? `${error.message} (${cause})` : error.message });
   }
 }
 

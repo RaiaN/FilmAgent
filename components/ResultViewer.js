@@ -8,7 +8,7 @@ const ResultViewer = ({ result, modelType, ...rest }) => {
 
   // Render Image Viewer for Seedream
   if (modelType === 'seedream') {
-      return <ImageResultViewer result={result} />;
+      return <ImageResultViewer result={result} {...rest} />;
   }
 
   // Render Video Viewer for Seedance

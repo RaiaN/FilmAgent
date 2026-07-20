@@ -69,7 +69,9 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
           imageUrl: p.direct ? null : inputUrls[0],
           refUrls: p.direct ? refs : [],
           refAssetIds: p.direct ? refAssetIds : [],
-          firstFrameUrl: p.firstFrameUrl ?? null, // prev shot's last frame → this shot's first frame
+          firstFrameUrl: p.firstFrameUrl ?? null,  // prev shot's last frame → this shot's first frame
+          audioRefUrls: p.audioRefUrls ?? [],      // the card's attached clips → reference audio (≤15s each)
+          videoRefUrls: p.videoRefUrls ?? [],      // the card's attached videos → reference video (≤15s each)
           motion: p.motion || intent,
           camera: p.camera, lens: p.lens, focalLength: p.focalLength, aperture: p.aperture,
           duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: genAudio,
@@ -234,7 +236,7 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
       if (shot.direct) {
         const base = {
           id: animId, agent: 'animate', title: shot.beat, intent: shot.beat,
-          params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto', direct: true, refUrls: shot.refUrls || [], refAssetIds: shot.refAssetIds || [], seed: shot.seed ?? null, firstFrameUrl: shot.firstFrameUrl ?? null, resolution: shot.resolution, ratio: shot.ratio, generateAudio: shot.generateAudio },
+          params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto', direct: true, refUrls: shot.refUrls || [], refAssetIds: shot.refAssetIds || [], seed: shot.seed ?? null, firstFrameUrl: shot.firstFrameUrl ?? null, audioRefUrls: shot.audioRefUrls ?? [], videoRefUrls: shot.videoRefUrls ?? [], resolution: shot.resolution, ratio: shot.ratio, generateAudio: shot.generateAudio },
           dependsOn: [], gated: true, qc: null, error: null,
           // Seedance 2.0 takes up to 9 reference images — same cap as Seedream.
           bibleRefs: refIds, refCap: EXPLICIT_REF_CAP, locked: false, feedback: '',

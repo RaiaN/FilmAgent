@@ -1,5 +1,6 @@
-import { uploadLocalMediaToTos } from '../../../utils/server/tosUpload';
+import { uploadLocalMediaToTos, parseDataUrl } from '../../../utils/server/tosUpload';
 import { registerAsset } from '../../../utils/film/server/registerAsset';
+import { checkInBytes } from './media';
 
 // Stage a locally-dropped/uploaded file (base64 data URL) into the user's TOS
 // bucket and return a stable public URL + an Assets-library id. Dropped assets go
@@ -52,7 +53,17 @@ export default async function uploadHandler(req, res) {
       fallbackName: `upload-${Date.now()}.${ext}`,
       dataLabel: 'Uploaded asset',
     });
-    const url = staged.objectUrl || staged.fetchUrl;
+    // SOURCE-SIDE durability: the upload's bytes go straight into the two-tier store
+    // (local + TOS mirror) and the STABLE store url is the display url from birth —
+    // no client-side check-in, nothing that can expire. The staged fetchUrl (public,
+    // else 7-day presigned) remains the fallback + the Assets-API ingest source.
+    let url = staged.fetchUrl || staged.objectUrl;
+    let cacheUrl = null;
+    try {
+      const parsed = parseDataUrl(dataUrl, 'Uploaded asset');
+      cacheUrl = (await checkInBytes(parsed.buffer, parsed.contentType)).url;
+      url = cacheUrl;
+    } catch (e) { console.warn('[film/upload] source check-in failed — serving the staged url:', e.message); }
 
     // Catalogue it in the Assets library so the upload is usable as an asset://
     // reference in Seedance / Animate. The Assets backend DOWNLOADS the URL to

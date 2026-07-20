@@ -10,6 +10,7 @@
 //   reason({ prompt, systemPrompt, images, video, modelId }) -> { content }
 //   startVideo({ content, model, resolution, ratio, duration, generateAudio }) -> { taskId }
 //   pollVideo({ taskId, intervalMs, timeoutMs }) -> { videoUrl }
+//   generateSpeech({ text, voice, model, instruction, imageData, format, sampleRate }) -> { url, bytes, duration }
 
 // Pull a human-readable string out of an API error body (may nest under
 // .error.message or .details). Never returns "[object Object]".
@@ -33,11 +34,11 @@ const POLL_TIMEOUT_MS = 1800000;
 // Used by the canvas (L4). Keeps the existing request shapes unchanged.
 
 export const createBrowserClient = (apiKey) => ({
-  async generateImage({ prompt, referenceImages, size, model, seed }) {
+  async generateImage({ prompt, referenceImages, size, model, seed, optimizePrompt }) {
     const res = await fetch('/api/film/imagine', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiKey, prompt, referenceImages, size, model, seed }),
+      body: JSON.stringify({ apiKey, prompt, referenceImages, size, model, seed, optimizePrompt }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(errMsg(data, `Image generation failed (HTTP ${res.status})`));
@@ -81,8 +82,24 @@ export const createBrowserClient = (apiKey) => ({
         headers: { Authorization: `Bearer ${apiKey}` },
       });
       const data = await res.json();
-      if (data.status === 'succeeded' && data.video_url) return { videoUrl: data.video_url, lastFrameUrl: data.last_frame_url || null };
+      if (data.status === 'succeeded' && data.video_url) return { videoUrl: data.video_url, lastFrameUrl: data.last_frame_url || null, videoCacheUrl: data.video_cache_url || null, lastFrameCacheUrl: data.last_frame_cache_url || null };
       if (data.status === 'failed') throw new Error(data.error?.message || data.error || 'Seedance task failed');
     }
+  },
+
+  // Audio via the app's film audio route — Seed Audio 1.0 (prompt-driven, voice
+  // optional, one optional reference image) or Seed TTS 2.0 (verbatim, voice required).
+  // The BytePlus voice key lives server-side (BYTEPLUSVOICE_API_KEY) — no apiKey rides
+  // along. Returns a data: url; the canvas's media store turns it into a real file
+  // right after the node lands.
+  async generateSpeech({ text, voice, model, instruction, imageData, format, sampleRate }) {
+    const res = await fetch('/api/film/audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice, model, instruction, imageData, format, sampleRate }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(errMsg(data, `Speech generation failed (HTTP ${res.status})`));
+    return data;
   },
 });

@@ -80,8 +80,8 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
   'storyboard.cast.user': {
     agent: 'Cast & World',
     label: 'Draft the production (instruction)',
-    vars: ['{idea}', '{genre}'],
-    text: 'Film idea: {idea}\nGenre & tone: {genre}\n\nThe shared visual style MUST embody that genre & tone, and every asset must fit it. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
+    vars: ['{idea}', '{genre}', '{ethnicity}'],
+    text: 'Film idea: {idea}\nGenre & tone: {genre}\nCharacter ethnicity (apply to every HUMAN character\'s facePrompt/bodyPrompt unless the idea itself dictates otherwise): {ethnicity}\n\nThe shared visual style MUST embody that genre & tone, and every asset must fit it. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
   },
 
   // ---- Story agent: an idea/script → ONE long cinematic prompt (Seed 2.0 Pro rewrite) -
@@ -132,25 +132,50 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     vars: ['{scene}', '{camera}'],
     text: 'A single photorealistic cinematic film still — a PREVIZ blocking frame. {camera} SCENE: {scene} Stage every person described at their stated position, scale, orientation and eyeline, in a real coherent set with natural cinematic light and grade; the people are realistic generic stand-ins (their identity does not matter). Characters never look at the camera. No text, captions or watermarks.',
   },
+  // {targets} = WHAT gets silhouetted — 'EVERY person in the frame' by default, or the
+  // user's own words (sentinel-injected VERBATIM by maskFrame, like the edit slot).
   'previz.mask': {
     agent: 'Previz',
     label: 'Mask the previz (identity scrub)',
-    vars: [],
-    text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting and composition — but replace EVERY person with a FLAT solid-color silhouette: hard edges, completely filled with one color, no facial features, no clothing detail, no shading. Assign the colors left to right: blue, then green, then yellow, then red, then purple (repeat the sequence if there are more figures). Each silhouette keeps its person\'s exact position, scale and pose. Everything that is not a person stays photorealistic and identical to [Image 1]. No text or watermarks.',
+    vars: ['{targets}'],
+    text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting and composition — but replace {targets} with FLAT solid-color silhouettes, one per subject: hard edges, completely filled with one color, no facial features, no clothing detail, no shading. Assign the colors left to right: blue, then green, then yellow, then red, then purple (repeat the sequence if there are more figures). Each silhouette keeps its subject\'s exact position, scale and pose. Everything NOT replaced stays photorealistic and identical to [Image 1]. No text or watermarks.',
   },
 
-  // ---- Deconstruct: a rendered Take → its CUTs (Seed 2.0 Pro VLM watches the video) ---
-  'deconstruct.system': {
-    agent: 'Deconstruct',
-    label: 'Deconstruct a Take into cuts (system)',
-    vars: ['{templates}'],
-    text: 'You are a film editor and cinematographer DECONSTRUCTING a generated Take (a short video) into the distinct CUTs it can be re-shot from in detail. WATCH the video. A CUT is one continuous camera setup; a new cut begins when the framing, angle or subject changes. For EACH cut, in order, capture:\n- action: what happens, present tense — name the subjects and state what each is looking at (never the camera)\n- shotTemplate: the exact id of the best-fit camera setup from the library below\n- cinematography: lens · DOF · light · grain · grade · movement, one line\n- subjects: the people/places present (use the known names when they match)\n- keyTimestamps: 1–3 second-marks (numbers, seconds from the start) of the MOST REPRESENTATIVE frames of this cut — the moments worth grabbing as reference stills for visual grounding\n\nSHOT TEMPLATE LIBRARY (reference by exact id):\n{templates}\n\nReturn ONLY JSON — no prose, no code fences: {"cuts": [{"action": "...", "shotTemplate": "...", "cinematography": "...", "subjects": ["..."], "keyTimestamps": [n]}]}. Be specific and brief.',
+  // Free-form single-instruction EDIT of any board image. The instruction slot is
+  // sentinel-injected VERBATIM by the caller — the frame around it only pins everything
+  // the user did NOT ask to change.
+  'previz.edit': {
+    agent: 'Previz',
+    label: 'Edit an image by instruction',
+    vars: ['{instruction}'],
+    text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting, composition and subjects — with ONLY this change applied: {instruction}. Change nothing else. No text or watermarks.',
   },
-  'deconstruct.user': {
-    agent: 'Deconstruct',
-    label: 'Deconstruct a Take into cuts (instruction)',
-    vars: ['{prompt}', '{castList}'],
-    text: 'Source prompt that produced this Take (context only): {prompt}\nKnown cast & places: {castList}\n\nDeconstruct this Take into its cuts. Return the JSON.',
+
+  // ---- SHOT card Re-derive: BIND the existing prompt to the card's references --------
+  // A binding pass, NOT a rewrite: Develop's structure (arc, camera, eyelines) must
+  // survive — the only change is [Image N] tags matching the badge numbers. The prompt
+  // itself is sentinel-injected VERBATIM by the caller.
+  'cut.rederive.system': {
+    agent: 'Shot',
+    label: 'Re-derive — bind the prompt to the references (system)',
+    vars: ['{refCount}'],
+    text: 'You are a film director\'s assistant binding a SHOT PROMPT to its {refCount} reference images, attached as [Image 1] … [Image {refCount}] in the card\'s badge order. LOOK at the references. Rewrite the prompt with its wording, sentence order, structure, camera and action PRESERVED EXACTLY — the ONLY permitted change: at each subject/place/prop\'s FIRST mention that visually matches a reference, append its tag (e.g. "the lighthouse keeper [Image 2]"), and correct any EXISTING [Image N] tags to the true numbers. Never add, drop, reorder or summarize events; never invent content. Return ONLY the rewritten prompt text — no commentary, no code fences.',
+  },
+  'cut.rederive.user': {
+    agent: 'Shot',
+    label: 'Re-derive — bind the prompt to the references (instruction)',
+    vars: ['{refCount}', '{prompt}'],
+    text: 'References, in badge order: [Image 1] … [Image {refCount}].\n\nSHOT PROMPT:\n{prompt}',
+  },
+
+  // ---- Take Viewer: one extracted still → prompt-ready text --------------------------
+  // Take Viewer 📝: ONE extracted still → prompt-ready shot language (lands as an
+  // editable text NOTE on the board — never a Brief; Briefs hold the USER's words).
+  'deconstruct.describeFrame': {
+    agent: 'Take Viewer',
+    label: 'Describe one frame (Take Viewer note)',
+    vars: [],
+    text: 'You are a film director\'s assistant reading ONE still frame ([Image 1]) pulled from a rendered take. Describe it as prompt-ready shot language, present tense, one short line per label:\nSUBJECTS: who/what is in frame — appearance, wardrobe, expression\nBLOCKING: where each subject sits in the frame and what each is looking at (never the camera)\nSETTING: the place, time of day, atmosphere\nCAMERA: framing, angle, approximate lens feel, depth of field\nLIGHT & GRADE: key direction, contrast, palette\nPlain text only — exactly those five labeled lines, no JSON, no commentary.',
   },
 
   // ---- Storyboard: a conversational SHOT DIVISION (cinematographer brainstorm) ----
@@ -163,6 +188,8 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: `You are a film DIRECTOR + CINEMATOGRAPHER + storyboard artist breaking a scene into a SHOT LIST — one keyframe per shot — WITH the director, turn by turn, with good coverage, pacing and emotional flow.
 
 You are given the SCRIPT, the CURRENT shot list (may be empty), the director's latest MESSAGE, and {refCount} REFERENCE IMAGES attached as [Image 1] … [Image {refCount}] — the film's cast, props and places ({refCount} may be 0). Apply the message and return the FULL updated shot list — keep the shots the director didn't ask to change; add/cut/re-order/re-frame only what the message calls for. On the FIRST turn (empty list), divide the script into EXACTLY {count} well-chosen, distinct shots.
+
+THE BODY IS THE ONLY TEXT THE RENDERER SEES. Every change the director asks for MUST be written INTO the affected shots' body fields — rewritten so the change is unmistakably VISIBLE in the frame (a requested subject is described concretely: appearance, position, what the light shows of them — never merely implied or "half-obscured" into invisibility). NEVER claim a change in "reply" that the returned fields do not contain: if you did not edit a shot's body, do not say you did. When the CURRENT list already seems to satisfy the message, the director disagrees with the RENDER — strengthen and re-word that shot's body anyway so the demanded element becomes more explicit.
 
 For EACH shot produce:
 • shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY below (it carries framing/angle/lens — do NOT restate the camera in the body):

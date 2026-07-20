@@ -140,3 +140,81 @@ export async function deleteTosObject({ accessKey, secretKey, tosBucket, tosRegi
   });
   await client.deleteObject({ bucket: tosBucket, key: objectKey });
 }
+
+// ---- Cloud project store primitives (content-addressed media + manifests) ----------
+// The cloud-first media flow puts BYTES at CHOSEN keys (projects/media/<sha256>.<ext>)
+// and reads them back — plain object storage, direct SDK calls (no presign dance).
+
+const makeClient = ({ accessKey, secretKey, tosRegion, tosEndpoint }) => {
+  const resolvedRegion = tosRegion || DEFAULT_TOS_REGION;
+  const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
+  if (resolvedRegion.includes('.') || resolvedRegion.includes('/')) {
+    throw new Error('MODELARK_TOS_REGION must be a region like ap-southeast-1, not a domain.');
+  }
+  return new TosClient({ accessKeyId: accessKey, accessKeySecret: secretKey, region: resolvedRegion, endpoint: resolvedEndpoint });
+};
+
+// The one env reader every route shares (hoisted from /api/seedance).
+export const getServerTosConfig = () => ({
+  accessKey: process.env.MODELARK_ASSET_ACCESS_KEY,
+  secretKey: process.env.MODELARK_ASSET_SECRET_KEY,
+  tosBucket: process.env.MODELARK_TOS_BUCKET,
+  tosRegion: process.env.MODELARK_TOS_REGION,
+  tosEndpoint: process.env.MODELARK_TOS_ENDPOINT,
+  tosObjectPrefix: process.env.MODELARK_TOS_OBJECT_PREFIX,
+  tosPublicBaseUrl: process.env.MODELARK_TOS_PUBLIC_BASE_URL || '',
+});
+
+export const hasServerTosConfig = (cfg = getServerTosConfig()) => !!(cfg.accessKey && cfg.secretKey && cfg.tosBucket);
+
+// Does this object exist? (Content-addressed keys → an existing object IS the bytes.)
+export async function headTosObject({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, objectKey }) {
+  const client = makeClient({ accessKey, secretKey, tosRegion, tosEndpoint });
+  try {
+    const res = await client.headObject({ bucket: tosBucket, key: objectKey });
+    return { exists: true, size: Number(res.headers?.['content-length']) || 0, contentType: res.headers?.['content-type'] || '' };
+  } catch (e) {
+    if (e?.statusCode === 404) return { exists: false };
+    throw e;
+  }
+}
+
+// Put bytes at an EXPLICIT key. Content-addressed callers (media: same sha = same
+// bytes) keep the default skip-if-exists dedupe; MUTABLE keys (a project MANIFEST —
+// fixed key, changing contents) MUST pass overwrite:true or the first write becomes
+// permanent and every later "save" silently no-ops.
+export async function putTosObject({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, objectKey, buffer, contentType, overwrite = false }) {
+  if (!objectKey || !buffer?.length) throw new Error('putTosObject needs an objectKey and bytes.');
+  const creds = { accessKey, secretKey, tosBucket, tosRegion, tosEndpoint };
+  if (!overwrite) {
+    const head = await headTosObject({ ...creds, objectKey });
+    if (head.exists) return { objectKey, size: head.size, deduped: true };
+  }
+  const client = makeClient(creds);
+  await client.putObject({ bucket: tosBucket, key: objectKey, body: buffer, contentType: contentType || 'application/octet-stream' });
+  return { objectKey, size: buffer.length, deduped: false };
+}
+
+// Download one object's bytes.
+export async function downloadTosObject({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, objectKey }) {
+  const client = makeClient({ accessKey, secretKey, tosRegion, tosEndpoint });
+  const res = await client.getObjectV2({ bucket: tosBucket, key: objectKey, dataType: 'buffer' });
+  return { buffer: res.data.content, contentType: res.headers?.['content-type'] || 'application/octet-stream' };
+}
+
+// List every object under a prefix (paginates past the 1000-key page limit).
+export async function listTosObjects({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, prefix, maxKeys = 1000 }) {
+  const client = makeClient({ accessKey, secretKey, tosRegion, tosEndpoint });
+  const out = [];
+  let continuationToken;
+  do {
+    // A literal `continuationToken: undefined` still enters the SDK's canonical request
+    // and breaks the signature — include the key ONLY when a token exists.
+    const params = { bucket: tosBucket, prefix, maxKeys: Math.min(maxKeys, 1000), ...(continuationToken ? { continuationToken } : {}) };
+    // eslint-disable-next-line no-await-in-loop
+    const res = await client.listObjectsType2(params);
+    (res.data.Contents || []).forEach((o) => out.push({ key: o.Key, size: Number(o.Size) || 0, lastModified: o.LastModified }));
+    continuationToken = res.data.IsTruncated ? res.data.NextContinuationToken : undefined;
+  } while (continuationToken && out.length < maxKeys);
+  return out;
+}

@@ -9,12 +9,16 @@ import { registerAsset } from '../../../utils/film/server/registerAsset';
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '4mb', // we only receive a URL; the image is fetched server-side
+      sizeLimit: '30mb', // usually just a URL — but a not-yet-checked-in frame arrives as inline data:
     },
   },
 };
 
 const isHttpUrl = (v) => /^https?:\/\//i.test(String(v || '').trim());
+// A media-STORE url (an extracted take frame, an audio-mood image, any checked-in
+// asset): relative same-origin — absolutized against this request's own host, the
+// loopback fetch rides the store's read-through GET (local disk, else the TOS mirror).
+const isStoreUrl = (v) => /^\/api\/film\/media\?key=/.test(String(v || '').trim());
 
 export default async function preserveHandler(req, res) {
   if (req.method !== 'POST') {
@@ -23,8 +27,8 @@ export default async function preserveHandler(req, res) {
   }
 
   const { url, name } = req.body || {};
-  if (!isHttpUrl(url)) {
-    return res.status(400).json({ error: 'A http(s) source url is required' });
+  if (!isHttpUrl(url) && !isStoreUrl(url) && !String(url || '').startsWith('data:')) {
+    return res.status(400).json({ error: 'A http(s), data:, or media-store source url is required' });
   }
 
   const accessKey = process.env.MODELARK_ASSET_ACCESS_KEY;
@@ -38,19 +42,30 @@ export default async function preserveHandler(req, res) {
   }
 
   try {
-    // Fetch the source bytes while the signed URL is still valid.
-    const srcResponse = await fetch(url);
-    if (!srcResponse.ok) {
-      return res.status(502).json({
-        error: srcResponse.status === 403
-          ? 'Source URL has expired (403) — this asset can no longer be preserved. Re-generate it.'
-          : `Could not fetch source asset (${srcResponse.status})`,
-      });
+    // Resolve the source BYTES. Three shapes arrive here:
+    //  • data:            — the bytes ARE the url (a frame tagged before check-in) — use directly;
+    //  • /api/film/media  — loopback-fetch our own store (read-through: disk, else TOS mirror);
+    //  • http(s)          — fetch while the signed URL is still valid (the original path).
+    let dataUrl;
+    let contentType;
+    if (String(url).startsWith('data:')) {
+      dataUrl = String(url);
+      contentType = dataUrl.slice(5, dataUrl.indexOf(';')) || 'image/jpeg';
+    } else {
+      const src = isStoreUrl(url) ? `http://${req.headers.host}${url}` : url;
+      const srcResponse = await fetch(src);
+      if (!srcResponse.ok) {
+        return res.status(502).json({
+          error: srcResponse.status === 403
+            ? 'Source URL has expired (403) — this asset can no longer be preserved. Re-generate it.'
+            : `Could not fetch source asset (${srcResponse.status})`,
+        });
+      }
+      contentType = srcResponse.headers.get('content-type') || 'image/jpeg';
+      const arrayBuffer = await srcResponse.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString('base64');
+      dataUrl = `data:${contentType};base64,${base64}`;
     }
-    const contentType = srcResponse.headers.get('content-type') || 'image/jpeg';
-    const arrayBuffer = await srcResponse.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-    const dataUrl = `data:${contentType};base64,${base64}`;
 
     const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
     const staged = await uploadLocalMediaToTos({

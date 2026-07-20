@@ -1,7 +1,7 @@
-// Extract frames at specific TIMESTAMPS from a rendered Take — the visual-grounding
-// ingredients for Deconstruct. The Deconstruct VLM returns the meaningful moments per
-// CUT; ffmpeg grabs exactly those. Each frame comes back as a base64 data URL (no
-// storage dependency; it's consumed as a reference image by the per-CUT SHOT cards).
+// Extract frames at specific TIMESTAMPS from a board video — the Take Viewer's
+// 📷 / ⏮ / 📝 backbone (exact playhead frame, first frame, the still the describe
+// call reads). Each frame comes back as a base64 data URL; the canvas lands it as
+// a normal image node and the media store checks it in seconds later.
 
 import fs from 'fs';
 import os from 'os';

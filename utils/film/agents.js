@@ -7,7 +7,7 @@ import { createBrowserClient } from './core/client';
 import * as ops from './core/operations';
 import * as director from './core/director';
 import { buildAnimatePrompt } from './core/operations';
-import { castFromIdea, writeFilmPrompt, deconstructTake } from './core/storyboard';
+import { castFromIdea, writeFilmPrompt } from './core/storyboard';
 import { SIZE_TIERS as IMAGE_RESOLUTIONS, ASPECT_RATIOS as IMAGE_RATIOS } from './imageSizes';
 
 // Re-exported so the canvas panels can reuse them.
@@ -23,8 +23,8 @@ export const AGENT_COLORS = {
   story: '#f7ba1e',                // gold (the narrative spine: key events)
   storyboard: '#4e5969',           // graphite (the shot plan)
   previz: '#3491fa',               // sky blue (blocking: previz frame → masked plate)
-  deconstruct: '#0fc6c2',          // teal (a Take → its cuts + key frames)
   shot: '#d9488f',                 // rose (a single SHOT card)
+  audio: '#7816ff',                // violet (spoken word: VO / line reads)
 };
 
 const browserCtx = (apiKey) => ({ client: createBrowserClient(apiKey) });
@@ -45,8 +45,8 @@ export const createBrowserTransport = (apiKey) => ({
     if (!res.ok) throw new Error(data?.details || data?.error || 'Stitch failed');
     return { url: data.url, assetId: data.assetId || null };
   },
-  // The Filming Loop's continuity capability: the last frame of an approved chunk
-  // seeds the next chunk's keyframe (server ffmpeg → base64 reference image).
+  // The continuity chain's capability: a shot's LAST frame rides as a reference into
+  // the NEXT shot (per-card 🎬 + the Action loop) so consecutive shots connect.
   lastFrame: async (url) => {
     const res = await fetch('/api/film/last-frame', {
       method: 'POST',
@@ -56,18 +56,6 @@ export const createBrowserTransport = (apiKey) => ({
     const data = await res.json();
     if (!res.ok) throw new Error(data?.details || data?.error || 'Last-frame extraction failed');
     return { url: data.url };
-  },
-  // Deconstruct's visual grounding: grab frames at the VLM's key timestamps (server
-  // ffmpeg → base64). Returns [{ t, url }].
-  frames: async (url, timestamps) => {
-    const res = await fetch('/api/film/frames', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, timestamps }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.details || data?.error || 'Frame extraction failed');
-    return data.frames || [];
   },
 });
 
@@ -117,8 +105,8 @@ export const inspirationAgent = {
   consumes: [],
   needsSelection: false,
   grouped: true,
-  defaultSettings: { count: 6, size: '2K', useSelectionAsRefs: false },
-  describe: 'Generates a grid of distinct style/mood references from a prompt or your selected images.',
+  defaultSettings: { count: 6, size: '2K', useSelectionAsRefs: false, refs: [] },
+  describe: 'Generates a grid of distinct style/mood references from a prompt and any board images you pick.',
   // Every agent run accepts an optional injected `ctx` (the canvas passes a
   // trace-wrapped client so rail runs land in the decision history); without one
   // it builds the plain browser ctx from the apiKey as before.
@@ -143,16 +131,18 @@ export const characterVariationsAgent = {
   icon: 'user',
   color: AGENT_COLORS.characterVariations,
   consumes: ['image'],
-  needsSelection: true,
+  // The agent CARD carries its own source-image picker (anchorId) — no board
+  // selection required to drop it; run() still guards the headless selection path.
+  needsSelection: false,
   grouped: true,
-  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: 'seedream' },
-  describe: 'Plans distinct variations of the selected character, identity preserved.',
+  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: 'seedreamPro', anchorId: '' },
+  describe: 'Plans distinct variations of a character, identity preserved — pick the source image below.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one character image first');
     const src = refUrl(anchor);
     const result = await ops.characterVariations(
-      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: settings.imageModel || 'seedream' },
+      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: settings.imageModel || 'seedreamPro' },
       ctx || browserCtx(apiKey),
       variationHooks('characterVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
@@ -167,16 +157,17 @@ export const locationVariationsAgent = {
   icon: 'location',
   color: AGENT_COLORS.locationVariations,
   consumes: ['image'],
-  needsSelection: true,
+  // Same as characterVariations: the card's picker is the source, not the selection.
+  needsSelection: false,
   grouped: true,
-  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: 'seedream' },
-  describe: 'Plans distinct coverage of the selected location, architecture preserved.',
+  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: 'seedreamPro', anchorId: '' },
+  describe: 'Plans distinct coverage of a location, architecture preserved — pick the source image below.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one location image first');
     const src = refUrl(anchor);
     const result = await ops.locationVariations(
-      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: settings.imageModel || 'seedream' },
+      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: settings.imageModel || 'seedreamPro' },
       ctx || browserCtx(apiKey),
       variationHooks('locationVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
@@ -249,11 +240,11 @@ export const castAgent = {
   color: AGENT_COLORS.cast,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '', imageModel: 'seedream' },
+  defaultSettings: { prompt: '', imageModel: 'seedreamPro', imageThinking: false, ethnicity: '' },
   describe: 'Drafts the film\'s recurring assets — characters, creatures, locations and key props/vehicles — in one shared look, as bible candidates.',
   async run({ prompt, settings = {}, apiKey, ctx, onPlan, onEntry, onError }) {
     const entries = await castFromIdea(
-      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '', imageModel: settings.imageModel || 'seedream' },
+      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '', ethnicity: settings.ethnicity || '', imageModel: settings.imageModel || 'seedreamPro', thinking: !!settings.imageThinking },
       ctx || browserCtx(apiKey),
       { onPlan, onEntry, onError: (msg) => { if (onError) onError([msg]); } },
     );
@@ -263,7 +254,7 @@ export const castAgent = {
 
 // The BRIEF agent: a container for the user's OWN words — an idea, a description or a full
 // script — held VERBATIM (no automatic rewrite). On the canvas the rail Run is intercepted
-// (handleRun → createStoryNode: the card lands instantly); Cast & World and Storyboard read
+// (rail tap → createStoryNode: the card lands instantly); Cast & World and Storyboard read
 // the brief verbatim, and Develop (opt-in, runStory) rewrites it into ONE long cinematic
 // prompt (clear subjects + arc, explicit CUT markers, no facing-camera, explicit eyelines)
 // which only New Shot consumes. This run() is the headless/SDK entry to that same rewrite.
@@ -275,7 +266,7 @@ export const storyAgent = {
   consumes: [],
   needsSelection: false,
   defaultSettings: { prompt: '' },
-  describe: 'Holds your idea, description or script VERBATIM as a Brief card — storyboard it, draft Cast & World, or drop it verbatim on a SHOT card; Develop (opt-in) rewrites it into one cinematic prompt that New Shot then uses instead.',
+  describe: 'Your idea, description or script — held VERBATIM on a Brief card; Develop, Cast & World, Storyboard and New Shot run from the card.',
   async run({ prompt, settings = {}, apiKey, ctx }) {
     const story = await writeFilmPrompt(
       {
@@ -285,32 +276,6 @@ export const storyAgent = {
       ctx || browserCtx(apiKey),
     );
     return { created: [], errors: [], story };
-  },
-};
-
-// The DECONSTRUCT agent: a rendered Take (a 15s video) → its CUTs. The Seed 2.0 Pro VLM
-// WATCHES the video and returns, per cut, the action + best-fit shot template + key
-// timestamps. The canvas turns those into key-frame ingredients + per-cut SHOT cards (the
-// bridge from Exploration to Directing). On the canvas the rail Run + the Take node's
-// "Deconstruct" button are intercepted (handleRun → handleBreakdownTake); this run() is the
-// headless/SDK entry. Operates on a SELECTED Take video.
-export const deconstructAgent = {
-  id: 'deconstruct',
-  label: 'Deconstruct',
-  icon: 'deconstruct',
-  color: AGENT_COLORS.deconstruct,
-  consumes: ['video'],
-  needsSelection: true,
-  defaultSettings: {},
-  describe: 'Watches a selected Take and breaks it into per-cut SHOT cards + key-frame stills.',
-  async run({ selection, settings = {}, apiKey, ctx }) {
-    const take = (selection || []).find((n) => n.data?.kind === 'video' && n.data?.url);
-    if (!take) throw new Error('Select one Take (a rendered video) first');
-    const deconstruction = await deconstructTake(
-      { videoUrl: take.data.url, prompt: settings.prompt || '', bible: settings.bible || [] },
-      ctx || browserCtx(apiKey),
-    );
-    return { created: [], errors: [], deconstruction };
   },
 };
 
@@ -328,8 +293,8 @@ export const storyboardAgent = {
   color: AGENT_COLORS.storyboard,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { genre: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: 'seedream', mode: 'multiple' },
-  describe: 'Brainstorm the shot division with a cinematographer. Select a Brief node and Run — a chat lands on the board, bound to a grid of keyframe stills (default 8) it builds and refines as you talk. Optionally tick board images as references to anchor characters & props.',
+  defaultSettings: { script: '', genre: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: 'seedreamPro', mode: 'multiple' },
+  describe: 'Brainstorm the shot division with a cinematographer — a chat bound to a grid of keyframe stills it refines as you talk.',
   async run() {
     throw new Error('The Storyboard agent lays a chat node + SHOT cards on the canvas — run it from the board.');
   },
@@ -341,7 +306,7 @@ export const storyboardAgent = {
 // flat color-silhouette plate — pure geometry that guides the shoot (plate = layout,
 // cast plates = identity, bound by a color line in the shot prompt). No selection
 // reading, no silent refs — only the panel's ticked references ride along. On the canvas
-// the rail Run is intercepted (handleRun → runPrevizFrame); this run() is canvas-only.
+// the agent card's Run calls runPrevizFrame; this run() is canvas-only.
 export const previzAgent = {
   id: 'previz',
   label: 'Previz',
@@ -349,15 +314,15 @@ export const previzAgent = {
   color: AGENT_COLORS.previz,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '', shotTemplate: '', refs: [] },
-  describe: 'Paste any scene text → a photoreal PREVIZ frame: set, camera and blocking with stand-in people. Mask it on the card into a color blocking plate that guides the shot — tick references to use YOUR set.',
+  defaultSettings: { prompt: '', shotTemplate: '', refs: [], imageThinking: false },
+  describe: 'Any scene text → a photoreal PREVIZ frame: set, camera, blocking with stand-ins. Mask the frame into a color blocking plate — tick references to stage YOUR set.',
   async run() {
     throw new Error('The Previz agent lays image nodes on the canvas — run it from the board.');
   },
 };
 
 // The SHOT agent: drops a single EMPTY SHOT card (CutNode) on the board with a camera
-// preset — no Story required. The rail Run is intercepted (handleRun lays the card); this
+// preset — no Story required. The rail tap lays the card directly; this
 // run() guards the headless/SDK path, since laying a board node is a canvas-only action.
 export const shotAgent = {
   id: 'shot',
@@ -367,12 +332,42 @@ export const shotAgent = {
   consumes: [],
   needsSelection: false,
   defaultSettings: { prompt: '', shotTemplate: 'medium-shot', durationSec: 15 },
-  describe: 'Drops an empty SHOT card with a camera preset — write the shot, attach references, then 🎬 to shoot.',
+  describe: 'A SHOT card carrying your description and camera preset — edit on the card, attach references, then 🎬 to shoot.',
   async run() {
     throw new Error('The Shot agent lays a SHOT card on the canvas — run it from the board.');
   },
 };
 
+// The AUDIO agent: the typed prompt goes out VERBATIM (word for word, original language —
+// the consistency rule applies to speech) and comes back as a playable clip node on the
+// board — for auditioning narration, line reads, ambience and SFX cheaply before spending
+// on takes. One explicit tap = one call; nothing is mixed into any film. Standalone by
+// design (no SHOT-card or chat hooks yet). Engines: Seed Audio 1.0 (default — its own
+// tts/create endpoint; prompt-driven, voice optional, or ONE reference image for scene
+// mood) and Seed TTS 2.0 (verbatim reader, voice id required). The rail Run is
+// the agent card's Run calls runAudioClip; this run() is the headless/SDK entry.
+export const audioAgent = {
+  id: 'audio',
+  label: 'Audio',
+  icon: 'audio',
+  color: AGENT_COLORS.audio,
+  consumes: [],
+  needsSelection: false,
+  defaultSettings: { prompt: '', model: 'seedAudio', voice: '', instruction: '', imageRef: '' },
+  describe: 'Your words, word for word → a playable clip: line reads, narration, ambience, SFX — optionally one board image for scene mood. Nothing is mixed into the film.',
+  async run({ prompt, settings = {}, apiKey, ctx }) {
+    const model = settings.model || 'seedAudio';
+    const out = await ops.generateFilmAudio(
+      // Seed Audio casts voices from the prompt — `voice` (a speaker id) is a seedTts input.
+      { text: (prompt && String(prompt)) || settings.prompt || '', voice: model === 'seedAudio' ? '' : (settings.voice || ''), model, instruction: settings.instruction || '', imageData: settings.imageData },
+      ctx || browserCtx(apiKey),
+    );
+    return { created: [{ kind: 'audio', url: out.url, label: String(prompt || settings.prompt || 'Audio').slice(0, 40) }], errors: [] };
+  },
+};
+
+// Deconstruct is GONE (2026-07-21, both stages): the Take Viewer (▶ on any board
+// video — scrub / extract frames / describe a frame / pull audio) replaced it.
 export const AGENTS = [
   storyAgent,
   storyboardAgent,
@@ -381,7 +376,7 @@ export const AGENTS = [
   castAgent,
   characterVariationsAgent,
   locationVariationsAgent,
-  deconstructAgent,
+  audioAgent,
   inspirationAgent,
 ];
 

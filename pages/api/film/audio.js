@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { checkInBytes } from './media';
 
 // The film suite's audio route — TWO engines behind one contract, both returning a
 // data: url the canvas checks into the local media store seconds after the clip lands.
@@ -104,8 +105,15 @@ async function createAudio(res, { token, text, voice, imageData, format, sampleR
     return res.status(502).json({ error: data?.message || 'Seed Audio returned no audio', details: { code: data?.code, logId } });
   }
 
+  // SOURCE-SIDE durability: the clip goes straight into the two-tier store (local +
+  // TOS mirror) and the STABLE store url is what the client receives — no megabyte
+  // base64 payload, no client-side check-in required. data: fallback if the store hiccups.
+  let clipUrl = `data:${MIME[format] || 'audio/mpeg'};base64,${audio.toString('base64')}`;
+  try { clipUrl = (await checkInBytes(audio, MIME[format] || 'audio/mpeg')).url; }
+  catch (e) { console.warn('[film/audio] source check-in failed — falling back to data: url:', e.message); }
+
   return res.status(200).json({
-    url: `data:${MIME[format] || 'audio/mpeg'};base64,${audio.toString('base64')}`,
+    url: clipUrl,
     bytes: audio.length,
     duration: data?.duration,
     format,

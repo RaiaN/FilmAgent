@@ -1,11 +1,30 @@
 # Seed Audio 1.0 — Film Agent Integration Plan
 
-> **Status:** planned, not built (awaiting GO). Phase 1 scope confirmed 2026-07-10.
-> **Model:** BytePlus **Seed Audio 1.0** (`seed-audio-1.0`) — instruction-following speech
-> generation over the BytePlus voice HTTP API.
+> **Status:** M0 + M1 BUILT & LIVE-VERIFIED 2026-07-14 (standalone Audio agent only — the
+> user explicitly deferred M2's card/chat hooks: "No integration with other agents yet").
+> **Model reality check:** `seed-audio-1.0` returns **403 (code 45000030)** on this key's
+> subscription — the shipped default is **`seed-tts-2.0`** (proven live); the route's
+> `model` param flips to Seed Audio 1.0 with one string once the subscription has it.
+> Delivery direction rides as `context_texts` (TTS 2.0's tone instruction).
 > **One-line summary:** paste (or reuse) a line of text → one server-side TTS call → a
 > **playable audio node on the film board**, verbatim, nothing hidden. Mixing into the film
 > itself is explicitly Phase 2.
+> **One-line summary:** paste (or reuse) a line of text → one server-side TTS call → a
+> **playable audio node on the film board**, verbatim, nothing hidden. Mixing into the film
+> itself is explicitly Phase 2.
+
+## What already exists in the repo (verified 2026-07-14)
+
+- **`pages/api/speech.js`** — a WORKING BytePlus voice route (resource `seed-tts-2.0`,
+  `/api/v3/tts/unidirectional`, `X-Api-Key` + `X-Api-App-Key` headers, NDJSON stream →
+  concatenated audio buffer). Used only by the generic playground page — the film suite
+  never calls it. The film route reuses this proven streaming parse verbatim.
+- **CutNode's AUDIO field** — SHOT cards already carry `data.audio` ("dialogue · ambient ·
+  foley · score") and a `generateAudio` checkbox (Seedance on-take audio). The 🎙 button
+  slots beside that existing field.
+- **`AssetNode` `kind:'audio'`** — already renders a playable `<audio controls>` node.
+- **Global media store** (`/api/film/media`, 2026-07-14) — mp3/wav types are already in
+  its maps; the canvas check-in effect currently targets image/video only.
 
 ## Why
 
@@ -66,17 +85,21 @@ Dashed = **Phase 2** (not in scope now).
 
 ## Build plan (Phase 1)
 
-- **M0 — server + core:** `/api/film/audio` route; client `generateAudio`; core
+- **M0 — server + core:** `/api/film/audio` route (streaming parse lifted from
+  `pages/api/speech.js`, pointed at `seed-audio-1.0`); client `generateAudio`; core
   `generateFilmAudio({ text, config }, ctx)` in `utils/film/core` (pure, headless-safe).
 - **M1 — rail Audio agent:** `audioAgent` in `utils/film/agents.js` (canvas-only `run()`
   guard, like Storyboard/Previz); LayerPanel branch = one textarea + format defaults;
   Run → an audio node laid on the board. **Zero new node type** — `AssetNode` already
   renders `kind: 'audio'` as a playable `<audio controls>` element; it just has no
-  producer today.
+  producer today. **Durability for free:** add `audio` to the media-store check-in
+  effect's kinds (one condition) — the clip lands as a base64 `data:` url and is checked
+  into `~/.modelark-starter-kit/media/<hash>.mp3` within seconds, with `data.url`
+  replaced by the store url (no megabytes of base64 in project.json, survives reload).
 - **M2 — in-context entry points:** the 🎙 button on the SHOT card's AUDIO section
-  (clip docks beside the card, `sourceCutId` stamped — same pattern as previz-from-card)
-  and the `audio` action in the Director chat (`FILM_ACTIONS` + `ACTION_DESCRIBE` +
-  dispatch case, one-tap confirm).
+  (speaks the existing `data.audio` field; clip docks beside the card, `sourceCutId`
+  stamped — same pattern as previz-from-card) and the `audio` action in the Director
+  chat (`FILM_ACTIONS` + `ACTION_DESCRIBE` + dispatch case, one-tap confirm).
 
 ## Board entities & UX elements that can use the agent
 

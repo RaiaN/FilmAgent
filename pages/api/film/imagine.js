@@ -1,5 +1,6 @@
 import { CONFIG } from '../../../utils/config';
 import { ROOT_CONFIG } from '../../../utils/film/suiteConfig';
+import { checkInBytes } from './media';
 
 // Single-image generation for the canvas. Clients fire N of these in parallel
 // so each finished image can drop onto the board incrementally.
@@ -66,6 +67,9 @@ export default async function imagineHandler(req, res) {
   // reference here and inline it as base64 — no second fetch for Seedream to fail.
   const inlineReference = async (ref) => {
     if (typeof ref !== 'string') return null;
+    // A relative media-STORE url — absolutize to our own host; the loopback fetch
+    // below reads the store (disk, else the TOS mirror) and inlines as base64.
+    if (/^\/api\/film\/media\?key=/.test(ref)) ref = `http://${req.headers.host}${ref}`;
     if (!/^https?:\/\//i.test(ref)) return ref; // already a data: URL or asset id
     const resp = await fetchWithTimeout(ref, {}, 30000); // a reference download shouldn't take >30s
     if (!resp.ok) {
@@ -125,7 +129,18 @@ export default async function imagineHandler(req, res) {
     if (!url) {
       return res.status(502).json({ error: 'No image URL in response' });
     }
-    return res.status(200).json({ url, prompt: body.prompt, size, model: seedreamModel });
+    // SOURCE-SIDE durability: check the image into the two-tier store (local disk +
+    // TOS mirror) before responding — bytes are safe even if the tab dies right now.
+    // Best-effort; the generation itself never fails on a store hiccup.
+    let cacheUrl = null;
+    try {
+      const imgResp = await fetch(url);
+      if (imgResp.ok) {
+        const buf = Buffer.from(await imgResp.arrayBuffer());
+        cacheUrl = (await checkInBytes(buf, imgResp.headers.get('content-type') || 'image/jpeg')).url;
+      }
+    } catch (e) { console.warn('[film/imagine] source check-in failed:', e.message); }
+    return res.status(200).json({ url, cacheUrl, prompt: body.prompt, size, model: seedreamModel });
   } catch (error) {
     // A THROW here is NOT a Seedream rejection (those are handled above with the
     // real status/message) — it's an exception around the call: reference inlining

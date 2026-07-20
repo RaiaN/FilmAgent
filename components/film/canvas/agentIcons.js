@@ -12,6 +12,7 @@ import {
   IconScissor,
   IconCamera,
   IconEye,
+  IconSound,
 } from '@arco-design/web-react/icon';
 
 export const AGENT_ICONS = {
@@ -23,8 +24,8 @@ export const AGENT_ICONS = {
   board: IconApps,       // Storyboard (the panel grid)
   previz: IconEye,       // Previz (photoreal blocking frame → masked plate)
   cast: IconUserGroup,   // Cast & World (the ensemble: characters/monsters + places)
-  deconstruct: IconScissor, // Deconstruct (a Take → its cuts + key frames)
   shot: IconCamera,      // Shot (drops an empty SHOT card)
+  audio: IconSound,      // Audio (speaks text verbatim into a clip node)
 };
 
 export const agentIcon = (key) => AGENT_ICONS[key] || IconStar;

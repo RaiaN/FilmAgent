@@ -40,12 +40,14 @@ export const createDirectClient = ({ apiKey, baseUrl }) => {
   const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   return {
-    async generateImage({ prompt, referenceImages, size = '2K', model }) {
+    async generateImage({ prompt, referenceImages, size = '2K', model, optimizePrompt }) {
       const refs = (referenceImages || []).filter(Boolean);
       const inlined = (await Promise.all(refs.map(inlineReference))).filter(Boolean);
       const body = { model, prompt, size, watermark: false, response_format: 'url' };
       if (inlined.length === 1) body.image = inlined[0];
       else if (inlined.length > 1) body.image = inlined;
+      // Pro "thinking" prompt optimization — text-to-image only (rejected alongside refs).
+      if (optimizePrompt && inlined.length === 0) body.optimize_prompt_options = { thinking: 'enabled' };
 
       const res = await fetch(`${base}/images/generations`, { method: 'POST', headers: authHeaders, body: JSON.stringify(body) });
       const data = await res.json();

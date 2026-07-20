@@ -1,4 +1,19 @@
 import { CONFIG, getEndpointUrl } from '../../utils/config';
+import { checkInBytes } from './film/media';
+
+// Check a finished output into the two-tier store (local + TOS mirror) SERVER-SIDE, the
+// moment we first see it — byte durability must never depend on the browser tab staying
+// alive to run a client-side effect. Best-effort: a store hiccup never fails the poll.
+const checkInUrl = async (url) => {
+  if (!url) return null;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const { url: storeUrl } = await checkInBytes(buf, resp.headers.get('content-type') || '');
+    return storeUrl;
+  } catch { return null; }
+};
 
 async function seedanceStatusHandler(req, res) {
     if (req.method !== 'GET') {
@@ -75,6 +90,11 @@ async function seedanceStatusHandler(req, res) {
           if (!result.last_frame_url) {
               console.warn('[seedance-status] return_last_frame on but no last-frame field — content keys:', Object.keys(data.content));
           }
+          // SOURCE-SIDE durability: the take (and its continuity frame) go into the
+          // local store + TOS mirror before the client even learns they exist. The
+          // one-time download cost rides this single succeeded poll.
+          result.video_cache_url = await checkInUrl(result.video_url);
+          result.last_frame_cache_url = await checkInUrl(result.last_frame_url);
       }
 
       if (data.error) {

@@ -6,7 +6,7 @@ const { Text } = Typography;
 
 // The Film Director Assistant — Short Film mode's conversational front door. You SAY what
 // you want — "write a story about…", "draft the cast", "storyboard it", "variations of the
-// guide", "deconstruct this take" — and Seed 2.0 Pro maps it to exactly ONE agent, proposes
+// guide" — and Seed 2.0 Pro maps it to exactly ONE agent, proposes
 // it back in plain words, and a single tap dispatches it. Questions about the film it answers
 // itself (in character, grounded in the board). Independent of the pipeline strip (status only).
 const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
@@ -30,7 +30,7 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    say('agent', '🎬 I\'m your director. Tell me what you want — write a story, draft the cast & world, storyboard it, variations, deconstruct a take, stitch the film — and I\'ll line up the move for one tap. Or just ask me about the film.');
+    say('agent', '🎬 I\'m your director. Tell me what you want — write a story, draft the cast & world, storyboard it, variations, stitch the film — and I\'ll line up the move for one tap. Or just ask me about the film.');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live narration from the engine (keyframe ready / QC verdicts / take landed /
@@ -81,7 +81,7 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
     try {
       const routed = await onRoute(text);
       if (!routed || routed.action === 'unknown') {
-        say('agent', "I didn't catch which move that needs. Try: “write a story about …”, “draft the cast”, “storyboard it”, “variations of <character>”, “deconstruct this take”, “stitch” — or just ask me about the film.");
+        say('agent', "I didn't catch which move that needs. Try: “write a story about …”, “draft the cast”, “storyboard it”, “variations of <character>”, “stitch” — or just ask me about the film.");
         return;
       }
       // A question → the router answered it directly; no tool, no confirmation.
@@ -159,7 +159,7 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
               autoSize={{ minRows: 1, maxRows: 4 }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-              <Text type="secondary" style={{ fontSize: 10 }}>{busy ? (routing ? 'Reading…' : 'Working…') : 'Routes to: story · cast · storyboard · variations · deconstruct · stitch · inspiration · sort — or ask'}</Text>
+              <Text type="secondary" style={{ fontSize: 10 }}>{busy ? (routing ? 'Reading…' : 'Working…') : 'Routes to: story · cast · storyboard · variations · stitch · inspiration · sort — or ask'}</Text>
               <Button size="small" type="primary" icon={busy && !pending ? <IconLoading /> : <IconRight />} disabled={!draft.trim() || (busy && !pending)} style={{ background: '#b06f10', borderColor: '#b06f10' }} onClick={send}>Send</Button>
             </div>
           </div>

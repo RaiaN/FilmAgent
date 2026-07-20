@@ -1,5 +1,5 @@
 import { getEndpointUrl } from '../../utils/config';
-import { uploadLocalMediaToTos } from '../../utils/server/tosUpload';
+import { uploadLocalMediaToTos, getServerTosConfig } from '../../utils/server/tosUpload';
 
 export const config = {
   api: {
@@ -13,25 +13,7 @@ const isHttpUrl = (value) => /^https?:\/\//i.test(String(value || '').trim());
 const isDataUrl = (value) => /^data:[^;]+;base64,/i.test(String(value || ''));
 const isAssetUrl = (value) => /^asset:\/\//i.test(String(value || '').trim());
 
-const getServerTosConfig = () => {
-  const accessKey = process.env.MODELARK_ASSET_ACCESS_KEY;
-  const secretKey = process.env.MODELARK_ASSET_SECRET_KEY;
-  const tosBucket = process.env.MODELARK_TOS_BUCKET;
-  const tosRegion = process.env.MODELARK_TOS_REGION;
-  const tosEndpoint = process.env.MODELARK_TOS_ENDPOINT;
-  const tosObjectPrefix = process.env.MODELARK_TOS_OBJECT_PREFIX;
-  const tosPublicBaseUrl = process.env.MODELARK_TOS_PUBLIC_BASE_URL || '';
-
-  return {
-    accessKey,
-    secretKey,
-    tosBucket,
-    tosRegion,
-    tosEndpoint,
-    tosObjectPrefix,
-    tosPublicBaseUrl,
-  };
-};
+// Env → TOS credentials reader lives in tosUpload.js (shared by every route).
 
 const buildFallbackFileName = (role, contentType) => {
   const extensionMap = {
@@ -56,7 +38,7 @@ const buildFallbackFileName = (role, contentType) => {
   return `${role}-${Date.now()}.${extension}`;
 };
 
-async function normalizeSeedanceContent(content) {
+async function normalizeSeedanceContent(content, host) {
   const items = Array.isArray(content) ? content : [];
   const tosConfig = getServerTosConfig();
   let stagedCount = 0;
@@ -82,7 +64,18 @@ async function normalizeSeedanceContent(content) {
         : item.type === 'video_url'
           ? 'video_url'
           : 'audio_url';
-    const mediaUrl = item?.[key]?.url;
+    let mediaUrl = item?.[key]?.url;
+
+    // A relative media-STORE url (an extracted frame ref that dodged registration, a
+    // checked-in clip) — read it via our own read-through GET (disk, else the TOS
+    // mirror) and continue as an inline data: payload, which stages to TOS below.
+    if (/^\/api\/film\/media\?key=/.test(String(mediaUrl || '')) && host) {
+      const resp = await fetch(`http://${host}${mediaUrl}`);
+      if (!resp.ok) throw new Error(`${item.role || item.type}: media-store fetch failed (${resp.status})`);
+      const ctype = (resp.headers.get('content-type') || 'application/octet-stream').split(';')[0];
+      mediaUrl = `data:${ctype};base64,${Buffer.from(await resp.arrayBuffer()).toString('base64')}`;
+      item = { ...item, [key]: { ...(item[key] || {}), url: mediaUrl } };
+    }
 
     if (!mediaUrl || isHttpUrl(mediaUrl) || isAssetUrl(mediaUrl)) {
       if (item?.type === 'image_url' && isAssetUrl(mediaUrl)) {
@@ -150,7 +143,7 @@ async function seedanceHandler(req, res) {
 
   try {
     const normalizedPayload = { ...payload };
-    const staged = await normalizeSeedanceContent(payload.content);
+    const staged = await normalizeSeedanceContent(payload.content, req.headers.host);
     normalizedPayload.content = staged.content;
 
     // Diagnose reference-image screening: print each content item's index + scheme so a

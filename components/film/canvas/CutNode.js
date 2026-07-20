@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox } from '@arco-design/web-react';
-import { IconLoading, IconExpand, IconEdit, IconScissor, IconEye } from '@arco-design/web-react/icon';
+import { IconLoading, IconExpand, IconEdit, IconScissor, IconEye, IconSync, IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
@@ -15,7 +15,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], onShootCut: null, onAttachSelected: null, onAttachAsset: null, onSplitCut: null, onDevelopCut: null, onPrevizCut: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onDevelopCut: null, onPrevizCut: null, onRederiveCut: null,
 });
 
 const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
@@ -43,12 +43,18 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onAttachSelected, onAttachAsset, onSplitCut, onDevelopCut, onPrevizCut } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onDevelopCut, onPrevizCut, onRederiveCut } = useContext(CutContext);
   const patch = (p) => onPatchCut && onPatchCut(id, p);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
+  // Seedance media references (plural — e.g. a camera-track video + a motion video +
+  // music + two voice clips). Reads the earlier single-ref fields as a one-item array.
+  const audioRefs = data.audioRefs || (data.audioRef ? [data.audioRef] : []);
+  const videoRefs = data.videoRefs || (data.videoRef ? [data.videoRef] : []);
   const toggleRef = (entryId) => patch({ refIds: refIds.includes(entryId) ? refIds.filter((r) => r !== entryId) : [...refIds, entryId] });
   const removeAssetRef = (url) => patch({ assetRefs: assetRefs.filter((a) => a.url !== url) });
+  const removeAudioRef = (url) => patch({ audioRefs: audioRefs.filter((a) => a.url !== url), audioRef: null });
+  const removeVideoRef = (url) => patch({ videoRefs: videoRefs.filter((a) => a.url !== url), videoRef: null });
   const [dragOver, setDragOver] = useState(false);
 
   // The SHOT's title (data.beat) is inline-renamed via the shared EditableLabel. The beat
@@ -167,10 +173,11 @@ const CutNodeInner = ({ id, data, selected }) => {
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
             <span style={{ display: 'inline-flex', gap: 2 }}>
               <Button className="nodrag" size="mini" type="text" icon={<IconEye />} disabled={!onPrevizCut || data.splitting || data.developing} onClick={() => onPrevizCut && onPrevizCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Previz — stage this shot as a photoreal blocking frame (this card's text + this card's attached refs only). Mask it on the frame into a color plate that guides 🎬.">Previz</Button>
+              <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onRederiveCut || data.developing || data.splitting} onClick={() => onRederiveCut && onRederiveCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Re-derive — bind THIS prompt to the card's reference images: wording and structure preserved (Develop's output survives), matching subjects tagged [Image N] per the badge numbers. A FIRST FRAME lock stays; your previous text is stashed.">Re-derive</Button>
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
               <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconEdit />} disabled={!onDevelopCut || data.developing || data.splitting} onClick={() => onDevelopCut && onDevelopCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Develop — rewrite this prompt into one cinematic Seedance prompt (tight, close to your text; events preserved). Re-runs always start from your ORIGINAL text.">Develop</Button>
-              <Button className="nodrag" size="mini" type="text" icon={data.splitting ? <IconLoading /> : <IconScissor />} disabled={!onSplitCut || data.splitting || data.developing} onClick={() => onSplitCut && onSplitCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Split — break this shot into multiple ≤15s SHOT cards in its slot (wording + timestamps preserved). This card is replaced; any rendered takes stay on the board.">Split</Button>
+              <Button className="nodrag" size="mini" type="text" icon={data.splitting ? <IconLoading /> : <IconScissor />} disabled={!onSplitCut || data.splitting || data.developing} onClick={() => onSplitCut && onSplitCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Split — break this shot into multiple ≤15s SHOT cards laid right after it (wording + timestamps preserved). This card, its refs and takes stay untouched — delete it yourself if the pieces supersede it.">Split</Button>
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
             </span>
           </div>
@@ -260,21 +267,64 @@ const CutNodeInner = ({ id, data, selected }) => {
                 </span>
               );
             })}
-            {onAttachSelected && (
+            {/* Seedance media refs — audio clips (music / voices) and videos (camera / motion),
+                attached by tapping a ★-tagged offer chip below; click an attached chip to detach. */}
+            {audioRefs.map((a) => (
               <span
+                key={a.url}
                 className="nodrag"
-                onClick={() => onAttachSelected(id)}
-                title="Attach the board images you have selected to this shot. A selected blocking plate also drops its LAYOUT binding line into the prompt."
+                onClick={() => removeAudioRef(a.url)}
+                title={`${a.label || 'audio clip'} — reference audio (≤15s): the take realizes this sound. Click to detach.`}
                 style={{
-                  display: 'inline-flex', alignItems: 'center', cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
                   padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                  border: '1px dashed #86909c', color: '#86909c',
+                  border: '1px solid rgba(120,22,255,0.55)', background: 'rgba(120,22,255,0.16)', color: '#c0a1ff',
                 }}
               >
-                + board selection
+                <IconSound style={{ fontSize: 11 }} />
+                {(a.label || 'audio').slice(0, 14)}{Number(a.duration) ? ` · ${Math.round(a.duration)}s` : ''}
               </span>
-            )}
-            {(bibleEntries || []).length === 0 && assetRefs.length === 0 && <Text style={{ color: '#86909c', fontSize: 10 }}>no assets yet — tag bible roles or drop an image here</Text>}
+            ))}
+            {videoRefs.map((v) => (
+              <span
+                key={v.url}
+                className="nodrag"
+                onClick={() => removeVideoRef(v.url)}
+                title={`${v.label || 'video'} — reference video (≤15s): the take follows its camera / motion. Click to detach.`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                  padding: '1px 6px', borderRadius: 10, fontSize: 10,
+                  border: '1px solid #165dff', background: 'rgba(22,93,255,0.15)', color: '#6ea0ff',
+                }}
+              >
+                <IconVideoCamera style={{ fontSize: 11 }} />
+                {(v.label || 'video').slice(0, 14)}
+              </span>
+            ))}
+            {/* CANON media (★-tagged board audio/video) not yet on this shot — dim offer
+                chips, one tap to attach into the arrays above. */}
+            {(mediaEntries || [])
+              .filter((m) => (m.kind === 'audio' ? !audioRefs.some((a) => a.url === m.url) : !videoRefs.some((v) => v.url === m.url)))
+              .map((m) => (
+                <span
+                  key={`offer-${m.nodeId}`}
+                  className="nodrag"
+                  onClick={() => (m.kind === 'audio'
+                    ? patch({ audioRefs: [...audioRefs, { nodeId: m.nodeId, url: m.url, label: m.label, duration: m.duration }], audioRef: null })
+                    : patch({ videoRefs: [...videoRefs, { nodeId: m.nodeId, url: m.url, label: m.label }], videoRef: null }))}
+                  title={`${m.label} — ★-tagged board ${m.kind}; click to attach as this shot's reference ${m.kind}`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                    padding: '1px 6px', borderRadius: 10, fontSize: 10, opacity: 0.55,
+                    border: `1px dashed ${m.kind === 'audio' ? 'rgba(120,22,255,0.7)' : '#165dff'}`,
+                    color: m.kind === 'audio' ? '#c0a1ff' : '#6ea0ff', background: 'transparent',
+                  }}
+                >
+                  {m.kind === 'audio' ? <IconSound style={{ fontSize: 11 }} /> : <IconVideoCamera style={{ fontSize: 11 }} />}
+                  {(m.label || m.kind).slice(0, 14)}{m.kind === 'audio' && Number(m.duration) ? ` · ${Math.round(m.duration)}s` : ''}
+                </span>
+              ))}
+            {(bibleEntries || []).length === 0 && assetRefs.length === 0 && (mediaEntries || []).length === 0 && <Text style={{ color: '#86909c', fontSize: 10 }}>no references yet — tag board assets (bible role / ★) or drop an image here</Text>}
           </div>
         </div>
       </div>

@@ -52,6 +52,13 @@ export const constructWorkflowSeedreamPayload = (formValues) => {
       requestBody.image = cap ? formValues.image.slice(0, cap) : formValues.image;
     }
 
+    // Prompt optimization with THINKING (Seedream 5.0 Pro) — TEXT-TO-IMAGE only per the
+    // API, so it rides only when no reference images are attached.
+    const optimizeModes = MODEL_CAPABILITIES[formValues.model]?.optimize_prompt_modes || [];
+    if (formValues.optimizeThinking && optimizeModes.includes('thinking') && !requestBody.image) {
+      requestBody.optimize_prompt_options = { thinking: 'enabled' };
+    }
+
     return requestBody;
 };
 

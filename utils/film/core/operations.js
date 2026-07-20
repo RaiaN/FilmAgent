@@ -57,7 +57,7 @@ const runImagineBatch = async ({ specs, size, model }, ctx, hooks) => {
         () => ctx.client.generateImage({ prompt: spec.prompt, referenceImages: spec.referenceImages, size, model }),
         { tries: 3, baseMs: 2500 },
       );
-      const item = { url: data.url, prompt: data.prompt || spec.prompt, label: spec.label, referenceImages: spec.referenceImages || [], meta: spec.meta || {} };
+      const item = { url: data.url, cacheUrl: data.cacheUrl || null, prompt: data.prompt || spec.prompt, label: spec.label, referenceImages: spec.referenceImages || [], meta: spec.meta || {} };
       if (onItem) onItem(item, idx);
       return item;
     } catch (err) {
@@ -131,10 +131,11 @@ export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, cou
   const items = await planPrompts({ task: 'inspiration', count: n, idea: prompt, references: refs, config }, ctx);
   const genRefs = useRefsInGen ? refs : [];
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: genRefs, label: it.label || `Inspiration ${i + 1}`, meta: { planLabel: it.label } }));
-  return runImagineBatch({ specs, size, model: getModel('seedream', config) }, ctx, onItem);
+  // Pro is the suite-wide default image model; its 2048² area cap clamps the size tier.
+  return runImagineBatch({ specs, size: clampSizeForModel('seedreamPro', size), model: getModel('seedreamPro', config) || getModel('seedream', config) }, ctx, onItem);
 };
 
-export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = 'seedream', config } = {}, ctx, hooks) => {
+export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = 'seedreamPro', config } = {}, ctx, hooks) => {
   if (!imageUrl) throw new Error('characterVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'characterVariations', count: n, direction, references: [imageUrl], config }, ctx);
@@ -142,7 +143,7 @@ export const characterVariations = async ({ imageUrl, direction = '', count = 4,
   return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) || getModel('seedream', config) }, ctx, hooks);
 };
 
-export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = 'seedream', config } = {}, ctx, hooks) => {
+export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = 'seedreamPro', config } = {}, ctx, hooks) => {
   if (!imageUrl) throw new Error('locationVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'locationVariations', count: n, direction, references: [imageUrl], config }, ctx);
@@ -182,7 +183,7 @@ export const isImagePolicyError = (err) => /image may contain sensitive/i.test((
 // Two source modes: a single imageUrl/assetId (the classic keyframe → first frame),
 // or `refUrls` — SEVERAL real reference images (direct-to-video: the storyboard's
 // cast/place assets, untouched, so the video model preserves the subjects itself).
-export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], firstFrameUrl = null, motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, modelKey = 'seedance', config } = {}, ctx) => {
+export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], firstFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, modelKey = 'seedance', config } = {}, ctx) => {
   // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
   // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
   if (!imageUrl && !assetId && !refUrls.length && !firstFrameUrl && !String(motion || '').trim()) throw new Error('animate requires a prompt, imageUrl, assetId, refUrls or firstFrameUrl');
@@ -193,8 +194,8 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // video (role 'first_frame' — Seedance's "consecutive videos" pattern), so the shot
   // picks up EXACTLY where the last ended. Sent first, before the subject references.
   if (firstFrameUrl) content.push({ type: 'image_url', image_url: { url: firstFrameUrl }, role: 'first_frame' });
-  // Seedance 2.0 accepts up to 9 reference images (plus reference video ≤15s and
-  // audio — not wired yet) — slice, never fail. A ref WITH a portrait-library id
+  // Seedance 2.0 accepts up to 9 reference images (plus reference video ≤15s —
+  // not wired yet) — slice, never fail. A ref WITH a portrait-library id
   // (refAssetIds, aligned by index) rides as image_asset_id (the TRUSTED asset://
   // path) so a photoreal person plate isn't screened as a raw url ("input image may
   // contain real person"); refs without an id (the clay frame, anything un-preserved)
@@ -208,6 +209,12 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   } else if (assetId) content.push({ type: 'image_asset_id', asset_id: assetId, role: 'reference_image' });
   else if (imageUrl) content.push({ type: 'image_url', image_url: { url: imageUrl }, role: 'reference_image' });
   // else: text-to-video — the prompt is the only content (no reference media).
+  // Reference AUDIO / VIDEO (plural; ≤15s each): the SHOT card's attached media —
+  // music + voice clips the take realizes, camera/motion videos it follows, instead of
+  // inventing its own. Audios BEFORE videos (the retake fallback's index math relies on
+  // this order). data: urls are staged to TOS by /api/seedance.
+  (audioRefUrls || []).filter(Boolean).forEach((u) => content.push({ type: 'audio_url', audio_url: { url: u }, role: 'reference_audio' }));
+  (videoRefUrls || []).filter(Boolean).forEach((u) => content.push({ type: 'video_url', video_url: { url: u }, role: 'reference_video' }));
   // seed (sequence-level, optional): held constant across re-shoots it isolates the
   // prompt as the only changed variable; null lets the model roll its own each time.
   // Per-shot endpoint choice: the SHOT card may pick a variant (e.g. Seedance 2.0 Mini) by
@@ -218,6 +225,24 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
     { tries: 3, baseMs: 3000 },
   );
   return { taskId, prompt };
+};
+
+// The AUDIO agent's one operation. The user's text goes out VERBATIM (the consistency
+// rule applies to speech too — no rewriting, no translation): with Seed Audio 1.0
+// (default) it IS the prompt the model follows (ambience / drama / SFX / speech; voice
+// id optional, or ONE reference image for scene mood), with Seed TTS 2.0 it is spoken
+// word-for-word by a required voice id, `instruction` being an explicit user-typed
+// delivery direction. Returns the clip as a data: url; the caller decides where it lands.
+export const generateFilmAudio = async ({ text, voice, model = 'seedAudio', instruction = '', imageData } = {}, ctx) => {
+  if (!String(text || '').trim()) throw new Error('The Audio agent needs the prompt / line first.');
+  if (model !== 'seedAudio' && !String(voice || '').trim()) throw new Error('Seed TTS 2.0 needs a voice id (Seed Audio 1.0 does not).');
+  if (typeof ctx?.client?.generateSpeech !== 'function') throw new Error('This transport has no speech support yet (canvas/browser client only for now).');
+  const out = await withRetry(
+    () => ctx.client.generateSpeech({ text: String(text), voice, model, instruction, imageData }),
+    { tries: 2, baseMs: 2000 },
+  );
+  if (!out?.url) throw new Error('The audio engine returned no clip.');
+  return out; // { url, bytes, duration, format, voice?, model }
 };
 
 export const suggestNextBeats = async ({ idea, steps = [], lastImageUrl, count = 3, config } = {}, ctx) => {

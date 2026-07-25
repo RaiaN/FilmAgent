@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Modal, Input, Select, Button, Typography, Message } from '@arco-design/web-react';
+import { Modal, Input, Select, Button, Typography, Message, Checkbox } from '@arco-design/web-react';
 import { IconPlus, IconCheck } from '@arco-design/web-react/icon';
 import { SHOT_TEMPLATES } from '../../../utils/film/recipes';
 
@@ -19,6 +19,11 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
   const [expression, setExpression] = useState(shot.expression || '');
   const [rederiving, setRederiving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // Structure lock (default ON when a frame exists): the CURRENT frame rides as the
+  // leading reference with a strict-follow line — composition/camera/blocking are
+  // preserved and the render changes ONLY what the text changes. Untick for a free
+  // re-composition from text + refs alone.
+  const [useFrame, setUseFrame] = useState(!!preview);
 
   const toggleFig = (n) => setFigures((f) => (f.includes(n) ? f.filter((x) => x !== n) : [...f, n].sort((a, b) => a - b)));
   const inPool = useMemo(() => new Set(pool), [pool]);
@@ -35,7 +40,7 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
     try { const n = await onAddRef(url); if (n) { setFigures((f) => (f.includes(n) ? f : [...f, n].sort((a, b) => a - b))); setAddOpen(false); } }
     catch (e) { Message.error(e.message); }
   };
-  const doRegenerate = () => onSave({ body: body.trim(), figures, shotTemplate, expression });
+  const doRegenerate = () => onSave({ body: body.trim(), figures, shotTemplate, expression, useFrame: useFrame && !!preview });
 
   return (
     <Modal visible title={`Edit shot — ${shot.beat || 'keyframe'}`} onCancel={onClose} footer={null} style={{ width: 1040, maxWidth: '94vw' }} unmountOnExit>
@@ -82,7 +87,11 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
               )}
             </div>
           )}
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Prompt (body) — describe the shot; address references as [Image N]</Text>
+          <Text type="secondary" title={useFrame && preview ? 'The frame anchors the structure: the render keeps its composition and changes ONLY what this text changes. Address references as [Image N].' : undefined} style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+            {useFrame && preview
+              ? 'Edit instruction or full prompt'
+              : 'Prompt (body) — describe the shot; address references as [Image N]'}
+          </Text>
           <Input.TextArea value={body} onChange={setBody} autoSize={{ minRows: 4, maxRows: 10 }} style={{ marginBottom: 6 }} />
           <Button size="mini" loading={rederiving} onClick={doRederive} style={{ marginBottom: 12 }}>Re-derive body from references</Button>
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 14 }}>
@@ -95,9 +104,18 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
               <Select size="small" allowClear allowCreate value={expression || undefined} onChange={(v) => setExpression(v || '')} options={EXPR_OPTS} style={{ width: '100%' }} />
             </div>
           </div>
+          {preview && (
+            <Checkbox checked={useFrame} onChange={setUseFrame} style={{ marginBottom: 12, display: 'block' }}>
+              <Text style={{ fontSize: 12 }}>
+                Use this frame as reference — keep its composition, camera and figure positions; change <b>only</b> what the text changes
+              </Text>
+            </Checkbox>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <Button onClick={onClose}>Close</Button>
-            <Button type="primary" loading={loading} onClick={doRegenerate}>Regenerate</Button>
+            <Button type="primary" loading={loading} onClick={doRegenerate} title={useFrame && preview ? 'Edit IN PLACE — the frame anchors the structure; the text drives the change' : 'Re-compose from text + ticked references (fresh roll)'}>
+              {useFrame && preview ? 'Apply edit' : 'Regenerate'}
+            </Button>
           </div>
         </div>
       </div>

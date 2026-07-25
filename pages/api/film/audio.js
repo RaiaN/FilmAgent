@@ -16,14 +16,16 @@ import { checkInBytes } from './media';
 //
 // The key stays server-side (BYTEPLUSVOICE_API_KEY) — same voice console for both.
 
-const VOICE_HOST = 'https://voice.ap-southeast-1.bytepluses.com';
+// REQUIRED via env — no default region. Guarded at request time with a clear error.
+const VOICE_HOST = (process.env.BYTEPLUSVOICE_BASE_URL || '').replace(/\/+$/, '');
 const TTS_ENDPOINT = `${VOICE_HOST}/api/v3/tts/unidirectional`;
 const CREATE_ENDPOINT = `${VOICE_HOST}/api/v3/tts/create`;
 const APP_KEY = 'aGjiRDfUWi'; // Fixed value per BytePlus docs (unidirectional only)
 
 // 'seedTts' → X-Api-Resource-Id for the streaming endpoint. A raw resource id string
 // passes through untouched, so new streaming models need no code change here.
-const RESOURCE_IDS = { seedTts: 'seed-tts-2.0' };
+const SEED_AUDIO_MODEL = process.env.MODELARK_MODEL_SEED_AUDIO || null; // REQUIRED via env
+const RESOURCE_IDS = { seedTts: process.env.MODELARK_MODEL_SEED_TTS || null }; // REQUIRED via env
 
 const MIME = { mp3: 'audio/mpeg', ogg_opus: 'audio/ogg', pcm: 'audio/pcm', wav: 'audio/wav' };
 
@@ -56,7 +58,7 @@ async function createAudio(res, { token, text, voice, imageData, format, sampleR
   }
 
   const body = {
-    model: 'seed-audio-1.0',
+    model: SEED_AUDIO_MODEL,
     text_prompt: prompt, // VERBATIM — the user's words are the prompt, no rewriting
     ...(references.length ? { references } : {}),
     audio_config: {
@@ -118,7 +120,7 @@ async function createAudio(res, { token, text, voice, imageData, format, sampleR
     duration: data?.duration,
     format,
     ...(speaker ? { voice: speaker } : {}),
-    model: 'seed-audio-1.0',
+    model: SEED_AUDIO_MODEL,
   });
 }
 
@@ -145,10 +147,16 @@ export default async function filmAudioHandler(req, res) {
   if (!token) {
     return res.status(500).json({ error: 'BYTEPLUSVOICE_API_KEY is not configured in .env.local' });
   }
+  if (!VOICE_HOST) {
+    return res.status(500).json({ error: 'BYTEPLUSVOICE_BASE_URL is not configured — set it in .env.local (see .env.example).' });
+  }
   if (!text || !String(text).trim()) return res.status(400).json({ error: 'text is required' });
 
   // Seed Audio 1.0 — the create endpoint (voice optional; prompt-driven).
   if (model === 'seedAudio') {
+    if (!SEED_AUDIO_MODEL) {
+      return res.status(500).json({ error: 'MODELARK_MODEL_SEED_AUDIO is not configured — set it in .env.local (see .env.example).' });
+    }
     try {
       return await createAudio(res, { token, text, voice, imageData, format, sampleRate, speechRate, loudnessRate, pitchRate });
     } catch (error) {
@@ -158,6 +166,9 @@ export default async function filmAudioHandler(req, res) {
 
   // Seed TTS 2.0 (streaming) — speaks VERBATIM, a voice id is mandatory.
   if (!voice || !String(voice).trim()) return res.status(400).json({ error: 'voice (speaker id) is required' });
+  if (model === 'seedTts' && !RESOURCE_IDS.seedTts) {
+    return res.status(500).json({ error: 'MODELARK_MODEL_SEED_TTS is not configured — set it in .env.local (see .env.example).' });
+  }
   const resourceId = RESOURCE_IDS[model] || String(model);
 
   const additionsObj = { disable_markdown_filter: true };

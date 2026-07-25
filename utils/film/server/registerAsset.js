@@ -1,5 +1,6 @@
 import { callAssetApi, getAssetApiConfig, sleep } from '../../server/assetApi';
 import { getDefaultAssetGroupId } from '../../assetGroupId';
+import { getStableAssetGroupId, persistAssetGroupId } from '../../server/assetGroup';
 
 // Register a URL into the ModelArk Assets library → returns an assetId, usable as
 // an asset:// reference (the trusted source for Seedance / Animate).
@@ -41,7 +42,10 @@ async function waitForAssetActive({ accessKey, secretKey, assetId, projectName }
 
 export async function registerAsset({ accessKey, secretKey, url, name, assetType = 'Image', waitForActive = false }) {
   const projectName = 'default';
-  const groupId = getDefaultAssetGroupId(process.env.MODELARK_ASSET_GROUP_ID);
+  // STABLE group: env override, else the persisted machine-wide id. Only the very
+  // first registration ever generates a name (and persists the group it creates) —
+  // previously this generated per CALL, minting one throwaway group per asset.
+  const groupId = getStableAssetGroupId() || getDefaultAssetGroupId(process.env.MODELARK_ASSET_GROUP_ID);
   const payload = {
     GroupId: groupId,
     URL: url,
@@ -58,6 +62,7 @@ export async function registerAsset({ accessKey, secretKey, url, name, assetType
   });
 
   let response;
+  let usedGroupId = groupId;
   try {
     response = await create(groupId);
   } catch (err) {
@@ -69,13 +74,15 @@ export async function registerAsset({ accessKey, secretKey, url, name, assetType
         accessKey,
         secretKey,
       });
-      response = await create(group?.Result?.Id || groupId);
+      usedGroupId = group?.Result?.Id || groupId;
+      response = await create(usedGroupId);
     } else {
       throw err;
     }
   }
 
   const assetId = response?.Result?.Id || null;
+  if (assetId) persistAssetGroupId(usedGroupId); // the group that WORKED is the stable one
   if (assetId && waitForActive) {
     await waitForAssetActive({ accessKey, secretKey, assetId, projectName });
   }

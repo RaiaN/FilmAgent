@@ -1,9 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Layout, Menu, Button, Drawer, Input, Message, Card, Typography, Upload } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconSettings, IconRobot, IconPlus, IconClose, IconMindMapping, IconUser, IconSound, IconApps } from '@arco-design/web-react/icon';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Layout, Button, Drawer, Input, Message, Card, Typography } from '@arco-design/web-react';
+import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconMindMapping, IconUser, IconSound, IconApps } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
@@ -18,24 +16,7 @@ import WorkflowEditor from '../components/workflow/WorkflowEditor';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
-// Custom BytePlus Icon
-const IconBytePlus = ({ style }) => (
-  <svg 
-    width="1em" 
-    height="1em" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    xmlns="http://www.w3.org/2000/svg"
-    style={style}
-  >
-    <path d="M5.5 8V16" stroke="#165dff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M9.5 11V16" stroke="#4080ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M13.5 11V16" stroke="#00d0b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M17.5 8V16" stroke="#86dfd6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-const { Sider, Content } = Layout;
+const { Content } = Layout;
 const { Title } = Typography;
 
 const getSchemaDefaults = (modelId) => ({ ...(baseSchemas[modelId]?.defaults || {}) });
@@ -59,12 +40,18 @@ export default function Home() {
   const [apiKey, setApiKey] = useState('');
   const [activeModelId, setActiveModelId] = useState('film-agent');
   const [lastToolId, setLastToolId] = useState('seedream');
-  const [chatHistory, setChatHistory] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [chatImage, setChatImage] = useState(null);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  // Server-key mode: a deployment-configured API key exists — every tab works with no
+  // key entered, and the Settings key field is replaced by an informational note (no
+  // key UI at all on customer deployments). Detected once via the non-secret config route.
+  const [hasServerKey, setHasServerKey] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/film/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (!cancelled && j) setHasServerKey(!!j.hasServerKey); })
+      .catch(() => { /* open starter-kit mode */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const baseSchema = baseSchemas[activeModelId] || {}; // Fallback for workflow
   // uiSchema is now static/default matching baseSchema
@@ -125,7 +112,6 @@ export default function Home() {
     });
   }, []);
 
-  const chatEndRef = useRef(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -139,16 +125,12 @@ export default function Home() {
     }
   }, []);
   
-  useEffect(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatHistory]);
-
   // Remember the most recently used tool so the "Tools" meta tab returns to it.
   useEffect(() => {
     if (TOOL_TABS.includes(activeModelId)) setLastToolId(activeModelId);
   }, [activeModelId]);
 
-  const canRun = useMemo(() => apiKey.trim().length > 0, [apiKey]);
+  const canRun = useMemo(() => apiKey.trim().length > 0 || hasServerKey, [apiKey, hasServerKey]);
 
   useEffect(() => {
     if (activeModelId === 'workflow') return;
@@ -263,49 +245,6 @@ export default function Home() {
       Message.error(error.message || 'TOS upload failed');
     } finally {
       setAssetTosStagingLoading(false);
-    }
-  };
-
-  const handleChatSubmit = async (e) => {
-    e?.preventDefault();
-    if ((!chatInput.trim() && !chatImage) || !canRun) return;
-
-    const userMessage = { role: 'user', content: chatInput, image: chatImage };
-    setChatHistory((prev) => [...prev, userMessage]);
-    setChatInput('');
-    setChatImage(null);
-    setChatLoading(true);
-
-    try {
-      const systemPrompt = `You are a helpful assistant for the ModelArk API. 
-      You have knowledge of the following API schema: ${JSON.stringify(baseSchema, null, 2)}.
-      
-      RECOMMENDATION POLICY:
-      - For IMAGE generation (Seedream), use and recommend only 'seedream-5-0-260128'. Do NOT recommend removed or legacy Seedream variants.
-      - For VIDEO generation (Seedance), recommend 'seedance-1-5-pro-251215' as the latest and most capable model.
-      - NOTE: 'seed-2-0-mini-260428' is the model powering YOU (the assistant) for text/image analysis, NOT for generating images.
-      - Do NOT recommend random or older model versions unless specifically asked.
-      
-      Answer user questions about the API capabilities, parameters, and usage.`;
-
-      const response = await fetch('/api/seed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: chatInput || "Analyze this image",
-          apiKey: apiKey.trim(),
-          systemPrompt,
-          images: userMessage.image ? [userMessage.image] : [],
-        }),
-      });
-      const data = await response.json();
-      if (data.content) {
-        setChatHistory((prev) => [...prev, { role: 'assistant', content: data.content }]);
-      }
-    } catch (error) {
-      setChatHistory((prev) => [...prev, { role: 'assistant', content: 'Error: ' + error.message }]);
-    } finally {
-      setChatLoading(false);
     }
   };
 
@@ -481,69 +420,11 @@ export default function Home() {
         <title>ModelArk Starter Kit</title>
       </Head>
       <Layout className="layout-container" style={{ height: '100vh' }}>
-        <Sider collapsed={true} style={{ width: 60 }}>
-            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 20 }}>
-                <Menu
-                    style={{ width: '100%' }}
-                    selectedKeys={[activeModelId]}
-                    onClickMenuItem={(key) => {
-                        if (key === 'settings') setIsSettingsOpen(true);
-                        else if (key === 'assistant') setIsAssistantOpen(true);
-                        else handleModelFamilyChange(key);
-                    }}
-                >
-                    <Menu.Item key="seedream">
-                        <IconImage style={{ fontSize: 20 }} />
-                    </Menu.Item>
-                    <Menu.Item key="seedance">
-                        <IconVideoCamera style={{ fontSize: 20 }} />
-                    </Menu.Item>
-                    <Menu.Item key="film-agent">
-                        <IconUser style={{ fontSize: 20 }} />
-                    </Menu.Item>
-                    <Menu.Item key="asset-upload">
-                        <IconPlus style={{ fontSize: 20 }} />
-                    </Menu.Item>
-                    <Menu.Item key="llm">
-                        <IconRobot style={{ fontSize: 20 }} />
-                    </Menu.Item>
-                    <Menu.Item key="speech">
-                        <IconSound style={{ fontSize: 20 }} />
-                    </Menu.Item>
-                    {/* Settings Tab - explicitly added back */}
-                    <Menu.Item key="settings">
-                        <IconSettings style={{ fontSize: 20 }} />
-                    </Menu.Item>
-                    {/* Assistant - explicitly added back */}
-                    <Menu.Item key="assistant">
-                        <div style={{ position: 'relative', display: 'inline-block' }}>
-                            <IconBytePlus style={{ fontSize: 24 }} />
-                            <div style={{
-                                position: 'absolute',
-                                bottom: -2,
-                                right: -4,
-                                width: 14,
-                                height: 14,
-                                borderRadius: '50%',
-                                background: '#fff',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                border: '1px solid #ff7d00'
-                            }}>
-                                <span style={{ fontSize: 10, fontWeight: 'bold', color: '#ff7d00', lineHeight: 1 }}>?</span>
-                            </div>
-                        </div>
-                    </Menu.Item>
-                </Menu>
-                {/* Removed duplicate settings button at bottom */}
-                <div style={{ marginTop: 'auto', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
-                </div>
-            </div>
-        </Sider>
-        
+        {/* The left icon rail is GONE — the top Film Agent | Tools tabs already cover
+            navigation; Settings moved to the top-right corner. */}
         <Content style={{ padding: isCanvasTool ? '8px 16px 14px' : '12px 24px 16px', background: '#f6f7f9', overflowY: 'auto' }}>
             <div style={{ maxWidth: isCanvasTool ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
+
 
                 <header style={{ marginBottom: isCanvasTool ? 8 : 10, textAlign: 'center' }}>
                     {!isCanvasTool && (
@@ -643,6 +524,8 @@ export default function Home() {
                         formValues={formValues}
                         setFormValues={setFormValues}
                         apiKey={apiKey}
+                        onChangeApiKey={setApiKey}
+                        onSaveApiKey={handleSaveApiKey}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'asset-upload' ? 'block' : 'none' }}>
@@ -691,6 +574,16 @@ export default function Home() {
                       )}
                 </div>
                 
+                {TOOL_TABS.includes(activeModelId) && activeModelId !== 'workflow' && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 12, color: '#86909c', cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={showRequestOutput}
+                            onChange={(event) => setShowRequestOutput(event.target.checked)}
+                        />
+                        <span>Show request/response debug output</span>
+                    </label>
+                )}
                 {showRequestOutput && (lastRequestPayload || lastResponsePayload) && (
                     <Card style={{ marginTop: 24 }} title="Debug Output">
                     {lastRequestPayload && (
@@ -716,144 +609,7 @@ export default function Home() {
             </div>
         </Content>
 
-        <Drawer
-            title="Settings"
-            visible={isSettingsOpen}
-            onOk={() => setIsSettingsOpen(false)}
-            onCancel={() => setIsSettingsOpen(false)}
-            width={400}
-            footer={null}
-        >
-             <div className="field" style={{ marginBottom: 20 }}>
-                <label style={{ display: 'block', marginBottom: 8 }}>API Key</label>
-                <Input.Password
-                    value={apiKey}
-                    onChange={(val) => setApiKey(val)}
-                    placeholder="Paste key..."
-                    style={{ marginBottom: 10 }}
-                />
-                <Button type="primary" onClick={handleSaveApiKey}>Save</Button>
-            </div>
-            <div className="toggle-row">
-                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                        type="checkbox"
-                        checked={showRequestOutput}
-                        onChange={(event) => setShowRequestOutput(event.target.checked)}
-                    />
-                    <span>Show request output</span>
-                </label>
-            </div>
-        </Drawer>
 
-        <Drawer
-            title="AI Assistant"
-            visible={isAssistantOpen}
-            onOk={() => setIsAssistantOpen(false)}
-            onCancel={() => setIsAssistantOpen(false)}
-            width={400}
-            footer={null}
-        >
-             <div className="chat-container" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)' }}>
-                <div className="chat-history" style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
-                    {chatHistory.map((msg, index) => (
-                    <div
-                        key={index}
-                        style={{ 
-                            marginBottom: 12, 
-                            padding: 12, 
-                            borderRadius: 8, 
-                            background: msg.role === 'user' ? '#e6f7ff' : '#f6f7f9',
-                            alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                            maxWidth: '85%'
-                        }}
-                    >
-                        <strong>{msg.role === 'user' ? 'You' : 'AI'}:</strong> 
-                        {msg.image && (
-                            <div style={{ margin: '8px 0' }}>
-                                <img src={msg.image} alt="Uploaded" style={{ maxWidth: '100%', borderRadius: 4, maxHeight: 200 }} />
-                            </div>
-                        )}
-                        <div style={{ whiteSpace: msg.role === 'user' ? 'pre-wrap' : 'normal' }}>
-                            {msg.role === 'user' ? (
-                                msg.content
-                            ) : (
-                                <ReactMarkdown 
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
-                                        code({node, inline, className, children, ...props}) {
-                                            const match = /language-(\w+)/.exec(className || '')
-                                            return !inline && match ? (
-                                                <div style={{ background: '#f8f9fa', padding: '12px', borderRadius: '8px', overflowX: 'auto', margin: '8px 0' }}>
-                                                    <code className={className} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} {...props}>
-                                                        {children}
-                                                    </code>
-                                                </div>
-                                            ) : (
-                                                <code className={className} style={{ background: '#f2f3f5', padding: '2px 4px', borderRadius: '4px', fontSize: '0.9em', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }} {...props}>
-                                                    {children}
-                                                </code>
-                                            )
-                                        },
-                                        p: ({node, ...props}) => <p style={{ margin: '0 0 2px 0' }} {...props} />,
-                                        ul: ({node, ...props}) => <ul style={{ paddingLeft: '16px', margin: '0 0 2px 0' }} {...props} />,
-                                        ol: ({node, ...props}) => <ol style={{ paddingLeft: '16px', margin: '0 0 2px 0' }} {...props} />,
-                                        li: ({node, ...props}) => <li style={{ marginBottom: '0' }} {...props} />,
-                                        h1: ({node, ...props}) => <h1 style={{ fontSize: '1.2em', fontWeight: 'bold', margin: '4px 0 2px 0' }} {...props} />,
-                                        h2: ({node, ...props}) => <h2 style={{ fontSize: '1.1em', fontWeight: 'bold', margin: '4px 0 2px 0' }} {...props} />,
-                                        h3: ({node, ...props}) => <h3 style={{ fontSize: '1em', fontWeight: 'bold', margin: '2px 0 1px 0' }} {...props} />,
-                                        a: ({node, ...props}) => <a style={{ color: '#165dff', textDecoration: 'none' }} target="_blank" rel="noopener noreferrer" {...props} />,
-                                        blockquote: ({node, ...props}) => <blockquote style={{ borderLeft: '4px solid #dfe2e5', paddingLeft: '12px', color: '#666', margin: '8px 0' }} {...props} />
-                                    }}
-                                >
-                                    {msg.content}
-                                </ReactMarkdown>
-                            )}
-                        </div>
-                    </div>
-                    ))}
-                    <div ref={chatEndRef} />
-                </div>
-                
-                {chatImage && (
-                    <div style={{ padding: '0 8px 8px', display: 'flex', alignItems: 'center' }}>
-                        <div style={{ position: 'relative', display: 'inline-block' }}>
-                            <img src={chatImage} alt="Preview" style={{ height: 60, borderRadius: 4, border: '1px solid #e5e7eb' }} />
-                            <Button 
-                                icon={<IconClose style={{ fontSize: 12 }} />} 
-                                shape="circle" 
-                                size="mini" 
-                                style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, minWidth: 18 }} 
-                                onClick={() => setChatImage(null)}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                <div className="chat-input-form" style={{ display: 'flex', gap: 8 }}>
-                    <Upload
-                        showUploadList={false}
-                        accept="image/*"
-                        beforeUpload={(file) => {
-                            const reader = new FileReader();
-                            reader.onload = (e) => setChatImage(e.target.result);
-                            reader.readAsDataURL(file);
-                            return false;
-                        }}
-                    >
-                        <Button icon={<IconPlus />} />
-                    </Upload>
-                    <Input
-                        value={chatInput}
-                        onChange={(val) => setChatInput(val)}
-                        placeholder="Ask about API or analyze image..."
-                        disabled={chatLoading}
-                        onPressEnter={handleChatSubmit}
-                    />
-                    <Button type="primary" onClick={handleChatSubmit} loading={chatLoading}>Send</Button>
-                </div>
-            </div>
-        </Drawer>
       </Layout>
     </>
   );

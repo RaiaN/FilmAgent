@@ -69,15 +69,17 @@ export default async function uploadHandler(req, res) {
     // reference in Seedance / Animate. The Assets backend DOWNLOADS the URL to
     // ingest it, so we pass the PRESIGNED url (works on a private bucket; the
     // unsigned objectUrl would 403). Wait for it to go Active so it's animatable
-    // immediately. Image-only for now.
+    // immediately. Images AND videos (AssetType:'Video' live-probed → Active);
+    // audio has no proven asset type and stays store-only.
     let assetId = null;
-    if (contentType.startsWith('image/')) {
+    if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
       try {
         assetId = await registerAsset({
           accessKey,
           secretKey,
           url: staged.signedUrl || url,
           name,
+          assetType: contentType.startsWith('video/') ? 'Video' : 'Image',
           waitForActive: true,
         });
       } catch (err) {

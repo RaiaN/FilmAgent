@@ -2,7 +2,7 @@ import { getEndpointUrl } from '../../utils/config';
 
 // Seedream 5.0 Lite endpoint — the fallback when a request doesn't name a model.
 // The Image tab now sends the selected endpoint (Lite or Pro) in the request body.
-const DEFAULT_SEEDREAM_MODEL_ID = 'ep-20260501195034-hj78f';
+const DEFAULT_SEEDREAM_MODEL_ID = process.env.MODELARK_MODEL_SEEDREAM || null; // REQUIRED via env — no built-in default
 
 export const config = {
   api: {
@@ -33,15 +33,20 @@ async function seedreamHandler(req, res) {
     return res.status(500).json({ error: 'API key not configured' });
   }
 
-  // Use getEndpointUrl('image') which returns /images/generations
-  const defaultEndpoint = getEndpointUrl('image');
-  const endpoint = baseUrl 
-      ? `${baseUrl}/images/generations`
-      : defaultEndpoint;
+  // NO fallbacks: model + base URL come from the request or .env — else a clear error.
+  if (!model && !DEFAULT_SEEDREAM_MODEL_ID) {
+    return res.status(500).json({ error: "Model 'seedream' is not configured — set MODELARK_MODEL_SEEDREAM in .env.local (see .env.example)." });
+  }
+  let endpoint;
+  try {
+    endpoint = baseUrl ? `${baseUrl}/images/generations` : getEndpointUrl('image');
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
 
   try {
     const payload = {
-      model: model || DEFAULT_SEEDREAM_MODEL_ID,
+      model: model || DEFAULT_SEEDREAM_MODEL_ID, // guarded below
       prompt,
       size: size || '2K',
       watermark: watermark ?? false,

@@ -3,6 +3,7 @@
 
 export const CONFIG = {
     // Default to the AP-Southeast endpoint if not overridden by env vars
+    // REQUIRED — no default: set MODELARK_API_BASE_URL in .env.local (region base URL).
     API_BASE_URL: process.env.MODELARK_API_BASE_URL,
     
     // Helper to construct full endpoints
@@ -15,6 +16,7 @@ export const CONFIG = {
 
 // Helper function to get full URL
 export const getEndpointUrl = (type) => {
+    if (!CONFIG.API_BASE_URL) throw new Error('MODELARK_API_BASE_URL is not configured — set it in .env.local (see .env.example).');
     const base = CONFIG.API_BASE_URL.replace(/\/+$/, ''); // Remove trailing slash
     const path = CONFIG.endpoints[type];
     if (!path) return base;

@@ -18,6 +18,8 @@ import {
   IconPlus,
   IconCode,
   IconCloudDownload,
+  IconDownload,
+  IconPlayArrow,
 } from '@arco-design/web-react/icon';
 import FilmCanvas from './canvas/FilmCanvas';
 import PromptSettings from './PromptSettings';
@@ -29,6 +31,7 @@ import {
   saveProjectAny,
 } from '../../utils/film/projectStore';
 import { saveProjectToCloud, listCloudProjects, loadCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
+import { applyDeployModels } from '../../utils/film/suiteConfig';
 
 const { Title, Text } = Typography;
 
@@ -47,7 +50,7 @@ const randomId = () =>
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     : Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
+const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey, onSaveApiKey }) => {
   const [project, setProject] = useState(null);
   // storage === null  => in-memory scratch project (not yet persisted)
   //   { kind: 'path', path }      => Electron / fallback text path
@@ -76,6 +79,24 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
   // clones without credentials must not retry every debounce tick).
   const cloudAutoRef = useRef({ busy: false, lastJson: '', disabled: false, lastAt: 0 });
   const [cloudSavedAt, setCloudSavedAt] = useState(null);
+
+  // DEPLOYMENT CONFIG hydration: env-configured model/endpoint ids live server-side —
+  // fetch the resolved (non-secret) table once and feed the suite's runtime layer, so
+  // every getModel consumer resolves the deployment's ids. hasServerKey flips the
+  // canvas into key-less mode (requests omit the key; routes use the server env key).
+  const [serverKeyed, setServerKeyed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/film/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (cancelled || !j) return;
+        applyDeployModels(j.models);
+        setServerKeyed(!!j.hasServerKey);
+      })
+      .catch(() => { /* defaults keep working */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // On mount: RESTORE the last-open project (cloud id or folder path from localStorage)
   // so a page refresh keeps the board — else mint the usual scratch. Client-only (avoids
@@ -295,6 +316,9 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
   // ---- Cloud save / open (TOS-backed; works from ANY mode, scratch included) --------
   const [cloudBusy, setCloudBusy] = useState(false);
   const [cloudPicker, setCloudPicker] = useState({ visible: false, items: null });
+  // Bumping this asks the canvas to run the DEMO REPLAY — the board plays itself,
+  // pipeline-ordered, camera following. Pure reveal: zero generation, saves untouched.
+  const [demoNonce, setDemoNonce] = useState(0);
 
   const handleCloudOpenClick = async () => {
     setCloudPicker({ visible: true, items: null });
@@ -307,7 +331,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
     }
   };
 
-  const handleCloudPick = async (id) => {
+  const handleCloudPick = async (id, { demo = false } = {}) => {
     setCloudPicker({ visible: false, items: null });
     setCloudBusy(true);
     try {
@@ -328,6 +352,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
       setLastProjectPointer({ kind: 'cloud', id });
       prefetchCloudMedia(r.media);
       Message.success(`“${r.name}” loaded from cloud — previews stream in as tiles first paint`);
+      if (demo) setDemoNonce((n) => n + 1); // the canvas starts the replay once the board lands
     } catch (e) {
       Message.error(`Cloud load failed: ${e.message}`);
     } finally {
@@ -379,12 +404,39 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
         ) : (
           <Space direction="vertical" style={{ width: '100%' }}>
             {cloudPicker.items.map((it) => (
-              <Button key={it.projectId} long onClick={() => handleCloudPick(it.projectId)} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name || it.projectId}</span>
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {it.savedAt ? new Date(it.savedAt).toLocaleString() : ''} · {it.mediaCount} media
-                </Text>
-              </Button>
+              <div key={it.projectId} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <Button long onClick={() => handleCloudPick(it.projectId)} style={{ display: 'flex', justifyContent: 'space-between', flex: 1, minWidth: 0 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name || it.projectId}</span>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {it.savedAt ? new Date(it.savedAt).toLocaleString() : ''} · {it.mediaCount} media
+                  </Text>
+                </Button>
+                <Button
+                  size="small"
+                  icon={<IconPlayArrow />}
+                  title="Open and auto-demo — the board replays itself: brief → cast → storyboard → shots → takes, camera following"
+                  onClick={(e) => { e.stopPropagation(); handleCloudPick(it.projectId, { demo: true }); }}
+                />
+                <Button
+                  size="small"
+                  icon={<IconDownload />}
+                  title="Download this project's manifest JSON for inspection"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      const m = await loadCloudProject(it.projectId);
+                      const blob = new Blob([JSON.stringify(m, null, 2)], { type: 'application/json' });
+                      const a = document.createElement('a');
+                      a.href = URL.createObjectURL(blob);
+                      a.download = `${it.projectId}-manifest.json`;
+                      document.body.appendChild(a); a.click(); a.remove();
+                      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+                    } catch (err) {
+                      Message.error(`Manifest download failed: ${err.message}`);
+                    }
+                  }}
+                />
+              </div>
             ))}
           </Space>
         )}
@@ -421,6 +473,26 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
                 </Text>
               </div>
             )}
+            {/* API key lives HERE now (the separate ⚙ drawer is gone). Server-keyed
+                deployments show only the info line — no key UI at all. */}
+            <div style={{ borderTop: '1px solid #f2f3f5', paddingTop: 12 }}>
+              {serverKeyed ? (
+                <>
+                  <Text style={{ fontWeight: 600, display: 'block', marginBottom: 2 }}>API key: configured on the server</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    This deployment provides its own key — everything works without entering one, and no key is ever stored in your browser.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>API key</Text>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Input.Password value={apiKey} onChange={(v) => onChangeApiKey && onChangeApiKey(v)} placeholder="Paste your Ark API key…" style={{ flex: 1 }} />
+                    <Button type="primary" onClick={() => onSaveApiKey && onSaveApiKey()}>Save</Button>
+                  </div>
+                </>
+              )}
+            </div>
           </Space>
         )}
       </Modal>
@@ -469,6 +541,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
               ? (cloudSavedAt ? `Cloud autosave ☁ ${cloudSavedAt.toLocaleTimeString()}` : 'Cloud autosave arms once you add work')
               : saving ? 'Saving…' : lastSavedAt ? `Saved ${lastSavedAt.toLocaleTimeString()}${cloudSavedAt ? ` · ☁ ${cloudSavedAt.toLocaleTimeString()}` : ''}` : 'Auto-save on'}
           </Text>
+          <Button size="small" icon={<IconPlayArrow />} onClick={() => setDemoNonce((n) => n + 1)} title="Auto-demo — replay this board as a guided tour: brief → cast → storyboard → shots → takes, camera following. Pure playback, nothing is generated.">Demo</Button>
           <Button size="small" icon={<IconCloudDownload />} loading={cloudBusy} onClick={handleCloudOpenClick} title="Open a cloud project — autosave keeps every project in your TOS bucket as you work; restore the full board on any machine">Cloud open</Button>
           <Button size="small" icon={<IconCode />} onClick={() => setPromptsOpen(true)}>Prompts</Button>
           <Button size="small" icon={<IconSettings />} onClick={() => setSettingsOpen(true)}>Project</Button>
@@ -485,8 +558,16 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey }) => {
       <FilmCanvas
         project={project}
         apiKey={apiKey}
+        serverKeyed={serverKeyed}
         onUpdateProject={setProject}
+        demoNonce={demoNonce}
       />
+
+      {serverKeyed && !apiKey?.trim() && (
+        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
+          Using the server-configured API key — no key entry needed.
+        </Text>
+      )}
 
       {!isScratch ? null : (
         <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>

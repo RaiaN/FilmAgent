@@ -369,7 +369,7 @@ const LayerPanel = ({ agentId, values, onChange, imageAssets = [], running, draf
       </div>
       <div style={{ padding: 12, borderTop: '1px solid #f2f3f5' }}>
         {primary.needsKey && !apiKeyPresent && (
-          <Text type="error" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>Add your API key first — click the ⚙ gear in the far-left sidebar.</Text>
+          <Text type="error" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>Add your API key first — Project (header) → API key.</Text>
         )}
         <Button
           type="primary"

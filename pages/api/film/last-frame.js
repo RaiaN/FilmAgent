@@ -5,6 +5,7 @@
 // reference image, consumed immediately by the next generation).
 
 import fs from 'fs';
+import { storeKeyFromUrl, readStoreBytes } from './media';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -39,10 +40,16 @@ export default async function lastFrameHandler(req, res) {
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'film-lastframe-'));
   try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`Could not fetch the shot (HTTP ${r.status}). Generated URLs expire — re-render the chunk.`);
     const inFile = path.join(dir, 'shot.mp4');
-    fs.writeFileSync(inFile, Buffer.from(await r.arrayBuffer()));
+    const storeKey = storeKeyFromUrl(url);
+    if (storeKey) {
+      // Our own store url — read it in-process (never fetch http://<self>).
+      fs.writeFileSync(inFile, (await readStoreBytes(storeKey)).buffer);
+    } else {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`Could not fetch the shot (HTTP ${r.status}). Generated URLs expire — re-render the chunk.`);
+      fs.writeFileSync(inFile, Buffer.from(await r.arrayBuffer()));
+    }
     const outFile = path.join(dir, 'last.jpg');
     // Seek from the END (-sseof) and keep updating one image → the final frame.
     await runFfmpeg(ffmpegPath, ['-y', '-sseof', '-1', '-i', inFile, '-update', '1', '-frames:v', '1', '-q:v', '3', outFile]);

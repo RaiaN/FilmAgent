@@ -72,6 +72,31 @@ export const checkInBytes = async (buf, contentType = '') => {
 export const mediaFilePath = (key) => path.join(MEDIA_DIR, key);
 export const mediaFileExists = (key) => fs.existsSync(path.join(MEDIA_DIR, key));
 
+// Extract a store key from ANY store-url shape (relative `/api/film/media?key=…` or an
+// absolutized `http://host/api/film/media?key=…`). Null for non-store urls.
+export const storeKeyFromUrl = (url) => {
+  const m = /\/api\/film\/media\?key=([a-f0-9]{16,64}\.[a-z0-9]{1,5})\b/.exec(String(url || ''));
+  return m ? m[1] : null;
+};
+
+// DIRECT in-process read-through (disk, else the TOS mirror + backfill) — the same
+// logic as the GET route, importable so sibling routes NEVER fetch http://<self>
+// again (self-HTTP breaks behind https load balancers; a function call cannot).
+export const readStoreBytes = async (key) => {
+  if (!KEY_RE.test(String(key || ''))) throw new Error('bad store key');
+  const file = path.resolve(MEDIA_DIR, key);
+  if (!file.startsWith(MEDIA_DIR + path.sep)) throw new Error('bad store key');
+  if (!fs.existsSync(file)) {
+    const cfg = getServerTosConfig();
+    if (!hasServerTosConfig(cfg)) throw new Error('media not in the store (and no TOS mirror configured)');
+    const { buffer } = await downloadTosObject({ ...cfg, objectKey: `${CLOUD_MEDIA_PREFIX}/${key}` });
+    fs.mkdirSync(MEDIA_DIR, { recursive: true });
+    fs.writeFileSync(file, buffer);
+  }
+  const ext = key.split('.').pop().toLowerCase();
+  return { buffer: fs.readFileSync(file), contentType: TYPE_BY_EXT[ext] || 'application/octet-stream' };
+};
+
 export const config = {
   api: {
     bodyParser: { sizeLimit: '60mb' }, // remote urls are tiny, but a `data:` url (a base64 frame) IS the bytes

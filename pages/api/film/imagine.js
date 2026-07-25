@@ -1,6 +1,6 @@
 import { CONFIG } from '../../../utils/config';
-import { ROOT_CONFIG } from '../../../utils/film/suiteConfig';
-import { checkInBytes } from './media';
+import { getModel } from '../../../utils/film/suiteConfig';
+import { checkInBytes, storeKeyFromUrl, readStoreBytes } from './media';
 
 // Single-image generation for the canvas. Clients fire N of these in parallel
 // so each finished image can drop onto the board incrementally.
@@ -44,7 +44,10 @@ export default async function imagineHandler(req, res) {
     seed,                  // optional fixed seed (the Storyboard holds it constant across frames)
     optimizePrompt,        // Seedream 5.0 Pro "thinking" prompt optimization (text-to-image only)
   } = req.body || {};
-  const seedreamModel = model || ROOT_CONFIG.models.seedream;
+  let seedreamModel = model;
+  if (!seedreamModel) {
+    try { seedreamModel = getModel('seedream'); } catch (e) { return res.status(500).json({ error: e.message }); } // NO built-in default
+  }
 
   if (!prompt || !String(prompt).trim()) {
     return res.status(400).json({ error: 'prompt is required' });
@@ -54,6 +57,7 @@ export default async function imagineHandler(req, res) {
   if (!token) {
     return res.status(500).json({ error: 'API key not configured' });
   }
+  if (!baseUrl && !CONFIG.API_BASE_URL) return res.status(500).json({ error: 'MODELARK_API_BASE_URL is not configured — set it in .env.local (see .env.example).' });
   const endpointBase = (baseUrl || CONFIG.API_BASE_URL).replace(/\/+$/, '');
 
   const rawRefs = []
@@ -67,9 +71,13 @@ export default async function imagineHandler(req, res) {
   // reference here and inline it as base64 — no second fetch for Seedream to fail.
   const inlineReference = async (ref) => {
     if (typeof ref !== 'string') return null;
-    // A relative media-STORE url — absolutize to our own host; the loopback fetch
-    // below reads the store (disk, else the TOS mirror) and inlines as base64.
-    if (/^\/api\/film\/media\?key=/.test(ref)) ref = `http://${req.headers.host}${ref}`;
+    // A media-STORE url (relative or absolutized) — read the store DIRECTLY in-process
+    // (disk, else the TOS mirror). Never fetch http://<self>: that breaks behind proxies.
+    const storeKey = storeKeyFromUrl(ref);
+    if (storeKey) {
+      const { buffer, contentType } = await readStoreBytes(storeKey);
+      return `data:${contentType};base64,${buffer.toString('base64')}`;
+    }
     if (!/^https?:\/\//i.test(ref)) return ref; // already a data: URL or asset id
     const resp = await fetchWithTimeout(ref, {}, 30000); // a reference download shouldn't take >30s
     if (!resp.ok) {

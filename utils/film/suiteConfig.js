@@ -21,13 +21,17 @@ import {
 } from './promptTemplates';
 
 export const ROOT_CONFIG = {
+  // NO BUILT-IN MODEL IDS. Every slot is configured via .env (MODELARK_MODEL_*, see
+  // .env.example) or the request ERRORS with the exact variable to set — endpoint ids
+  // are account-scoped, so a silent default would bill/break someone else's account.
+  // The keys here define the SLOTS (enumeration for the config route + option lists).
   models: {
-    seedream: 'ep-20260501195034-hj78f',        // Seedream 5.0 Lite image endpoint (default)
-    seedreamPro: 'dola-seedream-5-0-pro-260628', // Seedream 5.0 Pro (latest; up to 10 reference images)
-    seedance: 'ep-20260415171928-pdvvr',    // Seedance 2.0 video endpoint (default)
-    seedanceFast: 'ep-20260701151623-f94zq', // Seedance 2.0 Fast (full-quality, faster than the default)
-    seedanceMini: 'ep-20260629005443-n7rjn', // Seedance 2.0 Mini (faster/cheaper — opt-in per SHOT card)
-    reasoner: 'seed-2-0-pro-260328',        // Seed 2.0 Pro (multimodal reasoning / suggestions)
+    seedream: null,      // Seedream 5.0 Lite image endpoint  (MODELARK_MODEL_SEEDREAM)
+    seedreamPro: null,   // Seedream 5.0 Pro                  (MODELARK_MODEL_SEEDREAM_PRO)
+    seedance: null,      // Seedance 2.0 video endpoint       (MODELARK_MODEL_SEEDANCE)
+    seedanceFast: null,  // Seedance 2.0 Fast                 (MODELARK_MODEL_SEEDANCE_FAST)
+    seedanceMini: null,  // Seedance 2.0 Mini                 (MODELARK_MODEL_SEEDANCE_MINI)
+    reasoner: null,      // Seed 2.0 Pro reasoner             (MODELARK_MODEL_REASONER)
   },
   runtime: {
     pollIntervalMs: 4000,    // Seedance task polling cadence
@@ -90,12 +94,55 @@ export const resetClientConfig = () => {
   }
 };
 
+// ---- deployment overrides (the customer-shipping layer) --------------------------
+// Every model/endpoint id above is only a DEFAULT: a deployment remaps any slot with
+// an env var (ids like ep-… are ACCOUNT-scoped — a customer's account has different
+// ones). Server code reads the env directly; the browser can't see server env, so the
+// canvas hydrates the same values once from GET /api/film/config (applyDeployModels).
+export const MODEL_ENV_VARS = {
+  seedream: 'MODELARK_MODEL_SEEDREAM',
+  seedreamPro: 'MODELARK_MODEL_SEEDREAM_PRO',
+  seedance: 'MODELARK_MODEL_SEEDANCE',
+  seedanceFast: 'MODELARK_MODEL_SEEDANCE_FAST',
+  seedanceMini: 'MODELARK_MODEL_SEEDANCE_MINI',
+  reasoner: 'MODELARK_MODEL_REASONER',
+};
+
+let hydratedDeployModels = null; // client-side: set once from /api/film/config
+
+export const applyDeployModels = (models) => {
+  hydratedDeployModels = models && typeof models === 'object' ? { ...models } : null;
+};
+
+const deployModelLayer = () => {
+  if (hydratedDeployModels) return hydratedDeployModels;
+  const out = {};
+  if (typeof process !== 'undefined' && process.env) {
+    Object.entries(MODEL_ENV_VARS).forEach(([key, envVar]) => {
+      const v = String(process.env[envVar] || '').trim();
+      if (v) out[key] = v;
+    });
+  }
+  return out;
+};
+
 // ---- resolver + accessors ----
 
-// Resolve the effective config: ROOT ← client ← per-call.
-export const resolveConfig = (perCall = {}) => deepMerge(deepMerge(ROOT_CONFIG, getClientConfig()), perCall || {});
+// Resolve the effective config: ROOT ← deployment (env / hydrated) ← client ← per-call.
+export const resolveConfig = (perCall = {}) => deepMerge(deepMerge(deepMerge(ROOT_CONFIG, { models: deployModelLayer() }), getClientConfig()), perCall || {});
 
-export const getModel = (key, perCall) => resolveConfig(perCall).models[key];
+// Non-throwing resolver (enumeration/config-route use): id or null.
+export const resolveModelId = (key, perCall) => resolveConfig(perCall).models[key] || null;
+
+// STRICT resolver: configured id or a clear error naming the env var. No fallbacks —
+// an unconfigured slot must never silently ride another account's endpoint.
+export const getModel = (key, perCall) => {
+  const id = resolveModelId(key, perCall);
+  if (!id) {
+    throw new Error(`Model '${key}' is not configured — set ${MODEL_ENV_VARS[key] || 'its MODELARK_MODEL_* variable'} in .env.local (see .env.example).`);
+  }
+  return id;
+};
 
 // The Seedance (video) endpoints a SHOT card can shoot a take on. `key` indexes
 // ROOT_CONFIG.models; the card stores the key in data.videoModel ('seedance' = default).

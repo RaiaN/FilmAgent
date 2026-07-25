@@ -195,6 +195,14 @@ export async function putTosObject({ accessKey, secretKey, tosBucket, tosRegion,
   return { objectKey, size: buffer.length, deduped: false };
 }
 
+// Presigned GET for an EXISTING object — the way to hand a model service (Seedance
+// fetching a reference clip) something it can download from a private bucket WITHOUT
+// moving any bytes through us. 7 days = the presign maximum.
+export function presignTosObject({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, objectKey, expires = 604800 }) {
+  const client = makeClient({ accessKey, secretKey, tosRegion, tosEndpoint });
+  return client.getPreSignedUrl({ bucket: tosBucket, key: objectKey, method: 'GET', expires });
+}
+
 // Download one object's bytes.
 export async function downloadTosObject({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, objectKey }) {
   const client = makeClient({ accessKey, secretKey, tosRegion, tosEndpoint });

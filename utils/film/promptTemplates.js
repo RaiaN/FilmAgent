@@ -141,14 +141,15 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting and composition — but replace {targets} with FLAT solid-color silhouettes, one per subject: hard edges, completely filled with one color, no facial features, no clothing detail, no shading. Assign the colors left to right: blue, then green, then yellow, then red, then purple (repeat the sequence if there are more figures). Each silhouette keeps its subject\'s exact position, scale and pose. Everything NOT replaced stays photorealistic and identical to [Image 1]. No text or watermarks.',
   },
 
-  // Free-form single-instruction EDIT of any board image. The instruction slot is
-  // sentinel-injected VERBATIM by the caller — the frame around it only pins everything
-  // the user did NOT ask to change.
-  'previz.edit': {
-    agent: 'Previz',
-    label: 'Edit an image by instruction',
+  // The Edit-shot editor's STRUCTURE-LOCKED render ("use this frame as reference"):
+  // [Image 1] is the CURRENT frame; the instruction slot is sentinel-injected VERBATIM
+  // (a one-line change or a full prompt — only what it changes, changes). Cast refs ride
+  // as [Image 2..N]. Replaces the cinematic wrapper in edit mode.
+  'storyboard.frameEdit': {
+    agent: 'Storyboard',
+    label: 'Edit a frame in place (structure locked)',
     vars: ['{instruction}'],
-    text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting, composition and subjects — with ONLY this change applied: {instruction}. Change nothing else. No text or watermarks.',
+    text: 'EDIT [Image 1], change only: {instruction}',
   },
 
   // ---- SHOT card Re-derive: BIND the existing prompt to the card's references --------
@@ -203,11 +204,12 @@ For EACH shot produce:
    Do NOT restate camera / lens / composition (added from the template). Characters never look at the camera; no on-image text or watermarks.
 • expression — 1–3 words for the main subject's expression (or "").
 • durationSec — 5–15.
+• intExt — "INT" (interior) or "EXT" (exterior), from the shot's location.
 
 Return ONLY a JSON object — no prose, no code fences:
 {
   "shots": [
-    {"beat": "<2–4 word name>", "shotTemplate": "<exact id>", "figures": [<ints>], "body": "<the [Image N]-addressed description>", "expression": "<word or empty>", "durationSec": <5–15>}
+    {"beat": "<2–4 word name>", "shotTemplate": "<exact id>", "figures": [<ints>], "body": "<the [Image N]-addressed description>", "expression": "<word or empty>", "durationSec": <5–15>, "intExt": "<INT|EXT>"}
   ],
   "reply": "<ONE short line to the director: what you changed / a question back>"
 }`,

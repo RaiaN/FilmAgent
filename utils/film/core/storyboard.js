@@ -204,7 +204,7 @@ export const previsFrame = async ({ text, camera = '', references = [], thinking
     prompt,
     referenceImages: images,
     size: keyframeImageSize('seedreamPro'),
-    model: getModel('seedreamPro', config) || getModel('seedream', config),
+    model: getModel('seedreamPro', config),
     // Pro "thinking" prompt optimization — the transport applies it only when the
     // request ends up TEXT-TO-IMAGE (any ticked reference disables it, per the API).
     optimizePrompt: !!thinking,
@@ -227,31 +227,14 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
     prompt: renderTemplate('previz.mask', { targets: SLOT }).split(SLOT).join(targets),
     referenceImages: [src],
     size: keyframeImageSize('seedreamPro'),
-    model: getModel('seedreamPro', config) || getModel('seedream', config),
+    model: getModel('seedreamPro', config),
   });
   if (!out) throw new Error('No masked plate URL in response');
   return { url: out, cacheUrl };
 };
 
-// Free-form EDIT of ANY board image: reproduce the frame with ONE user-typed change
-// applied. The instruction is injected VERBATIM via a sentinel (renderTemplate's
-// whitespace collapse never touches the user's words); the image rides as the only ref.
-export const editFrame = async ({ url, instruction, config } = {}, ctx) => {
-  const src = String(url || '').trim();
-  const want = String(instruction || '').trim();
-  if (!src) throw new Error('Edit needs the image first.');
-  if (!want) throw new Error('Describe the change first.');
-  const SLOT = '@@EDIT@@';
-  const prompt = renderTemplate('previz.edit', { instruction: SLOT }).split(SLOT).join(want.slice(0, 2000));
-  const { url: out, cacheUrl } = await ctx.client.generateImage({
-    prompt,
-    referenceImages: [src],
-    size: keyframeImageSize('seedreamPro'),
-    model: getModel('seedreamPro', config) || getModel('seedream', config),
-  });
-  if (!out) throw new Error('No edited frame URL in response');
-  return { url: out, cacheUrl };
-};
+// (The free-form editFrame op is PURGED: the universal Edit-shot editor covers it — the
+// frame rides as [Image 1] under a strict-follow lock when "use this frame" is ticked.)
 
 // ---- Storyboard: a conversational SHOT DIVISION — script → a shot list, turn by turn ----
 // The Storyboard agent is a cinematographer you brainstorm WITH. Each turn takes the script,
@@ -263,7 +246,7 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
   const n = Math.max(1, Math.min(16, Math.round(Number(count) || 8))); // default 8 frames; 1–16
   const refs = (references || []).filter(Boolean).slice(0, 10);        // the reference pool → [Image 1..N] (Pro caps at 10)
   const current = (shots || []).map((s, i) => ({
-    n: i + 1, beat: s.beat || '', shotTemplate: s.shotTemplate || '', figures: s.figures || [], body: s.body || '', expression: s.expression || '', durationSec: s.durationSec || 10,
+    n: i + 1, beat: s.beat || '', shotTemplate: s.shotTemplate || '', figures: s.figures || [], body: s.body || '', expression: s.expression || '', durationSec: s.durationSec || 10, intExt: s.intExt || '',
   }));
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('storyboard.turn.user', {
@@ -292,6 +275,7 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
       body: String(s?.body || s?.prompt || s?.action || '').replace(/\s+/g, ' ').trim().slice(0, 900),
       expression: String(s?.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),
       durationSec: clampDuration(s?.durationSec),
+      intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
     };
   }).filter((s) => s.body);
   if (!out.length) throw new Error('The shot read came back empty — try rephrasing.');
@@ -304,13 +288,20 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
 // reference plates IN [Image 1..N] ORDER (the caller resolves + renumbers them). NOT a blend — each
 // image is a distinct addressed subject. composeKeyframePrompt wraps the body with the camera + finish
 // lines. Style/expression/ethnicity are optional overrides. One call per shot; the canvas streams them.
-export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedreamPro', config } = {}, ctx) => {
+export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedreamPro', frameEdit = false, config } = {}, ctx) => {
   const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
+  // frameEdit = the Edit-shot editor's structure lock: [Image 1] IS the current frame and
+  // the body is the CHANGE (instruction or full prompt, verbatim via sentinel). The lean
+  // EDIT template replaces the cinematic wrapper — line-1 camera talk would fight the frame.
+  const SLOT = '@@EDIT@@';
+  const prompt = frameEdit
+    ? renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(body || '').trim().slice(0, 2000))
+    : composeKeyframePrompt({ body, shotTemplate, style, expression, ethnicity });
   const { url, cacheUrl } = await ctx.client.generateImage({
-    prompt: composeKeyframePrompt({ body, shotTemplate, style, expression, ethnicity }),
+    prompt,
     referenceImages: images,
     size: keyframeImageSize(imageModel),
-    model: getModel(imageModel, config) || getModel('seedream', config),
+    model: getModel(imageModel, config),
   });
   if (!url) throw new Error('No keyframe URL in response');
   return { url, cacheUrl };
@@ -325,7 +316,7 @@ export const storyboardSheet = async ({ shots = [], style = '', title = '', refe
     prompt: composeStoryboardSheetPrompt({ shots, style, title }),
     referenceImages: images,
     size: keyframeImageSize(imageModel),
-    model: getModel(imageModel, config) || getModel('seedream', config),
+    model: getModel(imageModel, config),
   });
   if (!url) throw new Error('No storyboard sheet URL in response');
   return { url, cacheUrl };
@@ -523,7 +514,7 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedr
         ...(refUrl ? { referenceImages: [refUrl] } : {}),
         // Pro caps the image AREA at 2048² — the 4K plate sizes scale down to fit there.
         size: clampSizeForModel(imageModel, size),
-        model: getModel(imageModel, config) || getModel('seedream', config),
+        model: getModel(imageModel, config),
         // Pro "thinking" prompt optimization — applies to the TEXT-TO-IMAGE plates
         // (faces/places/props); the body sheet refs its face, so the transport drops it there.
         optimizePrompt: !!thinking && imageModel === 'seedreamPro',

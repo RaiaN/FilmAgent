@@ -2,9 +2,9 @@ import { createContext, memo, useContext, useEffect, useMemo, useRef, useState }
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Tag, Select, Button } from '@arco-design/web-react';
 import { isProvablyExpired } from '../../../utils/film/mediaUrl';
-import { IconLoading, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconPlus, IconCheck, IconDownload, IconRefresh, IconBgColors, IconPen, IconUserGroup, IconVideoCamera, IconEdit, IconPlayCircle } from '@arco-design/web-react/icon';
+import { IconLoading, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconPlus, IconCheck, IconDownload, IconRefresh, IconBgColors, IconPen, IconUserGroup, IconVideoCamera, IconEdit, IconPlayCircle, IconEye, IconAlignLeft, IconCopy } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
-import { BIBLE_ROLES, BIBLE_ROLE_META } from '../../../utils/film/recipes';
+import { BIBLE_ROLES, BIBLE_ROLE_META, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import EditableLabel from './EditableLabel';
 
@@ -13,7 +13,7 @@ const { Text } = Typography;
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onEditArrows: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, lod: false });
+export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onEditArrows: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, lod: false });
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
 // colour for its badge so the cast & world read at a glance on the board.
@@ -45,7 +45,9 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, cacheUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onEditArrows, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, lod } = useContext(AssetNodeContext);
+  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onEditArrows, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, lod } = useContext(AssetNodeContext);
+  // Inline body edit on an UNRENDERED shot card (double-click) — free, no render, no LLM.
+  const [editBody, setEditBody] = useState(null);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
   const tint = bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : (layerId ? (AGENT_COLORS[layerId] || '#86909c') : '#c9cdd4');
 
@@ -252,6 +254,11 @@ const AssetNodeInner = ({ id, data, selected }) => {
               <IconDragDotVertical style={{ fontSize: 14 }} />
             </span>
           )}
+          {(cacheUrl || url) && !loading && onDuplicate && (
+            <span className="nodrag" onClick={(e) => { e.stopPropagation(); onDuplicate(id); }} title="Duplicate — a free copy of this element lands beside it (edit/mask/tag the copy without touching the original)" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', color: '#86909c' }}>
+              <IconCopy style={{ fontSize: 14 }} />
+            </span>
+          )}
           {((kind === 'image' && displaySrc && !expired) || (kind === 'video' && (cacheUrl || url)) || (kind === 'audio' && url)) && (
             <span className="nodrag" onClick={downloadAsset} title="Download to disk" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', color: '#86909c' }}>
               <IconDownload style={{ fontSize: 14 }} />
@@ -261,7 +268,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
           {preserved && !preserving && (
             <IconCloud style={{ color: '#0fc6c2', fontSize: 14 }} title="In the Library — registered trusted asset" />
           )}
-          {kind === 'image' && !preserved && !preserving && (cacheUrl || url) && onPreserve && (
+          {(kind === 'image' || kind === 'video') && !preserved && !preserving && (cacheUrl || url) && onPreserve && (
             <span className="nodrag" onClick={(e) => { e.stopPropagation(); onPreserve(id); }} title="Add to Library — register as a trusted asset (skips Seedance's person screen) and keep it for every project. Your explicit call — drafts never do this on their own." style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', color: '#86909c' }}>
               <IconCloud style={{ fontSize: 14 }} />
             </span>
@@ -279,12 +286,19 @@ const AssetNodeInner = ({ id, data, selected }) => {
         )}
         {/* Storyboard SHOT NUMBER — a board without panel numbers isn't a board: the
             chat revision loop runs on "shot 5", so every tile wears its number. */}
-        {data.keyframe && Number.isFinite(Number(data.index)) && (
+        {data.keyframe && Number.isFinite(Number(data.index)) && displaySrc && !data.showText && (
           <span style={{ position: 'absolute', top: 6, left: 6, zIndex: 3, background: 'rgba(16,20,24,0.78)', color: '#fff', fontSize: 11, fontWeight: 700, lineHeight: '18px', padding: '0 7px', borderRadius: 4, pointerEvents: 'none' }}>
             {String(Number(data.index) + 1).padStart(2, '0')}
           </span>
         )}
-        {kind === 'image' && displaySrc && !expired && !healing && (
+        {/* A rendered still whose TEXT moved on (chat revision / inline edit) says so —
+            the still stays (it was paid for); ↻ re-renders from the current text. */}
+        {data.keyframe && data.staleStill && displaySrc && !data.showText && (
+          <span style={{ position: 'absolute', bottom: 6, left: 6, right: 6, zIndex: 3, background: 'rgba(255,125,0,0.92)', color: '#fff', fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4, textAlign: 'center', pointerEvents: 'none' }}>
+            text changed — ↻ re-renders to match
+          </span>
+        )}
+        {kind === 'image' && displaySrc && !expired && !healing && !(data.keyframe && data.showText) && (
           <img
             key={`${srcIdx}-${attempt}`}
             src={displaySrc}
@@ -329,7 +343,79 @@ const AssetNodeInner = ({ id, data, selected }) => {
         {kind === 'audio' && (cacheUrl || url) && (
           <audio src={cacheUrl || url} controls style={{ width: '100%', padding: 8 }} />
         )}
-        {kind === 'image' && !displaySrc && !loading && (
+        {/* TEXT-FIRST SHOT CARD — the division lays the shot list as these cards; each
+            is the text preview of the still it will become (header · action · casting),
+            editable for free (double-click), rendered only by ITS explicit tap. A card
+            WITH a still can flip back here any time (Text ⇄ Still, per card). */}
+        {kind === 'image' && data.keyframe && (!displaySrc || data.showText) && !loading && (() => {
+          const tpl = SHOT_TEMPLATE_BY_ID[data.shotTemplate];
+          const commitBody = () => {
+            const v = String(editBody || '').trim();
+            setEditBody(null);
+            if (v && v !== data.body && onPatchKeyframeText) onPatchKeyframeText(id, { body: v });
+          };
+          return (
+            <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ alignSelf: 'stretch', width: '100%', padding: '8px 10px', background: '#fffdf7', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <Text style={{ fontSize: 10, fontWeight: 700, color: '#4e5969', letterSpacing: 0.2 }}>
+                {`#${String(Number(data.index) + 1).padStart(2, '0')}`}
+                {tpl ? ` · ${tpl.framing} · ${tpl.angle} · ${tpl.move}` : ''}
+                {` · ${data.durationSec || 10}s`}
+                {data.intExt ? ` · ${data.intExt}` : ''}
+              </Text>
+              {editBody !== null ? (
+                <textarea
+                  autoFocus
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') commitBody();
+                    if (e.key === 'Escape') setEditBody(null);
+                  }}
+                  onBlur={commitBody}
+                  style={{ fontSize: 11, lineHeight: '15px', minHeight: 96, resize: 'vertical', border: '1px solid #165dff', borderRadius: 4, padding: 4, fontFamily: 'inherit', width: '100%' }}
+                />
+              ) : (
+                <Text
+                  onDoubleClick={() => setEditBody(data.body || '')}
+                  title="The exact text this card's still renders from — double-click to edit (free, nothing generates)"
+                  style={{ fontSize: 11, lineHeight: '15px', cursor: 'text' }}
+                  ellipsis={{ rows: 5 }}
+                >
+                  {data.body || '—'}
+                </Text>
+              )}
+              {(data.figureLabels || []).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                  {data.figureLabels.map((l, fi) => (
+                    <span key={`${fi}-${l}`} style={{ fontSize: 9, padding: '0 6px', lineHeight: '16px', borderRadius: 8, border: '1px solid #722ed1', color: '#722ed1' }}>{l}</span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 4, marginTop: 'auto' }}>
+                {displaySrc ? (
+                  <>
+                    <Button size="mini" style={{ flex: 1 }} icon={<IconEye />} onClick={(e) => { e.stopPropagation(); onPatchKeyframeText && onPatchKeyframeText(id, { showText: false }); }} title="Back to the rendered still (the text stays behind it — flip any time)">
+                      Still
+                    </Button>
+                    {data.staleStill && onRenderStill && (
+                      <Button size="mini" type="primary" style={{ background: '#ff7d00', borderColor: '#ff7d00', flexShrink: 0 }} icon={<IconRefresh />} onClick={(e) => { e.stopPropagation(); onRenderStill(id); }} title="The still is behind this text — re-render it to match" />
+                    )}
+                  </>
+                ) : (
+                  onRenderStill && (
+                    <Button size="mini" type="primary" style={{ flex: 1, background: '#4e5969', borderColor: '#4e5969' }} icon={<IconPlayCircle />} onClick={(e) => { e.stopPropagation(); onRenderStill(id); }} title="Render this card's still — ONE Seedream image from exactly this text + its references">
+                      Render still
+                    </Button>
+                  )
+                )}
+                {onExpandKeyframe && (
+                  <Button size="mini" icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onExpandKeyframe(id); }} title="Open the shot editor — full text, references, camera angle, expression" style={{ flexShrink: 0 }} />
+                )}
+              </div>
+            </div>
+          );
+        })()}
+        {kind === 'image' && !data.keyframe && !displaySrc && !loading && (
           <Text type="secondary" style={{ fontSize: 12 }}>empty</Text>
         )}
       </div>
@@ -337,14 +423,17 @@ const AssetNodeInner = ({ id, data, selected }) => {
       {/* Storyboard keyframe controls — PROMOTE the approved frame to a SHOT card,
           ↻ regenerate, or open the editor (camera / expression / prompt / references
           all live THERE — the tile stays clean). Only on keyframe nodes. */}
-      {data.keyframe && onEditKeyframe && (
+      {data.keyframe && onEditKeyframe && displaySrc && !data.showText && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
           {onPromoteKeyframe && (
             <Button size="mini" type="primary" className="nodrag" style={{ flex: 1, background: '#b06f10', borderColor: '#b06f10' }} icon={<IconVideoCamera />} onClick={(e) => { e.stopPropagation(); onPromoteKeyframe(id); }} title="→ SHOT card — lay a production card from this approved frame: the still anchors it as [Image 1] (FIRST FRAME lock), beat, camera and duration carried over. Add motion and dialogue on the card, then 🎬.">→ SHOT card</Button>
           )}
+          {onPatchKeyframeText && (
+            <Button size="mini" className="nodrag" icon={<IconAlignLeft />} onClick={(e) => { e.stopPropagation(); onPatchKeyframeText(id, { showText: true }); }} title="Text view — flip to this shot's editable text description (the still stays; flip back any time)" style={{ flexShrink: 0 }} />
+          )}
           <Button size="mini" className="nodrag" icon={<IconRefresh />} onClick={(e) => { e.stopPropagation(); onEditKeyframe(id, {}); }} title="Regenerate this keyframe" style={{ flexShrink: 0 }} />
           {onExpandKeyframe && (
-            <Button size="mini" className="nodrag" icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onExpandKeyframe(id); }} title="Edit this frame's SHOT — body, references, camera angle, expression; regenerating renders the still from the edits" style={{ flexShrink: 0 }}>Edit</Button>
+            <Button size="mini" className="nodrag" icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onExpandKeyframe(id); }} title="Edit this frame's SHOT — body, references, camera angle, expression; regenerating renders the still from the edits" style={{ flexShrink: 0 }} />
           )}
         </div>
       )}
@@ -369,7 +458,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
           Mask on each frame). Results land as NEW nodes; chainable. On STORYBOARD frames
           the instruction Edit is suppressed — their single Edit is the SHOT editor above
           (one edit affordance per frame); Mask stays. */}
-      {kind === 'image' && !data.previz && !data.previzMask && displaySrc && !expired && (onMaskPrevis || onEditImage) && (
+      {kind === 'image' && !data.previz && !data.previzMask && displaySrc && !expired && !(data.keyframe && data.showText) && (onMaskPrevis || onEditImage) && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
           {onMaskPrevis && (
             <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconBgColors />} onClick={(e) => { e.stopPropagation(); onMaskPrevis(id); }} title="Mask — flat color silhouettes (blue, green, yellow, red, purple left to right): every person by default, or name exactly what to mask in the dialog. The plate lands beside this image with the full attach / cast-colors / arrows toolkit.">Mask</Button>

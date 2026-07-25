@@ -1,9 +1,13 @@
+import fs from 'fs';
 import { getEndpointUrl } from '../../utils/config';
-import { uploadLocalMediaToTos, getServerTosConfig } from '../../utils/server/tosUpload';
+import { uploadLocalMediaToTos, getServerTosConfig, presignTosObject, headTosObject } from '../../utils/server/tosUpload';
+import { CLOUD_MEDIA_PREFIX, mediaFilePath, mediaFileExists, mirrorKeyToTos } from './film/media';
 
 export const config = {
   api: {
     bodyParser: {
+      // Film-canvas media NEVER rides inline: store urls presign server-side, so bodies
+      // are text + urls. The limit only covers the Tools tab's local-file data: uploads.
       sizeLimit: '50mb',
     },
   },
@@ -38,7 +42,7 @@ const buildFallbackFileName = (role, contentType) => {
   return `${role}-${Date.now()}.${extension}`;
 };
 
-async function normalizeSeedanceContent(content, host) {
+async function normalizeSeedanceContent(content) {
   const items = Array.isArray(content) ? content : [];
   const tosConfig = getServerTosConfig();
   let stagedCount = 0;
@@ -66,15 +70,31 @@ async function normalizeSeedanceContent(content, host) {
           : 'audio_url';
     let mediaUrl = item?.[key]?.url;
 
-    // A relative media-STORE url (an extracted frame ref that dodged registration, a
-    // checked-in clip) — read it via our own read-through GET (disk, else the TOS
-    // mirror) and continue as an inline data: payload, which stages to TOS below.
-    if (/^\/api\/film\/media\?key=/.test(String(mediaUrl || '')) && host) {
-      const resp = await fetch(`http://${host}${mediaUrl}`);
-      if (!resp.ok) throw new Error(`${item.role || item.type}: media-store fetch failed (${resp.status})`);
-      const ctype = (resp.headers.get('content-type') || 'application/octet-stream').split(';')[0];
-      mediaUrl = `data:${ctype};base64,${Buffer.from(await resp.arrayBuffer()).toString('base64')}`;
-      item = { ...item, [key]: { ...(item[key] || {}), url: mediaUrl } };
+    // A media-STORE url (a ★ reference clip, an extracted frame, any checked-in
+    // media). The bytes already live content-addressed in TOS (mirrored at check-in),
+    // so DON'T move them — presign the existing projects/media/<sha> object and pass
+    // Seedance the URL. Bodies stay tiny; a reference video never rides as base64.
+    if (String(mediaUrl || '').includes('/api/film/media?key=')) {
+      const storeKey = (/[?&]key=([a-f0-9]{16,64}\.[a-z0-9]{1,5})/.exec(mediaUrl) || [])[1];
+      let presigned = null;
+      if (storeKey && tosConfig.accessKey && tosConfig.secretKey && tosConfig.tosBucket) {
+        const objectKey = `${CLOUD_MEDIA_PREFIX}/${storeKey}`;
+        const head = await headTosObject({ ...tosConfig, objectKey }).catch(() => ({ exists: false }));
+        // Not mirrored yet (check-in raced / offline earlier) but on disk → mirror NOW.
+        if (!head.exists && mediaFileExists(storeKey)) {
+          try { await mirrorKeyToTos(storeKey, fs.readFileSync(mediaFilePath(storeKey))); } catch { /* fall through */ }
+        }
+        if (head.exists || mediaFileExists(storeKey)) {
+          try { presigned = presignTosObject({ ...tosConfig, objectKey }); } catch { /* fall through */ }
+        }
+      }
+      if (!presigned) {
+        // NO inline fallback — inlining only exists to STAGE to TOS, so it can never
+        // succeed where presigning failed. Fail honestly instead of shipping base64.
+        throw new Error(`${item.role || item.type}: media-store object ${storeKey || '(unrecognized key)'} could not be presigned — check TOS credentials in .env.local, or re-check-in the asset.`);
+      }
+      stagedCount += 1;
+      return { ...item, [key]: { ...(item[key] || {}), url: presigned } };
     }
 
     if (!mediaUrl || isHttpUrl(mediaUrl) || isAssetUrl(mediaUrl)) {
@@ -137,13 +157,20 @@ async function seedanceHandler(req, res) {
     return res.status(500).json({ error: 'API key not configured' });
   }
 
-  const endpoint = baseUrl
-      ? `${baseUrl}/contents/generations/tasks`
-      : getEndpointUrl('video');
+  let endpoint;
+  try {
+    endpoint = baseUrl ? `${baseUrl}/contents/generations/tasks` : getEndpointUrl('video');
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+
+  if (!payload.model) {
+    return res.status(400).json({ error: "model is required — the canvas resolves it from MODELARK_MODEL_SEEDANCE / _FAST / _MINI in .env.local (see .env.example)." });
+  }
 
   try {
     const normalizedPayload = { ...payload };
-    const staged = await normalizeSeedanceContent(payload.content, req.headers.host);
+    const staged = await normalizeSeedanceContent(payload.content);
     normalizedPayload.content = staged.content;
 
     // Diagnose reference-image screening: print each content item's index + scheme so a

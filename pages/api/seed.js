@@ -1,5 +1,6 @@
 import { CONFIG } from '../../utils/config';
-import { ROOT_CONFIG } from '../../utils/film/suiteConfig';
+import { getModel } from '../../utils/film/suiteConfig';
+import { storeKeyFromUrl, readStoreBytes } from './film/media';
 
 export const config = {
   api: {
@@ -29,8 +30,12 @@ async function seedHandler(req, res) {
 
   // Use config-defined base URL, fallback to passed baseUrl if provided
   const endpointBase = baseUrl || CONFIG.API_BASE_URL;
-  // Honor a caller-provided model; default to the suite's reasoner model.
-  const resolvedModelId = modelId || ROOT_CONFIG.models.reasoner;
+  if (!endpointBase) return res.status(500).json({ error: 'MODELARK_API_BASE_URL is not configured — set it in .env.local (see .env.example).' });
+  // Honor a caller-provided model; else the env-configured reasoner — NO built-in default.
+  let resolvedModelId = modelId;
+  if (!resolvedModelId) {
+    try { resolvedModelId = getModel('reasoner'); } catch (e) { return res.status(500).json({ error: e.message }); }
+  }
 
   // The reasoner's backend re-downloads any http(s) image we pass — and Seedream 5.0
   // PRO outputs live on signed TOS URLs it cannot fetch (400 "Error while downloading:
@@ -39,10 +44,13 @@ async function seedHandler(req, res) {
   // data:/asset: references pass straight through.
   const inlineImage = async (ref) => {
     if (typeof ref !== 'string') return ref;
-    // A relative media-STORE url (an extracted take frame, any checked-in asset whose
-    // data: url was swapped) — absolutize against our own host so the loopback fetch
-    // below rides the store's read-through GET (local disk, else the TOS mirror).
-    if (/^\/api\/film\/media\?key=/.test(ref)) ref = `http://${req.headers.host}${ref}`;
+    // A media-STORE url (relative or absolutized) — read the store DIRECTLY in-process
+    // (disk, else the TOS mirror). Never fetch http://<self>: that breaks behind proxies.
+    const storeKey = storeKeyFromUrl(ref);
+    if (storeKey) {
+      const { buffer, contentType } = await readStoreBytes(storeKey);
+      return `data:${contentType};base64,${buffer.toString('base64')}`;
+    }
     if (!/^https?:\/\//i.test(ref)) return ref;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);

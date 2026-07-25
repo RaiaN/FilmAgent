@@ -9,7 +9,7 @@ const { Text } = Typography;
 // Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data) — same context pattern as CutContext / StoryScriptContext.
 export const StoryboardChatContext = createContext({
-  onTurn: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null,
+  onTurn: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null,
 });
 
 // Same role palette as the SHOT card's reference chips — the two blocks must read as one system.
@@ -24,10 +24,13 @@ const asRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}))
 // (click to remove), and "+ board image" to add any board image mid-conversation. The next
 // turn / render reads the live pool; finished stills keep their frames.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onTurn, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef } = useContext(StoryboardChatContext);
+  const { onTurn, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll } = useContext(StoryboardChatContext);
   const messages = data.messages || [];
   const count = data.shotCount || 0;
   const [addOpen, setAddOpen] = useState(false);
+  // The reference pool can be a whole cast (face + body plate per character) — give it
+  // real room, and let the header collapse it to one line when the chat needs the space.
+  const [refsOpen, setRefsOpen] = useState(true);
   const pool = useMemo(() => (data.refs || []).map(asRef).filter((r) => r.url), [data.refs]);
   const cap = imageRefCap(data.imageModel || 'seedreamPro');
   const bible = bibleEntries || [];
@@ -35,18 +38,18 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
   const loose = pool.filter((r) => !bible.some((b) => (r.entryId && b.id === r.entryId) || b.url === r.url));
   const addable = (imageAssets || []).filter((a) => !pool.some((r) => r.url === a.url || (r.nodeId && r.nodeId === a.id)));
   return (
-    <div style={{ width: 320, height: 470, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+    <div style={{ width: 320, height: 540, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
       <div style={{ height: 4, background: '#4e5969' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderBottom: '1px solid #f2f3f5' }}>
         <IconMessage style={{ color: '#4e5969', fontSize: 14 }} />
         <Text bold style={{ fontSize: 12, flex: 1 }} ellipsis>Storyboard · shot division</Text>
         {count > 0 && <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>{count} {count === 1 ? 'shot' : 'shots'}</Text>}
       </div>
-      <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '5px 8px', borderBottom: '1px solid #f2f3f5', maxHeight: 118, overflowY: 'auto', flexShrink: 0 }}>
-        <Text style={{ color: '#86909c', fontSize: 9, fontWeight: 700, display: 'block', marginBottom: 3 }}>
-          REFERENCES → [Image1…{Math.min(pool.length, cap) || 'N'}] · click to toggle
+      <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '5px 8px', borderBottom: '1px solid #f2f3f5', maxHeight: refsOpen ? 216 : 22, overflowY: 'auto', flexShrink: 0 }}>
+        <Text onClick={() => setRefsOpen((v) => !v)} title={refsOpen ? 'Collapse the reference pool' : 'Expand the reference pool'} style={{ color: '#86909c', fontSize: 9, fontWeight: 700, display: 'block', marginBottom: 3, cursor: 'pointer', userSelect: 'none' }}>
+          {refsOpen ? '▾' : '▸'} REFERENCES → [Image1…{Math.min(pool.length, cap) || 'N'}] · {pool.length} in pool · click to toggle
         </Text>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        <div style={{ display: refsOpen ? 'flex' : 'none', flexWrap: 'wrap', gap: 4 }}>
           {bible.map((b) => {
             const i = pool.findIndex((r) => (r.entryId && r.entryId === b.id) || r.url === b.url);
             const on = i >= 0;
@@ -108,7 +111,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             </span>
           )}
         </div>
-        {addOpen && (
+        {refsOpen && addOpen && (
           <div style={{ marginTop: 4, padding: 6, border: '1px solid #e5e6eb', borderRadius: 6, maxHeight: 96, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {addable.length === 0 ? (
               <Text type="secondary" style={{ fontSize: 10 }}>Every board image is already in the pool.</Text>
@@ -126,15 +129,16 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             )}
           </div>
         )}
-        {pool.length > cap && (
+        {refsOpen && pool.length > cap && (
           <Text style={{ color: '#ff7d00', fontSize: 9, display: 'block', marginTop: 2 }}>
             first {cap} ride per render ({(data.imageModel || 'seedreamPro') === 'seedreamPro' ? 'Pro' : 'Lite'} reference cap)
           </Text>
         )}
       </div>
-      {/* The element lands INERT — this button IS the first division's explicit tap
-          (1 LLM turn + the renders). Typing a first message instead also divides,
-          steered by your words. Gone once shots exist; iteration is the chat. */}
+      {/* The element lands INERT — this button IS the first division's explicit tap.
+          TEXT-FIRST: the division buys WORDS (a shot-list of editable cards), never
+          pixels; stills are separate explicit taps (per card, or Render all below).
+          Typing a first message instead also divides, steered by your words. */}
       {(data.shots || []).length === 0 && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
           <Button
@@ -146,8 +150,23 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             {data.busy ? 'Dividing…' : `Divide into ${count > 0 ? count : (data.count || 8)} shots`}
           </Button>
           <Text type="secondary" style={{ fontSize: 9, display: 'block', marginTop: 3, textAlign: 'center' }}>
-            1 LLM division + {(data.mode || 'multiple') === 'single' ? 'one sheet render' : `${data.count || 8} still renders`} — or type guidance below first
+            {(data.mode || 'multiple') === 'single'
+              ? '1 LLM division + one sheet render — or type guidance below first'
+              : `1 LLM call → ${data.count || 8} text shot cards, no renders — or type guidance below first`}
           </Text>
+        </div>
+      )}
+      {/* Shot list divided → the batch buy: render every card that lacks its still.
+          Per-card renders live on the cards; chat revisions keep editing the text. */}
+      {(data.shots || []).length > 0 && (data.mode || 'multiple') !== 'single' && onRenderAll && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
+          <Button
+            size="small" long icon={<IconPlayArrow />}
+            onClick={() => onRenderAll(id)}
+            title="Render a still for every card that doesn't have one yet — cards with stills are left alone (re-render those from their tiles)"
+          >
+            Render all stills
+          </Button>
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>

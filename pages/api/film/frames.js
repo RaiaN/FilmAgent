@@ -4,6 +4,7 @@
 // a normal image node and the media store checks it in seconds later.
 
 import fs from 'fs';
+import { storeKeyFromUrl, readStoreBytes } from './media';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -41,10 +42,16 @@ export default async function framesHandler(req, res) {
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'film-frames-'));
   try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`Could not fetch the Take (HTTP ${r.status}). Generated URLs expire — re-render it.`);
     const inFile = path.join(dir, 'take.mp4');
-    fs.writeFileSync(inFile, Buffer.from(await r.arrayBuffer()));
+    const storeKey = storeKeyFromUrl(url);
+    if (storeKey) {
+      // Our own store url — read it in-process (never fetch http://<self>).
+      fs.writeFileSync(inFile, (await readStoreBytes(storeKey)).buffer);
+    } else {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`Could not fetch the Take (HTTP ${r.status}). Generated URLs expire — re-render it.`);
+      fs.writeFileSync(inFile, Buffer.from(await r.arrayBuffer()));
+    }
     // One frame per timestamp (input-seek for speed; accurate enough on a local file).
     // Sequential on purpose — a handful of cheap grabs, no need to fan out N ffmpegs.
     const frames = [];

@@ -132,7 +132,7 @@ export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, cou
   const genRefs = useRefsInGen ? refs : [];
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: genRefs, label: it.label || `Inspiration ${i + 1}`, meta: { planLabel: it.label } }));
   // Pro is the suite-wide default image model; its 2048² area cap clamps the size tier.
-  return runImagineBatch({ specs, size: clampSizeForModel('seedreamPro', size), model: getModel('seedreamPro', config) || getModel('seedream', config) }, ctx, onItem);
+  return runImagineBatch({ specs, size: clampSizeForModel('seedreamPro', size), model: getModel('seedreamPro', config) }, ctx, onItem);
 };
 
 export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = 'seedreamPro', config } = {}, ctx, hooks) => {
@@ -140,7 +140,7 @@ export const characterVariations = async ({ imageUrl, direction = '', count = 4,
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'characterVariations', count: n, direction, references: [imageUrl], config }, ctx);
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label } }));
-  return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) || getModel('seedream', config) }, ctx, hooks);
+  return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, hooks);
 };
 
 export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = 'seedreamPro', config } = {}, ctx, hooks) => {
@@ -148,7 +148,7 @@ export const locationVariations = async ({ imageUrl, direction = '', count = 4, 
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'locationVariations', count: n, direction, references: [imageUrl], config }, ctx);
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label } }));
-  return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) || getModel('seedream', config) }, ctx, hooks);
+  return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, hooks);
 };
 
 // Compose the camera/lens preamble + motion into a single Seedance prompt.
@@ -219,7 +219,7 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // prompt as the only changed variable; null lets the model roll its own each time.
   // Per-shot endpoint choice: the SHOT card may pick a variant (e.g. Seedance 2.0 Mini) by
   // modelKey; unknown/blank falls back to the default seedance endpoint.
-  const videoModel = getModel(modelKey, config) || getModel('seedance', config);
+  const videoModel = getModel(modelKey || 'seedance', config);
   const { taskId } = await withRetry(
     () => ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, seed }),
     { tries: 3, baseMs: 3000 },

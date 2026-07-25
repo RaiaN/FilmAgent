@@ -10,6 +10,7 @@ import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { uploadLocalMediaToTos } from '../../server/tosUpload';
+import { storeKeyFromUrl, readStoreBytes } from '../../../pages/api/film/media';
 import { registerAsset } from './registerAsset';
 
 const runFfmpeg = (bin, args) => new Promise((resolve, reject) => {
@@ -50,9 +51,16 @@ export const stitchShots = async ({ shots, name }) => {
     // 1. download each shot
     const files = [];
     for (let i = 0; i < shots.length; i += 1) {
-      const r = await fetch(shots[i]); // eslint-disable-line no-await-in-loop
-      if (!r.ok) throw new Error(`Could not fetch shot ${i + 1} (HTTP ${r.status}). Generated shot URLs expire — re-run the step.`);
-      const buf = Buffer.from(await r.arrayBuffer()); // eslint-disable-line no-await-in-loop
+      // Our own store urls read in-process (never fetch http://<self> — breaks behind proxies).
+      const storeKey = storeKeyFromUrl(shots[i]);
+      let buf;
+      if (storeKey) {
+        buf = (await readStoreBytes(storeKey)).buffer; // eslint-disable-line no-await-in-loop
+      } else {
+        const r = await fetch(shots[i]); // eslint-disable-line no-await-in-loop
+        if (!r.ok) throw new Error(`Could not fetch shot ${i + 1} (HTTP ${r.status}). Generated shot URLs expire — re-run the step.`);
+        buf = Buffer.from(await r.arrayBuffer()); // eslint-disable-line no-await-in-loop
+      }
       const f = path.join(dir, `shot-${i}.mp4`);
       fs.writeFileSync(f, buf);
       files.push(f);

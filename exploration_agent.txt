@@ -1,5 +1,0 @@
-So basically, we should have Topic Exploration card / agent. Goal: gather as much information about topic/idea/problem as possible BEFORE generation. And this is through core principle of Creative exploration.
-
-Given smth like "Saudi desert and its wildlife" OR "Cinematic advertisement of someone running in trainers" or "short 1 min AI film" it will perform recursive creative exploration and generate assets related to this topic while solving the problem of "What makes video in topic XYZ a good one? What assets one needs to produce such video?"
-
-Plan this Agent.

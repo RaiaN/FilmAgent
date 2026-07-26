@@ -1,5 +1,5 @@
 import { getServerTosConfig, hasServerTosConfig, putTosObject, downloadTosObject, listTosObjects, headTosObject } from '../../../utils/server/tosUpload';
-import { CLOUD_MEDIA_PREFIX, checkInBytes, mediaFilePath, mediaFileExists, mirrorKeyToTos, clearUnmirrored } from './media';
+import { CLOUD_MEDIA_PREFIX, checkInBytes, mediaFilePath, mediaFileExists, mirrorKeyToTos, clearUnmirrored } from '../../../utils/server/mediaStore';
 import fs from 'fs';
 
 // CLOUD PROJECT STORE — save/list/load whole film projects against the user's own TOS

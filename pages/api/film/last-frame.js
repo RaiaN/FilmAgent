@@ -5,7 +5,7 @@
 // reference image, consumed immediately by the next generation).
 
 import fs from 'fs';
-import { storeKeyFromUrl, readStoreBytes } from './media';
+import { storeKeyFromUrl, readStoreBytes, checkInBytes } from '../../../utils/server/mediaStore';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -53,8 +53,11 @@ export default async function lastFrameHandler(req, res) {
     const outFile = path.join(dir, 'last.jpg');
     // Seek from the END (-sseof) and keep updating one image → the final frame.
     await runFfmpeg(ffmpegPath, ['-y', '-sseof', '-1', '-i', inFile, '-update', '1', '-frames:v', '1', '-q:v', '3', outFile]);
-    const b64 = fs.readFileSync(outFile).toString('base64');
-    return res.status(200).json({ url: `data:image/jpeg;base64,${b64}` });
+    // SOURCE-SIDE durability: store url out, base64 only as a fallback.
+    let frameUrl;
+    try { frameUrl = (await checkInBytes(fs.readFileSync(outFile), 'image/jpeg')).url; }
+    catch { frameUrl = `data:image/jpeg;base64,${fs.readFileSync(outFile).toString('base64')}`; }
+    return res.status(200).json({ url: frameUrl });
   } catch (error) {
     return res.status(500).json({ error: 'Last-frame extraction failed', details: error.message });
   } finally {

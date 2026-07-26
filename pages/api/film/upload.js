@@ -1,6 +1,6 @@
 import { uploadLocalMediaToTos, parseDataUrl } from '../../../utils/server/tosUpload';
 import { registerAsset } from '../../../utils/film/server/registerAsset';
-import { checkInBytes } from './media';
+import { checkInBytes } from '../../../utils/server/mediaStore';
 
 // Stage a locally-dropped/uploaded file (base64 data URL) into the user's TOS
 // bucket and return a stable public URL + an Assets-library id. Dropped assets go

@@ -1,6 +1,6 @@
 import { CONFIG } from '../../utils/config';
 import { getModel } from '../../utils/film/suiteConfig';
-import { storeKeyFromUrl, readStoreBytes } from './film/media';
+import { storeKeyFromUrl, readStoreBytes } from '../../utils/server/mediaStore';
 
 export const config = {
   api: {

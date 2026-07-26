@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { uploadLocalMediaToTos, presignTosObject, headTosObject } from '../../../utils/server/tosUpload';
 import { registerAsset } from '../../../utils/film/server/registerAsset';
-import { CLOUD_MEDIA_PREFIX, mediaFilePath, mediaFileExists, mirrorKeyToTos, storeKeyFromUrl, readStoreBytes } from './media';
+import { CLOUD_MEDIA_PREFIX, mediaFilePath, mediaFileExists, mirrorKeyToTos, storeKeyFromUrl, readStoreBytes } from '../../../utils/server/mediaStore';
 
 // "Check in" an asset: download the (still-valid) signed source URL server-side
 // and re-upload the bytes into the user's own TOS bucket, returning a STABLE

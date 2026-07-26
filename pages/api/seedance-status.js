@@ -1,18 +1,12 @@
 import { CONFIG, getEndpointUrl } from '../../utils/config';
-import { checkInBytes } from './film/media';
+import { checkInUrl as storeCheckInUrl } from '../../utils/server/mediaStore';
 
 // Check a finished output into the two-tier store (local + TOS mirror) SERVER-SIDE, the
 // moment we first see it — byte durability must never depend on the browser tab staying
 // alive to run a client-side effect. Best-effort: a store hiccup never fails the poll.
 const checkInUrl = async (url) => {
   if (!url) return null;
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const buf = Buffer.from(await resp.arrayBuffer());
-    const { url: storeUrl } = await checkInBytes(buf, resp.headers.get('content-type') || '');
-    return storeUrl;
-  } catch { return null; }
+  try { return (await storeCheckInUrl(url)).url; } catch { return null; }
 };
 
 async function seedanceStatusHandler(req, res) {

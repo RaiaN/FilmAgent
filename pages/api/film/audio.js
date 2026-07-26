@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { checkInBytes } from './media';
+import { checkInBytes } from '../../../utils/server/mediaStore';
 
 // The film suite's audio route — TWO engines behind one contract, both returning a
 // data: url the canvas checks into the local media store seconds after the clip lands.

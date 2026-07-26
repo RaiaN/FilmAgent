@@ -69,7 +69,6 @@ import {
   createGroupNode,
 } from '../../../utils/film/canvasModel';
 import { listLibrary, addToLibrary, deleteFromLibrary, clearLibrary as clearLibraryStore, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
-import { cacheAssetLocal } from '../../../utils/film/assetCache';
 import { isLocalMediaUrl, absLocalMediaUrl } from '../../../utils/film/mediaUrl';
 import { buildDemoSteps } from '../../../utils/film/demoScript';
 
@@ -532,71 +531,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     updateBible((cur) => (sig(cur.entries || []) === sig(derived) ? cur : { ...cur, entries: derived }));
   }, [nodes, project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // CHECK-IN every board image/video into the GLOBAL local media store the moment it
-  // lands — generated plates, keyframes, previz/mask frames, arrow bakes, uploads, takes.
-  // The bytes are fetched ONCE into ~/.modelark-starter-kit/media (content-addressed, no
-  // project registration — works for scratch / browser-folder / path projects alike) and
-  // `data.cacheUrl` gets the stable same-origin url the board renders from, so the canvas
-  // survives reload / URL expiry / offline.
-  //   • remote http url → KEEP `data.url` (the model paths still need a public url to register).
-  //   • data: url (a frame) → REPLACE `data.url` with the cacheUrl too, dropping the base64 —
-  //     cuts GPU/memory (a real file decodes once + evicts) AND project.json bloat; the shoot
-  //     then registers the cacheUrl via registerShotRefs.
-  // Keyed by URL (an arrow bake swapping a node's url re-checks-in automatically; shared
-  // urls dedupe) with RETRY + backoff — a failed attempt re-queues instead of silently
-  // giving up. A legacy beside-the-project cacheUrl (/api/film/asset?…) is re-checked-in
-  // from its remote url while that is still alive.
-  const assetCacheRef = useRef(new Map()); // url -> { ok: localUrl } | { tries, nextAt }
-  const cacheAlarmRef = useRef(false);     // one unreachable-store warning per session
-  const cachePokeTimerRef = useRef(null);
-  const [cachePoke, setCachePoke] = useState(0); // bumped when a backoff window passes → effect re-runs
-  useEffect(() => () => clearTimeout(cachePokeTimerRef.current), []);
-  useEffect(() => {
-    const store = assetCacheRef.current;
-    const now = Date.now();
-    const MAX_TRIES = 5;
-    const stampAll = (u, local) => setNodes((ns) => ns.map((m) => (
-      m.data?.url === u && m.data?.cacheUrl !== local
-        ? { ...m, data: { ...m.data, cacheUrl: local, ...(u.startsWith('data:') ? { url: local } : {}) } }
-        : m)));
-    const schedulePoke = () => {
-      let min = Infinity;
-      assetCacheRef.current.forEach((st) => { if (!st.ok && st.tries < MAX_TRIES) min = Math.min(min, st.nextAt); });
-      clearTimeout(cachePokeTimerRef.current);
-      if (min < Infinity) cachePokeTimerRef.current = setTimeout(() => setCachePoke((p) => p + 1), Math.max(250, min - Date.now()));
-    };
-    const eligible = [];
-    nodes.forEach((n) => {
-      if (n.data?.kind !== 'image' && n.data?.kind !== 'video' && n.data?.kind !== 'audio') return;
-      if (typeof n.data?.cacheUrl === 'string' && n.data.cacheUrl.startsWith('/api/film/media')) return; // checked in
-      const u = n.data?.url;
-      if (typeof u !== 'string' || !/^(https?:\/\/|data:)/.test(u)) return;
-      const st = store.get(u);
-      if (st?.ok) { stampAll(u, st.ok); return; } // already in the store (a later copy of the same url)
-      if (st && (st.tries >= MAX_TRIES || now < st.nextAt)) return; // spent, or waiting out the backoff
-      if (!eligible.includes(u)) eligible.push(u);
-    });
-    if (!eligible.length) { schedulePoke(); return; }
-    // Mark in-flight BEFORE fetching (a re-run must not double-attempt), with the next
-    // backoff window already stamped in case this attempt fails: 4s · 8s · 16s · 32s · give up.
-    eligible.forEach((u) => {
-      const tries = (store.get(u)?.tries || 0) + 1;
-      store.set(u, { tries, nextAt: now + 4000 * 2 ** (tries - 1) });
-    });
-    (async () => {
-      for (const u of eligible) {
-        const local = await cacheAssetLocal({ url: u }); // eslint-disable-line no-await-in-loop
-        if (local) { store.set(u, { ok: local }); stampAll(u, local); }
-        else if ((store.get(u)?.tries || 0) >= MAX_TRIES && !cacheAlarmRef.current) {
-          // The ONE silent-bloat path: check-in gave up → base64 stays inline in the
-          // project. Say it once, loudly, instead of quietly growing the save payload.
-          cacheAlarmRef.current = true;
-          Message.warning('Media store unreachable — some assets are staying inline (heavy saves). Check the dev server, then reload to retry the check-in.');
-        }
-      }
-      schedulePoke();
-    })();
-  }, [nodes, cachePoke, setNodes]);
+  // (The client-side check-in effect is GONE: every byte-producing route checks its
+  // output into the store SERVER-SIDE and returns a stable store url — nodes are born
+  // durable. Cloud-save's rescue pass covers any legacy straggler at save time.)
 
   // Functional updaters that write back into the owned project (guarded to the
   // currently-loaded project so a late async callback never writes the wrong one).
@@ -629,7 +566,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     bibleSeededRef.current = project.id;
     sessionRef.current = null;
     setFilmProgress(null);
-    assetCacheRef.current = new Map(); // per-project: forget which urls were locally cached
     outNodesRef.current = new Map();
     traceRef.current.clear(); // the run log belongs to one project's session
     sessionStateRef.current = project.auto || null;

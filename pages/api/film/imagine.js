@@ -1,6 +1,6 @@
 import { CONFIG } from '../../../utils/config';
 import { getModel } from '../../../utils/film/suiteConfig';
-import { checkInBytes, storeKeyFromUrl, readStoreBytes } from './media';
+import { checkInBytes, storeKeyFromUrl, readStoreBytes } from '../../../utils/server/mediaStore';
 
 // Single-image generation for the canvas. Clients fire N of these in parallel
 // so each finished image can drop onto the board incrementally.

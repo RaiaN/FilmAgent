@@ -10,7 +10,7 @@ import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { uploadLocalMediaToTos } from '../../server/tosUpload';
-import { storeKeyFromUrl, readStoreBytes } from '../../../pages/api/film/media';
+import { storeKeyFromUrl, readStoreBytes } from '../../server/mediaStore';
 import { registerAsset } from './registerAsset';
 
 const runFfmpeg = (bin, args) => new Promise((resolve, reject) => {

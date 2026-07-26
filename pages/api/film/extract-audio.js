@@ -7,6 +7,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
+import { storeKeyFromUrl, readStoreBytes, checkInBytes } from '../../../utils/server/mediaStore';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '4mb' }, responseLimit: false }, // a video URL in, a few MB of mp3 out
@@ -38,10 +39,16 @@ export default async function extractAudioHandler(req, res) {
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'film-audio-'));
   try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`Could not fetch the video (HTTP ${r.status}). Generated URLs expire — re-render it.`);
     const inFile = path.join(dir, 'take.mp4');
-    fs.writeFileSync(inFile, Buffer.from(await r.arrayBuffer()));
+    const storeKey = storeKeyFromUrl(url);
+    if (storeKey) {
+      // Our own store url — read it in-process (never fetch http://<self>).
+      fs.writeFileSync(inFile, (await readStoreBytes(storeKey)).buffer);
+    } else {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`Could not fetch the video (HTTP ${r.status}). Generated URLs expire — re-render it.`);
+      fs.writeFileSync(inFile, Buffer.from(await r.arrayBuffer()));
+    }
     const outFile = path.join(dir, 'track.mp3');
     try {
       await runFfmpeg(ffmpegPath, ['-y', '-i', inFile, '-vn', '-acodec', 'libmp3lame', '-q:a', '4', outFile]);
@@ -52,8 +59,11 @@ export default async function extractAudioHandler(req, res) {
       }
       throw err;
     }
-    const b64 = fs.readFileSync(outFile).toString('base64');
-    return res.status(200).json({ url: `data:audio/mpeg;base64,${b64}` });
+    // SOURCE-SIDE durability: store url out, base64 only as a fallback.
+    let clipUrl;
+    try { clipUrl = (await checkInBytes(fs.readFileSync(outFile), 'audio/mpeg')).url; }
+    catch { clipUrl = `data:audio/mpeg;base64,${fs.readFileSync(outFile).toString('base64')}`; }
+    return res.status(200).json({ url: clipUrl });
   } catch (error) {
     return res.status(500).json({ error: 'Audio extraction failed', details: error.message });
   } finally {

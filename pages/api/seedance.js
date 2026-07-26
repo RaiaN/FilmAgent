@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { getEndpointUrl } from '../../utils/config';
 import { uploadLocalMediaToTos, getServerTosConfig, presignTosObject, headTosObject } from '../../utils/server/tosUpload';
-import { CLOUD_MEDIA_PREFIX, mediaFilePath, mediaFileExists, mirrorKeyToTos } from './film/media';
+import { CLOUD_MEDIA_PREFIX, mediaFilePath, mediaFileExists, mirrorKeyToTos } from '../../utils/server/mediaStore';
 
 export const config = {
   api: {

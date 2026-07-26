@@ -4,7 +4,7 @@
 // a normal image node and the media store checks it in seconds later.
 
 import fs from 'fs';
-import { storeKeyFromUrl, readStoreBytes } from './media';
+import { storeKeyFromUrl, readStoreBytes, checkInBytes } from '../../../utils/server/mediaStore';
 import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -61,8 +61,12 @@ export default async function framesHandler(req, res) {
       try {
         // eslint-disable-next-line no-await-in-loop
         await runFfmpeg(ffmpegPath, ['-y', '-ss', String(t), '-i', inFile, '-frames:v', '1', '-q:v', '3', outFile]);
-        const b64 = fs.readFileSync(outFile).toString('base64');
-        frames.push({ t, url: `data:image/jpeg;base64,${b64}` });
+        // SOURCE-SIDE durability: the frame goes straight into the store — the client
+        // receives a stable store url, never megabytes of base64 (data: fallback on hiccup).
+        let frameUrl;
+        try { frameUrl = (await checkInBytes(fs.readFileSync(outFile), 'image/jpeg')).url; } // eslint-disable-line no-await-in-loop
+        catch { frameUrl = `data:image/jpeg;base64,${fs.readFileSync(outFile).toString('base64')}`; }
+        frames.push({ t, url: frameUrl });
       } catch { /* skip a bad timestamp, keep the rest */ }
     }
     if (!frames.length) throw new Error('No frames could be extracted at the given timestamps.');

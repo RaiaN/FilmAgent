@@ -224,7 +224,9 @@ const VIS_CYCLE = { show: 'dim', dim: 'hide', hide: 'show' };
 // (localUrl, a data: URL) — for uploaded files the staged TOS URL is not publicly
 // fetchable, so Seedream/Seed/Seedance would 403 trying to download it. base64
 // passes straight through. Generated assets have no localUrl → use their URL.
-const refUrl = (n) => n?.data?.localUrl || n?.data?.url;
+// DURABLE-FIRST reference: the store url never expires (post-P0 every server path
+// reads store urls natively); localUrl/raw url only when a node was never checked in.
+const refUrl = (n) => n?.data?.cacheUrl || n?.data?.localUrl || n?.data?.url;
 
 // Shrink a fat base64 reference so several bible refs don't blow the
 // /api/film/imagine 20mb body limit (the suspected "empty shots" cause: uploaded
@@ -683,6 +685,20 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Switching projects mid-demo: the fresh board arrives unhidden — just cancel + clear.
   useEffect(() => { demoTokenRef.current += 1; setDemoOverlay(null); }, [project.id]);
 
+  // FRESHEN a reference pool at render time: entries store {nodeId, url} — prefer the
+  // LIVE node's durable refUrl (a pool url captured at attach time can be an expired
+  // Ark signature; the 403 'Reference image could not be loaded' class). Fallback = as stored.
+  const freshPoolUrls = useCallback((refs) => (refs || []).map((r) => {
+    const e = poolRef(r);
+    const live = e.nodeId ? nodesRef.current.find((n) => n.id === e.nodeId) : null;
+    const fresh = live ? refUrl(live) : null;
+    // A data: resolution (an un-checked-in upload's original bytes) must not displace a
+    // stored url — stored pool/bible urls are the DOWNSCALED thumbs that keep request
+    // bodies under the imagine 20mb limit. Freshen only onto real (durable) urls.
+    if (fresh && !fresh.startsWith('data:')) return fresh;
+    return e.url || fresh;
+  }).filter(Boolean), []);
+
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
   // Exactly ONE selected agent card → the LayerPanel opens bound to it (the agent
   // configuration surface — the card itself stays a compact summary + Run).
@@ -708,12 +724,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const stageNode = useCallback(async (nodeId, dataUrl, name, kind) => {
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true } } : n)));
     try {
-      const { url, assetId } = await stageLocalAsset(dataUrl, name);
+      const { url, cacheUrl, assetId } = await stageLocalAsset(dataUrl, name);
       setNodes((ns) => ns.map((n) => (n.id === nodeId
-        // localUrl = the original bytes: drives the thumbnail AND is the Seedream
-        //   reference (the TOS url isn't publicly fetchable, so we never feed it
-        //   to a reference fetch). tosUrl + assetId are the Seedance/Animate path.
-        ? { ...n, data: { ...n.data, url, tosUrl: url, localUrl: dataUrl, assetId, staged: true, preserved: !!assetId, loading: false } }
+        // cacheUrl (the durable store url) is the REFERENCE from here on; localUrl keeps
+        //   the original bytes only as the instant preview. tosUrl + assetId = Seedance path.
+        ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || undefined, tosUrl: url, localUrl: dataUrl, assetId, staged: true, preserved: !!assetId, loading: false } }
         : n)));
       // Uploaded images join the cross-project Library. Store a small embedded
       // thumbnail so the Library grid can preview it (the TOS url would 403).
@@ -1431,7 +1446,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const id = arrowEditId;
     const node = nodesRef.current.find((n) => n.id === id);
     if (!node) { setArrowEditId(null); return; }
-    const clean = node.data?.cleanUrl || node.data?.localUrl || node.data?.url;
+    const clean = node.data?.cleanUrl || node.data?.cacheUrl || node.data?.localUrl || node.data?.url; // full-res first — never bake arrows onto a thumb
     if (!arrows.length) {
       setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, url: n.data.cleanUrl || n.data.url, arrows: [] } } : n)));
       setArrowEditId(null);
@@ -1448,7 +1463,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       });
       const out = await res.json();
       if (!res.ok || !out?.url) throw new Error(out?.details || out?.error || 'Upload failed');
-      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, url: out.url, cleanUrl: n.data.cleanUrl || n.data.url, arrows } } : n)));
+      // cacheUrl must FOLLOW the bake — a stale cacheUrl would win refUrl and silently
+      // strip the arrows from every reference (attach/pool/imageAssets).
+      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || undefined, cleanUrl: n.data.cleanUrl || n.data.url, arrows } } : n)));
       setArrowEditId(null);
       Message.success('Arrows baked in — attach this frame to a SHOT card and the motion paths ride with it.');
     } catch (e) { Message.error(`Arrows failed: ${e.message}`); }
@@ -1509,9 +1526,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const n = nodesRef.current.find((x) => x.id === id);
     if (!n) return;
     if (!n.data?.keyframe) {
-      const u = refUrl(n) || n.data?.cacheUrl || '';
+      const u = refUrl(n) || '';
       const saved = Array.isArray(n.data?.editPool) && n.data.editPool.length ? n.data.editPool : null;
-      setPlainPool(saved || (u ? [u] : []));
+      // Saved pools keep their added refs, but the FRAME entry always re-resolves from
+      // the live node — a stale editPool[0] was the frame-edit 403 class.
+      setPlainPool(saved ? [u || saved[0], ...saved.slice(1)] : (u ? [u] : []));
     }
     setExpandedKeyframeId(id);
   }, []);
@@ -2792,7 +2811,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, refs } } : n)));
         }
       }
-      const { shots, reply } = await storyboardTurn({ script, shots: prevShots, message, count, style, references: poolUrls(refs) }, ctx);
+      const { shots, reply } = await storyboardTurn({ script, shots: prevShots, message, count, style, references: freshPoolUrls(refs) }, ctx);
       // HONEST no-op detection: the model can narrate a change in `reply` while echoing
       // the list field-identical — then no card text moves and the chat quietly lies.
       // Compare the RENDER-RELEVANT fields (the same ones applyShotCards diffs) and say so.
@@ -2813,7 +2832,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         // Single-image mode: render the WHOLE board as ONE sheet (a grid of numbered panels).
         applySheet(panelId, { loading: true });
         const title = String(script || '').split(/[.\n]/)[0].trim().slice(0, 50);
-        storyboardSheet({ shots, style, title, references: poolUrls(refs), imageModel }, ctx)
+        storyboardSheet({ shots, style, title, references: freshPoolUrls(refs), imageModel }, ctx)
           .then(({ url }) => applySheet(panelId, { url, loading: false, error: undefined }))
           .catch((err) => applySheet(panelId, { loading: false, error: err.message }));
       } else {
@@ -2858,7 +2877,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const { panelId, index } = node.data;
     const chatId = panelId ? panelId.replace('sbpanel', 'sbchat') : null;
     const chat = chatId && nodesRef.current.find((n) => n.id === chatId);
-    const refs = chat?.data?.refs?.length ? poolUrls(chat.data.refs) : (bibleRef.current || []).map((e) => e.url).filter(Boolean);
+    const refs = chat?.data?.refs?.length ? freshPoolUrls(chat.data.refs) : (bibleRef.current || []).map((e) => e.url).filter(Boolean);
     const style = chat?.data?.style || node.data.style || '';
     const ethnicity = chat?.data?.ethnicity || '';
     const imageModel = chat?.data?.imageModel || node.data.imageModel || 'seedreamPro';
@@ -2968,7 +2987,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chat = chatId && nodesRef.current.find((n) => n.id === chatId);
     traceRef.current.startRun({ note: 'Agent · Storyboard (re-derive shot)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-    return await storyboardShotBody({ script: chat?.data?.script || '', beat: node.data.beat, figures, style: chat?.data?.style || node.data.style || '', references: poolUrls(chat?.data?.refs) }, ctx);
+    return await storyboardShotBody({ script: chat?.data?.script || '', beat: node.data.beat, figures, style: chat?.data?.style || node.data.style || '', references: freshPoolUrls(chat?.data?.refs) }, ctx);
   }, [apiKey]);
 
   // Add a board image to a storyboard's reference POOL (the editor's "Add reference"). Downscales fat
@@ -3875,18 +3894,61 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Pool mutations for the chat node's REFS block (SHOT-card-style chips): toggle a bible
   // entry in/out, remove a loose ref, add any board image. Pool order = [Image N] numbering;
   // already-rendered tiles keep their stills — the NEXT turn / render reads the live pool.
+  // REMOVING pool entry #removed (0-based) shifts every later [Image N] down by one —
+  // already-divided shots must REMAP or their figures silently re-target the wrong
+  // plate on the next render. Applied to the chat's shot list AND every card node;
+  // a card whose figures/body changed and already has a still goes stale (honest chip).
+  const sbApplyPool = useCallback((chatId, refs, removedIndex) => {
+    setNodes((ns) => {
+      const chat = ns.find((n) => n.id === chatId);
+      const panelId = chat?.data?.panelId;
+      const remapFigs = (figs) => (Array.isArray(figs) ? figs
+        .filter((g) => g !== removedIndex + 1)
+        .map((g) => (g > removedIndex + 1 ? g - 1 : g)) : figs);
+      const remapBody = (body) => {
+        if (removedIndex == null) return body;
+        let b = String(body || '');
+        // shift [Image k] → [Image k-1] for k > removed (sentinel pass, high→low safe)
+        const max = 32;
+        for (let k = removedIndex + 2; k <= max; k += 1) b = b.split(`[Image ${k}]`).join(`@@${k - 1}@@`);
+        b = b.replace(/@@(\d+)@@/g, '[Image $1]');
+        return b;
+      };
+      const shotChanged = (sh) => {
+        if (removedIndex == null) return false;
+        const figHit = Array.isArray(sh.figures) && sh.figures.some((g) => g >= removedIndex + 1);
+        const bodyHit = [...String(sh.body || '').matchAll(/\[Image (\d+)\]/g)].some((m) => Number(m[1]) >= removedIndex + 1);
+        return figHit || bodyHit;
+      };
+      return ns.map((n) => {
+        if (n.id === chatId) {
+          const shots = removedIndex == null ? n.data.shots : (n.data.shots || []).map((sh) => (
+            shotChanged(sh) ? { ...sh, figures: remapFigs(sh.figures), body: remapBody(sh.body) } : sh));
+          return { ...n, data: { ...n.data, refs, shots } };
+        }
+        if (removedIndex != null && panelId && n.parentId === panelId && n.data?.keyframe) {
+          if (!shotChanged(n.data)) return n;
+          const hasStill = !!(n.data.url || n.data.cacheUrl);
+          return { ...n, data: { ...n.data, figures: remapFigs(n.data.figures), body: remapBody(n.data.body), ...(hasStill ? { staleStill: true } : {}) } };
+        }
+        return n;
+      });
+    });
+  }, [setNodes]);
+
   const sbToggleBibleRef = useCallback((chatId, entry) => {
-    setNodes((ns) => ns.map((n) => {
-      if (n.id !== chatId) return n;
-      const pool = (n.data.refs || []).map(poolRef);
-      const i = pool.findIndex((r) => (entry.id && r.entryId === entry.id) || r.url === entry.url);
-      const refs = i >= 0 ? pool.filter((_, j) => j !== i) : [...pool, { entryId: entry.id, nodeId: entry.nodeId || null, url: entry.url, label: entry.name || 'reference' }];
-      return { ...n, data: { ...n.data, refs } };
-    }));
-  }, [setNodes]);
+    const chat = nodesRef.current.find((n) => n.id === chatId);
+    const pool = (chat?.data?.refs || []).map(poolRef);
+    const i = pool.findIndex((r) => (entry.id && r.entryId === entry.id) || r.url === entry.url);
+    if (i >= 0) sbApplyPool(chatId, pool.filter((_, j) => j !== i), i);
+    else sbApplyPool(chatId, [...pool, { entryId: entry.id, nodeId: entry.nodeId || null, url: entry.url, label: entry.name || 'reference' }], null);
+  }, [sbApplyPool]);
   const sbRemoveRef = useCallback((chatId, url) => {
-    setNodes((ns) => ns.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, refs: (n.data.refs || []).map(poolRef).filter((r) => r.url !== url) } } : n)));
-  }, [setNodes]);
+    const chat = nodesRef.current.find((n) => n.id === chatId);
+    const pool = (chat?.data?.refs || []).map(poolRef);
+    const i = pool.findIndex((r) => r.url === url);
+    if (i >= 0) sbApplyPool(chatId, pool.filter((_, j) => j !== i), i);
+  }, [sbApplyPool]);
   const sbAddBoardRef = useCallback((chatId, imgNodeId) => addReferenceToPool(chatId, refUrl(nodesRef.current.find((n) => n.id === imgNodeId)) || ''), [addReferenceToPool]);
 
   const sbChatCtx = useMemo(() => ({
@@ -4200,7 +4262,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         if (kf.data?.keyframe) {
           const chatId = kf.data.panelId ? kf.data.panelId.replace('sbpanel', 'sbchat') : null;
           const chat = chatId && nodes.find((n) => n.id === chatId);
-          const pool = chat?.data?.refs?.length ? poolUrls(chat.data.refs) : (bibleRef.current || []).map((e) => e.url).filter(Boolean);
+          const pool = chat?.data?.refs?.length ? freshPoolUrls(chat.data.refs) : (bibleRef.current || []).map((e) => e.url).filter(Boolean);
           return (
             <KeyframeEditor
               key={expandedKeyframeId}
@@ -4239,7 +4301,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       {plateCastId && (() => {
         const n = nodes.find((x) => x.id === plateCastId);
         if (!n) return null;
-        const src = n.data?.localUrl || n.data?.cacheUrl || n.data?.url;
+        const src = n.data?.cacheUrl || n.data?.localUrl || n.data?.url; // full-res first — localUrl can be a library THUMB
         const characters = (bibleEntries || []).filter((b) => b.role === 'character' && b.url).map((b) => ({ id: b.id, name: b.name || 'character', url: b.url, nodeId: b.nodeId || null }));
         return (
           <PlateCastEditor
@@ -4256,7 +4318,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const n = nodes.find((x) => x.id === arrowEditId);
         if (!n) return null;
         // Edit over the CLEAN frame (arrows live as vectors on top — never rasterized-only).
-        const src = n.data?.cleanUrl || n.data?.localUrl || n.data?.cacheUrl || n.data?.url;
+        const src = n.data?.cleanUrl || n.data?.cacheUrl || n.data?.localUrl || n.data?.url;
         if (!src) return null;
         return (
           <ArrowEditor

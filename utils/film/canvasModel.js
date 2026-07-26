@@ -44,7 +44,7 @@ export const stageLocalAsset = async (dataUrl, name) => {
   if (!response.ok) {
     throw new Error(data?.details || data?.error || `Upload failed (HTTP ${response.status})`);
   }
-  return { url: data.url, assetId: data.assetId || null };
+  return { url: data.url, cacheUrl: data.cacheUrl || null, assetId: data.assetId || null };
 };
 
 // Downscale a (potentially huge) image data URL to a small JPEG data URL for the

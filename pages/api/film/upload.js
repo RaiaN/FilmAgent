@@ -87,7 +87,7 @@ export default async function uploadHandler(req, res) {
       }
     }
 
-    return res.status(200).json({ url, assetId, contentType });
+    return res.status(200).json({ url, cacheUrl, assetId, contentType });
   } catch (error) {
     return res.status(500).json({ error: 'Upload failed', details: error.message });
   }

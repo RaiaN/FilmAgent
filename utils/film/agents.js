@@ -59,13 +59,12 @@ export const createBrowserTransport = (apiKey) => ({
   },
 });
 
-// The reference a Seedream-backed agent should send for a node. Prefer the local
-// bytes (localUrl, a data: URL) when present — that's the case for uploaded files,
-// whose staged TOS URL is not publicly fetchable, so the server-side reference
-// fetch in /api/film/imagine would 403 on it. A data: URL passes straight through
-// to Seedream untouched. Generated/checked-in assets have no localUrl and fall
-// back to their (fetchable) http URL.
-const refUrl = (n) => n?.data?.localUrl || n?.data?.url;
+// The reference a Seedream-backed agent should send for a node — DURABLE-FIRST:
+// the store url (cacheUrl) never expires and every server path reads it natively.
+// localUrl (the original data: bytes) only covers a node not yet checked in — e.g.
+// an upload mid-staging (its data: passes straight through to Seedream); the raw
+// remote url is the last resort and can be an expired Ark signature.
+const refUrl = (n) => n?.data?.cacheUrl || n?.data?.localUrl || n?.data?.url;
 const selectedImageUrls = (selection) =>
   (selection || []).filter((n) => n.data?.kind === 'image' && n.data?.url).map(refUrl);
 const firstImageNode = (selection) =>

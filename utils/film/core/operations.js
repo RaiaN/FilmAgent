@@ -139,7 +139,14 @@ export const characterVariations = async ({ imageUrl, direction = '', count = 4,
   if (!imageUrl) throw new Error('characterVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'characterVariations', count: n, direction, references: [imageUrl], config }, ctx);
-  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label } }));
+  // EDIT-LOCKED variations (the Edit-shot foundation): the source is [Image 1] and each
+  // planned item is an INSTRUCTION — the edit grammar keeps identity/geometry pinned and
+  // changes only what the instruction names (drift died with the re-compose approach).
+  const SLOT = '@@EDIT@@';
+  const specs = items.map((it, i) => ({
+    prompt: renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(it.prompt || '').slice(0, 2000)),
+    referenceImages: [imageUrl], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label, instruction: it.prompt },
+  }));
   return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, hooks);
 };
 
@@ -147,7 +154,12 @@ export const locationVariations = async ({ imageUrl, direction = '', count = 4, 
   if (!imageUrl) throw new Error('locationVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
   const items = await planPrompts({ task: 'locationVariations', count: n, direction, references: [imageUrl], config }, ctx);
-  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: [imageUrl], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label } }));
+  // Same edit-locked foundation: coverage = reframe instructions, states = change-only.
+  const SLOT = '@@EDIT@@';
+  const specs = items.map((it, i) => ({
+    prompt: renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(it.prompt || '').slice(0, 2000)),
+    referenceImages: [imageUrl], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label, instruction: it.prompt },
+  }));
   return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, hooks);
 };
 

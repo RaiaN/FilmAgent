@@ -34,7 +34,7 @@ const LayerRail = ({ activeLayerId, onActivate, visibility, onCycleVisibility })
           </Tooltip>
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {AGENTS.map((layer) => {
+          {AGENTS.filter((l) => !l.railHidden).map((layer) => {
             const Icon = agentIcon(layer.icon);
             const isActive = layer.id === activeLayerId;
             return (
@@ -70,7 +70,7 @@ const LayerRail = ({ activeLayerId, onActivate, visibility, onCycleVisibility })
         </Tooltip>
       </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {AGENTS.map((layer) => {
+        {AGENTS.filter((l) => !l.railHidden).map((layer) => {
           const Icon = agentIcon(layer.icon);
           const isActive = layer.id === activeLayerId;
           const vis = visibility[layer.id] || 'show';

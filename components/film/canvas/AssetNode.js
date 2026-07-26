@@ -2,10 +2,9 @@ import { createContext, memo, useContext, useEffect, useMemo, useRef, useState }
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Tag, Select, Button } from '@arco-design/web-react';
 import { isProvablyExpired } from '../../../utils/film/mediaUrl';
-import { IconLoading, IconCloud, IconExclamationCircleFill, IconDragDotVertical, IconPlus, IconCheck, IconDownload, IconRefresh, IconBgColors, IconPen, IconUserGroup, IconVideoCamera, IconEdit, IconPlayCircle, IconEye, IconAlignLeft, IconCopy } from '@arco-design/web-react/icon';
+import { IconLoading, IconCloud, IconExclamationCircleFill, IconPlus, IconCheck, IconDownload, IconRefresh, IconBgColors, IconPen, IconUserGroup, IconVideoCamera, IconEdit, IconPlayCircle, IconEye, IconAlignLeft, IconCopy } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
 import { BIBLE_ROLES, BIBLE_ROLE_META, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
-import { BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import EditableLabel from './EditableLabel';
 
 const { Text } = Typography;
@@ -13,7 +12,7 @@ const { Text } = Typography;
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onEditArrows: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, lod: false });
+export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onEditArrows: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, onViewImage: null, lod: false });
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
 // colour for its badge so the cast & world read at a glance on the board.
@@ -45,7 +44,7 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, cacheUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onEditArrows, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, lod } = useContext(AssetNodeContext);
+  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onEditArrows, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, onViewImage, lod } = useContext(AssetNodeContext);
   // Inline body edit on an UNRENDERED shot card (double-click) — free, no render, no LLM.
   const [editBody, setEditBody] = useState(null);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
@@ -234,26 +233,6 @@ const AssetNodeInner = ({ id, data, selected }) => {
           )}
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          {kind === 'image' && displaySrc && !expired && (
-            // nodrag → React Flow won't treat this as a node-move, so the native
-            // HTML5 drag fires. Drop target: the Story Director timeline.
-            <span
-              className="nodrag"
-              draggable
-              onDragStart={(e) => {
-                e.stopPropagation();
-                e.dataTransfer.effectAllowed = 'copy';
-                e.dataTransfer.setData(
-                  BOARD_NODE_DRAG_TYPE,
-                  JSON.stringify({ id, url: displaySrc, assetId: data.assetId || null, label: label || 'Beat' }),
-                );
-              }}
-              title="Drag onto the Timeline to add as a story beat"
-              style={{ display: 'inline-flex', alignItems: 'center', cursor: 'grab', color: AGENT_COLORS.storyDirector }}
-            >
-              <IconDragDotVertical style={{ fontSize: 14 }} />
-            </span>
-          )}
           {(cacheUrl || url) && !loading && onDuplicate && (
             <span className="nodrag" onClick={(e) => { e.stopPropagation(); onDuplicate(id); }} title="Duplicate — a free copy of this element lands beside it (edit/mask/tag the copy without touching the original)" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', color: '#86909c' }}>
               <IconCopy style={{ fontSize: 14 }} />
@@ -303,11 +282,13 @@ const AssetNodeInner = ({ id, data, selected }) => {
             key={`${srcIdx}-${attempt}`}
             src={displaySrc}
             alt={label}
+            title="Double-click — view full screen"
             style={{ width: '100%', display: 'block' }}
             draggable={false}
             loading="lazy"
             decoding="async"
             onError={onLoadError}
+            onDoubleClick={(e) => { e.stopPropagation(); onViewImage && onViewImage(id); }}
           />
         )}
         {kind === 'image' && healing && (
@@ -338,7 +319,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
           </div>
         )}
         {kind === 'video' && url && (
-          <video src={cacheUrl || url} style={{ width: '100%', display: 'block' }} muted loop playsInline controls preload="metadata" />
+          <video src={cacheUrl || url} title="Double-click — open the Take Viewer" style={{ width: '100%', display: 'block' }} muted loop playsInline controls preload="metadata" onDoubleClick={(e) => { e.stopPropagation(); onOpenViewer && onOpenViewer(id); }} />
         )}
         {kind === 'audio' && (cacheUrl || url) && (
           <audio src={cacheUrl || url} controls style={{ width: '100%', padding: 8 }} />

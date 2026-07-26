@@ -260,6 +260,7 @@ export const castAgent = {
 export const storyAgent = {
   id: 'story',
   label: 'Brief',
+  railHidden: true, // off the rail: briefs land via the intro card, Storyboard's scene box, or chat
   icon: 'story',
   color: AGENT_COLORS.story,
   consumes: [],

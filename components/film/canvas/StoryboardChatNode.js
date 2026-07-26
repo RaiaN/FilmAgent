@@ -9,7 +9,7 @@ const { Text } = Typography;
 // Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data) — same context pattern as CutContext / StoryScriptContext.
 export const StoryboardChatContext = createContext({
-  onTurn: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null,
+  onTurn: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onCastFromScript: null,
 });
 
 // Same role palette as the SHOT card's reference chips — the two blocks must read as one system.
@@ -24,7 +24,7 @@ const asRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}))
 // (click to remove), and "+ board image" to add any board image mid-conversation. The next
 // turn / render reads the live pool; finished stills keep their frames.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onTurn, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll } = useContext(StoryboardChatContext);
+  const { onTurn, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll, onCastFromScript } = useContext(StoryboardChatContext);
   const messages = data.messages || [];
   const count = data.shotCount || 0;
   const [addOpen, setAddOpen] = useState(false);
@@ -135,6 +135,20 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           </Text>
         )}
       </div>
+      {/* Cast & World — an EXPLICIT button, not buried chrome: drafts reference plates
+          from THIS storyboard's verbatim script; they come back as toggle chips above. */}
+      {onCastFromScript && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0', flexShrink: 0 }}>
+          <Button
+            size="small" long loading={!!data.casting}
+            onClick={() => onCastFromScript(id)}
+            style={{ borderColor: '#b06f10', color: '#b06f10' }}
+            title="Draft characters, locations and a shared look from this storyboard's script (verbatim). Plates land on the board as tagged anchors and appear as reference chips above. One explicit run."
+          >
+            {data.casting ? 'Casting…' : 'Cast & World — generate reference plates'}
+          </Button>
+        </div>
+      )}
       {/* The element lands INERT — this button IS the first division's explicit tap.
           TEXT-FIRST: the division buys WORDS (a shot-list of editable cards), never
           pixels; stills are separate explicit taps (per card, or Render all below).

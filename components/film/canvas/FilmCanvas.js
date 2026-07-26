@@ -419,6 +419,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // The Take Viewer: which board video is open in the scrub/extract modal, and which
   // of its actions is in flight ('frame'|'first'|'last'|'describe'|'audio'|null).
   const [viewerId, setViewerId] = useState(null);
+  const [lightboxId, setLightboxId] = useState(null); // full-screen image viewer (dbl-click an image)
   const [viewerBusy, setViewerBusy] = useState(null);
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y } in wrapper-relative px
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -1545,6 +1546,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const frameSrc = refUrl(src) || src.data?.cacheUrl || '';
     const frameEdit = !!(edits.useFrame && frameSrc);
     if (frameEdit) ({ body, refs: ordered } = lockBodyToFrame(body, ordered, frameSrc));
+    // Camera change under the lock = a named change: reframe the same scene.
+    if (frameEdit && shot.shotTemplate && shot.shotTemplate !== (src.data?.editTemplate || 'medium-shot')) {
+      const tpl = SHOT_TEMPLATE_BY_ID[shot.shotTemplate];
+      if (tpl) body = `Reframe to a ${tpl.framing}, ${tpl.angle} — the same scene, subjects and moment. ${body}`;
+    }
     // IN PLACE (user: "not replaced in place???"): the card IS the frame being iterated —
     // the render replaces its image, exactly like a keyframe card. Duplicate first to keep
     // both versions (the previous image's bytes stay safe in the store/Library either way).
@@ -2888,6 +2894,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const frameSrc = node.data.cacheUrl || node.data.url || '';
     const frameEdit = !!(useFrame && frameSrc);
     if (frameEdit) ({ body, refs: ordered } = lockBodyToFrame(body, ordered, frameSrc));
+    // A CAMERA change under the lock is a NAMED change: reframe the same scene to the
+    // new framing/angle (wide ⇄ close-up ⇄ aerial matter). Unchanged camera = pure lock.
+    if (frameEdit && editFields.shotTemplate && editFields.shotTemplate !== node.data.shotTemplate) {
+      const tpl = SHOT_TEMPLATE_BY_ID[editFields.shotTemplate];
+      if (tpl) body = `Reframe to a ${tpl.framing}, ${tpl.angle} — the same scene, subjects and moment. ${body}`;
+    }
     setNodes((ns) => ns.map((n) => {
       if (n.id === nodeId) return { ...n, data: { ...n.data, ...shot, label: shot.beat, loading: true, error: undefined } };
       if (chat && n.id === chatId && Array.isArray(n.data?.shots)) return { ...n, data: { ...n.data, shots: n.data.shots.map((s, i) => (i === index ? { ...s, ...shot } : s)) } };
@@ -3884,7 +3896,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally { setViewerBusy(null); }
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
-  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onEditArrows: setArrowEditId, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode,
+  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onEditArrows: setArrowEditId, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId,
     onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
@@ -3951,11 +3963,27 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [sbApplyPool]);
   const sbAddBoardRef = useCallback((chatId, imgNodeId) => addReferenceToPool(chatId, refUrl(nodesRef.current.find((n) => n.id === imgNodeId)) || ''), [addReferenceToPool]);
 
+  // Cast & World FROM the storyboard node (explicit tap on its ✦ chip): drafts anchors
+  // from the SAME verbatim script the division reads. Plates land as tagged board
+  // panels → their bible chips appear in this node's REFERENCES block to toggle on.
+  const castFromStoryboard = useCallback(async (chatId) => {
+    const chat = nodesRef.current.find((n) => n.id === chatId);
+    const script = String(chat?.data?.script || '').trim();
+    if (!script) { Message.warning('This storyboard carries no script text to cast from.'); return; }
+    if (!castRunRef.current) return;
+    setNodes((ns) => ns.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, casting: true } } : n)));
+    try {
+      await castRunRef.current(script);
+      Message.success('Cast & World drafted — toggle the new chips into this storyboard\'s REFERENCES.');
+    } catch (err) { Message.error(err.message); }
+    finally { setNodes((ns) => ns.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, casting: false } } : n))); }
+  }, [setNodes]);
+
   const sbChatCtx = useMemo(() => ({
     onTurn: runStoryboardTurn, bibleEntries, imageAssets,
     onToggleBibleRef: sbToggleBibleRef, onRemoveRef: sbRemoveRef, onAddBoardRef: sbAddBoardRef,
-    onRenderAll: renderAllStills,
-  }), [runStoryboardTurn, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills]);
+    onRenderAll: renderAllStills, onCastFromScript: castFromStoryboard,
+  }), [runStoryboardTurn, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills, castFromStoryboard]);
 
   // Handlers only — each Brief node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Brief element on the board.
@@ -4347,6 +4375,23 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             onDescribe={viewerDescribe}
             onExtractAudio={viewerExtractAudio}
           />
+        );
+      })()}
+      {/* LIGHTBOX — full-screen image view (dbl-click any image; Esc / click closes). */}
+      {lightboxId && (() => {
+        const n = nodes.find((x) => x.id === lightboxId);
+        const src = n && (n.data?.cacheUrl || n.data?.localUrl || n.data?.url);
+        if (!src) return null;
+        return (
+          <div
+            onClick={() => setLightboxId(null)}
+            style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(6,8,12,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}
+          >
+            <img src={src} alt={n.data?.label || 'image'} style={{ maxWidth: '96vw', maxHeight: '92vh', objectFit: 'contain', boxShadow: '0 12px 48px rgba(0,0,0,0.6)' }} />
+            <div style={{ position: 'fixed', bottom: 14, left: '50%', transform: 'translateX(-50%)', color: '#fff', fontSize: 12, opacity: 0.65, whiteSpace: 'nowrap' }}>
+              {String(n.data?.label || '')} — click anywhere or Esc to close
+            </div>
+          </div>
         );
       })()}
       {maskImgId && (

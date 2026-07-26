@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox } from '@arco-design/web-react';
-import { IconLoading, IconExpand, IconEdit, IconScissor, IconEye, IconSync, IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
+import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
@@ -177,7 +177,6 @@ const CutNodeInner = ({ id, data, selected }) => {
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
               <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconEdit />} disabled={!onDevelopCut || data.developing || data.splitting} onClick={() => onDevelopCut && onDevelopCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Develop — rewrite this prompt into one cinematic Seedance prompt (tight, close to your text; events preserved). Re-runs always start from your ORIGINAL text.">Develop</Button>
-              <Button className="nodrag" size="mini" type="text" icon={data.splitting ? <IconLoading /> : <IconScissor />} disabled={!onSplitCut || data.splitting || data.developing} onClick={() => onSplitCut && onSplitCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Split — break this shot into multiple ≤15s SHOT cards laid right after it (wording + timestamps preserved). This card, its refs and takes stay untouched — delete it yourself if the pieces supersede it.">Split</Button>
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
             </span>
           </div>

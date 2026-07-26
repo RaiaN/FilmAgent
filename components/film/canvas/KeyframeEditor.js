@@ -107,7 +107,7 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
           {preview && (
             <Checkbox checked={useFrame} onChange={setUseFrame} style={{ marginBottom: 12, display: 'block' }}>
               <Text style={{ fontSize: 12 }}>
-                Use this frame as reference — keep its composition, camera and figure positions; change <b>only</b> what the text changes
+                Use this frame as reference — keep its composition and figure positions; change <b>only</b> what the text changes (a Camera change reframes the same scene)
               </Text>
             </Checkbox>
           )}

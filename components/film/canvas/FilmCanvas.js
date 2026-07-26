@@ -700,6 +700,48 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     return e.url || fresh;
   }).filter(Boolean), []);
 
+  // AUTO-FOCUS NEW BOARD ELEMENTS — anything freshly created (a card, a panel and its
+  // children, a duplicate, an extracts frame) gets one gentle camera glide so nothing
+  // lands off-screen unseen. Batched (350ms — a panel + N children focus ONCE), skipped
+  // when everything new is already in view, during demo playback, and on mass arrivals
+  // (>12 at once = a load, not an authoring action). Project switches reset silently.
+  const knownIdsRef = useRef(null);
+  const focusTimerRef = useRef(null);
+  const pendingFocusRef = useRef(new Set());
+  useEffect(() => { knownIdsRef.current = null; pendingFocusRef.current.clear(); }, [project.id]);
+  useEffect(() => () => clearTimeout(focusTimerRef.current), []);
+  useEffect(() => {
+    if (knownIdsRef.current === null) { knownIdsRef.current = new Set(nodes.map((n) => n.id)); return; }
+    const known = knownIdsRef.current;
+    const fresh = nodes.filter((n) => !known.has(n.id));
+    nodes.forEach((n) => known.add(n.id));
+    if (!fresh.length || demoOverlay || fresh.length > 12) return;
+    fresh.forEach((n) => pendingFocusRef.current.add(n.id));
+    clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => {
+      const ids = [...pendingFocusRef.current];
+      pendingFocusRef.current.clear();
+      if (!rfInstance || !ids.length) return;
+      try {
+        const vp = rfInstance.getViewport();
+        const rect = wrapperRef.current ? wrapperRef.current.getBoundingClientRect() : { width: 1200, height: 700 };
+        const view = { x: -vp.x / vp.zoom, y: -vp.y / vp.zoom, w: rect.width / vp.zoom, h: rect.height / vp.zoom };
+        const byId = new Map(nodesRef.current.map((n) => [n.id, n]));
+        const absOf = (n) => { let x = n.position?.x || 0; let y = n.position?.y || 0; for (let c = byId.get(n.parentId); c; c = byId.get(c.parentId)) { x += c.position?.x || 0; y += c.position?.y || 0; } return { x, y }; };
+        const allVisible = ids.every((nid) => {
+          const n = byId.get(nid);
+          if (!n) return true;
+          const pos = absOf(n);
+          const w = n.measured?.width || n.width || 280;
+          const h = n.measured?.height || n.height || 320;
+          return pos.x >= view.x && pos.y >= view.y && pos.x + w <= view.x + view.w && pos.y + h <= view.y + view.h;
+        });
+        if (allVisible) return; // already on screen — don't yank the camera
+        rfInstance.fitView({ nodes: ids.map((nid) => ({ id: nid })), duration: 500, padding: 0.35, maxZoom: 1 });
+      } catch { /* camera nicety — never break the board over it */ }
+    }, 350);
+  }, [nodes, rfInstance, demoOverlay]);
+
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
   // Exactly ONE selected agent card → the LayerPanel opens bound to it (the agent
   // configuration surface — the card itself stays a compact summary + Run).

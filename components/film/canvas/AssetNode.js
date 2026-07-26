@@ -2,7 +2,7 @@ import { createContext, memo, useContext, useEffect, useMemo, useRef, useState }
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Tag, Select, Button } from '@arco-design/web-react';
 import { isProvablyExpired } from '../../../utils/film/mediaUrl';
-import { IconLoading, IconCloud, IconExclamationCircleFill, IconPlus, IconCheck, IconDownload, IconRefresh, IconBgColors, IconPen, IconUserGroup, IconVideoCamera, IconEdit, IconPlayCircle, IconEye, IconAlignLeft, IconCopy } from '@arco-design/web-react/icon';
+import { IconLoading, IconCloud, IconExclamationCircleFill, IconPlus, IconCheck, IconDownload, IconRefresh, IconBgColors, IconUserGroup, IconVideoCamera, IconEdit, IconPlayCircle, IconEye, IconAlignLeft, IconCopy } from '@arco-design/web-react/icon';
 import { AGENT_COLORS } from '../../../utils/film/agents';
 import { BIBLE_ROLES, BIBLE_ROLE_META, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import EditableLabel from './EditableLabel';
@@ -12,7 +12,7 @@ const { Text } = Typography;
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onEditArrows: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, onViewImage: null, lod: false });
+export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, onViewImage: null, lod: false });
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
 // colour for its badge so the cast & world read at a glance on the board.
@@ -44,7 +44,7 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, cacheUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onEditArrows, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, onViewImage, lod } = useContext(AssetNodeContext);
+  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, onViewImage, lod } = useContext(AssetNodeContext);
   // Inline body edit on an UNRENDERED shot card (double-click) — free, no render, no LLM.
   const [editBody, setEditBody] = useState(null);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
@@ -429,10 +429,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
           {onEditImage && (
             <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditImage(id); }} title="Edit — describe one change (word for word); a new frame with just that change lands beside this one.">Edit</Button>
           )}
-          {onEditArrows && (
-            <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconPen />} onClick={(e) => { e.stopPropagation(); onEditArrows(id); }} title="Arrows — draw motion paths on this frame: a colored arrow = that character's movement (tail → head), WHITE = the camera's move. Baked into the image; the attach lock explains them to Seedance.">{(data.arrows || []).length ? `Arrows · ${data.arrows.length}` : 'Arrows'}</Button>
-          )}
-        </div>
+                  </div>
       )}
       {/* ANY other image — cast plate, upload, extract, edit result — can be MASKED into
           a blocking plate or EDITED by instruction (a masked storyboard sequence is just
@@ -442,7 +439,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
       {kind === 'image' && !data.previz && !data.previzMask && displaySrc && !expired && !(data.keyframe && data.showText) && (onMaskPrevis || onEditImage) && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
           {onMaskPrevis && (
-            <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconBgColors />} onClick={(e) => { e.stopPropagation(); onMaskPrevis(id); }} title="Mask — flat color silhouettes (blue, green, yellow, red, purple left to right): every person by default, or name exactly what to mask in the dialog. The plate lands beside this image with the full attach / cast-colors / arrows toolkit.">Mask</Button>
+            <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconBgColors />} onClick={(e) => { e.stopPropagation(); onMaskPrevis(id); }} title="Mask — flat color silhouettes (blue, green, yellow, red, purple left to right): every person by default, or name exactly what to mask in the dialog. The plate lands beside this image with the full attach / cast-colors toolkit.">Mask</Button>
           )}
           {onEditImage && !data.keyframe && (
             <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditImage(id); }} title="Edit — describe one change (word for word); a new image with just that change lands beside this one. The original stays untouched.">Edit</Button>
@@ -455,10 +452,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
           {onCastColors && (
             <Button size="mini" className="nodrag" style={{ flex: '1 1 70px' }} icon={<IconUserGroup />} onClick={(e) => { e.stopPropagation(); onCastColors(id); }} title="Cast colors — bind each silhouette color to a bible character. Attaching then auto-adds those refs and writes the named, correctly numbered lock (no manual [Image N] matching).">{Object.keys(data.colorCast || {}).length ? `Cast · ${Object.keys(data.colorCast).length}` : 'Cast colors'}</Button>
           )}
-          {onEditArrows && (
-            <Button size="mini" className="nodrag" style={{ flex: '1 1 70px' }} icon={<IconPen />} onClick={(e) => { e.stopPropagation(); onEditArrows(id); }} title="Arrows — draw motion paths on this plate: a colored arrow = that silhouette's movement (tail → head), WHITE = the camera's move. Baked into the plate; the attach lock explains them to Seedance.">{(data.arrows || []).length ? `Arrows · ${data.arrows.length}` : 'Arrows'}</Button>
-          )}
-          {onEditImage && (
+                    {onEditImage && (
             <Button size="mini" className="nodrag" style={{ flex: '1 1 70px' }} icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditImage(id); }} title="Edit — describe one change word for word (e.g. 'move the blue silhouette to the doorway'); a new plate with just that change lands beside this one.">Edit</Button>
           )}
         </div>

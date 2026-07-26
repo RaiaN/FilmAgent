@@ -288,14 +288,14 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
 // reference plates IN [Image 1..N] ORDER (the caller resolves + renumbers them). NOT a blend — each
 // image is a distinct addressed subject. composeKeyframePrompt wraps the body with the camera + finish
 // lines. Style/expression/ethnicity are optional overrides. One call per shot; the canvas streams them.
-export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedreamPro', frameEdit = false, config } = {}, ctx) => {
+export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedreamPro', frameEdit = false, frameEditAnnotated = false, config } = {}, ctx) => {
   const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
   // frameEdit = the Edit-shot editor's structure lock: [Image 1] IS the current frame and
   // the body is the CHANGE (instruction or full prompt, verbatim via sentinel). The lean
   // EDIT template replaces the cinematic wrapper — line-1 camera talk would fight the frame.
   const SLOT = '@@EDIT@@';
   const prompt = frameEdit
-    ? renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(body || '').trim().slice(0, 2000))
+    ? renderTemplate(frameEditAnnotated ? 'storyboard.frameEditDraw' : 'storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(body || '').trim().slice(0, 2000))
     : composeKeyframePrompt({ body, shotTemplate, style, expression, ethnicity });
   const { url, cacheUrl } = await ctx.client.generateImage({
     prompt,

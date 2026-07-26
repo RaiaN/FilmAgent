@@ -1,13 +1,21 @@
 import { memo, useState } from 'react';
 import { Button, Select, Typography } from '@arco-design/web-react';
 import { IconClose, IconCheck } from '@arco-design/web-react/icon';
-import { ARROW_COLORS } from './ArrowEditor';
+
 
 const { Text } = Typography;
 
 // The five silhouette colors, in the mask template's left→right order (WHITE is the
 // camera, never a character).
-const CAST_COLORS = ARROW_COLORS.filter((c) => c.name !== 'WHITE');
+// The mask palette (blue→purple, left-to-right silhouette order) — was shared with the
+// purged Arrows editor; lives here now.
+const CAST_COLORS = [
+  { hex: '#165dff', name: 'BLUE' },
+  { hex: '#00b42a', name: 'GREEN' },
+  { hex: '#fadc19', name: 'YELLOW' },
+  { hex: '#f53f3f', name: 'RED' },
+  { hex: '#722ed1', name: 'PURPLE' },
+];
 
 // Cast the colors: bind each silhouette color on a blocking plate to a bible character.
 // Purely manual — the user looks at the plate and picks; the assignment lives on the

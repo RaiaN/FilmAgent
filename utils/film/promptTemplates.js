@@ -145,6 +145,13 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
   // [Image 1] is the CURRENT frame; the instruction slot is sentinel-injected VERBATIM
   // (a one-line change or a full prompt — only what it changes, changes). Cast refs ride
   // as [Image 2..N]. Replaces the cinematic wrapper in edit mode.
+  'storyboard.frameEditDraw': {
+    agent: 'Storyboard',
+    label: 'Edit a frame guided by drawn marks',
+    vars: ['{instruction}'],
+    text: 'EDIT [Image 1]. The red hand-drawn marks show where to change: {instruction}. Remove the marks; change nothing unmarked.',
+  },
+
   'storyboard.frameEdit': {
     agent: 'Storyboard',
     label: 'Edit a frame in place (structure locked)',

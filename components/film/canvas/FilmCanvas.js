@@ -32,7 +32,6 @@ import StoryboardChatNode, { StoryboardChatContext } from './StoryboardChatNode'
 import NoteNode, { NoteContext } from './NoteNode';
 import TakeViewer from './TakeViewer';
 import KeyframeEditor from './KeyframeEditor';
-import ArrowEditor, { drawArrow, arrowColorName } from './ArrowEditor';
 import PlateCastEditor from './PlateCastEditor';
 import LayerRail from './LayerRail';
 import AgentNode, { AgentNodeContext } from './AgentNode';
@@ -92,11 +91,8 @@ const CUT_ROW_H = 760;
 // weights the opening hard). `plateNum` = the image's actual [Image N] badge at attach
 // time (enabled bible refs first, then per-shot assets). `mask` adds the silhouette
 // color→character bindings (an editable guess — fix the numbers to the badges);
-// `arrows` (the drawn motion paths) adds the arrows clause listing the used colors,
-// WHITE reserved for the camera, plus the don't-render guard.
-const previzBindingLine = (plateNum, { mask = true, arrows = [], cast = [] } = {}) => {
+const previzBindingLine = (plateNum, { mask = true, cast = [] } = {}) => {
   const lock = `FIRST FRAME: STRICTLY FOLLOW [Image ${plateNum}] — preserve its camera angle, framing and figure positions exactly.`;
-  const castByColor = Object.fromEntries((cast || []).map((c) => [c.color, c]));
   let bind = '';
   if (cast.length) {
     // Colors were CAST on the plate → name each character with its REAL badge number.
@@ -106,40 +102,11 @@ const previzBindingLine = (plateNum, { mask = true, arrows = [], cast = [] } = {
   } else if (mask) {
     bind = ` The BLUE silhouette is [Image 1]'s character, GREEN is [Image 2]'s, YELLOW [Image 3]'s, RED [Image 4]'s, PURPLE [Image 5]'s (adjust the numbers to your reference badges). Real people occupy those positions — no flat silhouettes in the output.`;
   }
-  const used = [...new Set((arrows || []).map((a) => arrowColorName(a.color)))];
-  const actors = used.filter((c) => c !== 'WHITE');
-  const cam = used.includes('WHITE');
-  const arrowBits = [
-    ...actors.map((c) => (castByColor[c] ? `the ${c} arrow is ${castByColor[c].name}'s movement` : `the ${c} arrow is the ${c} character's movement`)),
-    ...(cam ? [`the WHITE arrow is the CAMERA's move`] : []),
-  ];
-  const arrowClause = used.length
-    ? ` The arrows drawn on [Image ${plateNum}] are MOTION PATHS, not scene objects: ${arrowBits.join('; ')} — each from tail to head across the shot. The arrows themselves must NOT appear in the output.`
-    : '';
-  return `${lock}${bind}${arrowClause}`;
+  return `${lock}${bind}`;
 };
 // A prompt already carrying a lock (old wording said 'silhouette') never gets a second one.
 const hasFrameLock = (prompt) => /FIRST FRAME:|silhouette/.test(String(prompt || ''));
 
-// Bake drawn motion arrows into the frame at NATIVE resolution. Remote http(s) images
-// route through the same-origin proxy so the canvas stays readable (a cross-origin
-// drawImage would taint it and toDataURL would throw); data:/same-origin pass straight.
-const bakeArrowsToDataUrl = (src, arrows) => new Promise((resolve, reject) => {
-  const img = new Image();
-  img.onload = () => {
-    try {
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth || img.width;
-      c.height = img.naturalHeight || img.height;
-      const ctx = c.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      (arrows || []).forEach((a) => drawArrow(ctx, a, c.width, c.height));
-      resolve(c.toDataURL('image/jpeg', 0.92));
-    } catch (e) { reject(e); }
-  };
-  img.onerror = () => reject(new Error('Could not load the frame for baking'));
-  img.src = /^https?:\/\//i.test(String(src)) ? `/api/film/proxy-image?url=${encodeURIComponent(src)}` : src;
-});
 // Asset-plate tiling pitch (image node ≈ 220×280).
 const PLATE_COL_W = 260;
 const PLATE_ROW_H = 320;
@@ -1460,60 +1427,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     }
   }, [apiKey, rfInstance, freeOrigin, setNodes]);
 
-  // ---- Motion arrows on previz frames / blocking plates ---------------------------
-  // Drawing is fully manual (ArrowEditor); SAVE bakes the arrows into the image on a
-  // client canvas (pixels via the same-origin proxy when remote — CORS-safe), uploads
-  // the composite through /api/film/upload and swaps the node's url. data.cleanUrl
-  // keeps the original and data.arrows the vectors (both persist), so re-editing draws
-  // over the CLEAN frame and Clear restores it without any generation.
-  const [arrowEditId, setArrowEditId] = useState(null);
-  const [arrowSaving, setArrowSaving] = useState(false);
-
-  // Empty-board front door: the intake textarea's draft + a "blank board" dismissal.
-  const [introBrief, setIntroBrief] = useState('');
-  const [introDismissed, setIntroDismissed] = useState(false);
-
-  // "Cast the colors" on a blocking plate: which plate's colorCast is being edited.
-  const [plateCastId, setPlateCastId] = useState(null);
-  const savePlateCast = useCallback((map) => {
-    const id = plateCastId;
-    if (!id) return;
-    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, colorCast: map || {} } } : n)));
-    setPlateCastId(null);
-    const count = Object.keys(map || {}).length;
-    Message.success(count
-      ? `Colors cast (${count}) — attaching this plate now auto-attaches those characters and writes the named FIRST FRAME lock.`
-      : 'Color assignments cleared — attaching falls back to the generic lock.');
-  }, [plateCastId, setNodes]);
-  const saveArrows = useCallback(async (arrows) => {
-    const id = arrowEditId;
-    const node = nodesRef.current.find((n) => n.id === id);
-    if (!node) { setArrowEditId(null); return; }
-    const clean = node.data?.cleanUrl || node.data?.cacheUrl || node.data?.localUrl || node.data?.url; // full-res first — never bake arrows onto a thumb
-    if (!arrows.length) {
-      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, url: n.data.cleanUrl || n.data.url, arrows: [] } } : n)));
-      setArrowEditId(null);
-      Message.success('Arrows cleared — the clean frame is back.');
-      return;
-    }
-    setArrowSaving(true);
-    try {
-      const baked = await bakeArrowsToDataUrl(clean, arrows);
-      const res = await fetch('/api/film/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataUrl: baked, name: `${String(node.data?.label || 'previz').slice(0, 24)}-arrows` }),
-      });
-      const out = await res.json();
-      if (!res.ok || !out?.url) throw new Error(out?.details || out?.error || 'Upload failed');
-      // cacheUrl must FOLLOW the bake — a stale cacheUrl would win refUrl and silently
-      // strip the arrows from every reference (attach/pool/imageAssets).
-      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || undefined, cleanUrl: n.data.cleanUrl || n.data.url, arrows } } : n)));
-      setArrowEditId(null);
-      Message.success('Arrows baked in — attach this frame to a SHOT card and the motion paths ride with it.');
-    } catch (e) { Message.error(`Arrows failed: ${e.message}`); }
-    finally { setArrowSaving(false); }
-  }, [arrowEditId, setNodes]);
 
   // Mask (pass 2) on a previz node: reproduce the frame with every person as a flat
   // color silhouette — the invented identities die here; the plate is pure geometry.
@@ -1558,6 +1471,23 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (id) maskPrevisNode(id, want);
   }, [maskImgId, maskImgPrompt, maskPrevisNode]);
 
+  // Empty-board front door: the intake textarea's draft + a "blank board" dismissal.
+  const [introBrief, setIntroBrief] = useState('');
+  const [introDismissed, setIntroDismissed] = useState(false);
+
+  // "Cast the colors" on a blocking plate: which plate's colorCast is being edited.
+  const [plateCastId, setPlateCastId] = useState(null);
+  const savePlateCast = useCallback((map) => {
+    const id = plateCastId;
+    if (!id) return;
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, colorCast: map || {} } } : n)));
+    setPlateCastId(null);
+    const count = Object.keys(map || {}).length;
+    Message.success(count
+      ? `Colors cast (${count}) — attaching this plate now auto-attaches those characters and writes the named FIRST FRAME lock.`
+      : 'Color assignments cleared — attaching falls back to the generic lock.');
+  }, [plateCastId, setNodes]);
+
   // UNIVERSAL frame editing — Edit on ANY non-storyboard image opens the SAME shot
   // editor (storyboard frames reach it via their own Edit): the image itself seeds a
   // LOCAL reference pool as [Image 1], more board images can join, Re-derive writes a
@@ -1585,7 +1515,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!shot.body) { Message.warning('Write the body first — or Re-derive it from the ticked references.'); return; }
     let { ordered, body } = resolveShotRefs(shot, plainPool);
     // Structure lock (same switch as storyboard cards): the source frame leads as [Image 1].
-    const frameSrc = refUrl(src) || src.data?.cacheUrl || '';
+    const frameSrc = (edits.annotatedFrame || refUrl(src) || src.data?.cacheUrl) || '';
     const frameEdit = !!(edits.useFrame && frameSrc);
     if (frameEdit) ({ body, refs: ordered } = lockBodyToFrame(body, ordered, frameSrc));
     // Camera change under the lock = a named change: reframe the same scene.
@@ -1601,7 +1531,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: 'Agent · Frame edit (shot editor)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style: '', expression: shot.expression, refs: ordered, imageModel: 'seedreamPro', frameEdit }, ctx);
+      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style: '', expression: shot.expression, refs: ordered, imageModel: 'seedreamPro', frameEdit, frameEditAnnotated: !!edits.annotatedFrame }, ctx);
       // The image CHANGED: stale display/registration state must not survive — the old
       // cacheUrl/localUrl would keep SHOWING the old frame, and the old assetId would
       // keep REFERENCING it in shoots (re-register on demand via the usual paths).
@@ -1838,7 +1768,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       ? Math.max(1, badgeOfEntry(plateEnt.id))
       : sentIds.length + Math.max(0, assetRefs.findIndex((a) => a.url === plateUrl)) + 1;
     const cast = assigned.map((a) => ({ color: a.color, name: a.name, badge: badgeOfEntry(a.entryId) }));
-    const lock = previzBindingLine(plateNum, { mask: !!plate?.data?.previzMask, arrows: plate?.data?.arrows || [], cast });
+    const lock = previzBindingLine(plateNum, { mask: !!plate?.data?.previzMask, cast });
     const old = String(card.data.promptOverride || '');
     const patch = { refIds, assetRefs };
     if (old.startsWith('FIRST FRAME:')) {
@@ -2929,11 +2859,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const style = chat?.data?.style || node.data.style || '';
     const ethnicity = chat?.data?.ethnicity || '';
     const imageModel = chat?.data?.imageModel || node.data.imageModel || 'seedreamPro';
-    const { useFrame, ...editFields } = edits; // render-mode flag — never persisted onto the shot
+    const { useFrame, annotatedFrame, ...editFields } = edits; // render-mode flags — never persisted onto the shot
     const shot = { beat: node.data.beat, shotTemplate: node.data.shotTemplate, expression: node.data.expression || '', figures: node.data.figures || [], body: node.data.body || '', ...editFields };
     let { ordered, body } = resolveShotRefs(shot, refs);
     // Structure lock: the current still anchors composition; the text drives the change.
-    const frameSrc = node.data.cacheUrl || node.data.url || '';
+    // Drawn marks ride on a BAKED COPY of the frame — [Image 1] becomes the annotated
+    // image; the draw template obeys the marks and removes them from the result.
+    const frameSrc = (annotatedFrame || node.data.cacheUrl || node.data.url) || '';
     const frameEdit = !!(useFrame && frameSrc);
     if (frameEdit) ({ body, refs: ordered } = lockBodyToFrame(body, ordered, frameSrc));
     // A CAMERA change under the lock is a NAMED change: reframe the same scene to the
@@ -2950,10 +2882,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: `Agent · Storyboard (${frameEdit ? 'edit in place' : 'render still'})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style, expression: shot.expression, ethnicity, refs: ordered, imageModel, frameEdit }, ctx);
+      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style, expression: shot.expression, ethnicity, refs: ordered, imageModel, frameEdit, frameEditAnnotated: !!annotatedFrame }, ctx);
       // renderedFrameEdit rides with bodyRendered/shotRefs so a tile ↻ re-rolls the SAME
       // kind of render (a locked edit re-rolls as a locked edit).
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false, shotRefs: ordered, bodyRendered: body, renderedFrameEdit: frameEdit, staleStill: undefined } } : n)));
+      const stashRefs = annotatedFrame ? [node.data.cacheUrl || node.data.url, ...ordered.slice(1)].filter(Boolean) : ordered; // never persist megabyte annotated data: urls
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false, shotRefs: stashRefs, bodyRendered: body, renderedFrameEdit: frameEdit, staleStill: undefined } } : n)));
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
     }
@@ -3938,7 +3871,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally { setViewerBusy(null); }
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
-  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onEditArrows: setArrowEditId, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId,
+  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId,
     onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
@@ -4381,23 +4314,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             characters={characters}
             onSave={savePlateCast}
             onClose={() => setPlateCastId(null)}
-          />
-        );
-      })()}
-      {arrowEditId && (() => {
-        const n = nodes.find((x) => x.id === arrowEditId);
-        if (!n) return null;
-        // Edit over the CLEAN frame (arrows live as vectors on top — never rasterized-only).
-        const src = n.data?.cleanUrl || n.data?.cacheUrl || n.data?.localUrl || n.data?.url;
-        if (!src) return null;
-        return (
-          <ArrowEditor
-            key={arrowEditId}
-            src={src}
-            initialArrows={n.data?.arrows || []}
-            saving={arrowSaving}
-            onSave={saveArrows}
-            onClose={() => { if (!arrowSaving) setArrowEditId(null); }}
           />
         );
       })()}

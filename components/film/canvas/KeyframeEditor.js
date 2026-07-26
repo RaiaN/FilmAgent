@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Input, Select, Button, Typography, Message, Checkbox } from '@arco-design/web-react';
 import { IconPlus, IconCheck } from '@arco-design/web-react/icon';
 import { SHOT_TEMPLATES } from '../../../utils/film/recipes';
@@ -24,6 +24,53 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
   // preserved and the render changes ONLY what the text changes. Untick for a free
   // re-composition from text + refs alone.
   const [useFrame, setUseFrame] = useState(!!preview);
+  // PENCIL MARKS (Seedream 5.0 Pro doodle-guided edit): freehand red strokes over the
+  // preview say WHERE the change applies; they bake onto a copy of the frame at Apply
+  // and the template tells the model to obey + remove them. Normalized (0..1) points.
+  const [drawOn, setDrawOn] = useState(false);
+  const [strokes, setStrokes] = useState([]);
+  const drawingRef = useRef(false);
+  const canvasRef = useRef(null);
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    const c = canvasRef.current; const w = wrapRef.current;
+    if (!c || !w) return;
+    const r = w.getBoundingClientRect();
+    c.width = Math.max(1, Math.round(r.width)); c.height = Math.max(1, Math.round(r.height));
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, c.width, c.height);
+    g.strokeStyle = '#ff2d2d'; g.lineWidth = 3; g.lineCap = 'round'; g.lineJoin = 'round';
+    strokes.forEach((pts) => {
+      g.beginPath();
+      pts.forEach((pt, i) => (i ? g.lineTo(pt.x * c.width, pt.y * c.height) : g.moveTo(pt.x * c.width, pt.y * c.height)));
+      g.stroke();
+    });
+  }, [strokes, drawOn, preview]);
+  const strokePoint = (e) => {
+    const r = canvasRef.current.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+  };
+  const bakeAnnotated = () => new Promise((resolve) => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = im.naturalWidth; c.height = im.naturalHeight;
+        const g = c.getContext('2d');
+        g.drawImage(im, 0, 0);
+        g.strokeStyle = '#ff2d2d'; g.lineWidth = Math.max(4, Math.round(c.width * 0.005)); g.lineCap = 'round'; g.lineJoin = 'round';
+        strokes.forEach((pts) => {
+          g.beginPath();
+          pts.forEach((pt, i) => (i ? g.lineTo(pt.x * c.width, pt.y * c.height) : g.moveTo(pt.x * c.width, pt.y * c.height)));
+          g.stroke();
+        });
+        resolve(c.toDataURL('image/jpeg', 0.92));
+      } catch { resolve(null); }
+    };
+    im.onerror = () => resolve(null);
+    im.crossOrigin = 'anonymous';
+    im.src = preview;
+  });
 
   const toggleFig = (n) => setFigures((f) => (f.includes(n) ? f.filter((x) => x !== n) : [...f, n].sort((a, b) => a - b)));
   const inPool = useMemo(() => new Set(pool), [pool]);
@@ -40,7 +87,14 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
     try { const n = await onAddRef(url); if (n) { setFigures((f) => (f.includes(n) ? f : [...f, n].sort((a, b) => a - b))); setAddOpen(false); } }
     catch (e) { Message.error(e.message); }
   };
-  const doRegenerate = () => onSave({ body: body.trim(), figures, shotTemplate, expression, useFrame: useFrame && !!preview });
+  const doRegenerate = async () => {
+    let annotatedFrame = null;
+    if (useFrame && preview && strokes.length) {
+      annotatedFrame = await bakeAnnotated();
+      if (!annotatedFrame) Message.warning('The marks could not be baked (image not readable) — applying the edit without them.');
+    }
+    onSave({ body: body.trim(), figures, shotTemplate, expression, useFrame: useFrame && !!preview, ...(annotatedFrame ? { annotatedFrame } : {}) });
+  };
 
   return (
     <Modal visible title={`Edit shot — ${shot.beat || 'keyframe'}`} onCancel={onClose} footer={null} style={{ width: 1040, maxWidth: '94vw' }} unmountOnExit>
@@ -48,9 +102,27 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
         {/* The STILL is what's being judged — give it the room. */}
         <div style={{ flex: '1.15 1 0', minWidth: 0, alignSelf: 'flex-start' }}>
           {preview ? (
-            <img src={preview} alt="keyframe" style={{ width: '100%', maxHeight: '68vh', objectFit: 'contain', borderRadius: 8, display: 'block', background: '#101418' }} />
+            <div ref={wrapRef} style={{ position: 'relative' }}>
+              <img src={preview} alt="keyframe" style={{ width: '100%', maxHeight: '68vh', objectFit: 'contain', borderRadius: 8, display: 'block', background: '#101418' }} />
+              <canvas
+                ref={canvasRef}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', cursor: drawOn ? 'crosshair' : 'default', pointerEvents: drawOn ? 'auto' : 'none', touchAction: 'none' }}
+                onPointerDown={(e) => { drawingRef.current = true; e.currentTarget.setPointerCapture(e.pointerId); setStrokes((st) => [...st, [strokePoint(e)]]); }}
+                onPointerMove={(e) => { if (!drawingRef.current) return; setStrokes((st) => { const next = st.slice(); next[next.length - 1] = [...next[next.length - 1], strokePoint(e)]; return next; }); }}
+                onPointerUp={() => { drawingRef.current = false; }}
+              />
+            </div>
           ) : (
             <div style={{ height: 280, background: '#f2f3f5', borderRadius: 8 }} />
+          )}
+          {preview && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+              <Button size="mini" type={drawOn ? 'primary' : 'secondary'} onClick={() => setDrawOn((v) => !v)} style={drawOn ? { background: '#ff2d2d', borderColor: '#ff2d2d' } : {}}>
+                {drawOn ? 'Drawing…' : '✏ Draw on frame'}
+              </Button>
+              {strokes.length > 0 && <Button size="mini" onClick={() => setStrokes([])}>Clear marks</Button>}
+              {strokes.length > 0 && <Text type="secondary" style={{ fontSize: 11 }}>marks show WHERE the edit applies — removed from the result</Text>}
+            </div>
           )}
           {loading && <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>Rendering…</Text>}
         </div>

@@ -31,6 +31,14 @@ export const loadCloudProject = async (id) => {
   return res.json(); // { project, media[], savedAt, name }
 };
 
+// PURGE a cloud project: manifest + history always; media only where no other
+// project still references the key (the mirror is content-addressed and shared).
+export const deleteCloudProject = async (id) => {
+  const res = await fetch(`/api/film/cloud?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw await err(res, `Cloud delete failed (HTTP ${res.status})`);
+  return res.json(); // { ok, projectId, removedObjects, removedMedia, keptShared }
+};
+
 // ---- last-open pointer (localStorage) — what a page REFRESH restores -------------
 // {kind:'cloud', id} | {kind:'path', path}. Written on every successful save/open;
 // cleared by "New". Tiny by design: the pointer names the project, the cloud/folder

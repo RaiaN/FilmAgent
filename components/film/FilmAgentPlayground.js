@@ -20,6 +20,7 @@ import {
   IconCloudDownload,
   IconDownload,
   IconPlayArrow,
+  IconDelete,
 } from '@arco-design/web-react/icon';
 import FilmCanvas from './canvas/FilmCanvas';
 import PromptSettings from './PromptSettings';
@@ -30,7 +31,7 @@ import {
   pickProjectFolder,
   saveProjectAny,
 } from '../../utils/film/projectStore';
-import { saveProjectToCloud, listCloudProjects, loadCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
+import { saveProjectToCloud, listCloudProjects, loadCloudProject, deleteCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
 import { applyDeployModels } from '../../utils/film/suiteConfig';
 
 const { Title, Text } = Typography;
@@ -434,6 +435,30 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
                     } catch (err) {
                       Message.error(`Manifest download failed: ${err.message}`);
                     }
+                  }}
+                />
+                <Button
+                  size="small"
+                  status="danger"
+                  icon={<IconDelete />}
+                  title="Delete this project from the cloud — manifest, history, and any media no other project still uses"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    Modal.confirm({
+                      title: `Delete “${it.name || it.projectId}” from the cloud?`,
+                      content: 'Removes its manifest, save history, and every media object no other project references (shared media is kept). This cannot be undone.',
+                      okText: 'Delete permanently',
+                      okButtonProps: { status: 'danger' },
+                      onOk: async () => {
+                        try {
+                          const r = await deleteCloudProject(it.projectId);
+                          Message.success(`Deleted — ${r.removedMedia} media purged${r.keptShared ? `, ${r.keptShared} kept (shared with other projects)` : ''}`);
+                          setCloudPicker((prev) => ({ ...prev, items: (prev.items || []).filter((x) => x.projectId !== it.projectId) }));
+                        } catch (err) {
+                          Message.error(`Delete failed: ${err.message}`);
+                        }
+                      },
+                    });
                   }}
                 />
               </div>

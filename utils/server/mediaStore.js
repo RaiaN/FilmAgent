@@ -83,6 +83,18 @@ export const checkInUrl = async (url, { timeoutMs = 120000 } = {}) => {
 export const mediaFilePath = (key) => path.join(MEDIA_DIR, key);
 export const mediaFileExists = (key) => fs.existsSync(path.join(MEDIA_DIR, key));
 
+// Drop one key from the LOCAL store (disk file + unmirrored ledger). TOS mirror
+// deletion is the caller's job (cloud purge does reference-counting first — the
+// store itself can't know which projects still use a shared, content-addressed key).
+export const deleteStoreKey = (key) => {
+  if (!KEY_RE.test(String(key || ''))) return false;
+  const file = path.resolve(MEDIA_DIR, key);
+  if (!file.startsWith(MEDIA_DIR + path.sep)) return false;
+  try { if (fs.existsSync(file)) fs.unlinkSync(file); } catch { /* cache only — best effort */ }
+  clearUnmirrored(key);
+  return true;
+};
+
 // Extract a store key from ANY store-url shape (relative `/api/film/media?key=…` or an
 // absolutized `http://host/api/film/media?key=…`). Null for non-store urls.
 export const storeKeyFromUrl = (url) => {

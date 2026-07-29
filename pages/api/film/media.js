@@ -28,9 +28,29 @@ export default async function mediaHandler(req, res) {
         return res.status(status).json({ error: e.message });
       }
       const ext = key.split('.').pop().toLowerCase();
+      const file = path.resolve(mediaFilePath(key));
+      const { size } = fs.statSync(file);
       res.setHeader('Content-Type', TYPE_BY_EXT[ext] || 'application/octet-stream');
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // content-hashed → never changes
-      fs.createReadStream(path.resolve(mediaFilePath(key))).pipe(res);
+      // RANGE support is what makes <video> SEEKABLE — without it the player can't
+      // jump the playhead until the whole file has downloaded (the Take Viewer bug).
+      res.setHeader('Accept-Ranges', 'bytes');
+      const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
+      if (range && (range[1] || range[2])) {
+        const start = range[1] ? parseInt(range[1], 10) : Math.max(0, size - parseInt(range[2], 10));
+        const end = range[1] && range[2] ? Math.min(parseInt(range[2], 10), size - 1) : size - 1;
+        if (start >= size || start > end) {
+          res.setHeader('Content-Range', `bytes */${size}`);
+          return res.status(416).end();
+        }
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+        res.setHeader('Content-Length', end - start + 1);
+        fs.createReadStream(file, { start, end }).pipe(res);
+        return undefined;
+      }
+      res.setHeader('Content-Length', size);
+      fs.createReadStream(file).pipe(res);
       return undefined;
     }
 

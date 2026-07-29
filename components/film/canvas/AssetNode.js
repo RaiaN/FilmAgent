@@ -342,7 +342,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
               )}
             <span
               className="nodrag"
-              title="Open the Take Viewer"
+              title="Open in the Take Viewer — scrub and frame-step, then extract the exact frame, first/last frame, a described note, or the audio track"
               onClick={(e) => { e.stopPropagation(); onOpenViewer && onOpenViewer(id); }}
               style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
             >
@@ -503,16 +503,8 @@ const AssetNodeInner = ({ id, data, selected }) => {
           )}
           {/* Actions: icons only (tooltip carries the meaning). */}
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            {/* ANY board video → the Take Viewer: scrub, frame-step, extract frames /
-                a described note / the audio track. Nothing runs on open. */}
-            {kind === 'video' && (cacheUrl || url) && onOpenViewer && (
-              <IconPlayCircle
-                className="nodrag"
-                onClick={(e) => { e.stopPropagation(); onOpenViewer(id); }}
-                title="Open in the Take Viewer — scrub and frame-step, then extract the exact frame, first/last frame, a described note, or the audio track"
-                style={{ fontSize: 15, cursor: 'pointer', color: '#0fc6c2' }}
-              />
-            )}
+            {/* The Take Viewer opens from the poster's ▶ badge (or double-click) —
+                ONE play affordance per card, no caption duplicate. */}
             {/* A rendered Take → add it to / remove it from the Final Cut timeline. */}
             {kind === 'video' && url && onAddToTimeline && (
               onTimeline ? (

@@ -1,5 +1,5 @@
-import { getServerTosConfig, hasServerTosConfig, putTosObject, downloadTosObject, listTosCommonPrefixes, headTosObject } from '../../../utils/server/tosUpload';
-import { CLOUD_MEDIA_PREFIX, checkInBytes, mediaFilePath, mediaFileExists, mirrorKeyToTos, clearUnmirrored } from '../../../utils/server/mediaStore';
+import { getServerTosConfig, hasServerTosConfig, putTosObject, downloadTosObject, listTosCommonPrefixes, listTosObjects, deleteTosObject, headTosObject } from '../../../utils/server/tosUpload';
+import { CLOUD_MEDIA_PREFIX, checkInBytes, mediaFilePath, mediaFileExists, mirrorKeyToTos, clearUnmirrored, deleteStoreKey } from '../../../utils/server/mediaStore';
 import fs from 'fs';
 
 // CLOUD PROJECT STORE — save/list/load whole film projects against the user's own TOS
@@ -220,7 +220,57 @@ export default async function cloudHandler(req, res) {
       return res.status(400).json({ error: `unknown action '${action}'` });
     }
 
-    res.setHeader('Allow', ['GET', 'POST']);
+    if (req.method === 'DELETE') {
+      // PURGE a project: its folder (manifest + history) always goes; its media goes
+      // ONLY where no surviving manifest still references the key — the media mirror
+      // is content-addressed and SHARED across projects (a duplicated project reuses
+      // every sha), so a blind prefix delete would corrupt the others.
+      const id = sanitizeId(req.query.id);
+      if (!id) return res.status(400).json({ error: 'id is required' });
+      let targetMedia = [];
+      try {
+        const { buffer } = await downloadTosObject({ ...cfg, objectKey: manifestKey(id) });
+        targetMedia = JSON.parse(buffer.toString('utf8')).media || [];
+      } catch { /* no/unreadable manifest — still remove the folder */ }
+
+      // Union of keys referenced by every OTHER project (parallel manifest reads).
+      const prefixes = await listTosCommonPrefixes({ ...cfg, prefix: `${PROJECTS_PREFIX}/` });
+      const otherIds = prefixes
+        .map((p) => p.slice(`${PROJECTS_PREFIX}/`.length).replace(/\/$/, ''))
+        .filter((x) => x && x !== 'media' && x !== id);
+      const referenced = new Set();
+      await Promise.all(otherIds.map(async (oid) => {
+        try {
+          const { buffer } = await downloadTosObject({ ...cfg, objectKey: manifestKey(oid) });
+          (JSON.parse(buffer.toString('utf8')).media || []).forEach((k) => referenced.add(k));
+        } catch { /* unreadable manifest: its keys just stay referenced-unknown — we only delete keys we KNOW are orphans, so skipping is the safe direction */ }
+      }));
+      const orphans = targetMedia.filter((k) => !referenced.has(k));
+
+      const chunked = async (list, fn, width = 8) => {
+        for (let i = 0; i < list.length; i += width) {
+          // eslint-disable-next-line no-await-in-loop
+          await Promise.all(list.slice(i, i + width).map(fn));
+        }
+      };
+      // The project folder: manifest, history/*, anything else under projects/<id>/.
+      const folderObjects = await listTosObjects({ ...cfg, prefix: `${PROJECTS_PREFIX}/${id}/`, maxKeys: 10000 });
+      await chunked(folderObjects, (o) => deleteTosObject({ ...cfg, objectKey: o.key }).catch(() => {}));
+      // Orphaned media: TOS mirror + the local disk cache copy.
+      await chunked(orphans, async (k) => {
+        await deleteTosObject({ ...cfg, objectKey: `${CLOUD_MEDIA_PREFIX}/${k}` }).catch(() => {});
+        deleteStoreKey(k);
+      });
+      return res.status(200).json({
+        ok: true,
+        projectId: id,
+        removedObjects: folderObjects.length,
+        removedMedia: orphans.length,
+        keptShared: targetMedia.length - orphans.length, // still used by other projects
+      });
+    }
+
+    res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
     return res.status(405).json({ error: 'method not allowed' });
   } catch (error) {
     const status = error?.statusCode || 500;

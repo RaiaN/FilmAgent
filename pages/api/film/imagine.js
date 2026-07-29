@@ -42,7 +42,7 @@ export default async function imagineHandler(req, res) {
     size = '2K',
     model,                 // optional override; defaults to the suite's Seedream model
     seed,                  // optional fixed seed (the Storyboard holds it constant across frames)
-    optimizePrompt,        // Seedream 5.0 Pro "thinking" prompt optimization (text-to-image only)
+    optimizePrompt,        // Seedream 5.0 Pro thinking: true = enabled, false = explicitly DISABLED (fast path), undefined = model default. Works for t2i AND i2i per the Pro docs.
   } = req.body || {};
   let seedreamModel = model;
   if (!seedreamModel) {
@@ -106,11 +106,18 @@ export default async function imagineHandler(req, res) {
       body.image = refs; // Seedream multi-image blend
     }
     if (seed != null && seed !== '') body.seed = Number(seed);
-    // Prompt optimization with THINKING (Seedream 5.0 Pro): the model reasons about the
-    // prompt before rendering. Per the API this exists for TEXT-TO-IMAGE only — it is
-    // rejected alongside reference images — so it rides ONLY on ref-free requests.
-    // Callers may pass the flag unconditionally; the gate lives here, once.
-    if (optimizePrompt && refs.length === 0) body.optimize_prompt_options = { thinking: 'enabled' };
+    // Seedream 5.0 Pro THINKING switch (per the Pro doc: works for BOTH text-to-image
+    // and image-to-image): optimize_prompt: true arms the options block, thinking
+    // 'enabled' | 'disabled' flips the chain-of-thought step. true → enabled (quality),
+    // false → explicitly disabled (the FAST path — edits/variations), undefined → the
+    // model's default (we send nothing).
+    if (optimizePrompt === true) {
+      body.optimize_prompt = true;
+      body.optimize_prompt_options = { thinking: 'enabled' };
+    } else if (optimizePrompt === false) {
+      body.optimize_prompt = true;
+      body.optimize_prompt_options = { thinking: 'disabled' };
+    }
 
     const response = await fetch(`${endpointBase}/images/generations`, {
       method: 'POST',

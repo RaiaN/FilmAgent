@@ -65,6 +65,7 @@ async function seedreamHandler(req, res) {
 
     // Optimize Prompt (5.0/4.5/4.0)
     if (optimize_prompt_options) {
+      payload.optimize_prompt = true; // arms the options block (per the Pro thinking doc)
       payload.optimize_prompt_options = optimize_prompt_options;
     }
 

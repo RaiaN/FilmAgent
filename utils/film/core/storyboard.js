@@ -302,6 +302,10 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
     referenceImages: images,
     size: keyframeImageSize(imageModel),
     model: getModel(imageModel, config),
+    // Edit-locked renders take the FAST path — thinking explicitly disabled (the frame
+    // carries the structure; chain-of-thought only adds latency). Composed renders keep
+    // the model default (no flag sent).
+    ...(frameEdit ? { optimizePrompt: false } : {}),
   });
   if (!url) throw new Error('No keyframe URL in response');
   return { url, cacheUrl };

@@ -108,3 +108,10 @@ body {
 }
 
 .link-button.secondary:hover { background-color: #e0e7ff; }
+
+/* Film canvas performance: promote the board viewport to its own cached GPU layer —
+   panning then translates a texture instead of repainting 100+ cards per frame.
+   (Zoom re-rasterizes once per step; card faces are inert stills so that's cheap.) */
+.react-flow__viewport {
+  will-change: transform;
+}

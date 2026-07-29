@@ -1,4 +1,4 @@
-import { getServerTosConfig, hasServerTosConfig, putTosObject, downloadTosObject, listTosObjects, headTosObject } from '../../../utils/server/tosUpload';
+import { getServerTosConfig, hasServerTosConfig, putTosObject, downloadTosObject, listTosCommonPrefixes, headTosObject } from '../../../utils/server/tosUpload';
 import { CLOUD_MEDIA_PREFIX, checkInBytes, mediaFilePath, mediaFileExists, mirrorKeyToTos, clearUnmirrored } from '../../../utils/server/mediaStore';
 import fs from 'fs';
 
@@ -188,17 +188,21 @@ export default async function cloudHandler(req, res) {
       const action = String(req.query.action || 'list');
 
       if (action === 'list') {
-        const objects = await listTosObjects({ ...cfg, prefix: `${PROJECTS_PREFIX}/`, maxKeys: 2000 });
-        const manifests = objects.filter((o) => /^projects\/[^/]+\/project\.json$/.test(o.key));
-        const items = [];
-        for (const m of manifests) {
-          // eslint-disable-next-line no-await-in-loop
+        // Delimiter listing → just the project FOLDERS (one cheap call; the media
+        // mirror under projects/media/ is never swept, so thousands of blobs can't
+        // slow this down or page manifests out). Manifests then download in PARALLEL —
+        // sequential TOS round-trips made this dialog take 10s+.
+        const prefixes = await listTosCommonPrefixes({ ...cfg, prefix: `${PROJECTS_PREFIX}/` });
+        const ids = prefixes
+          .map((p) => p.slice(`${PROJECTS_PREFIX}/`.length).replace(/\/$/, ''))
+          .filter((id) => id && id !== 'media');
+        const items = (await Promise.all(ids.map(async (id) => {
           try {
-            const { buffer } = await downloadTosObject({ ...cfg, objectKey: m.key });
+            const { buffer } = await downloadTosObject({ ...cfg, objectKey: manifestKey(id) });
             const j = JSON.parse(buffer.toString('utf8'));
-            items.push({ projectId: j.projectId, name: j.name, savedAt: j.savedAt, mediaCount: (j.media || []).length });
-          } catch { /* skip unreadable manifest */ }
-        }
+            return { projectId: j.projectId, name: j.name, savedAt: j.savedAt, mediaCount: (j.media || []).length };
+          } catch { return null; } // folder without a readable manifest — skip
+        }))).filter(Boolean);
         items.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
         return res.status(200).json({ items });
       }

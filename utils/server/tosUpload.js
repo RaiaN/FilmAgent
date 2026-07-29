@@ -210,6 +210,24 @@ export async function downloadTosObject({ accessKey, secretKey, tosBucket, tosRe
   return { buffer: res.data.content, contentType: res.headers?.['content-type'] || 'application/octet-stream' };
 }
 
+// List the immediate "folders" under a prefix (delimiter listing → CommonPrefixes).
+// One cheap call that never sweeps the objects INSIDE those folders — the project
+// list needs this because projects/media/ holds thousands of mirrored blobs that a
+// flat listing would page through (and could truncate manifests out of).
+export async function listTosCommonPrefixes({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, prefix }) {
+  const client = makeClient({ accessKey, secretKey, tosRegion, tosEndpoint });
+  const out = [];
+  let continuationToken;
+  do {
+    const params = { bucket: tosBucket, prefix, delimiter: '/', maxKeys: 1000, ...(continuationToken ? { continuationToken } : {}) };
+    // eslint-disable-next-line no-await-in-loop
+    const res = await client.listObjectsType2(params);
+    (res.data.CommonPrefixes || []).forEach((p) => { if (p.Prefix) out.push(p.Prefix); });
+    continuationToken = res.data.IsTruncated ? res.data.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return out;
+}
+
 // List every object under a prefix (paginates past the 1000-key page limit).
 export async function listTosObjects({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, prefix, maxKeys = 1000 }) {
   const client = makeClient({ accessKey, secretKey, tosRegion, tosEndpoint });

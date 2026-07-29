@@ -12,7 +12,7 @@ const { Text } = Typography;
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, onViewImage: null, lod: false });
+export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, onViewImage: null, onNeedPoster: null, lod: false });
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
 // colour for its badge so the cast & world read at a glance on the board.
@@ -44,7 +44,7 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, cacheUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, onViewImage, lod } = useContext(AssetNodeContext);
+  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, onViewImage, onNeedPoster, lod } = useContext(AssetNodeContext);
   // Inline body edit on an UNRENDERED shot card (double-click) — free, no render, no LLM.
   const [editBody, setEditBody] = useState(null);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
@@ -96,6 +96,15 @@ const AssetNodeInner = ({ id, data, selected }) => {
   const provablyExpired = dead && isProvablyExpired(url);
   const healing = dead && preserved && !localUrl;
   const expired = dead && !healing; // the error card (its verdict text splits on provablyExpired)
+
+  // A video card shows a POSTER still, never a mounted <video> — dozens of live
+  // players (decoder + metadata fetch each) made big boards crawl. The canvas
+  // extracts the first frame once and stamps data.posterUrl; playback lives in
+  // the Take Viewer only.
+  useEffect(() => {
+    // !posterScaled also re-asks for early FULL-RES posters (pre-downscale stamps).
+    if (kind === 'video' && (cacheUrl || url) && (!data.posterUrl || !data.posterScaled) && onNeedPoster) onNeedPoster(id);
+  }, [kind, cacheUrl, url, data.posterUrl, data.posterScaled, onNeedPoster, id]);
 
   // Inline rename (shared EditableLabel) — when an onRename handler is provided.
   const canRename = typeof onRename === 'function';
@@ -319,7 +328,27 @@ const AssetNodeInner = ({ id, data, selected }) => {
           </div>
         )}
         {kind === 'video' && url && (
-          <video src={cacheUrl || url} title="Double-click — open the Take Viewer" style={{ width: '100%', display: 'block' }} muted loop playsInline controls preload="metadata" onDoubleClick={(e) => { e.stopPropagation(); onOpenViewer && onOpenViewer(id); }} />
+          <div
+            title="Double-click — open the Take Viewer"
+            onDoubleClick={(e) => { e.stopPropagation(); onOpenViewer && onOpenViewer(id); }}
+            style={{ position: 'relative', background: '#000' }}
+          >
+            {data.posterUrl
+              ? <img src={data.posterUrl} alt={label || 'take'} loading="lazy" decoding="async" style={{ width: '100%', display: 'block', opacity: 0.94 }} />
+              : (
+                <div style={{ height: 124, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: '#4e5969', fontSize: 12, fontWeight: 700, letterSpacing: 1 }}>VID</Text>
+                </div>
+              )}
+            <span
+              className="nodrag"
+              title="Open the Take Viewer"
+              onClick={(e) => { e.stopPropagation(); onOpenViewer && onOpenViewer(id); }}
+              style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+            >
+              <IconPlayCircle style={{ fontSize: 20 }} />
+            </span>
+          </div>
         )}
         {kind === 'audio' && (cacheUrl || url) && (
           <audio src={cacheUrl || url} controls style={{ width: '100%', padding: 8 }} />

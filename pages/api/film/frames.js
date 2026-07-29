@@ -28,8 +28,13 @@ export default async function framesHandler(req, res) {
     res.setHeader('Allow', ['POST']);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
-  const { url, timestamps } = req.body || {};
+  const { url, timestamps, maxWidth } = req.body || {};
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url (the Take video URL) is required' });
+  // Optional downscale (poster thumbnails): a full-res frame painted at card size
+  // makes the canvas re-rasterize megapixels on every zoom tick. Extract-to-board
+  // callers omit it and keep full resolution.
+  const w = Number(maxWidth);
+  const scaleArgs = Number.isFinite(w) && w > 0 ? ['-vf', `scale='min(${Math.round(w)},iw)':-2`] : [];
   const ts = (Array.isArray(timestamps) ? timestamps : [])
     .map((t) => Number(t))
     .filter((t) => Number.isFinite(t) && t >= 0)
@@ -60,7 +65,7 @@ export default async function framesHandler(req, res) {
       const outFile = path.join(dir, `f${i}.jpg`);
       try {
         // eslint-disable-next-line no-await-in-loop
-        await runFfmpeg(ffmpegPath, ['-y', '-ss', String(t), '-i', inFile, '-frames:v', '1', '-q:v', '3', outFile]);
+        await runFfmpeg(ffmpegPath, ['-y', '-ss', String(t), '-i', inFile, '-frames:v', '1', ...scaleArgs, '-q:v', '3', outFile]);
         // SOURCE-SIDE durability: the frame goes straight into the store — the client
         // receives a stable store url, never megabytes of base64 (data: fallback on hiccup).
         let frameUrl;

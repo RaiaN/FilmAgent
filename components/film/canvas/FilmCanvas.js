@@ -444,6 +444,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const timelineEvents = useMemo(() => orderedEvents(timeline.events || []), [timeline.events]);
   // Which board take nodes are currently ON the timeline (drives the Take node's button).
   const onTimelineNodeIds = useMemo(() => new Set((timelineEvents || []).map((e) => e.shotNodeId).filter(Boolean)), [timelineEvents]);
+  // The dock renders clip thumbs from POSTERS (no <video> anywhere but the Take
+  // Viewer) — enrich each event with its board take's posterUrl at render time,
+  // never into the stored timeline (the take node owns the poster).
+  const timelinePosters = useMemo(() => {
+    const m = new Map();
+    nodes.forEach((n) => { if (n.data?.kind === 'video' && n.data?.posterUrl) m.set(n.id, n.data.posterUrl); });
+    return m;
+  }, [nodes]);
+  const timelineEventsView = useMemo(
+    () => timelineEvents.map((e) => (e.shotNodeId && timelinePosters.get(e.shotNodeId) ? { ...e, posterUrl: timelinePosters.get(e.shotNodeId) } : e)),
+    [timelineEvents, timelinePosters],
+  );
   const bibleEntries = useMemo(() => bible.entries || [], [bible.entries]);
   const bibleRef = useRef(bibleEntries);  // latest bible for the async session/transport
   useEffect(() => { bibleRef.current = bibleEntries; }, [bibleEntries]);
@@ -3753,6 +3765,43 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     }
   }, [setNodes]);
 
+  // ---- TAKE POSTERS — video cards render a still, never a live <video> ----------
+  // Dozens of mounted players (a decoder + metadata fetch each) made big boards
+  // crawl. Each video node asks ONCE per session: the first frame is extracted
+  // server-side (ffmpeg — no model spend), checked into the media store, and
+  // stamped as data.posterUrl — which serializes, so the next open costs nothing.
+  // Playback lives in the Take Viewer only.
+  const posterAskedRef = useRef(new Set());
+  const posterQueueRef = useRef({ running: 0, waiting: [] }); // ≤3 extractions in flight — a 34-take board must not stampede ffmpeg
+  const ensurePoster = useCallback((nodeId) => {
+    if (posterAskedRef.current.has(nodeId)) return;
+    posterAskedRef.current.add(nodeId);
+    const run = async () => {
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      const src = node && absLocalMediaUrl(node.data?.cacheUrl || node.data?.url || '');
+      if (!src || src.startsWith('data:')) return;
+      try {
+        // maxWidth: a poster is a thumbnail — full-res frames painted at card size make
+        // zoom re-rasterize megapixels. posterScaled marks the downscaled generation so
+        // earlier full-res stamps self-heal on their next open.
+        const res = await fetch('/api/film/frames', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: src, timestamps: [0], maxWidth: 512 }) });
+        const out = await res.json();
+        const posterUrl = out?.frames?.[0]?.url;
+        // A data: fallback would bloat the manifest — stamp only a store url.
+        if (!res.ok || !posterUrl || posterUrl.startsWith('data:')) return;
+        setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, posterUrl, posterScaled: true } } : n)));
+      } catch { /* the card keeps its inert tile — the Take Viewer still plays it */ }
+    };
+    const q = posterQueueRef.current;
+    const next = () => {
+      if (!q.waiting.length || q.running >= 3) return;
+      q.running += 1;
+      q.waiting.shift()().finally(() => { q.running -= 1; next(); });
+    };
+    q.waiting.push(run);
+    next();
+  }, [setNodes]);
+
   // The director's ✕ = RESET all the way back to the "What are we making?" launcher
   // (user's explicit instruction — that IS the initial board state). So besides
   // wiping the board/takes/idea, it CLEARS THE RECIPE (recipe:null → the launcher
@@ -3871,11 +3920,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally { setViewerBusy(null); }
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
-  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId,
+  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster,
     onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
-    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, duplicateNode, lodCoarse, demoOverlay]);
+    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, duplicateNode, ensurePoster, lodCoarse, demoOverlay]);
 
   // The Storyboard chat node runs one brainstorm turn per message, scoped to its own cards.
   // Pool mutations for the chat node's REFS block (SHOT-card-style chips): toggle a bible
@@ -4138,10 +4187,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           onNodeDragStop={handleNodeDragStop}
           onInit={setRfInstance}
           nodeTypes={nodeTypes}
-          // Only mount nodes inside the viewport — a SHOT card is a heavy subtree (controls,
-          // bible chips, media), so rendering off-screen ones makes cost scale with TOTAL
-          // cards instead of VISIBLE cards. The single biggest win with a busy board.
-          onlyRenderVisibleElements
+          // NO onlyRenderVisibleElements: card faces are inert (posters + LOD tiles, no
+          // live media), so mounting the whole board ONCE beats viewport culling — culling
+          // remounts nodes on every pan across the edge, and a remounted media element
+          // re-fetches and re-decodes. Steady DOM, pan/zoom = pure transform.
           fitView
           minZoom={0.1}
           maxZoom={2}
@@ -4208,7 +4257,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         {/* The Timeline is the fundamental layer — always on, whatever agent (if
             any) is selected. It's the spine the whole UX hangs on. */}
         <StoryTimeline
-          events={timelineEvents}
+          events={timelineEventsView}
           targetSeconds={timeline.targetSeconds}
           film={timeline.film}
           collapsed={timelineCollapsed}

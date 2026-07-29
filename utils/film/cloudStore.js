@@ -42,8 +42,12 @@ export const clearLastProjectPointer = () => { try { localStorage.removeItem(LAS
 
 // Warm the read-through cache after a cloud load — fire-and-forget, small concurrency,
 // so tiles the user hasn't scrolled to yet are already local when they get there.
+// IMAGES ONLY: board cards never play video (poster faces), so pulling every take
+// mp4 through the read-through on open flooded the server with tens of MB per take
+// and made the canvas laggy right after load. Video/audio stream on demand (Take
+// Viewer, stitch and poster extraction all read the store server-side).
 export const prefetchCloudMedia = (keys = [], concurrency = 4) => {
-  const queue = [...keys];
+  const queue = keys.filter((k) => /\.(jpe?g|png|webp|gif)$/i.test(String(k)));
   const next = () => {
     const key = queue.shift();
     if (!key) return;

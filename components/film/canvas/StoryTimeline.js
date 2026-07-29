@@ -68,7 +68,11 @@ const FilmPlayer = ({ film, onClose }) => (
 // ---- one clip on the time-scaled track ----------------------------------------
 const Clip = ({ event, index, total, width, selected, onSelect, onTrimStart, onMove, onRemove }) => {
   const status = STATUS_META[event.status] || STATUS_META.empty;
-  const thumb = event.keyframeUrl || event.shotUrl;
+  // Thumbs are STILLS only — a <video> per clip meant a live decoder per clip, which
+  // dragged the whole canvas down on long timelines. A shot clip uses its take's
+  // extracted poster (the canvas enriches events with it); until that lands, an
+  // inert ▶ tile stands in. The only player left is the Final-cut modal.
+  const still = event.posterUrl || event.keyframeUrl;
   const narrow = width < 64;
   const [hover, setHover] = useState(false);
   const firstClip = index === 0;
@@ -86,11 +90,12 @@ const Clip = ({ event, index, total, width, selected, onSelect, onTrimStart, onM
         boxShadow: selected ? `0 0 0 2px ${COLOR}55` : 'none',
       }}
     >
-      {thumb ? (
-        event.status === 'shot' && event.shotUrl
-          // eslint-disable-next-line jsx-a11y/media-has-caption
-          ? <video src={event.shotUrl} muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.92 }} />
-          : <img src={thumb} alt={event.beat} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.92 }} />
+      {still ? (
+        <img src={still} alt={event.beat} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.92 }} />
+      ) : event.status === 'shot' && event.shotUrl ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+          <span style={{ color: '#86909c', fontSize: 14 }}>▶</span>
+        </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
           {event.status === 'rendering' ? <IconLoading style={{ color: '#fff' }} /> : <Text style={{ fontSize: 9, color: '#86909c' }}>empty</Text>}

@@ -1,24 +1,28 @@
 import { generateAssetGroupId } from './assetGroupId';
-import { ROOT_CONFIG } from './film/suiteConfig';
+import { resolveModelId } from './film/suiteConfig';
 
 // Seedream (image) endpoints for the Tools → Image dropdown — Lite + Pro. Endpoint ids
 // come from the suite-config registry (ROOT_CONFIG.models) so the tab and the film suite
 // share one source; `label` is the dropdown name. `.filter` drops any id not configured yet.
-const DEFAULT_SEEDREAM_MODEL = ROOT_CONFIG.models.seedream;
-const seedreamEndpoints = [
-    { value: ROOT_CONFIG.models.seedream, label: 'Seedream 5.0 Lite' },
-    { value: ROOT_CONFIG.models.seedreamPro, label: 'Seedream 5.0 Pro' },
+// LIVE lookups, evaluated at ACCESS time — model ids are env-configured with NO
+// built-in defaults, and the browser only learns them when /api/film/config hydrates
+// (applyDeployModels). A module-load capture here froze `null` into every dropdown
+// ("model is required" on the Tools tabs even with a fully configured .env.local).
+const seedreamEndpointsLive = () => [
+    { value: resolveModelId('seedream'), label: 'Seedream 5.0 Lite' },
+    { value: resolveModelId('seedreamPro'), label: 'Seedream 5.0 Pro' },
 ].filter((o) => o.value);
+const defaultSeedreamModel = () => seedreamEndpointsLive()[0]?.value || null; // first CONFIGURED endpoint — never a hardcoded id
 
 // Seedance (video) endpoints for the Tools → Video dropdown. Endpoint ids come from
 // the suite-config registry (ROOT_CONFIG.models) so they live in one place; `label`
 // is the human name shown in the dropdown. `.filter` drops any id not configured yet.
-const DEFAULT_SEEDANCE_MODEL = ROOT_CONFIG.models.seedance;
-const seedanceEndpoints = [
-    { value: ROOT_CONFIG.models.seedance, label: 'Seedance 2.0' },
-    { value: ROOT_CONFIG.models.seedanceFast, label: 'Seedance 2.0 Fast' },
-    { value: ROOT_CONFIG.models.seedanceMini, label: 'Seedance 2.0 Mini' },
+const seedanceEndpointsLive = () => [
+    { value: resolveModelId('seedance'), label: 'Seedance 2.0' },
+    { value: resolveModelId('seedanceFast'), label: 'Seedance 2.0 Fast' },
+    { value: resolveModelId('seedanceMini'), label: 'Seedance 2.0 Mini' },
 ].filter((o) => o.value);
+const defaultSeedanceModel = () => seedanceEndpointsLive()[0]?.value || null; // first CONFIGURED endpoint — never a hardcoded id
 
 // LLM Models — explicit list, newest first
 const LLM_MODEL_IDS = [
@@ -38,8 +42,8 @@ export const baseSchemas = {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: seedreamEndpoints,
-        defaultValue: DEFAULT_SEEDREAM_MODEL,
+        get options() { return seedreamEndpointsLive(); },
+        get defaultValue() { return defaultSeedreamModel(); },
         description: 'Seedream endpoint. Pro is the latest (up to 10 reference images) but caps output area at 2048² (no 4K); Lite allows 2K/4K and up to 6 refs.',
       },
       {
@@ -65,7 +69,7 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: DEFAULT_SEEDREAM_MODEL,
+      get model() { return defaultSeedreamModel(); },
       prompt: 'A hero product shot of a premium skincare bottle on a minimal studio set.',
       size: '2K',
       image: [],
@@ -121,8 +125,8 @@ export const baseSchemas = {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: seedanceEndpoints,
-        defaultValue: DEFAULT_SEEDANCE_MODEL,
+        get options() { return seedanceEndpointsLive(); },
+        get defaultValue() { return defaultSeedanceModel(); },
         description: 'Seedance endpoint used for video generation. Fast trades a little fidelity for speed; Mini is the cheapest and caps at 720p.',
       },
       {
@@ -197,7 +201,7 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: DEFAULT_SEEDANCE_MODEL,
+      get model() { return defaultSeedanceModel(); },
       prompt: 'A cinematic shot of a futuristic city with flying cars.',
       reference_image_refs: [],
       reference_video_refs: [],

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layout, Button, Drawer, Input, Message, Card, Typography } from '@arco-design/web-react';
 import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconMindMapping, IconUser, IconSound, IconApps } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
+import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
 import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
@@ -48,7 +49,22 @@ export default function Home() {
     let cancelled = false;
     fetch('/api/film/config')
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (!cancelled && j) setHasServerKey(!!j.hasServerKey); })
+      .then((j) => {
+        if (cancelled || !j) return;
+        // Model ids are env-only (no built-in defaults) and reach the browser HERE —
+        // hydrate the registry, then back-fill any tab whose model is still unset
+        // (its initial form state was built before the ids existed).
+        applyDeployModels(j.models || null);
+        setHasServerKey(!!j.hasServerKey);
+        setFormStateByModel((prev) => {
+          const next = { ...prev };
+          Object.keys(next).forEach((k) => {
+            const d = getSchemaDefaults(k);
+            if (d.model && !next[k]?.model) next[k] = { ...next[k], model: d.model };
+          });
+          return next;
+        });
+      })
       .catch(() => { /* open starter-kit mode */ });
     return () => { cancelled = true; };
   }, []);

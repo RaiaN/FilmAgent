@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layout, Button, Drawer, Input, Message, Card, Typography } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconMindMapping, IconUser, IconSound, IconApps } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconSound, IconApps } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
@@ -13,7 +13,6 @@ import LLMPlayground from '../components/LLMPlayground';
 import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
 import AssetUploadPlayground from '../components/AssetUploadPlayground';
 import SpeechPlayground from '../components/SpeechPlayground';
-import WorkflowEditor from '../components/workflow/WorkflowEditor';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
@@ -35,7 +34,7 @@ const buildInitialResultState = () =>
   }, {});
 
 // Raw model playgrounds grouped under the "Tools" meta tab.
-const TOOL_TABS = ['seedream', 'seedance', 'asset-upload', 'llm', 'speech', 'workflow'];
+const TOOL_TABS = ['seedream', 'seedance', 'asset-upload', 'llm', 'speech'];
 
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
@@ -69,10 +68,10 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
-  const baseSchema = baseSchemas[activeModelId] || {}; // Fallback for workflow
+  const baseSchema = baseSchemas[activeModelId] || {}; // film-agent has no form schema
   // uiSchema is now static/default matching baseSchema
   const [uiSchema, setUiSchema] = useState({
-    title: baseSchema.name || 'Workflow',
+    title: baseSchema.name || '',
     description: baseSchema.description || '',
     fields: baseSchema.fields || [],
     defaults: baseSchema.defaults || {},
@@ -149,18 +148,12 @@ export default function Home() {
   const canRun = useMemo(() => apiKey.trim().length > 0 || hasServerKey, [apiKey, hasServerKey]);
 
   useEffect(() => {
-    if (activeModelId === 'workflow') return;
     // Reactive visibility logic
     setUiSchema((prev) => updateUiSchemaVisibility(prev, formValues, activeModelId));
   }, [formValues.size, formValues.sequential_image_generation, formValues.model, formValues.generate_audio, activeModelId]);
 
   const handleModelFamilyChange = (newFamily) => {
       setActiveModelId(newFamily);
-      if (newFamily === 'workflow') {
-          setUiSchema({ title: 'Workflow Editor', description: 'Visual pipeline for complex generation tasks' });
-          return;
-      }
-
       const newBaseSchema = baseSchemas[newFamily];
       setUiSchema({
         title: newBaseSchema.name,
@@ -426,9 +419,9 @@ export default function Home() {
     }
   };
 
-  // Full-canvas tools (Film Agent, Workflow) get a compact header so the canvas
-  // gets the vertical space instead of a big title + description.
-  const isCanvasTool = activeModelId === 'film-agent' || activeModelId === 'workflow';
+  // The full-canvas Film Agent gets a compact header so the canvas gets the
+  // vertical space instead of a big title + description.
+  const isCanvasTool = activeModelId === 'film-agent';
 
   return (
     <>
@@ -494,10 +487,6 @@ export default function Home() {
                                                 <IconSound style={{ marginRight: 8 }} />
                                                 Speech (Seed TTS)
                                             </Button>
-                                            <Button type={activeModelId === 'workflow' ? 'primary' : 'secondary'} onClick={() => selectTool('workflow')}>
-                                                <IconMindMapping style={{ marginRight: 8 }} />
-                                                Workflow (Beta)
-                                            </Button>
                                         </Button.Group>
                                     </div>
                                 )}
@@ -506,9 +495,6 @@ export default function Home() {
                     })()}
                 </header>
 
-                <div style={{ display: activeModelId === 'workflow' ? 'block' : 'none', height: '75vh', border: '1px solid #e5e6eb', borderRadius: 8 }}>
-                    <WorkflowEditor active={activeModelId === 'workflow'} />
-                </div>
                 <div style={{ display: activeModelId === 'seedream' ? 'block' : 'none' }}>
                     <SeedreamPlayground
                         schema={uiSchema}
@@ -590,7 +576,7 @@ export default function Home() {
                       )}
                 </div>
                 
-                {TOOL_TABS.includes(activeModelId) && activeModelId !== 'workflow' && (
+                {TOOL_TABS.includes(activeModelId) && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 12, color: '#86909c', cursor: 'pointer' }}>
                         <input
                             type="checkbox"

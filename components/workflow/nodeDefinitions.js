@@ -1,4 +1,5 @@
 // components/workflow/nodeDefinitions.js
+import { resolveModelId } from '../../utils/film/suiteConfig';
 
 // Defines the schema for all node types in the workflow editor.
 // This allows for data-driven initialization, validation, and connection logic.
@@ -21,7 +22,7 @@ export const NODE_DEFINITIONS = {
     label: 'Image Generation',
     category: '1', // Seedream
     defaults: {
-      model: 'seedream-5-0-260128',
+      get model() { return resolveModelId('seedream'); }, // env slot — ids are account-scoped
       size: '2K',
       prompt: '',
       loading: false,
@@ -39,7 +40,7 @@ export const NODE_DEFINITIONS = {
     label: 'Video Generation',
     category: '3', // Seedance
     defaults: {
-      model: 'ep-20260415171928-pdvvr',
+      get model() { return resolveModelId('seedance'); }, // env slot — ids are account-scoped
       resolution: '720p',
       duration: 'auto',
       generate_audio: true,
@@ -75,7 +76,7 @@ export const NODE_DEFINITIONS = {
     label: 'VLM Analysis',
     category: '2', // ModelArk
     defaults: {
-      model: 'seed-2-0-pro-260328',
+      get model() { return resolveModelId('reasoner'); }, // env slot — ids are account-scoped
       prompt: 'Convert into prompt, return PROMPT only',
       output: '',
       loading: false
@@ -188,7 +189,9 @@ export const NODE_DEFINITIONS = {
 };
 
 export const getNodeDefaults = (type) => {
-  return NODE_DEFINITIONS[type]?.defaults || {};
+  // Spread COPIES the defaults (and evaluates the live model getters) — callers
+  // mutate their node data, which must never write back into the shared template.
+  return { ...(NODE_DEFINITIONS[type]?.defaults || {}) };
 };
 
 export const getNodeInputs = (type) => {

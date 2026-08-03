@@ -241,24 +241,6 @@ Return ONLY a JSON object — no prose, no code fences:
     text: 'SCRIPT (context):\n"""\n{script}\n"""\nShot: "{beat}". Style / aesthetic: {style}.\nThis shot features reference images {figures} (their [Image N] numbers) — feature EXACTLY those, addressing each by its [Image N] number.\nReturn the JSON: the body + expression.',
   },
 
-  // ---- Story Director (headless Service API ONLY) ----
-  // The canvas Story-Director agent was removed; these still power the Service API's
-  // storyBeats agent (server-side via runStore.js), so they stay registered but are
-  // hidden from the in-app Prompts editor (surface:'service'). Do NOT delete.
-  'storyDirector.system': {
-    agent: 'Story Director',
-    surface: 'service',
-    label: 'Beat-suggester system prompt',
-    vars: ['{count}'],
-    text: 'You are a film story director helping a user build a short film beat by beat. Given the premise, the events so far, and (if provided) the latest keyframe image, propose what could happen NEXT. Return ONLY a JSON array of {count} objects, each: { "title": a 2–5 word label, "prompt": one vivid, concrete, visual sentence describing the next event as a cinematic keyframe }. Make the options distinct and dramatically interesting. No prose, no code fences.',
-  },
-  'storyDirector.user': {
-    agent: 'Story Director',
-    surface: 'service',
-    label: 'Beat-suggester instruction',
-    vars: ['{idea}', '{steps}', '{count}'],
-    text: 'Premise: {idea}\n\nEvents so far:\n{steps}\n\nPropose {count} distinct things that could happen next.\nRespond with ONLY a JSON array of {count} objects, each {"title": "...", "prompt": "..."}. No prose, no code fences.',
-  },
 
   // ---- Creative Planner (agentic diversity for image agents) ----
   // Seed 2.0 Pro plans N substantially-different, content-aware prompts; the image

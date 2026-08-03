@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { resolveModelId } from '../utils/film/suiteConfig';
 import { Select, Input, InputNumber, Button, Upload, Checkbox, Dropdown, Menu, Message, Tooltip, Grid } from '@arco-design/web-react';
 import { IconCode, IconDown, IconRight, IconStar, IconRefresh, IconBook } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
@@ -181,7 +182,7 @@ const SeedancePlayground = ({
                   prompt: currentPrompt,
                   apiKey: apiKey,
                   systemPrompt: "Refine and enhance this video generation prompt. Focus on describing motion, camera angles, and temporal consistency. Keep the core intent. Return ONLY the enhanced prompt text.",
-                  modelId: 'seed-2-0-mini-260215' 
+                  modelId: resolveModelId('reasoner') // env slot — the old literal went stale and 404'd 
               })
           });
           const data = await response.json();

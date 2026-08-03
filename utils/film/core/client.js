@@ -1,9 +1,10 @@
 // Transport layer for the agent core.
 //
 // The core orchestration (operations.js) never calls the network directly — it
-// calls a `client` with this interface, so the SAME orchestration runs:
-//   • in the canvas, via createBrowserClient() → the app's own /api/* routes
-//   • headless (SDK / server), via createDirectClient() → ModelArk directly
+// calls a `client` with this interface: createBrowserClient() → the app's own
+// /api/* routes (keys stay server-side, outputs check into the media store).
+// (The headless direct-to-Ark twin and its /api/v1/runs service were purged
+// 2026-07-30 — the canvas is the product surface.)
 //
 // Interface (all async):
 //   generateImage({ prompt, referenceImages, size, model }) -> { url, prompt }

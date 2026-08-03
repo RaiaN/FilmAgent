@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Button, Card, Checkbox, Collapse, Input, Message, Radio, Space, Tag, Typography, Upload } from '@arco-design/web-react';
 import { IconBook, IconDelete, IconImage, IconUpload, IconVideoCamera } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
@@ -24,6 +25,18 @@ const AssetUploadPlayground = ({
   onStageToTos,
   stagingLoading,
 }) => {
+  // The deployment's TOS region, for the info chip — a hardcoded literal here lied
+  // on any deployment outside ap-southeast-1. Display only; nothing secret.
+  const [tosRegion, setTosRegion] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/film/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (!cancelled && j?.tosRegion) setTosRegion(j.tosRegion); })
+      .catch(() => { /* chip just stays hidden */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleInputChange = (key, value) => {
     setFormValues((prev) => ({ ...prev, [key]: value }));
   };
@@ -290,9 +303,11 @@ const AssetUploadPlayground = ({
         </div>
 
         <div className={styles.toolbar}>
-          <div className={styles.toolChip}>
-            <span>Region: ap-southeast-1</span>
-          </div>
+          {tosRegion && (
+            <div className={styles.toolChip}>
+              <span>Region: {tosRegion}</span>
+            </div>
+          )}
           <div className={styles.toolChip}>
             <span>Action: CreateAsset</span>
           </div>

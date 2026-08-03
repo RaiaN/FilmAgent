@@ -1,4 +1,4 @@
-import { MODEL_CAPABILITIES } from './modelCapabilities';
+import { getModelCapabilities } from './modelCapabilities';
 
 const isHttpUrl = (value) => {
     if (typeof value !== 'string' || !value.trim()) return false;
@@ -48,13 +48,13 @@ export const constructWorkflowSeedreamPayload = (formValues) => {
 
     if (formValues.image && formValues.image.length > 0) {
       // Respect the model's reference-image cap (Lite 6, Pro 10) so we never send more than it accepts.
-      const cap = MODEL_CAPABILITIES[formValues.model]?.max_ref_images;
+      const cap = getModelCapabilities(formValues.model).max_ref_images;
       requestBody.image = cap ? formValues.image.slice(0, cap) : formValues.image;
     }
 
     // Prompt optimization with THINKING (Seedream 5.0 Pro) — TEXT-TO-IMAGE only per the
     // API, so it rides only when no reference images are attached.
-    const optimizeModes = MODEL_CAPABILITIES[formValues.model]?.optimize_prompt_modes || [];
+    const optimizeModes = getModelCapabilities(formValues.model).optimize_prompt_modes || [];
     if (formValues.optimizeThinking && optimizeModes.includes('thinking') && !requestBody.image) {
       requestBody.optimize_prompt_options = { thinking: 'enabled' };
     }
@@ -81,7 +81,7 @@ export const constructSeedancePayload = (formValues) => {
         payload.seed = Number(formValues.seed);
     }
 
-    const caps = MODEL_CAPABILITIES[formValues.model] || MODEL_CAPABILITIES['default'];
+    const caps = getModelCapabilities(formValues.model);
 
     if (caps.supports_audio) {
         payload.generate_audio = formValues.generate_audio;
@@ -172,7 +172,7 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
     const model = formValues.model || '';
 
     // Get capabilities - MUST exist for the selected model
-    const caps = MODEL_CAPABILITIES[model];
+    const caps = getModelCapabilities(model);
 
     if (!caps) {
         // Only a real (non-empty) model missing its caps is worth flagging.

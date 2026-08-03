@@ -47,7 +47,6 @@ export const ROOT_CONFIG = {
     inspiration: { count: 6, size: '2K' },
     characterVariations: { count: 4, size: '2K', direction: '' },
     locationVariations: { count: 4, size: '2K', direction: '' },
-    storyDirector: { count: 3, size: '2K' },
     animate: {
       camera: 'slow push-in', lens: 'auto', focalLength: '35mm', aperture: 'f/2.8',
       // Quality bar: 10s @ 1080p per shot (was 5s @ 720p) — long enough to trim,

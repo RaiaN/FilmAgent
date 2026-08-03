@@ -1,7 +1,15 @@
 import crypto from 'crypto';
 import { TosClient } from '@volcengine/tos-sdk';
 
-export const DEFAULT_TOS_REGION = 'ap-southeast-1';
+// NO default region — MODELARK_TOS_REGION is required wherever TOS is used
+// (configured-or-error, like every other deployment value; a silent region default
+// pointed misconfigured deployments at the wrong geography).
+export const requireTosRegion = (tosRegion) => {
+  const r = String(tosRegion || '').trim();
+  if (!r) throw new Error('MODELARK_TOS_REGION is not configured — set it in .env.local (see .env.example).');
+  if (r.includes('.') || r.includes('/')) throw new Error('MODELARK_TOS_REGION must be a region like ap-southeast-1, not a domain.');
+  return r;
+};
 
 const encodePathSegment = (segment) =>
   encodeURIComponent(segment).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -45,12 +53,9 @@ export async function uploadLocalMediaToTos({
   const safeName = normalizeObjectKeyPart(localName || fallbackName || `upload-${Date.now()}`);
   const prefix = normalizeObjectKeyPart(tosObjectPrefix || 'seedance-media');
   const objectKey = `${prefix}/${crypto.randomUUID()}-${safeName}`;
-  const resolvedRegion = tosRegion || DEFAULT_TOS_REGION;
+  const resolvedRegion = requireTosRegion(tosRegion);
   const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
 
-  if (resolvedRegion.includes('.') || resolvedRegion.includes('/')) {
-    throw new Error('MODELARK_TOS_REGION must be a region like ap-southeast-1, not a domain.');
-  }
 
   const client = new TosClient({
     accessKeyId: accessKey,
@@ -112,7 +117,7 @@ export async function uploadLocalMediaToTos({
 export const tosObjectKeyFromUrl = (url, { tosPublicBaseUrl, tosEndpoint, tosRegion, tosBucket } = {}) => {
   const u = String(url || '').trim();
   if (!u) return null;
-  const resolvedRegion = tosRegion || DEFAULT_TOS_REGION;
+  const resolvedRegion = requireTosRegion(tosRegion);
   const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
   const candidates = [
     String(tosPublicBaseUrl || '').trim().replace(/\/+$/, ''),
@@ -130,7 +135,7 @@ export const tosObjectKeyFromUrl = (url, { tosPublicBaseUrl, tosEndpoint, tosReg
 // Permanently delete one object from the bucket.
 export async function deleteTosObject({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, objectKey }) {
   if (!objectKey) return;
-  const resolvedRegion = tosRegion || DEFAULT_TOS_REGION;
+  const resolvedRegion = requireTosRegion(tosRegion);
   const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
   const client = new TosClient({
     accessKeyId: accessKey,
@@ -146,11 +151,8 @@ export async function deleteTosObject({ accessKey, secretKey, tosBucket, tosRegi
 // and reads them back — plain object storage, direct SDK calls (no presign dance).
 
 const makeClient = ({ accessKey, secretKey, tosRegion, tosEndpoint }) => {
-  const resolvedRegion = tosRegion || DEFAULT_TOS_REGION;
+  const resolvedRegion = requireTosRegion(tosRegion);
   const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
-  if (resolvedRegion.includes('.') || resolvedRegion.includes('/')) {
-    throw new Error('MODELARK_TOS_REGION must be a region like ap-southeast-1, not a domain.');
-  }
   return new TosClient({ accessKeyId: accessKey, accessKeySecret: secretKey, region: resolvedRegion, endpoint: resolvedEndpoint });
 };
 

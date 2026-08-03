@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { resolveModelId } from '../../../utils/film/suiteConfig';
 import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Select, Input, Button, Image, Tooltip } from '@arco-design/web-react';
 import { IconImage, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
@@ -88,12 +89,17 @@ const ImageGenNode = ({ data }) => {
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Model</Typography.Text>
           <Select 
-            defaultValue="seedream-5-0-260128" 
             size="small"
             value={data.model}
             onChange={(val) => data.onChange('model', val)}
           >
-              <Select.Option value="seedream-5-0-260128">Seedream 5.0</Select.Option>
+              {[
+                { slot: 'seedream', label: 'Seedream 5.0 Lite' },
+                { slot: 'seedreamPro', label: 'Seedream 5.0 Pro' },
+              ].map(({ slot, label }) => {
+                const id = resolveModelId(slot);
+                return id ? <Select.Option key={slot} value={id}>{label}</Select.Option> : null;
+              })}
           </Select>
       </div>
 

@@ -24,13 +24,19 @@ const seedanceEndpointsLive = () => [
 ].filter((o) => o.value);
 const defaultSeedanceModel = () => seedanceEndpointsLive()[0]?.value || null; // first CONFIGURED endpoint — never a hardcoded id
 
-// LLM Models — explicit list, newest first
-const LLM_MODEL_IDS = [
+// LLM Models — the env-configured reasoner slot FIRST (it's what the film suite
+// uses and what a customer actually deployed), then the public catalog names
+// (portable across accounts — standard model names, never account-scoped ep- ids).
+const LLM_CATALOG_IDS = [
     'seed-2-0-pro-260328',
     'seed-2-0-mini-260428',
     'seed-2-0-lite-260428',
 ];
-const llmModels = LLM_MODEL_IDS;
+const llmModelsLive = () => {
+    const r = resolveModelId('reasoner');
+    return r && !LLM_CATALOG_IDS.includes(r) ? [r, ...LLM_CATALOG_IDS] : LLM_CATALOG_IDS;
+};
+const defaultLlmModel = () => resolveModelId('reasoner') || LLM_CATALOG_IDS[0];
 
 export const baseSchemas = {
   seedream: {
@@ -85,8 +91,8 @@ export const baseSchemas = {
         key: 'model',
         label: 'Model',
         type: 'enum',
-        options: llmModels,
-        defaultValue: llmModels[0],
+        get options() { return llmModelsLive(); },
+        get defaultValue() { return defaultLlmModel(); },
         description: 'LLM model id used for analysis.',
       },
       {
@@ -110,7 +116,7 @@ export const baseSchemas = {
       },
     ],
     defaults: {
-      model: llmModels[0],
+      get model() { return defaultLlmModel(); },
       prompt: 'Describe this content.',
       image: [],
       video: [],

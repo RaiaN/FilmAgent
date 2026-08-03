@@ -20,6 +20,7 @@ export default function configHandler(req, res) {
     missing,
     arkBaseUrl: CONFIG.API_BASE_URL || '',
     voiceBaseUrl: process.env.BYTEPLUSVOICE_BASE_URL || '',
+    tosRegion: process.env.MODELARK_TOS_REGION || '', // region name only — never key material
     hasServerKey: !!(process.env.MODELARK_API_KEY || process.env.ARK_API_KEY),
   });
 }

@@ -1,17 +1,14 @@
-export const MODEL_CAPABILITIES = {
-    // --- SEEDREAM (IMAGE) MODELS ---
-    'seedream-5-0-260128': {
-        sizes: ['2K', '3K', '4K', 'Custom'],
-        optimize_prompt_modes: ['standard'], 
-        sequential_generation: true,
-        guidance_scale: false,
-        supports_watermark: true,
-        output_format: true,
-        supports_seed: false,
-        max_ref_images: 14,
-    },
-    // Seedream 5.0 Lite endpoint (Tools → Image default). Ref cap mirrors IMAGE_REF_CAP.seedream (6).
-    'ep-20260501195034-hj78f': {
+// Model capability registry — keyed by SLOT, not by endpoint id. Endpoint ids are
+// deployment-specific (env-configured, account-scoped `ep-…` values), so a literal
+// id key would silently stop matching on any other account. getModelCapabilities()
+// resolves the caller's model id back to its slot at LOOKUP time via the same
+// env-backed registry the routes use.
+import { resolveModelId } from './film/suiteConfig';
+
+const SLOT_CAPABILITIES = {
+    // --- SEEDREAM (IMAGE) ---
+    // Seedream 5.0 Lite (Tools → Image default). Ref cap mirrors IMAGE_REF_CAP.seedream (6).
+    seedream: {
         sizes: ['2K', '4K'],
         optimize_prompt_modes: ['standard'],
         sequential_generation: true,
@@ -21,10 +18,10 @@ export const MODEL_CAPABILITIES = {
         supports_seed: false,
         max_ref_images: 6,
     },
-    // Seedream 5.0 Pro endpoint — output area caps at 2048² (4.19MP): no 4K, so explicit
+    // Seedream 5.0 Pro — output area caps at 2048² (4.19MP): no 4K, so explicit
     // sub-cap sizes; accepts up to 10 refs. Mirrors IMAGE_REF_CAP.seedreamPro (10).
-    // 'thinking' = optimize_prompt_options {thinking:'enabled'} — TEXT-TO-IMAGE only.
-    'dola-seedream-5-0-pro-260628': {
+    // 'thinking' = optimize_prompt_options {thinking:'enabled'}.
+    seedreamPro: {
         sizes: ['2560x1440', '1440x2560', '2048x2048'],
         optimize_prompt_modes: ['standard', 'thinking'],
         sequential_generation: true,
@@ -35,9 +32,9 @@ export const MODEL_CAPABILITIES = {
         max_ref_images: 10,
     },
 
-    // --- SEEDANCE (VIDEO) MODELS ---
+    // --- SEEDANCE (VIDEO) ---
     // Seedance 2.0 (default)
-    'ep-20260415171928-pdvvr': {
+    seedance: {
         resolutions: ['720p', '1080p', '4k'],
         ratios: ['16:9', '9:16', '1:1', '21:9'],
         durations: ['auto', 5, 10, 15],
@@ -50,7 +47,7 @@ export const MODEL_CAPABILITIES = {
         supports_first_frame: false,
     },
     // Seedance 2.0 Fast — faster than the default; no 4K.
-    'ep-20260701151623-f94zq': {
+    seedanceFast: {
         resolutions: ['720p', '1080p'],
         ratios: ['16:9', '9:16', '1:1', '21:9'],
         durations: ['auto', 5, 10, 15],
@@ -63,7 +60,7 @@ export const MODEL_CAPABILITIES = {
         supports_first_frame: false,
     },
     // Seedance 2.0 Mini — cheaper/faster; resolution caps at 720p.
-    'ep-20260629005443-n7rjn': {
+    seedanceMini: {
         resolutions: ['480p', '720p'],
         ratios: ['16:9', '9:16', '1:1', '21:9'],
         durations: ['auto', 5, 10, 15],
@@ -76,7 +73,27 @@ export const MODEL_CAPABILITIES = {
         supports_first_frame: false,
     },
 
-    // --- LLM / AI ANALYSIS MODELS ---
+    // --- LLM / AI ANALYSIS ---
+    reasoner: {
+        input_modalities: ['text', 'image', 'video', 'audio'],
+        supportsImage: true,
+        supportsVideo: true,
+    },
+};
+
+// PUBLIC catalog names — portable across accounts (standard model names, never
+// account-scoped endpoint ids), so a literal key is safe here.
+const CATALOG_CAPABILITIES = {
+    'seedream-5-0-260128': {
+        sizes: ['2K', '3K', '4K', 'Custom'],
+        optimize_prompt_modes: ['standard'],
+        sequential_generation: true,
+        guidance_scale: false,
+        supports_watermark: true,
+        output_format: true,
+        supports_seed: false,
+        max_ref_images: 14,
+    },
     'seed-2-0-pro-260328': {
         input_modalities: ['text', 'image', 'video', 'audio'],
         supportsImage: true,
@@ -92,31 +109,40 @@ export const MODEL_CAPABILITIES = {
         supportsImage: true,
         supportsVideo: true,
     },
+};
 
-    // Default fallback
-    'default': {
-        // Seedream defaults
-        sizes: ['2K', '4K', 'Custom'],
-        optimize_prompt_modes: ['standard'],
-        sequential_generation: false,
-        guidance_scale: false,
-        supports_watermark: true,
-        output_format: false,
-        supports_seed: true,
-        
-        // Seedance defaults
-        resolutions: ['480p', '720p', '1080p', '4k'],
-        ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
-        durations: ['auto', 5, 10, 15],
-        supports_audio: true,
-        supports_draft: false,
-        supports_ref_images: true,
-        supports_ref_videos: true,
-        supports_ref_audios: true,
-        supports_last_frame: false,
-        supports_first_frame: false,
+export const DEFAULT_CAPABILITIES = {
+    // Seedream defaults
+    sizes: ['2K', '4K', 'Custom'],
+    optimize_prompt_modes: ['standard'],
+    sequential_generation: false,
+    guidance_scale: false,
+    supports_watermark: true,
+    output_format: false,
+    supports_seed: true,
 
-        // LLM defaults
-        input_modalities: ['text', 'image', 'video'],
+    // Seedance defaults
+    resolutions: ['480p', '720p', '1080p', '4k'],
+    ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
+    durations: ['auto', 5, 10, 15],
+    supports_audio: true,
+    supports_draft: false,
+    supports_ref_images: true,
+    supports_ref_videos: true,
+    supports_ref_audios: true,
+    supports_last_frame: false,
+    supports_first_frame: false,
+
+    // LLM defaults
+    input_modalities: ['text', 'image', 'video'],
+};
+
+// Always returns an object (DEFAULT_CAPABILITIES when the id is unknown/unset).
+export const getModelCapabilities = (modelId) => {
+    const id = String(modelId || '');
+    if (!id) return DEFAULT_CAPABILITIES;
+    for (const [slot, caps] of Object.entries(SLOT_CAPABILITIES)) {
+        if (resolveModelId(slot) === id) return caps;
     }
+    return CATALOG_CAPABILITIES[id] || DEFAULT_CAPABILITIES;
 };

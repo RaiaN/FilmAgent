@@ -5,12 +5,11 @@ import {
   IconThunderbolt, IconVideoCamera, IconPlayArrow, IconRefresh,
   IconLock, IconUnlock, IconDelete, IconLoading, IconZoomIn, IconZoomOut,
 } from '@arco-design/web-react/icon';
-import { AGENT_COLORS } from '../../../utils/film/agents';
 import { ASSET_DRAG_TYPE, BOARD_NODE_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import { orderedEvents, totalDuration } from '../../../utils/film/timelineModel';
 
 const { Text } = Typography;
-const COLOR = AGENT_COLORS.storyDirector; // gold — the timeline's accent
+const COLOR = '#f7ba1e'; // gold — the timeline's accent (was the Story Director agent's colour; the agent is gone, the accent stays)
 
 // Zoom (pixels per second). 15s fits comfortably at the default; like any video
 // editor, zoom in/out rescales the whole track + ruler.

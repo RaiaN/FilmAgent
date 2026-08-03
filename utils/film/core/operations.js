@@ -11,35 +11,6 @@ import { withRetry } from './retry';
 
 const clamp = (v, lo, hi, dflt) => Math.min(Math.max(Number(v) || dflt, lo), hi);
 
-// ---- beat parsing (Story Director) --------------------------------------------
-
-export const parseBeats = (text) => {
-  const cleaned = String(text || '').trim().replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-  const normalize = (b) => {
-    if (typeof b === 'string') return { title: b.slice(0, 60), prompt: b };
-    if (b && typeof b === 'object') {
-      const prompt = b.prompt || b.description || b.event || b.text || b.title || '';
-      const title = b.title || b.label || b.name || prompt;
-      return { title: String(title).slice(0, 60), prompt: String(prompt) };
-    }
-    return { title: '', prompt: '' };
-  };
-  const toBeats = (val) => {
-    let arr = Array.isArray(val) ? val : null;
-    if (!arr && val && typeof val === 'object') arr = Object.values(val).find((v) => Array.isArray(v)) || null;
-    return (arr || []).map(normalize).filter((b) => b.prompt);
-  };
-  try { const b = toBeats(JSON.parse(cleaned)); if (b.length) return b; } catch { /* */ }
-  const m = cleaned.match(/[[{][\s\S]*[\]}]/);
-  if (m) { try { const b = toBeats(JSON.parse(m[0])); if (b.length) return b; } catch { /* */ } }
-  const lines = cleaned.split('\n')
-    .map((l) => l.replace(/^[\s\-*•\d.\)"']+/, '').replace(/["']+$/, '').trim())
-    .filter((l) => l.length > 8 && !/^(here|sure|okay|options?|next)\b/i.test(l));
-  if (lines.length) return lines.slice(0, 4).map((l) => ({ title: l.split(/[:—-]/)[0].slice(0, 40).trim() || l.slice(0, 40), prompt: l }));
-  return [];
-};
-
-
 // ---- image batch (parallel, incremental) --------------------------------------
 
 // `hooks` is EITHER a plain onItem function (back-compat: production.js / inspiration pass one)
@@ -257,16 +228,4 @@ export const generateFilmAudio = async ({ text, voice, model = 'seedAudio', inst
   return out; // { url, bytes, duration, format, voice?, model }
 };
 
-export const suggestNextBeats = async ({ idea, steps = [], lastImageUrl, count = 3, config } = {}, ctx) => {
-  const storySoFar = steps.length ? steps.map((s, i) => `${i + 1}. ${s}`).join('\n') : '(nothing yet — this is the opening)';
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('storyDirector.user', { idea: idea || '(none given)', steps: storySoFar, count }),
-    systemPrompt: renderTemplate('storyDirector.system', { count }),
-    images: lastImageUrl ? [lastImageUrl] : [],
-    modelId: getModel('reasoner', config), reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const beats = parseBeats(content);
-  if (!beats.length) throw new Error('Story Director returned no usable beats — try again');
-  return beats;
-};
 

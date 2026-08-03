@@ -5,7 +5,7 @@ import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconMindMapping, IconU
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
-import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
+import { getModelCapabilities } from '../utils/modelCapabilities';
 import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
@@ -176,7 +176,7 @@ export default function Home() {
         ...prev,
         model: newModelId,
         ...(activeModelId === 'seedance' ? (() => {
-          const caps = MODEL_CAPABILITIES[newModelId] || MODEL_CAPABILITIES.default;
+          const caps = getModelCapabilities(newModelId);
           const resOk = !caps.resolutions || caps.resolutions.includes(prev.resolution);
           return {
             reference_image_refs: caps.supports_ref_images ? prev.reference_image_refs : [],
@@ -188,7 +188,7 @@ export default function Home() {
           };
         })() : {}),
         ...(activeModelId === 'seedream' ? (() => {
-          const caps = MODEL_CAPABILITIES[newModelId] || MODEL_CAPABILITIES.default;
+          const caps = getModelCapabilities(newModelId);
           const sizes = (caps.sizes || []).filter((s) => s !== 'Custom');
           const cap = caps.max_ref_images;
           return {

@@ -67,8 +67,12 @@ async function seedHandler(req, res) {
 
   try {
     const inlinedImages = await Promise.all(imageList.map(inlineImage));
-    // Seed 2.0 Pro family uses the /responses API + input formatting.
-    const isPro260328 = resolvedModelId.startsWith('seed-2-0-pro');
+    // Seed 2.0 Pro family uses the /responses API + input formatting. The name-prefix
+    // heuristic can't sniff an account-scoped ep-… reasoner id, so
+    // MODELARK_REASONER_PROTOCOL=responses|chat overrides it explicitly per deployment.
+    const isPro260328 = process.env.MODELARK_REASONER_PROTOCOL
+      ? process.env.MODELARK_REASONER_PROTOCOL === 'responses'
+      : resolvedModelId.startsWith('seed-2-0-pro');
     
     // For seed-2-0-pro-260328, we use /responses and input formatting
     if (isPro260328) {

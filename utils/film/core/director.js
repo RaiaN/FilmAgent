@@ -1,8 +1,7 @@
-// Auto Director — orchestrator operations (L1 core). Pure: each takes typed input
-// + ctx { client, config } and returns typed results. The canvas (and a future
-// SDK) call these; only the injected `client` differs. These reason with the
-// Seed 2.0 Pro VLM (ctx.client.reason) and parse tolerant JSON, modelled on
-// parseBeats in operations.js. No canvas, no browser, no network here.
+// Auto Director — reasoning operations (L1 core). Pure: each takes typed input
+// + ctx { client, config } and returns typed results; only the injected `client`
+// differs per caller. These reason with the Seed 2.0 Pro VLM (ctx.client.reason)
+// and parse tolerant JSON. No canvas, no browser, no network here.
 
 import { renderTemplate, getModel, getRuntime } from '../suiteConfig';
 

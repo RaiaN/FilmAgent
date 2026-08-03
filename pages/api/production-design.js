@@ -1,7 +1,11 @@
 import { CONFIG } from '../../utils/config';
+import { getModel } from '../../utils/film/suiteConfig';
 
-const DEFAULT_RESEARCH_MODEL = 'seed-2-0-pro-260328';
-const SEEDREAM_ENDPOINT_MODEL = 'ep-20260501195034-hj78f';
+// Env-resolved (MODELARK_MODEL_REASONER / MODELARK_MODEL_SEEDREAM) — endpoint ids are
+// account-scoped, so nothing here may be a literal. getModel throws a clear
+// name-the-variable error when a slot is unconfigured; surfaced as a 500 below.
+const researchModel = () => getModel('reasoner');
+const seedreamModel = () => getModel('seedream');
 const PRODUCTION_DESIGN_IMAGE_SIZE = '4K';
 
 export const config = {
@@ -41,7 +45,7 @@ async function callSeed2Prompt({
   systemText,
   userText,
   inputImages = [],
-  modelId = DEFAULT_RESEARCH_MODEL,
+  modelId = researchModel(),
 }) {
   const inputContent = [
     {
@@ -100,7 +104,7 @@ async function generateSeedreamImage({ apiKey, baseUrl, prompt, referenceImage }
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: SEEDREAM_ENDPOINT_MODEL,
+      model: seedreamModel(),
       prompt,
       size: PRODUCTION_DESIGN_IMAGE_SIZE,
       watermark: false,
@@ -284,8 +288,8 @@ export default async function productionDesignHandler(req, res) {
     ];
 
     return res.status(200).json({
-      researchModel: DEFAULT_RESEARCH_MODEL,
-      generationModel: SEEDREAM_ENDPOINT_MODEL,
+      researchModel: researchModel(),
+      generationModel: seedreamModel(),
       size: PRODUCTION_DESIGN_IMAGE_SIZE,
       inputPrompt: normalizedPrompt,
       characterPrompt: stepOnePrompt.text,

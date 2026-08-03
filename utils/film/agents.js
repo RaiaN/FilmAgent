@@ -18,7 +18,6 @@ export const AGENT_COLORS = {
   characterVariations: '#165dff',  // blue
   locationVariations: '#00b42a',   // green
   animate: '#722ed1',              // purple (video)
-  storyDirector: '#f7ba1e',        // gold (interactive story)
   cast: '#9a5b13',                 // bronze (pre-production: cast & world)
   story: '#f7ba1e',                // gold (the narrative spine: key events)
   storyboard: '#4e5969',           // graphite (the shot plan)

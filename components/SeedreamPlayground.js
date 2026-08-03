@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
+import { resolveModelId } from '../utils/film/suiteConfig';
 import { Select, Input, Button, Upload, Dropdown, Menu, Message, Tooltip, Checkbox } from '@arco-design/web-react';
 import { IconCode, IconStar, IconRefresh, IconBook } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructWorkflowSeedreamPayload } from '../utils/apiHelpers';
-import { MODEL_CAPABILITIES } from '../utils/modelCapabilities';
+import { getModelCapabilities } from '../utils/modelCapabilities';
 import { getApiKey } from '../utils/apiKeyStore';
 import { getEndpointUrl } from '../utils/config';
 
@@ -48,7 +49,7 @@ const SeedreamPlayground = ({
                   prompt: currentPrompt,
                   apiKey: apiKey,
                   systemPrompt: "Refine and enhance this image generation prompt to be more descriptive and artistic. Keep the core intent but add details about lighting, texture, and style. Return ONLY the enhanced prompt text.",
-                  modelId: 'seed-2-0-mini-260215' 
+                  modelId: resolveModelId('reasoner') // env slot — the old literal went stale and 404'd 
               })
           });
           const data = await response.json();
@@ -116,7 +117,7 @@ const SeedreamPlayground = ({
   const sizeOptions = getFieldOptions('size');
   const selectedModel = modelOptions.find((o) => (typeof o === 'string' ? o : o.value) === formValues.model);
   const modelLabel = selectedModel ? (typeof selectedModel === 'string' ? selectedModel : selectedModel.label) : 'This model';
-  const maxRefImages = MODEL_CAPABILITIES[formValues.model]?.max_ref_images || 6;
+  const maxRefImages = getModelCapabilities(formValues.model).max_ref_images || 6;
   const refImages = formValues.image || [];
   const parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 20);
   return (
@@ -273,7 +274,7 @@ const SeedreamPlayground = ({
           </div>
 
           {/* Prompt optimization with thinking — Seedream 5.0 Pro, text-to-image only */}
-          {(MODEL_CAPABILITIES[formValues.model]?.optimize_prompt_modes || []).includes('thinking') && (
+          {(getModelCapabilities(formValues.model).optimize_prompt_modes || []).includes('thinking') && (
             <Tooltip content={refImages.length > 0
               ? 'Thinking applies to text-to-image only — remove the reference images to use it'
               : 'The model reasons about your prompt before rendering — better composition, slower'}>

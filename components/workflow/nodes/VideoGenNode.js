@@ -3,13 +3,14 @@ import { Handle, Position } from '@xyflow/react';
 import { Card, Typography, Select, Input, Button, Image, Checkbox, Tooltip } from '@arco-design/web-react';
 import { IconVideoCamera, IconDownload, IconRefresh } from '@arco-design/web-react/icon';
 import { getNodeInputs, getNodeOutputs, getPinColor, PIN_COLORS } from '../nodeDefinitions';
-import { MODEL_CAPABILITIES } from '../../../utils/modelCapabilities';
+import { getModelCapabilities } from '../../../utils/modelCapabilities';
+import { resolveModelId } from '../../../utils/film/suiteConfig';
 
 const VideoGenNode = ({ data }) => {
   const inputs = getNodeInputs('videoGen');
   const outputs = getNodeOutputs('videoGen');
 
-  const modelCaps = MODEL_CAPABILITIES[data.model] || {};
+  const modelCaps = getModelCapabilities(data.model);
   const durations = modelCaps.durations || [5]; // Default fallback
   const resolutions = modelCaps.resolutions || ['720p'];
 
@@ -93,12 +94,18 @@ const VideoGenNode = ({ data }) => {
       <div style={{ marginBottom: 8 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Model</Typography.Text>
           <Select 
-            defaultValue="ep-20260415171928-pdvvr" 
             size="small"
             value={data.model}
             onChange={(val) => data.onChange('model', val)}
           >
-              <Select.Option value="ep-20260415171928-pdvvr">Seedance 2.0</Select.Option>
+              {[
+                { slot: 'seedance', label: 'Seedance 2.0' },
+                { slot: 'seedanceFast', label: 'Seedance 2.0 Fast' },
+                { slot: 'seedanceMini', label: 'Seedance 2.0 Mini' },
+              ].map(({ slot, label }) => {
+                const id = resolveModelId(slot);
+                return id ? <Select.Option key={slot} value={id}>{label}</Select.Option> : null;
+              })}
           </Select>
       </div>
 

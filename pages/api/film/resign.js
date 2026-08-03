@@ -1,5 +1,5 @@
 import { TosClient } from '@volcengine/tos-sdk';
-import { DEFAULT_TOS_REGION, getDefaultTosEndpoint, tosObjectKeyFromUrl } from '../../../utils/server/tosUpload';
+import { requireTosRegion, getDefaultTosEndpoint, tosObjectKeyFromUrl } from '../../../utils/server/tosUpload';
 
 // Mint a fresh presigned GET link for an object this app already owns in TOS.
 // The "stable" URL preserve hands out is only truly stable when the bucket is
@@ -36,7 +36,7 @@ export default async function resignHandler(req, res) {
   }
 
   try {
-    const resolvedRegion = tosRegion || DEFAULT_TOS_REGION;
+    const resolvedRegion = requireTosRegion(tosRegion);
     const client = new TosClient({
       accessKeyId: accessKey,
       accessKeySecret: secretKey,

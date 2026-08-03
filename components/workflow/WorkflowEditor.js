@@ -17,6 +17,7 @@ import VideoNode from './nodes/VideoNode';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload } from '../../utils/apiHelpers';
 import { getApiKey } from '../../utils/apiKeyStore';
 import { getNodeDefaults, getNodeInputs } from './nodeDefinitions';
+import { resolveModelId } from '../../utils/film/suiteConfig';
 
 const nodeTypes = {
   imageGen: ImageGenNode,
@@ -569,7 +570,7 @@ const WorkflowEditor = ({ active }) => {
                   prompt: data.prompt,
                   apiKey: apiKey,
                   systemPrompt: "Enhance this prompt for image/video generation. Make it detailed, descriptive, and artistic. Return ONLY the prompt.",
-                  modelId: 'seed-2-0-mini-260215'
+                  modelId: resolveModelId('reasoner') // env slot — the old literal went stale and 404'd
               })
           });
           const result = await res.json();
@@ -609,7 +610,7 @@ const WorkflowEditor = ({ active }) => {
           if (!apiKey) throw new Error("API Key missing");
           
           const payload = {
-              modelId: data.model || 'seed-2-0-pro-260328', // Fallback to seed pro
+              modelId: data.model || resolveModelId('reasoner'), // env slot — never a literal id
               prompt: data.prompt || "Convert into prompt",
               apiKey: apiKey,
               image, 

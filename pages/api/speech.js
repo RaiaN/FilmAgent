@@ -1,8 +1,12 @@
 import { randomUUID } from 'crypto';
 
-const TTS_ENDPOINT = 'https://voice.ap-southeast-1.bytepluses.com/api/v3/tts/unidirectional';
-const RESOURCE_ID = 'seed-tts-2.0';
-const APP_KEY = 'aGjiRDfUWi'; // Fixed value per BytePlus docs
+// Host + resource id are DEPLOYMENT config (region/account-scoped) — resolved from
+// the same env vars the film audio route uses; nothing hardcoded but the protocol
+// constant below.
+const VOICE_HOST = (process.env.BYTEPLUSVOICE_BASE_URL || '').replace(/\/+$/, '');
+const TTS_ENDPOINT = `${VOICE_HOST}/api/v3/tts/unidirectional`;
+const RESOURCE_ID = process.env.MODELARK_MODEL_SEED_TTS || null;
+const APP_KEY = 'aGjiRDfUWi'; // Fixed value per BytePlus docs (protocol constant, not a credential)
 
 const MIME = { mp3: 'audio/mpeg', ogg_opus: 'audio/ogg', pcm: 'audio/pcm' };
 
@@ -25,6 +29,12 @@ export default async function speechHandler(req, res) {
   const token = process.env.BYTEPLUSVOICE_API_KEY;
   if (!token) {
     return res.status(500).json({ error: 'BYTEPLUSVOICE_API_KEY is not configured in .env.local' });
+  }
+  if (!VOICE_HOST) {
+    return res.status(500).json({ error: 'BYTEPLUSVOICE_BASE_URL is not configured — set it in .env.local (see .env.example).' });
+  }
+  if (!RESOURCE_ID) {
+    return res.status(500).json({ error: 'MODELARK_MODEL_SEED_TTS is not configured — set it in .env.local (see .env.example).' });
   }
   if (!speaker || !text) {
     return res.status(400).json({ error: 'speaker and text are required' });

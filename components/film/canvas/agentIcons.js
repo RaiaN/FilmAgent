@@ -22,7 +22,6 @@ export const AGENT_ICONS = {
   film: IconVideoCamera, // Animate
   story: IconBranch,     // Story Director
   board: IconApps,       // Storyboard (the panel grid)
-  previz: IconEye,       // Previz (photoreal blocking frame → masked plate)
   cast: IconUserGroup,   // Cast & World (the ensemble: characters/monsters + places)
   shot: IconCamera,      // Shot (drops an empty SHOT card)
   audio: IconSound,      // Audio (speaks text verbatim into a clip node)

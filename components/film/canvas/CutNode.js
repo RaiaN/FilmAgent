@@ -15,7 +15,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onDevelopCut: null, onPrevizCut: null, onRederiveCut: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onDevelopCut: null, onRederiveCut: null,
 });
 
 const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
@@ -43,7 +43,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onDevelopCut, onPrevizCut, onRederiveCut } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onDevelopCut, onRederiveCut } = useContext(CutContext);
   const patch = (p) => onPatchCut && onPatchCut(id, p);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
@@ -172,7 +172,6 @@ const CutNodeInner = ({ id, data, selected }) => {
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
             <span style={{ display: 'inline-flex', gap: 2 }}>
-              <Button className="nodrag" size="mini" type="text" icon={<IconEye />} disabled={!onPrevizCut || data.splitting || data.developing} onClick={() => onPrevizCut && onPrevizCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Previz — stage this shot as a photoreal blocking frame (this card's text + this card's attached refs only). Mask it on the frame into a color plate that guides 🎬.">Previz</Button>
               <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onRederiveCut || data.developing || data.splitting} onClick={() => onRederiveCut && onRederiveCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Re-derive — bind THIS prompt to the card's reference images: wording and structure preserved (Develop's output survives), matching subjects tagged [Image N] per the badge numbers. A FIRST FRAME lock stays; your previous text is stashed.">Re-derive</Button>
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}

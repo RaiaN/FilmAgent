@@ -248,30 +248,6 @@ const VariationsFields = ({ agentId, s, up, imageAssets }) => (
   </>
 );
 
-const PrevizFields = ({ s, up, imageAssets }) => (
-  <>
-    <div>
-      <Text style={FIELD_LABEL}>Scene text</Text>
-      <Input.TextArea
-        value={s.prompt || ''} onChange={(v) => up({ prompt: v })}
-        placeholder="paste anything — a brief, a sub-brief, or a layout idea: 'five people around a long dinner table, the matriarch at the head, two men standing'"
-        autoSize={{ minRows: 4, maxRows: 10 }}
-      />
-    </div>
-    <div>
-      <Text style={FIELD_LABEL}>Camera (optional)</Text>
-      <ShotTemplateSelect value={s.shotTemplate} onChange={(v) => up({ shotTemplate: v })} />
-    </div>
-    <Checkbox checked={!!s.imageThinking} onChange={(c) => up({ imageThinking: c })}>
-      <Text type="secondary" style={{ fontSize: 12 }}>Prompt thinking — Pro reasons about the scene first (slower; ignored when references are ticked)</Text>
-    </Checkbox>
-    <div>
-      <Text style={FIELD_LABEL}>References (optional) — tick board images to stage YOUR set; nothing is used unless ticked</Text>
-      <BoardImagePicker imageAssets={imageAssets} value={s.refs || []} onPick={(refs) => up({ refs })} multi
-        emptyHint="No board images yet — previz will invent the set from the text alone." />
-    </div>
-  </>
-);
 
 const AudioFields = ({ s, up, imageAssets }) => {
   const engine = s.model || 'seedAudio';
@@ -328,7 +304,6 @@ export const AGENT_FIELDS = {
   inspiration: InspirationFields,
   characterVariations: VariationsFields,
   locationVariations: VariationsFields,
-  previz: PrevizFields,
   audio: AudioFields,
 };
 

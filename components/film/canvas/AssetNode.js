@@ -448,24 +448,12 @@ const AssetNodeInner = ({ id, data, selected }) => {
         </div>
       )}
 
-      {/* Previz pass 2 — Mask: reproduce this frame with every person as a flat color
-          silhouette (identity scrub). The masked plate then gets its own attach button:
-          one tap puts it on its SHOT card (reference chip + the editable LAYOUT
-          binding line in the card's prompt). No drag & drop anywhere. */}
-      {data.previz && url && onMaskPrevis && (
-        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
-          <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconBgColors />} onClick={(e) => { e.stopPropagation(); onMaskPrevis(id); }} title="Mask — flat color silhouettes (blue, green, yellow, red, purple left to right): every person by default, or name exactly what to mask in the dialog. Identities are scrubbed; the plate carries pure layout into the shoot.">Mask</Button>
-          {onEditImage && (
-            <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditImage(id); }} title="Edit — describe one change (word for word); a new frame with just that change lands beside this one.">Edit</Button>
-          )}
-                  </div>
-      )}
       {/* ANY other image — cast plate, upload, extract, edit result — can be MASKED into
           a blocking plate or EDITED by instruction (a masked storyboard sequence is just
           Mask on each frame). Results land as NEW nodes; chainable. On STORYBOARD frames
           the instruction Edit is suppressed — their single Edit is the SHOT editor above
           (one edit affordance per frame); Mask stays. */}
-      {kind === 'image' && !data.previz && !data.previzMask && displaySrc && !expired && !(data.keyframe && data.showText) && (onMaskPrevis || onEditImage) && (
+      {kind === 'image' && !data.previzMask && displaySrc && !expired && !(data.keyframe && data.showText) && (onMaskPrevis || onEditImage) && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
           {onMaskPrevis && (
             <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconBgColors />} onClick={(e) => { e.stopPropagation(); onMaskPrevis(id); }} title="Mask — flat color silhouettes (blue, green, yellow, red, purple left to right): every person by default, or name exactly what to mask in the dialog. The plate lands beside this image with the full attach / cast-colors toolkit.">Mask</Button>
@@ -477,7 +465,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
       )}
       {data.previzMask && url && onAttachPlate && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5', flexWrap: 'wrap' }}>
-          <Button size="mini" type="primary" className="nodrag" style={{ flex: '1.3 1 120px' }} icon={<IconPlus />} onClick={(e) => { e.stopPropagation(); onAttachPlate(id); }} title="Attach this blocking plate to its SHOT card (the card it was previzzed from, else the selected card): the plate + its cast colors become references AND the named FIRST FRAME lock leads the card's prompt.">Attach to SHOT card</Button>
+          <Button size="mini" type="primary" className="nodrag" style={{ flex: '1.3 1 120px' }} icon={<IconPlus />} onClick={(e) => { e.stopPropagation(); onAttachPlate(id); }} title="Attach this blocking plate to the SELECTED SHOT card (or the card its source image belongs to): the plate + its cast colors become references AND the named FIRST FRAME lock leads the card's prompt.">Attach to SHOT card</Button>
           {onCastColors && (
             <Button size="mini" className="nodrag" style={{ flex: '1 1 70px' }} icon={<IconUserGroup />} onClick={(e) => { e.stopPropagation(); onCastColors(id); }} title="Cast colors — bind each silhouette color to a bible character. Attaching then auto-adds those refs and writes the named, correctly numbered lock (no manual [Image N] matching).">{Object.keys(data.colorCast || {}).length ? `Cast · ${Object.keys(data.colorCast).length}` : 'Cast colors'}</Button>
           )}

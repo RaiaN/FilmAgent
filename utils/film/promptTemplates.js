@@ -120,23 +120,14 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: '{brief}',
   },
 
-  // ---- Previz: any text → a photoreal BLOCKING frame; Mask scrubs it to a color plate --
-  // Pass 1 stages the scene photoreal with INVENTED stand-ins (easy to judge like a film
-  // still). Pass 2 is an image EDIT that replaces every person with a flat solid-color
-  // silhouette, left→right (blue, green, yellow, red, purple) — identities die there, so
-  // the plate carries pure GEOMETRY into the shoot (Seedance gets plate = layout + cast
-  // plates = identity, bound by a color line in the shot prompt).
-  'previz.frame': {
-    agent: 'Previz',
-    label: 'Previz frame (photoreal blocking)',
-    vars: ['{scene}', '{camera}'],
-    text: 'A single photorealistic cinematic film still — a PREVIZ blocking frame. {camera} SCENE: {scene} Stage every person described at their stated position, scale, orientation and eyeline, in a real coherent set with natural cinematic light and grade; the people are realistic generic stand-ins (their identity does not matter). Characters never look at the camera. No text, captions or watermarks.',
-  },
+  // ---- Mask: identity scrub — silhouette any image's people into a color plate ---------
+  // (Key stays 'previz.mask' so saved user overrides keep applying — the Previz AGENT
+  // itself was purged 2026-07-30; Mask survives as a tool on every image node.)
   // {targets} = WHAT gets silhouetted — 'EVERY person in the frame' by default, or the
   // user's own words (sentinel-injected VERBATIM by maskFrame, like the edit slot).
   'previz.mask': {
-    agent: 'Previz',
-    label: 'Mask the previz (identity scrub)',
+    agent: 'Mask',
+    label: 'Mask (identity scrub)',
     vars: ['{targets}'],
     text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting and composition — but replace {targets} with FLAT solid-color silhouettes, one per subject: hard edges, completely filled with one color, no facial features, no clothing detail, no shading. Assign the colors left to right: blue, then green, then yellow, then red, then purple (repeat the sequence if there are more figures). Each silhouette keeps its subject\'s exact position, scale and pose. Everything NOT replaced stays photorealistic and identical to [Image 1]. No text or watermarks.',
   },

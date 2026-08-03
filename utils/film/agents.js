@@ -21,7 +21,6 @@ export const AGENT_COLORS = {
   cast: '#9a5b13',                 // bronze (pre-production: cast & world)
   story: '#f7ba1e',                // gold (the narrative spine: key events)
   storyboard: '#4e5969',           // graphite (the shot plan)
-  previz: '#3491fa',               // sky blue (blocking: previz frame → masked plate)
   shot: '#d9488f',                 // rose (a single SHOT card)
   audio: '#7816ff',                // violet (spoken word: VO / line reads)
 };
@@ -299,27 +298,6 @@ export const storyboardAgent = {
   },
 };
 
-// The PREVIZ agent: paste ANY scene text (a brief, a sub-brief, a layout idea, a shot's
-// prompt) → ONE photoreal BLOCKING frame (Seedream 5.0 Pro): set, camera and figure
-// placement with invented stand-ins. The frame's Mask button then scrubs identities to a
-// flat color-silhouette plate — pure geometry that guides the shoot (plate = layout,
-// cast plates = identity, bound by a color line in the shot prompt). No selection
-// reading, no silent refs — only the panel's ticked references ride along. On the canvas
-// the agent card's Run calls runPrevizFrame; this run() is canvas-only.
-export const previzAgent = {
-  id: 'previz',
-  label: 'Previz',
-  icon: 'previz',
-  color: AGENT_COLORS.previz,
-  consumes: [],
-  needsSelection: false,
-  defaultSettings: { prompt: '', shotTemplate: '', refs: [], imageThinking: false },
-  describe: 'Any scene text → a photoreal PREVIZ frame: set, camera, blocking with stand-ins. Mask the frame into a color blocking plate — tick references to stage YOUR set.',
-  async run() {
-    throw new Error('The Previz agent lays image nodes on the canvas — run it from the board.');
-  },
-};
-
 // The SHOT agent: drops a single EMPTY SHOT card (CutNode) on the board with a camera
 // preset — no Story required. The rail tap lays the card directly; this
 // run() guards the headless/SDK path, since laying a board node is a canvas-only action.
@@ -370,7 +348,6 @@ export const audioAgent = {
 export const AGENTS = [
   storyAgent,
   storyboardAgent,
-  previzAgent,
   shotAgent,
   castAgent,
   characterVariationsAgent,

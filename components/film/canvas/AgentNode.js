@@ -25,10 +25,6 @@ const summarize = (agentId, s, imageAssets) => {
   switch (agentId) {
     case 'cast':
       return prompt || 'No idea typed — Run drafts from the selected Brief.';
-    case 'previz': {
-      const cam = s.shotTemplate ? ` · ${s.shotTemplate}` : '';
-      return prompt ? `${prompt}${cam}` : 'No scene text yet — select the card and paste it in the panel.';
-    }
     case 'audio':
       return `${(s.model || 'seedAudio') === 'seedAudio' ? 'Seed Audio 1.0' : 'Seed TTS 2.0'}${prompt ? ` · ${prompt}` : ' · no prompt yet'}`;
     case 'characterVariations':

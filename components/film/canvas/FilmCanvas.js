@@ -43,7 +43,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, describeFrame, storyboardTurn, storyboardKeyframe, storyboardSheet, storyboardShotBody, bindShotPromptToRefs, splitIntoShots, previsFrame, maskFrame } from '../../../utils/film/core/storyboard';
+import { detectGenre, writeFilmPrompt, describeFrame, storyboardTurn, storyboardKeyframe, storyboardSheet, storyboardShotBody, bindShotPromptToRefs, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { clampResolution } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
@@ -84,12 +84,12 @@ const CUT_COL_W = 540;
 const CUT_ROW_H = 760;
 // The color-binding line a blocking plate drops into a SHOT card's prompt on attach —
 // plain editable text; the user corrects the [Image N] numbers to the reference badges.
-// The FIRST FRAME lock inserted when a previz frame / blocking plate attaches to a SHOT
-// card — PREPENDED, so the shot's very FIRST instruction is the frame lock (Seedance
-// weights the opening hard). `plateNum` = the image's actual [Image N] badge at attach
-// time (enabled bible refs first, then per-shot assets). `mask` adds the silhouette
-// color→character bindings (an editable guess — fix the numbers to the badges);
-const previzBindingLine = (plateNum, { mask = true, cast = [] } = {}) => {
+// The FIRST FRAME lock inserted when an anchor image (promoted keyframe / blocking
+// plate) attaches to a SHOT card — PREPENDED, so the shot's very FIRST instruction is
+// the frame lock (Seedance weights the opening hard). `plateNum` = the image's actual
+// [Image N] badge at attach time (enabled bible refs first, then per-shot assets).
+// `mask` adds the silhouette color→character bindings (an editable guess);
+const anchorBindingLine = (plateNum, { mask = true, cast = [] } = {}) => {
   const lock = `FIRST FRAME: STRICTLY FOLLOW [Image ${plateNum}] — preserve its camera angle, framing and figure positions exactly.`;
   let bind = '';
   if (cast.length) {
@@ -1337,37 +1337,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // reference-free (bible characters are still passively reused as refs when they
   // exist; see runStoryboardTurn's first divide).
 
-  // ---- Previz: any text → a photoreal BLOCKING frame; Mask scrubs it to a color plate --
-  // Two explicit one-tap passes, each landing as its own board image node. NOTHING is
-  // read silently: the rail panel sends only its typed text + ticked refs; the SHOT-card
-  // button sends only that card's text + that card's attached refs.
-  const previzFlightRef = useRef(new Set());
-  const runPrevizFrame = useCallback(async ({ text, refs = [], shotTemplate = '', thinking = false, sourceCutId = null, near = null } = {}) => {
-    const scene = String(text || '').trim();
-    if (!scene) { Message.warning('Paste a scene description first — a brief, a sub-brief or a layout idea.'); return; }
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
-    const camera = shotTemplate ? shotTemplateCinematography(shotTemplate, projectRef.current?.genre?.line || '') : '';
-    const pref = near || (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 240 }) : { x: 220, y: 220 });
-    const position = freeOrigin({ w: 360, h: 260, preferred: pref });
-    const node = createAssetNode({ kind: 'image', url: '', label: 'Previz', position, layerId: 'previz' });
-    node.data.loading = true;
-    node.data.previz = true;
-    node.data.previzSource = scene;
-    node.data.previzCamera = shotTemplate || '';
-    if (sourceCutId) node.data.sourceCutId = sourceCutId;
-    setNodes((ns) => ns.concat(node));
-    traceRef.current.startRun({ note: 'Agent · Previz' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-    try {
-      const { url, cacheUrl } = await previsFrame({ text: scene, camera, references: refs, thinking }, ctx);
-      traceRef.current.log({ level: 'run', kind: 'decision', note: `Previz · frame rendered (${refs.length} ref${refs.length === 1 ? '' : 's'})` });
-      setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false } } : n)));
-      Message.success('Previz frame on the board — judge the blocking, then Mask it into a plate.');
-    } catch (e) {
-      Message.error(`Previz failed: ${e.message}`);
-      setNodes((ns) => ns.filter((n) => n.id !== node.id));
-    }
-  }, [apiKey, rfInstance, freeOrigin, setNodes]);
 
   // The AUDIO agent: the typed prompt goes out VERBATIM (word for word, original
   // language) and comes back as a playable clip node — one explicit tap, one call,
@@ -1414,35 +1383,35 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [apiKey, rfInstance, freeOrigin, setNodes]);
 
 
-  // Mask (pass 2) on a previz node: reproduce the frame with every person as a flat
-  // color silhouette — the invented identities die here; the plate is pure geometry.
-  // Mask ANY board image (not just previz output — storyboard frames, uploads, plates):
-  // one edit pass reproduces the frame with every person as a flat color silhouette.
+  // MASK — reproduce ANY board image (storyboard frames, uploads, plates) with every
+  // person as a flat color silhouette: identities are scrubbed, the plate is pure
+  // geometry. Landed plates carry the attach / cast-colors toolkit.
+  const maskFlightRef = useRef(new Set());
   const maskPrevisNode = useCallback(async (id, instruction = '') => {
-    if (previzFlightRef.current.has(id)) return;
+    if (maskFlightRef.current.has(id)) return;
     const src = nodesRef.current.find((n) => n.id === id);
     const srcUrl = absLocalMediaUrl(src?.data?.url || src?.data?.cacheUrl || '');
     if (!srcUrl) { Message.warning('The image is still rendering — mask it once it lands.'); return; }
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
-    previzFlightRef.current.add(id);
+    maskFlightRef.current.add(id);
     const position = freeOrigin({ w: 360, h: 260, preferred: { x: (src.position?.x || 0) + 400, y: src.position?.y || 0 } });
-    const node = createAssetNode({ kind: 'image', url: '', label: 'Blocking plate', position, layerId: 'previz' });
+    const node = createAssetNode({ kind: 'image', url: '', label: 'Blocking plate', position, layerId: 'storyboard' });
     node.data.loading = true;
     node.data.previzMask = true;
     node.data.maskSource = id;
     if (src.data?.sourceCutId) node.data.sourceCutId = src.data.sourceCutId;
     setNodes((ns) => ns.concat(node));
-    traceRef.current.startRun({ note: 'Agent · Previz · mask' });
+    traceRef.current.startRun({ note: 'Mask · blocking plate' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
       const { url, cacheUrl } = await maskFrame({ url: srcUrl, instruction }, ctx);
-      traceRef.current.log({ level: 'run', kind: 'decision', note: 'Previz · masked blocking plate' });
+      traceRef.current.log({ level: 'run', kind: 'decision', note: 'Mask · blocking plate rendered' });
       setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false } } : n)));
       Message.success('Blocking plate ready — use its "Attach to SHOT card" button; the color-binding line lands in the card\'s prompt.');
     } catch (e) {
       Message.error(`Mask failed: ${e.message}`);
       setNodes((ns) => ns.filter((n) => n.id !== node.id));
-    } finally { previzFlightRef.current.delete(id); }
+    } finally { maskFlightRef.current.delete(id); }
   }, [apiKey, freeOrigin, setNodes]);
 
   // MASK any board image — the button opens a small modal: leave it empty for the
@@ -1754,7 +1723,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       ? Math.max(1, badgeOfEntry(plateEnt.id))
       : sentIds.length + Math.max(0, assetRefs.findIndex((a) => a.url === plateUrl)) + 1;
     const cast = assigned.map((a) => ({ color: a.color, name: a.name, badge: badgeOfEntry(a.entryId) }));
-    const lock = previzBindingLine(plateNum, { mask: !!plate?.data?.previzMask, cast });
+    const lock = anchorBindingLine(plateNum, { mask: !!plate?.data?.previzMask, cast });
     const old = String(card.data.promptOverride || '');
     const patch = { refIds, assetRefs };
     if (old.startsWith('FIRST FRAME:')) {
@@ -1770,8 +1739,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const card = nodesRef.current.find((n) => n.id === cutId && n.type === 'cut');
     if (!card || !payload?.url) return;
     const srcNode = payload.nodeId ? nodesRef.current.find((n) => n.id === payload.nodeId) : null;
-    // Previz frames / blocking plates get the FULL plate treatment (chip + auto cast
-    // refs + named lock) on every path that lands here.
+    // Blocking plates (and legacy previz frames on old boards) get the FULL plate
+    // treatment (chip + auto cast refs + named lock) on every path that lands here.
     if (srcNode?.data?.previzMask || srcNode?.data?.previz) {
       const { patch } = composePlateAttachment(card, srcNode, payload.url);
       onPatchCut(cutId, patch);
@@ -1791,8 +1760,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
   // Explicit attach for a blocking plate — dragging a node just MOVES it on the canvas
   // (the card's drop zone only hears the ⋮⋮ handle and Library drags), so the plate gets
-  // its own button. Target = the SHOT card this previz chain came from, else the SELECTED
-  // card. attachRefToCut then does both halves: reference chip + the editable
+  // its own button. Target = the SHOT card the plate's source image belongs to, else the
+  // SELECTED card. attachRefToCut then does both halves: reference chip + the editable
   // color-binding LAYOUT line in the card's prompt.
   const attachPlateToCard = useCallback((id) => {
     const plate = nodesRef.current.find((n) => n.id === id);
@@ -1803,7 +1772,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const selected = nodesRef.current.find((n) => n.type === 'cut' && n.selected);
     const source = plate.data?.sourceCutId ? nodesRef.current.find((n) => n.id === plate.data.sourceCutId && n.type === 'cut') : null;
     const target = selected || source;
-    if (!target) { Message.warning('Select a SHOT card first — or run Previz from the card itself so the plate knows its shot.'); return; }
+    if (!target) { Message.warning('Select a SHOT card first — then attach the plate.'); return; }
     // ONE pure computation, ONE patch: chip + auto cast refs (from the plate's colorCast)
     // + the named, correctly numbered FIRST FRAME lock. Re-attach refreshes a machine
     // lock in place (heals stale numbers); user prose below it is never touched.
@@ -2332,21 +2301,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
   }, [apiKey, onPatchCut]);
 
-  // Previz from a SHOT card: that card's text + that card's OWN attached refs — explicit
-  // by construction (the button lives on the card). The frame lands beside the card and
-  // remembers its source, so the masked plate can be dragged back onto it.
-  const previzFromCard = useCallback(async (id) => {
-    const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
-    if (!card) return;
-    const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
-    if (!text) { Message.warning('Write the shot prompt first — Previz needs content to stage.'); return; }
-    const bibleUrls = (card.data?.refIds || []).map((rid) => (bibleRef.current.find((b) => b.id === rid) || {}).url).filter(Boolean);
-    const assetUrls = (card.data?.assetRefs || []).map((a) => a.url).filter(Boolean);
-    const refs = (await Promise.all([...bibleUrls, ...assetUrls].map((u) => downscaleRef(u)))).filter(Boolean);
-    const near = { x: (card.position?.x || 0) + CUT_COL_W + 40, y: card.position?.y || 0 };
-    await runPrevizFrame({ text, refs, shotTemplate: card.data?.shotTemplate || '', sourceCutId: id, near });
-  }, [runPrevizFrame]);
-
   // RE-DERIVE a SHOT card's prompt: a BINDING pass over the EXISTING prompt — the
   // reasoner LOOKS at the card's refs (badge order) and tags matching subjects with
   // [Image N], preserving the wording/structure/action EXACTLY. Composes with Develop
@@ -2404,7 +2358,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const base = freeOrigin({ w: CUT_COL_W, h: CUT_ROW_H, preferred: pref });
     const cut = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
     const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
-    const lock = previzBindingLine(1, { mask: false });
+    const lock = anchorBindingLine(1, { mask: false });
     storyboardPanelRef.current({
       index: 0, cut, idPrefix, title: kf.data.beat || `Shot ${(Number(kf.data.index) || 0) + 1}`,
       action: body, promptOverride: `${lock}${body ? `\n\n${body}` : ''}`, framing: '',
@@ -2423,7 +2377,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     .filter((n) => (n.data?.kind === 'audio' || n.data?.kind === 'video') && n.data?.mediaRef && (n.data?.cacheUrl || n.data?.url))
     .map((n) => ({ nodeId: n.id, kind: n.data.kind, url: n.data.cacheUrl || n.data.url, label: n.data.label || n.data.kind, duration: Number(n.data.duration) || null })), [nodes]);
 
-  // The card context: patching, shooting, attaching, splitting, developing and previz.
+  // The card context: patching, shooting, attaching, splitting and developing.
   const cutCtx = useMemo(() => ({
     onPatchCut,
     bibleEntries,
@@ -2432,9 +2386,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onAttachAsset: attachRefToCut,
     onSplitCut: splitCardToShots,
     onDevelopCut: developShot,
-    onPrevizCut: previzFromCard,
     onRederiveCut: rederiveCardPrompt,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, developShot, previzFromCard, rederiveCardPrompt]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, developShot, rederiveCardPrompt]);
 
   const filmMode = true; // Short-Film-only suite.
 
@@ -3259,11 +3212,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const idea = typed || String(selStory.data.idea).trim();
         await dispatchFilmAction('castDraft', { prompt: idea, imageModel: s.imageModel, imageThinking: !!s.imageThinking, ethnicity: s.ethnicity || '', near: beside });
         Message.success('Cast & World drafted and auto-tagged into the bible');
-      } else if (agentId === 'previz') {
-        const refs = (await Promise.all((s.refs || []).map(async (rid) => {
-          const n = nodesRef.current.find((x) => x.id === rid); const u = n && refUrl(n); return u ? await downscaleRef(u) : null;
-        }))).filter(Boolean);
-        await runPrevizFrame({ text: s.prompt, refs, shotTemplate: s.shotTemplate || '', thinking: !!s.imageThinking, near: beside });
       } else if (agentId === 'audio') {
         await runAudioClip({ text: s.prompt, voice: s.voice, instruction: s.instruction, model: s.model || 'seedAudio', imageRef: s.imageRef || '', near: beside });
       } else if (agentId === 'characterVariations' || agentId === 'locationVariations') {
@@ -3282,7 +3230,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally {
       setAgentRunning((r) => r.filter((x) => x !== nodeId));
     }
-  }, [agentRunning, apiKey, dispatchFilmAction, runPrevizFrame, runAudioClip, runAgent, freeOrigin]);
+  }, [agentRunning, apiKey, dispatchFilmAction, runAudioClip, runAgent, freeOrigin]);
 
   // Drop a fresh SHOT card carrying the draft panel's preset (prompt verbatim, camera,
   // duration) — everything stays editable ON the card afterwards.

@@ -187,38 +187,13 @@ export const splitIntoShots = async ({ text, count, config } = {}, ctx) => {
   return { segments };
 };
 
-// ---- Previz: any text → a photoreal BLOCKING frame (Seedream 5.0 Pro) -------------------
-// Pass 1 of the previz chain: stage the scene photoreal with INVENTED stand-ins — set,
-// camera and blocking a director can judge like a film still. `references` are ONLY what
-// the user explicitly ticked/attached (never read silently); `camera` is an optional
-// cinematography line from the shot-template library. The scene text is injected via a
-// sentinel so renderTemplate's whitespace collapse never touches the user's words.
-export const previsFrame = async ({ text, camera = '', references = [], thinking = false, config } = {}, ctx) => {
-  const scene = String(text || '').trim();
-  if (!scene) throw new Error('Previz needs a scene description first.');
-  const SLOT = '@@SCENE@@';
-  const prompt = renderTemplate('previz.frame', { scene: SLOT, camera: String(camera || '').trim() })
-    .split(SLOT).join(scene.slice(0, 4000));
-  const images = (references || []).filter(Boolean).slice(0, imageRefCap('seedreamPro'));
-  const { url, cacheUrl } = await ctx.client.generateImage({
-    prompt,
-    referenceImages: images,
-    size: keyframeImageSize('seedreamPro'),
-    model: getModel('seedreamPro', config),
-    // Pro "thinking" prompt optimization — the transport applies it only when the
-    // request ends up TEXT-TO-IMAGE (any ticked reference disables it, per the API).
-    optimizePrompt: !!thinking,
-  });
-  if (!url) throw new Error('No previz frame URL in response');
-  return { url };
-};
-
-// Pass 2: MASK — an image EDIT that reproduces the previz frame but replaces every person
+// ---- Mask: identity scrub for ANY board image ------------------------------------------
+// An image EDIT that reproduces the frame but replaces every person
 // with a flat solid-color silhouette (left→right: blue, green, yellow, red, purple). The
 // invented identities die here; the plate carries pure geometry into the shoot.
 export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => {
   const src = String(url || '').trim();
-  if (!src) throw new Error('Mask needs a previz frame first.');
+  if (!src) throw new Error('Mask needs a rendered image first.');
   // WHAT to mask: the user's words VERBATIM (sentinel slot — renderTemplate never
   // touches them), or the classic every-person scrub when left empty.
   const SLOT = '@@MASK@@';

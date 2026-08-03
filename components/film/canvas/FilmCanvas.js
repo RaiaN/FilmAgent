@@ -11,10 +11,8 @@ import {
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Button, Message, Space, Typography, Tooltip, Modal, InputNumber, Input } from '@arco-design/web-react';
+import { Button, Message, Space, Typography, Tooltip, Modal, Input } from '@arco-design/web-react';
 import {
-  IconLock,
-  IconUnlock,
   IconRefresh,
   IconPlus,
   IconZoomIn,
@@ -409,34 +407,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const projectRef = useRef(project);  // latest project for async sessions' live getters
   useEffect(() => { projectRef.current = project; }, [project]);
 
-  // ---- the SEQUENCE seed — one seed for every shot (the iteration lever) ----
-  // locked: reuse `value` across re-shoots (a prompt tweak is then the ONLY changed
-  // variable); unlocked: re-roll each shoot. value null = let the model choose.
-  const [seed, setSeed] = useState(() => {
-    const s = project.seed;
-    return (s && typeof s === 'object') ? { value: s.value ?? null, locked: !!s.locked } : { value: null, locked: false };
-  });
-  const seedRef = useRef(seed);
-  useEffect(() => { seedRef.current = seed; }, [seed]);
-  const shootSeedRef = useRef(null); // the exact seed a shoot used (threaded into shotFromCard)
   // True while a CUT shoot (🎬 / Action) is running: those dock the take UNDER its card
   // (upsertShotNodeForCard), so the generic session→board reconcile must NOT also drop a
   // loose copy (that was the "two videos per shot" / un-attached-shot bug).
   const cutShootActiveRef = useRef(false);
-  // Persist seed changes onto the project (so a reload keeps the locked sequence seed).
-  useEffect(() => {
-    onUpdateProject((prev) => (prev && prev.id === loadedIdRef.current ? { ...prev, seed } : prev));
-  }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
-  const rollSeed = () => Math.floor(Math.random() * 2147483647);
-  // The seed a shoot should use: a locked value rides every shot unchanged; otherwise
-  // roll a fresh one (and surface it in the control, so a good random can then be locked).
-  const resolveShootSeed = useCallback(() => {
-    const s = seedRef.current || { value: null, locked: false };
-    if (s.locked && s.value != null) return s.value;
-    const value = rollSeed();
-    setSeed((prev) => ({ ...prev, value }));
-    return value;
-  }, []);
 
   // ---- the spine: timeline + bible (single source of truth = the project) ----
   const timeline = useMemo(() => project.timeline || emptyTimeline(), [project.timeline]);
@@ -1962,8 +1936,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       resolution: clampResolution(c.data.videoModel || 'seedance', c.data.resolution),
       ratio: c.data.ratio,
       generateAudio: c.data.generateAudio,
-      // The card's own seed wins; else the sequence seed this shoot resolved.
-      seed: c.data.seed ?? shootSeedRef.current,
+      seed: c.data.seed, // the card's own seed (if set) — the global sequence seed is gone
       // Which Seedance endpoint to shoot on — the card's pick (default vs Mini).
       modelKey: c.data.videoModel || 'seedance',
       // The card's attached media (pre-resolved to data:/http, chip order) — Seedance's
@@ -2107,7 +2080,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const card = nodesRef.current.find((n) => n.id === cutId && n.type === 'cut');
     if (!card) return;
-    const seed = resolveShootSeed();
     // Continuity (best-effort): the nearest earlier shot card's final frame.
     const prevShot = nodesRef.current
       .filter((n) => n.type === 'cut' && n.data?.shotUrl && (n.data?.cut ?? 0) < (card.data?.cut ?? 0))
@@ -2154,7 +2126,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       try {
         await ensureRefsRegistered(card);
         const { audioRefUrls, videoRefUrls, videoRefAssetIds } = await resolveCardMediaRefs(card);
-        const shot = shotFromCard({ ...card, data: { ...card.data, seed: card.data.seed ?? seed } }, { keepTake: false, continuityFrameUrl, audioRefUrls, videoRefUrls, videoRefAssetIds });
+        const shot = shotFromCard(card, { keepTake: false, continuityFrameUrl, audioRefUrls, videoRefUrls, videoRefAssetIds });
         const refAssetIds = await registerShotRefs(shot.refUrls, shot.refAssetIds);
         // Seedance content-SCREENS every reference image and rejects any it judges to "contain
         // sensitive information / a real person" — photoreal cast plates trip it EVEN as fully
@@ -2186,7 +2158,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         Message.error(`Shot failed: ${err.message}`);
       }
     })();
-  }, [apiKey, shotFromCard, onPatchCut, resolveShootSeed, setNodes, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
+  }, [apiKey, shotFromCard, onPatchCut, setNodes, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
 
 
   // 🎬 Action: shoot the SHOT cards IN ORDER, CONTINUITY-CHAINED — each shot rides the
@@ -2203,7 +2175,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const oldStepIds = new Set(cards.map((c) => c.data?.lastAnimStepId).filter(Boolean));
     if (oldStepIds.size) updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => !oldStepIds.has(e.stepId)) }));
     const kept = cards.filter((c) => c.data?.shotUrl).length;
-    shootSeedRef.current = resolveShootSeed(); // one sequence seed across the whole chain
     traceRef.current.startRun({ note: `Action · ${cards.length} shots, continuity-chained${kept ? ` (${kept} kept)` : ''}` });
     setTimelineCollapsed(false);
     setAutoFillBusy(true);
@@ -2257,7 +2228,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       setAutoFillBusy(false);
       cutShootActiveRef.current = false;
     }
-  }, [apiKey, buildSession, shotFromCard, wireCutSession, onPatchCut, updateTimeline, resolveShootSeed, upsertShotNodeForCard, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
+  }, [apiKey, buildSession, shotFromCard, wireCutSession, onPatchCut, updateTimeline, upsertShotNodeForCard, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
 
   // (The VLM Take-breakdown — handleBreakdownTake / the Take ✂ — was PURGED 2026-07-21;
   // the Take Viewer (▶ on any video) is Deconstruct's successor.)
@@ -4062,38 +4033,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       )}
 
       <div ref={wrapperRef} style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver}>
-        {/* Floating toolbar — just the seed + the contextual selection action. Add /
-            Library / History moved onto the zoom Controls (icon-only); Fit was redundant
-            with the Controls' own fit button, so it's gone. Narrow → never crowds the
-            centered status pill below. */}
+        {/* Floating toolbar — just the contextual selection action. Add / Library /
+            History moved onto the zoom Controls (icon-only); Fit was redundant with the
+            Controls' own fit button, so it's gone. Narrow → never crowds the centered
+            status pill below. */}
         <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5 }}>
           <Space>
-            {/* Sequence seed — one seed for every shot. Lock it to hold every variable
-                but your prompt edits constant across re-shoots (the iteration lever). */}
-            {filmMode && (
-              <Tooltip content="Sequence seed — one seed for every shot. 🔒 Lock it and a prompt edit becomes the ONLY changed variable across re-shoots; 🎲 rerolls; unlocked re-rolls each shoot. (Whether Seedance honors it is being verified.)">
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, height: 28, padding: '0 4px', background: '#fff', border: '1px solid #e5e6eb', borderRadius: 4 }}>
-                  <Text style={{ fontSize: 11, color: '#86909c', fontWeight: 600 }}>Seed</Text>
-                  <InputNumber
-                    size="mini"
-                    hideControl
-                    min={0}
-                    placeholder="random"
-                    value={seed.value ?? undefined}
-                    onChange={(v) => setSeed((s) => ({ ...s, value: (v == null || v === '') ? null : Math.max(0, Math.round(Number(v))) }))}
-                    style={{ width: 86 }}
-                  />
-                  <Button size="mini" type="text" icon={<IconRefresh />} onClick={() => setSeed((s) => ({ ...s, value: rollSeed() }))} style={{ color: '#86909c', padding: '0 3px' }} />
-                  <Button
-                    size="mini"
-                    type="text"
-                    icon={seed.locked ? <IconLock /> : <IconUnlock />}
-                    onClick={() => setSeed((s) => ({ ...s, locked: !s.locked, value: (!s.locked && s.value == null) ? rollSeed() : s.value }))}
-                    style={{ color: seed.locked ? '#b06f10' : '#86909c', padding: '0 3px' }}
-                  />
-                </span>
-              </Tooltip>
-            )}
             {/* Contextual selection action (appears only with a selection). Lock UI is
                 GONE — the bible tag anchors, the per-node cloud tap adds to the Library.
                 Delete is keyboard-driven (Backspace/Delete); Space-hold / middle-mouse /

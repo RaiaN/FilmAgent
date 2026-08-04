@@ -22,6 +22,7 @@ export const AGENT_COLORS = {
   story: '#f7ba1e',                // gold (the narrative spine: key events)
   storyboard: '#4e5969',           // graphite (the shot plan)
   shot: '#d9488f',                 // rose (a single SHOT card)
+  previz: '#3491fa',               // sky blue (blocking: floor plan → projected shots)
   audio: '#7816ff',                // violet (spoken word: VO / line reads)
 };
 
@@ -298,6 +299,26 @@ export const storyboardAgent = {
   },
 };
 
+// The PREVIZ agent (v2 — the BLOCKING agent): from a brief it renders the scene's
+// FLOOR PLAN — a schematic overhead blocking map (Seed 2.0 Pro plans space/parties/
+// moves/AXIS, Seedream Pro draws it). The map is the scene's spatial state: edit it
+// like any image; attach it to a SHOT card and the projection writes camera-relative
+// blocking into that card's prompt. On the canvas the agent card's Run calls
+// runFloorPlan; this run() is canvas-only.
+export const previzAgent = {
+  id: 'previz',
+  label: 'Previz',
+  icon: 'previz',
+  color: AGENT_COLORS.previz,
+  consumes: [],
+  needsSelection: false,
+  defaultSettings: { brief: '' },
+  describe: 'Brief → the scene\'s FLOOR PLAN: a schematic overhead blocking map (parties, moves, the AXIS). Edit it like any image; attach it to a SHOT card to project camera-relative blocking into the prompt.',
+  async run() {
+    throw new Error('The Previz agent lays image nodes on the canvas — run it from the board.');
+  },
+};
+
 // The SHOT agent: drops a single EMPTY SHOT card (CutNode) on the board with a camera
 // preset — no Story required. The rail tap lays the card directly; this
 // run() guards the headless/SDK path, since laying a board node is a canvas-only action.
@@ -348,6 +369,7 @@ export const audioAgent = {
 export const AGENTS = [
   storyAgent,
   storyboardAgent,
+  previzAgent,
   shotAgent,
   castAgent,
   characterVariationsAgent,

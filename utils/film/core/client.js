@@ -79,8 +79,10 @@ export const createBrowserClient = (apiKey) => ({
     while (true) {
       if (Date.now() - startedAt > timeoutMs) throw new Error('Seedance timed out');
       await new Promise((r) => setTimeout(r, intervalMs));
+      // Server-key mode: NO auth header at all (an empty `Bearer ` header reaches the
+      // route as the literal string "Bearer" and got forwarded to Ark → 401 loop).
       const res = await fetch(`/api/seedance-status?taskId=${encodeURIComponent(taskId)}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
       });
       const data = await res.json();
       if (data.status === 'succeeded' && data.video_url) return { videoUrl: data.video_url, lastFrameUrl: data.last_frame_url || null, videoCacheUrl: data.video_cache_url || null, lastFrameCacheUrl: data.last_frame_cache_url || null };

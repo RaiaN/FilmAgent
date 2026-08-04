@@ -153,6 +153,22 @@ const StoryboardFields = ({ s, up, imageAssets }) => (
   </>
 );
 
+const PrevizFields = ({ s, up }) => (
+  <>
+    <div>
+      <Text style={FIELD_LABEL}>Scene brief — empty = the selected Brief card</Text>
+      <Input.TextArea
+        value={s.brief || ''} onChange={(v) => up({ brief: v })}
+        placeholder="the scene to block — who is where, what stands between them; leave empty to read the selected Brief verbatim"
+        autoSize={{ minRows: 4, maxRows: 10 }}
+      />
+    </div>
+    <Text type="secondary" style={{ fontSize: 12 }}>
+      Run renders the scene&rsquo;s FLOOR PLAN — a schematic overhead blocking map (parties, moves, the AXIS). Edit it like any image; attach it to a SHOT card to project blocking into the prompt.
+    </Text>
+  </>
+);
+
 const CastFields = ({ s, up }) => (
   <>
     <div>
@@ -301,6 +317,7 @@ export const AGENT_FIELDS = {
   shot: ShotFields,
   storyboard: StoryboardFields,
   cast: CastFields,
+  previz: PrevizFields,
   inspiration: InspirationFields,
   characterVariations: VariationsFields,
   locationVariations: VariationsFields,

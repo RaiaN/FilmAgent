@@ -43,7 +43,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, describeFrame, storyboardTurn, storyboardKeyframe, storyboardSheet, storyboardShotBody, bindShotPromptToRefs, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
+import { detectGenre, writeFilmPrompt, describeFrame, storyboardTurn, storyboardKeyframe, storyboardSheet, storyboardShotBody, bindShotPromptToRefs, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { clampResolution } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
@@ -1383,6 +1383,35 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [apiKey, rfInstance, freeOrigin, setNodes]);
 
 
+  // ---- Previz v2: FLOOR PLAN — the scene's schematic overhead blocking map ------------
+  // One explicit tap = ONE reason call (the AD planner CoT: space → parties → moves →
+  // AXIS) + ONE Seedream Pro render (literal mode). The map lands as a normal image
+  // node (layerId 'previz'): editable like any image; attaching it to a SHOT card is
+  // the projection moment (see attachMapToCard).
+  const runFloorPlan = useCallback(async ({ brief, near = null } = {}) => {
+    const text = String(brief || '').trim();
+    if (!text) { Message.warning('Give Previz the scene text — type it in the panel or select a Brief card.'); return; }
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    const pref = near || (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 240 }) : { x: 220, y: 220 });
+    const position = freeOrigin({ w: 360, h: 380, preferred: pref });
+    const node = createAssetNode({ kind: 'image', url: '', label: 'Floor plan', position, layerId: 'previz' });
+    node.data.loading = true;
+    node.data.floorPlan = true;
+    node.data.floorPlanBrief = text;
+    setNodes((ns) => ns.concat(node));
+    traceRef.current.startRun({ note: 'Agent · Previz · floor plan' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const { url, cacheUrl, planPrompt } = await floorPlan({ brief: text }, ctx);
+      traceRef.current.log({ level: 'run', kind: 'decision', note: 'Previz · floor plan rendered' });
+      setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, planPrompt, loading: false } } : n)));
+      Message.success('Floor plan on the board — edit it like any image, then attach it to a SHOT card to project the blocking.');
+    } catch (e) {
+      Message.error(`Floor plan failed: ${e.message}`);
+      setNodes((ns) => ns.filter((n) => n.id !== node.id));
+    }
+  }, [apiKey, rfInstance, freeOrigin, setNodes]);
+
   // MASK — reproduce ANY board image (storyboard frames, uploads, plates) with every
   // person as a flat color silhouette: identities are scrubbed, the plate is pure
   // geometry. Landed plates carry the attach / cast-colors toolkit.
@@ -1784,6 +1813,62 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       ? `Plate attached to ${where} — cast auto-attached (${assigned.map((a) => `${a.color.toLowerCase()} = ${a.name}`).join(', ')}); the named FIRST FRAME lock leads its prompt.`
       : `Plate attached to ${where} — the FIRST FRAME lock leads its prompt. Tip: “Cast colors” on the plate makes this fully automatic (names + numbers).`);
   }, [onPatchCut, composePlateAttachment]);
+
+  // ---- map PROMOTE = THE PROJECTION MOMENT (no hidden LLM inside 🎬) ------------------
+  // One tap on the floor plan births a SHOT card beside it (the storyboard-promote
+  // pattern — no selection dance): ONE reason call reads the map + its stored brief
+  // and writes the camera-relative blocking as the new card's prompt — visible,
+  // editable; the brief is stashed as projectSource. 🎬 then shoots exactly what you
+  // see. MAP_AS_SEEDANCE_REF — the leak experiment CONCLUDED 2026-08-04: with the
+  // map riding as a reference, Seedance COMPOSITED the schematic into the take
+  // (circles, axis line, a labeled CONVOY box over photoreal bandits) despite the
+  // read-only clause — while the projected TEXT alone staged the geography
+  // correctly. So: false. The map is an AUTHORING artifact — the projection
+  // carries its geometry into the prompt; the map itself never rides to Seedance.
+  const MAP_AS_SEEDANCE_REF = false;
+  const promoteMapToCard = useCallback(async (mapId) => {
+    const map = nodesRef.current.find((n) => n.id === mapId);
+    const mapUrl = map && (map.data?.cacheUrl || map.data?.url);
+    if (!mapUrl) { Message.warning('The floor plan is still rendering — promote it once it lands.'); return; }
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    if (!storyboardPanelRef.current) return;
+    const moment = String(map.data?.floorPlanBrief || '').trim();
+    if (!moment) { Message.warning('This plan has no stored scene text — regenerate it from a Brief.'); return; }
+    if (map.data?.projecting) return; // one projection at a time — the card shows the spinner
+    setNodes((ns) => ns.map((n) => (n.id === mapId ? { ...n, data: { ...n.data, projecting: true } } : n)));
+    traceRef.current.startRun({ note: 'Agent · Previz · projection' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const { prompt } = await projectShot({ mapUrl: absLocalMediaUrl(mapUrl), moment, camera: '' }, ctx);
+      let out = prompt;
+      if (!MAP_AS_SEEDANCE_REF) {
+        const lines = out.split('\n');
+        if (/blocking MAP/i.test(lines[0] || '')) lines.shift();
+        out = lines.join('\n').trim();
+      }
+      // Lay the card beside the map (fresh card: the map is its FIRST reference, so the
+      // projection's "[Image 1]" is already correct — no renumbering).
+      const base = freeOrigin({ w: CUT_COL_W, h: CUT_ROW_H, preferred: { x: (map.position?.x || 0) + 400, y: map.position?.y || 0 } });
+      const cut = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
+      const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
+      storyboardPanelRef.current({
+        index: 0, cut, idPrefix, title: map.data?.label || 'Blocked shot',
+        action: '', promptOverride: out, framing: '',
+        shotTemplate: 'medium-shot', durationSec: 10,
+        refEntryIds: [], audio: '',
+      }, base);
+      onPatchCut(`${idPrefix}-0`, {
+        ...(MAP_AS_SEEDANCE_REF ? { assetRefs: [{ nodeId: mapId, url: mapUrl, label: 'Floor plan' }] } : {}),
+        mapRef: { nodeId: mapId, url: mapUrl, ...(MAP_AS_SEEDANCE_REF ? {} : { textOnly: true }) },
+        projectSource: moment,
+      });
+      Message.success(`SHOT ${cut + 1} laid from the floor plan — the projected blocking is its prompt (yours to edit); 🎬 shoots exactly what you see.`);
+    } catch (e) {
+      Message.error(`Projection failed: ${e.message}`);
+    } finally {
+      setNodes((ns) => ns.map((n) => (n.id === mapId ? { ...n, data: { ...n.data, projecting: false } } : n)));
+    }
+  }, [apiKey, freeOrigin, onPatchCut, setNodes]);
 
   // Lay ONE panel as a SHOT card — the Story's prompt rides verbatim as promptOverride.
   storyboardPanelRef.current = (panel, base) => {
@@ -3212,6 +3297,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const idea = typed || String(selStory.data.idea).trim();
         await dispatchFilmAction('castDraft', { prompt: idea, imageModel: s.imageModel, imageThinking: !!s.imageThinking, ethnicity: s.ethnicity || '', near: beside });
         Message.success('Cast & World drafted and auto-tagged into the bible');
+      } else if (agentId === 'previz') {
+        const typed = (s.brief || '').trim();
+        const selStory = !typed && nodesRef.current.find((n) => n.type === 'story' && n.selected && String(n.data?.idea || '').trim());
+        if (!typed && !selStory) { Message.warning('Type the scene text — or select a Brief node and leave the field empty.'); return; }
+        await runFloorPlan({ brief: typed || String(selStory.data.idea).trim(), near: beside });
       } else if (agentId === 'audio') {
         await runAudioClip({ text: s.prompt, voice: s.voice, instruction: s.instruction, model: s.model || 'seedAudio', imageRef: s.imageRef || '', near: beside });
       } else if (agentId === 'characterVariations' || agentId === 'locationVariations') {
@@ -3230,7 +3320,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally {
       setAgentRunning((r) => r.filter((x) => x !== nodeId));
     }
-  }, [agentRunning, apiKey, dispatchFilmAction, runAudioClip, runAgent, freeOrigin]);
+  }, [agentRunning, apiKey, dispatchFilmAction, runFloorPlan, runAudioClip, runAgent, freeOrigin]);
 
   // Drop a fresh SHOT card carrying the draft panel's preset (prompt verbatim, camera,
   // duration) — everything stays editable ON the card afterwards.
@@ -3839,11 +3929,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally { setViewerBusy(null); }
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
-  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster,
+  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster, onPromoteMap: promoteMapToCard,
     onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
-    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, duplicateNode, ensurePoster, lodCoarse, demoOverlay]);
+    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, duplicateNode, ensurePoster, promoteMapToCard, lodCoarse, demoOverlay]);
 
   // The Storyboard chat node runs one brainstorm turn per message, scoped to its own cards.
   // Pool mutations for the chat node's REFS block (SHOT-card-style chips): toggle a bible
@@ -3930,6 +4020,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
   // Handlers only — each Brief node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Brief element on the board.
+  // Floor plan from a Brief card — the brief rides VERBATIM; the map lands beside.
+  const floorPlanFromStory = useCallback((id) => {
+    const node = nodesRef.current.find((n) => n.id === id);
+    const idea = String(node?.data?.idea || '').trim();
+    if (!idea) { Message.warning('Write the brief first.'); return; }
+    runFloorPlan({ brief: idea, near: { x: (node.position?.x || 0) + 600, y: node.position?.y || 0 } });
+  }, [runFloorPlan]);
+
   const storyCtx = useMemo(() => ({
     onEditIdea: editStoryIdea,
     onEditPrompt: editStoryPrompt,
@@ -3937,11 +4035,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onDevelop: developStory,
     onCast: draftCastFromStory,
     onStoryboard: storyboardFromStory,
+    onFloorPlan: floorPlanFromStory,
     onSplit: splitBriefToShots,
     onSetSplitCount: setStorySplitCount,
     onShoot: shootFilm,
     onClose: removeStoryNode,
-  }), [editStoryIdea, editStoryPrompt, setStoryComplexity, developStory, draftCastFromStory, storyboardFromStory, splitBriefToShots, setStorySplitCount, shootFilm, removeStoryNode]);
+  }), [editStoryIdea, editStoryPrompt, setStoryComplexity, developStory, draftCastFromStory, storyboardFromStory, floorPlanFromStory, splitBriefToShots, setStorySplitCount, shootFilm, removeStoryNode]);
 
   return (
     <AssetNodeContext.Provider value={tagCtx}>

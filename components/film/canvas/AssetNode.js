@@ -12,7 +12,7 @@ const { Text } = Typography;
 // Bridge from a board node's role-dropdown back to FilmCanvas's tagNode. Functions
 // can't live in (serializable) node.data, so the tag/untag action travels via
 // context instead — React context passes through ReactFlowProvider unchanged.
-export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, onViewImage: null, onNeedPoster: null, lod: false });
+export const AssetNodeContext = createContext({ onTagRole: null, onRename: null, onImgError: null, onAddToTimeline: null, onRemoveFromTimeline: null, onTimelineIds: null, onEditKeyframe: null, onExpandKeyframe: null, onMaskPrevis: null, onAttachPlate: null, onCastColors: null, onPromoteKeyframe: null, onToggleMediaRef: null, onEditImage: null, onOpenViewer: null, onPreserve: null, onRenderStill: null, onPatchKeyframeText: null, onDuplicate: null, onViewImage: null, onNeedPoster: null, onPromoteMap: null, lod: false });
 
 // The bible IS the board: a tagged node carries data.bibleRole. Each role gets a
 // colour for its badge so the cast & world read at a glance on the board.
@@ -44,7 +44,7 @@ const visibilityStyle = (visibility) => {
 
 const AssetNodeInner = ({ id, data, selected }) => {
   const { kind, url, localUrl, cacheUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
-  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, onViewImage, onNeedPoster, lod } = useContext(AssetNodeContext);
+  const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, onViewImage, onNeedPoster, onPromoteMap, lod } = useContext(AssetNodeContext);
   // Inline body edit on an UNRENDERED shot card (double-click) — free, no render, no LLM.
   const [editBody, setEditBody] = useState(null);
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
@@ -138,7 +138,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
   if (lod) {
     return (
       <div style={{
-        width: data.sheet ? 760 : ((isLocation || data.previz || data.previzMask) ? 360 : (kind === 'audio' ? 280 : 220)),
+        width: data.sheet ? 760 : ((isLocation || data.previz || data.previzMask || data.floorPlan) ? 360 : (kind === 'audio' ? 280 : 220)),
         background: '#fff', borderRadius: 10,
         border: `2px solid ${selected ? '#165dff' : bibleRole ? (BIBLE_ROLE_COLOR[bibleRole] || '#f7ba1e') : '#e5e6eb'}`,
         overflow: 'hidden',
@@ -158,7 +158,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
   return (
     <div
       style={{
-        width: data.sheet ? 760 : ((isLocation || data.previz || data.previzMask) ? 360 : (kind === 'audio' ? 280 : 220)),
+        width: data.sheet ? 760 : ((isLocation || data.previz || data.previzMask || data.floorPlan) ? 360 : (kind === 'audio' ? 280 : 220)),
         background: '#fff',
         borderRadius: 10,
         // A bible-tagged node wears its role colour as the border so the cast & world
@@ -453,13 +453,27 @@ const AssetNodeInner = ({ id, data, selected }) => {
           Mask on each frame). Results land as NEW nodes; chainable. On STORYBOARD frames
           the instruction Edit is suppressed — their single Edit is the SHOT editor above
           (one edit affordance per frame); Mask stays. */}
-      {kind === 'image' && !data.previzMask && displaySrc && !expired && !(data.keyframe && data.showText) && (onMaskPrevis || onEditImage) && (
+      {kind === 'image' && !data.previzMask && !data.floorPlan && displaySrc && !expired && !(data.keyframe && data.showText) && (onMaskPrevis || onEditImage) && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
           {onMaskPrevis && (
             <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconBgColors />} onClick={(e) => { e.stopPropagation(); onMaskPrevis(id); }} title="Mask — flat color silhouettes (blue, green, yellow, red, purple left to right): every person by default, or name exactly what to mask in the dialog. The plate lands beside this image with the full attach / cast-colors toolkit.">Mask</Button>
           )}
           {onEditImage && !data.keyframe && (
             <Button size="mini" className="nodrag" style={{ flex: 1 }} icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditImage(id); }} title="Edit — describe one change (word for word); a new image with just that change lands beside this one. The original stays untouched.">Edit</Button>
+          )}
+        </div>
+      )}
+      {/* FLOOR PLAN — the scene's blocking map. Promote = the projection moment (the
+          storyboard-promote pattern, no selection needed): a NEW SHOT card lands beside
+          the map with the camera-relative blocking as its prompt (one visible reasoner
+          call), the map riding as [Image 1]. Edit works like any image. */}
+      {data.floorPlan && url && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
+          {onPromoteMap && (
+            <Button size="mini" type="primary" className="nodrag" style={{ flex: '1.3 1 120px' }} loading={!!data.projecting} disabled={!!data.projecting} icon={data.projecting ? <IconLoading /> : <IconPlus />} onClick={(e) => { e.stopPropagation(); onPromoteMap(id); }} title="Promote — lay a NEW SHOT card beside this plan: the projection reads the map + its scene text and writes camera-relative blocking as the card's prompt (visible, editable); the map rides as [Image 1].">{data.projecting ? 'Projecting…' : 'Promote to SHOT card'}</Button>
+          )}
+          {onEditImage && (
+            <Button size="mini" className="nodrag" style={{ flex: '1 1 70px' }} icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditImage(id); }} title="Edit — move markers, add characters, redraw the axis: describe one change; a new plan lands beside this one.">Edit</Button>
           )}
         </div>
       )}

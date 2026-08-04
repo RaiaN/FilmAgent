@@ -247,21 +247,24 @@ const CutNodeInner = ({ id, data, selected }) => {
             {assetRefs.map((a, j) => {
               const imgIdx = assetImageIndex(j);
               const sent = imgIdx <= MAX_CUT_REFS;
+              const isMap = !!(data.mapRef && data.mapRef.url === a.url);
               return (
                 <span
                   key={a.url}
                   className="nodrag"
-                  onClick={() => removeAssetRef(a.url)}
-                  title={`${sent ? `Image${imgIdx} · ` : ''}${a.label || 'asset'} — attached to this shot only; click to remove`}
+                  onClick={() => { removeAssetRef(a.url); if (isMap) patch({ mapRef: null }); }}
+                  title={isMap
+                    ? `${sent ? `Image${imgIdx} · ` : ''}the scene's blocking MAP — read for positions only; click to detach (the projected prompt stays, editable)`
+                    : `${sent ? `Image${imgIdx} · ` : ''}${a.label || 'asset'} — attached to this shot only; click to remove`}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
                     padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                    border: '1px solid #e5e6eb', background: '#e5e6eb', color: '#1d2129',
+                    border: `1px solid ${isMap ? '#3491fa' : '#e5e6eb'}`, background: isMap ? '#e8f3ff' : '#e5e6eb', color: '#1d2129',
                   }}
                 >
                   {sent && <b style={REF_BADGE}>{imgIdx}</b>}
                   {a.url ? <img src={a.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
-                  {(a.label || 'asset').slice(0, 14)}
+                  {isMap ? 'MAP' : (a.label || 'asset').slice(0, 14)}
                 </span>
               );
             })}

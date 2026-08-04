@@ -31,8 +31,10 @@ async function seedanceStatusHandler(req, res) {
     // For now, let's assume the user has set the env var or we can't poll easily without passing it back.
     // Since the original design stores key in localStorage, the client should pass it.
     // Let's check headers first.
-    const authHeader = req.headers.authorization;
-    const bearerToken = authHeader ? authHeader.replace('Bearer ', '') : token;
+    // Robust parse: 'Bearer <key>' → key; a bare/empty 'Bearer' (key-less client)
+    // falls back to the server-configured key instead of forwarding garbage to Ark.
+    const headerToken = String(req.headers.authorization || '').replace(/^Bearer\s*/i, '').trim();
+    const bearerToken = headerToken || token;
 
     if (!bearerToken) {
       return res.status(500).json({ error: 'API key not configured' });

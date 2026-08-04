@@ -12,6 +12,7 @@ import {
   IconScissor,
   IconCamera,
   IconEye,
+  IconMindMapping,
   IconSound,
 } from '@arco-design/web-react/icon';
 
@@ -24,6 +25,7 @@ export const AGENT_ICONS = {
   board: IconApps,       // Storyboard (the panel grid)
   cast: IconUserGroup,   // Cast & World (the ensemble: characters/monsters + places)
   shot: IconCamera,      // Shot (drops an empty SHOT card)
+  previz: IconMindMapping, // Previz (floor plan — the scene's blocking map)
   audio: IconSound,      // Audio (speaks text verbatim into a clip node)
 };
 

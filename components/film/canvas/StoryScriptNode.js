@@ -1,6 +1,6 @@
 import { createContext, memo, useContext } from 'react';
 import { Button, Typography, Tag, Input, InputNumber, Select, Tooltip } from '@arco-design/web-react';
-import { IconLoading, IconClose, IconEdit, IconVideoCamera, IconUserGroup, IconApps, IconScissor } from '@arco-design/web-react/icon';
+import { IconLoading, IconClose, IconEdit, IconVideoCamera, IconUserGroup, IconApps, IconScissor, IconMindMapping } from '@arco-design/web-react/icon';
 
 const { Text } = Typography;
 const GOLD = '#b06f10';
@@ -13,7 +13,7 @@ const GOLD = '#b06f10';
 // its state lives in its own node.data and every handler is called with the node id so
 // the canvas updates exactly this node (the board can hold many Brief elements at once).
 export const StoryScriptContext = createContext({
-  onEditIdea: null, onEditPrompt: null, onSetComplexity: null, onDevelop: null, onCast: null, onStoryboard: null, onSplit: null, onSetSplitCount: null, onShoot: null, onClose: null,
+  onEditIdea: null, onEditPrompt: null, onSetComplexity: null, onDevelop: null, onCast: null, onStoryboard: null, onFloorPlan: null, onSplit: null, onSetSplitCount: null, onShoot: null, onClose: null,
 });
 
 const DEPTH_OPTIONS = [{ label: 'Light', value: 'light' }, { label: 'Medium', value: 'medium' }, { label: 'Deep', value: 'deep' }];
@@ -24,7 +24,7 @@ const NODE_W = 560;
 const StoryScriptNode = ({ id, data = {} }) => {
   const { idea = '', mode = '', prompt = '', complexity = 'medium', busy = false, phase = 'idle', shooting = false, casting = false, boarding = false, splitting = false, splitCount = null } = data;
   const {
-    onEditIdea, onEditPrompt, onSetComplexity, onDevelop, onCast, onStoryboard, onSplit, onSetSplitCount, onShoot, onClose,
+    onEditIdea, onEditPrompt, onSetComplexity, onDevelop, onCast, onStoryboard, onFloorPlan, onSplit, onSetSplitCount, onShoot, onClose,
   } = useContext(StoryScriptContext);
   const hasText = !!String(idea).trim();
   const writing = phase === 'writing' || busy;
@@ -50,6 +50,7 @@ const StoryScriptNode = ({ id, data = {} }) => {
         <Button className="nodrag" size="mini" icon={busy ? <IconLoading /> : <IconEdit />} disabled={busy || shooting || !hasText} onClick={() => onDevelop && onDevelop(id)} title="Develop (opt-in) — rewrite the brief into one long cinematic prompt (subjects, arc, eyelines); New Shot then uses it instead of the raw brief. Your brief stays untouched.">{prompt ? 'Develop again' : 'Develop'}</Button>
         <Button className="nodrag" size="mini" icon={casting ? <IconLoading /> : <IconUserGroup />} disabled={busy || casting || !hasText} onClick={() => onCast && onCast(id)} title="Cast & World — draft the characters, locations and a shared look from this brief, verbatim (lands as tagged plates on the board)">Cast &amp; World</Button>
         <Button className="nodrag" size="mini" icon={boarding ? <IconLoading /> : <IconApps />} disabled={!hasText || boarding} onClick={() => onStoryboard && onStoryboard(id)} title="Storyboard — break this brief (your words, verbatim) into a shot list with keyframe stills. Uses your bible cast as references when it exists; otherwise boards reference-free — nothing runs under the hood.">Storyboard</Button>
+        <Button className="nodrag" size="mini" icon={<IconMindMapping />} disabled={!hasText || busy} onClick={() => onFloorPlan && onFloorPlan(id)} title="Floor plan — render this scene's overhead blocking map from the brief, verbatim (parties, moves, the AXIS of action). Edit it like any image; attach it to a SHOT card to project camera-relative blocking into the prompt.">Floor plan</Button>
         <Tooltip content="Split size — Auto (empty) = the fewest 5–15s scene chunks; set a number to aim for that many. The 5–15s-per-shot rule always wins, so an impossible count lands as close as physics allows.">
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <Text style={{ color: '#5a6472', fontSize: 11 }}>Shots</Text>

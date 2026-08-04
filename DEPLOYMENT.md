@@ -35,14 +35,26 @@ npm start          # or: npm run dev
 
 `ep-…` ids are **account-scoped**: create the endpoint for the model in *your* Ark
 console and paste its id. Base URLs: `MODELARK_API_BASE_URL` (Ark region) and
-`BYTEPLUSVOICE_BASE_URL` (voice region).
+`BYTEPLUSVOICE_BASE_URL` (voice region). Audio/TTS additionally need
+`BYTEPLUSVOICE_API_KEY` (the voice console key — separate from the Ark key).
+
+Optional: `MODELARK_REASONER_PROTOCOL=responses|chat` — set it only when your
+reasoner slot is an `ep-…` endpoint id (its API shape can't be inferred from the
+name; public `seed-2-0-*` names need nothing).
 
 ## Storage
 
 Generated/uploaded media is content-addressed: bytes mirror to your TOS bucket at
 `projects/media/<sha>` (source of truth) with a local disk cache, and project
-autosaves live at `projects/<id>/project.json` in the same bucket. Configure the
-`MODELARK_TOS_*` / `MODELARK_ASSET_*` variables — without them, media durability and
+autosaves live at `projects/<id>/project.json` in the same bucket. Deleting a
+project from the Cloud-open dialog garbage-collects its media (reference-counted —
+bytes shared with other projects are kept).
+
+Required for storage: `MODELARK_ASSET_ACCESS_KEY`, `MODELARK_ASSET_SECRET_KEY`,
+`MODELARK_TOS_BUCKET`, `MODELARK_TOS_REGION` (a region like `ap-southeast-1` —
+required, there is no default). Optional: `MODELARK_TOS_ENDPOINT` (derived from the
+region when unset), `MODELARK_TOS_OBJECT_PREFIX`, `MODELARK_TOS_PUBLIC_BASE_URL`
+(only for public-read buckets). Without the required four, media durability and
 cloud project saves are disabled.
 
 ## Access control (read this)
@@ -54,6 +66,19 @@ allowlist.
 ## Runtime requirements
 
 - Node 18+ (Next.js app; any VM or container host).
-- `ffmpeg` on PATH for frame extraction, audio extraction and Stitch.
+- ffmpeg is **bundled** (`ffmpeg-static`, installed by `npm install`) — no system
+  install. It powers frame/poster extraction, audio extraction and Stitch.
 - Writable disk for the media cache (`~/.modelark-starter-kit/media`); the TOS mirror
   is the source of truth, the disk is a cache.
+
+## Packaging a release
+
+Ship exactly the tracked tree — never a working-directory copy (`.env.local` and
+caches stay out by construction):
+
+```bash
+git archive --format=zip -o ModelArkStarterKit-$(git rev-parse --short HEAD).zip HEAD
+```
+
+The customer's path: unzip → `cp .env.example .env.local` → fill their keys and
+endpoint ids → `npm install && npm run build && npm start`.

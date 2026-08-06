@@ -279,6 +279,15 @@ const AssetNodeInner = ({ id, data, selected }) => {
             {String(Number(data.index) + 1).padStart(2, '0')}
           </span>
         )}
+        {/* A DEVELOPING shot's END frame (chained off this START still) — corner thumb;
+            spinner overlay while the pair's second render is in flight. */}
+        {data.keyframe && displaySrc && !data.showText && (data.endStill?.url || data.endLoading) && (
+          <span style={{ position: 'absolute', bottom: 6, right: 6, zIndex: 3, width: 44, height: 25, borderRadius: 3, overflow: 'hidden', border: '1.5px solid #3491fa', background: '#101418', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }} title="END frame — this shot develops; the pair pins its take">
+            {data.endStill?.url
+              ? <img src={data.endStill.cacheUrl || data.endStill.url} alt="END" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ fontSize: 8, color: '#9fb4d0', fontWeight: 700 }}>END…</span>}
+          </span>
+        )}
         {/* A rendered still whose TEXT moved on (chat revision / inline edit) says so —
             the still stays (it was paid for); ↻ re-renders from the current text. */}
         {data.keyframe && data.staleStill && displaySrc && !data.showText && (
@@ -392,6 +401,11 @@ const AssetNodeInner = ({ id, data, selected }) => {
                   ellipsis={{ rows: 5 }}
                 >
                   {data.body || '—'}
+                </Text>
+              )}
+              {String(data.exiting || '').trim() && (
+                <Text title="This shot DEVELOPS — rendering its still also renders this END state as a second chained frame (the pair pins the take)." style={{ fontSize: 10, lineHeight: '14px', color: '#1d6bc4' }} ellipsis={{ rows: 2 }}>
+                  ⇥ END: {data.exiting}
                 </Text>
               )}
               {(data.figureLabels || []).length > 0 && (

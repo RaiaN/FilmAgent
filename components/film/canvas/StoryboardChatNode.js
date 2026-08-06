@@ -1,5 +1,5 @@
 import { createContext, memo, useContext, useMemo, useState } from 'react';
-import { Button, Typography } from '@arco-design/web-react';
+import { Button, Typography, Select } from '@arco-design/web-react';
 import { IconMessage, IconPlus, IconPlayArrow } from '@arco-design/web-react/icon';
 import ChatThread from './ChatThread';
 import { imageRefCap } from '../../../utils/film/suiteConfig';
@@ -9,7 +9,7 @@ const { Text } = Typography;
 // Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data) — same context pattern as CutContext / StoryScriptContext.
 export const StoryboardChatContext = createContext({
-  onTurn: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onCastFromScript: null,
+  onTurn: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onCastFromScript: null, onPromoteAll: null, onPatchChat: null,
 });
 
 // Same role palette as the SHOT card's reference chips — the two blocks must read as one system.
@@ -24,7 +24,7 @@ const asRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}))
 // (click to remove), and "+ board image" to add any board image mid-conversation. The next
 // turn / render reads the live pool; finished stills keep their frames.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onTurn, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll, onCastFromScript } = useContext(StoryboardChatContext);
+  const { onTurn, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll, onCastFromScript, onPromoteAll, onPatchChat } = useContext(StoryboardChatContext);
   const messages = data.messages || [];
   const count = data.shotCount || 0;
   const [addOpen, setAddOpen] = useState(false);
@@ -155,18 +155,37 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           Typing a first message instead also divides, steered by your words. */}
       {(data.shots || []).length === 0 && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
-          <Button
-            size="small" type="primary" long loading={!!data.busy}
-            icon={<IconPlayArrow />}
-            onClick={() => onTurn && onTurn(id, '')}
-            style={{ background: '#4e5969', borderColor: '#4e5969' }}
-          >
-            {data.busy ? 'Dividing…' : `Divide into ${count > 0 ? count : (data.count || 8)} shots`}
-          </Button>
+          {/* SHOT COUNT IS AN OUTPUT: the knob is per-shot PACE — the script's length ÷
+              the pace decides how many shots, so one control scales from a one-scene
+              brief to a feature script. Auto lets the planner pace every shot itself. */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Button
+              size="small" type="primary" loading={!!data.busy}
+              icon={<IconPlayArrow />}
+              onClick={() => onTurn && onTurn(id, '')}
+              style={{ background: '#4e5969', borderColor: '#4e5969', flex: 1 }}
+            >
+              {data.busy ? 'Dividing…' : 'Divide into shots'}
+            </Button>
+            <Select
+              size="small"
+              value={data.shotLength || 'auto'}
+              onChange={(v) => onPatchChat && onPatchChat(id, { shotLength: v })}
+              style={{ width: 108, flexShrink: 0 }}
+              title="Per-shot pace — the script's length decides how many shots that makes"
+              options={[
+                { label: 'Auto pace', value: 'auto' },
+                { label: '~5s shots', value: '5' },
+                { label: '~8s shots', value: '8' },
+                { label: '~10s shots', value: '10' },
+                { label: '~15s shots', value: '15' },
+              ]}
+            />
+          </div>
           <Text type="secondary" style={{ fontSize: 9, display: 'block', marginTop: 3, textAlign: 'center' }}>
             {(data.mode || 'multiple') === 'single'
               ? '1 LLM division + one sheet render — or type guidance below first'
-              : `1 LLM call → ${data.count || 8} text shot cards, no renders — or type guidance below first`}
+              : '1 LLM call → as many text shot cards as the script needs, no renders — or type guidance below first'}
           </Text>
         </div>
       )}
@@ -181,6 +200,15 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           >
             Render all stills
           </Button>
+          {onPromoteAll && (
+            <Button
+              size="small" long type="primary" style={{ marginTop: 6, background: '#b06f10', borderColor: '#b06f10' }}
+              onClick={() => onPromoteAll(id)}
+              title="Create sequence: every RENDERED still becomes a SHOT card, laid left→right and CHAINED — still as the anchor lock, its cast riding as references, duration carried; each bond threads the previous shot's last frame into the next. Free: no generation. Then ▶ Action shoots the chain."
+            >
+              Create sequence
+            </Button>
+          )}
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>

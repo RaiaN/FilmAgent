@@ -1,6 +1,6 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox } from '@arco-design/web-react';
+import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Modal } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault } from '../../../utils/film/suiteConfig';
@@ -15,8 +15,60 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onDevelopCut: null, onRederiveCut: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onDevelopCut: null, onRederiveCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null,
 });
+
+// One visual-grounding anchor slot (START | END): shows its picked still, or a dashed
+// ＋ tile. Clicking opens a board-image picker — the anchor is a normal board still,
+// nothing is generated here. Setting an anchor flips the card's shoot onto the
+// composition-pinned Seedance grammar (probe-verified); clearing it flips back.
+const AnchorSlot = ({ label, value, images, onPick, onClear }) => {
+  const [open, setOpen] = useState(false);
+  const picker = (
+    <div className="nodrag nowheel" style={{ width: 252, maxHeight: 240, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 6, padding: 2 }}>
+      {(images || []).map((im) => (
+        <img
+          key={im.nodeId || im.url}
+          src={im.url}
+          alt={im.label}
+          title={im.label}
+          loading="lazy"
+          decoding="async"
+          onClick={() => { onPick(im); setOpen(false); }}
+          style={{ width: 76, height: 43, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', border: '1px solid #2a313a' }}
+        />
+      ))}
+      {!(images || []).length && <Text style={{ fontSize: 11, color: '#86909c', padding: 8 }}>No board images yet — render a storyboard still first.</Text>}
+    </div>
+  );
+  return (
+    <Popover trigger="click" position="bl" popupVisible={open} onVisibleChange={setOpen} content={picker} color="#161b22">
+      <div
+        className="nodrag"
+        title={value?.url ? `${label} anchor: ${value.label || 'board still'} — click to swap` : `Set the ${label} anchor — the composition this shot ${label === 'START' ? 'opens on' : 'lands on'}`}
+        style={{
+          position: 'relative', width: 104, height: 58, borderRadius: 5, cursor: 'pointer', overflow: 'hidden',
+          border: value?.url ? '1px solid #3491fa' : '1px dashed #3c4553', background: '#101418',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {value?.url ? (
+          <>
+            <img src={value.url} alt={label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            <span style={{ position: 'absolute', left: 3, top: 2, fontSize: 8, fontWeight: 700, color: '#fff', background: 'rgba(16,20,24,0.75)', borderRadius: 3, padding: '0 4px' }}>{label}</span>
+            <span
+              onClick={(e) => { e.stopPropagation(); onClear(); }}
+              title={`Clear the ${label} anchor`}
+              style={{ position: 'absolute', right: 2, top: 1, fontSize: 10, color: '#fff', background: 'rgba(16,20,24,0.75)', borderRadius: 3, padding: '0 4px', cursor: 'pointer' }}
+            >✕</span>
+          </>
+        ) : (
+          <span style={{ fontSize: 10, color: '#7a8699', fontWeight: 700 }}>＋ {label}</span>
+        )}
+      </div>
+    </Popover>
+  );
+};
 
 const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
 
@@ -43,10 +95,20 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onDevelopCut, onRederiveCut } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onDevelopCut, onRederiveCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
+  // The START picker leads with the previous take's last frame when a sequence bond
+  // provides one — the explicit one-tap replacement for the purged hidden threading.
+  const startImages = (prevTakeFrames && prevTakeFrames[id]) ? [prevTakeFrames[id], ...(boardImages || [])] : boardImages;
+  // Compiled-prompt preview (full-prompt-preview rule): the 👁 in the ANCHORS header
+  // shows EXACTLY what 🎬 would send right now — anchors, subjects, constraint tail.
+  const [compiledOpen, setCompiledOpen] = useState(false);
+  const [compiledText, setCompiledText] = useState('');
+  const openCompiled = (e) => { e.stopPropagation(); setCompiledText(onCompilePreview ? onCompilePreview(id) : ''); setCompiledOpen(true); };
   const patch = (p) => onPatchCut && onPatchCut(id, p);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
+  const hasLook = Object.values(data.cine || {}).some((v) => String(v || '').trim())
+    || (data.cinePreset === 'Custom' && !!String(data.cinematography || '').trim());
   // Seedance media references (plural — e.g. a camera-track video + a motion video +
   // music + two voice clips). Reads the earlier single-ref fields as a one-item array.
   const audioRefs = data.audioRefs || (data.audioRef ? [data.audioRef] : []);
@@ -118,10 +180,22 @@ const CutNodeInner = ({ id, data, selected }) => {
       style={{ width: 500, background: '#101418', borderRadius: 10, border: `2px solid ${dragOver ? '#f7ba1e' : borderColor}`, boxShadow: selected ? '0 0 0 3px rgba(247,186,30,0.15)' : '0 1px 4px rgba(0,0,0,0.2)', overflow: 'hidden', color: '#fff' }}
     >
       {/* invisible target handle — the asset→cut prerequisite edges land here */}
-      <Handle type="target" position={Position.Left} style={{ opacity: 0, pointerEvents: 'none' }} />
+      {/* SEQUENCE handles — drag right-dot → left-dot to chain two cards: the source's
+          last frame then threads into the target's shoot. No edge = hard cut. */}
+      <Handle type="target" position={Position.Left} title="continuity in — a chained predecessor's last frame threads into this shoot" style={{ width: 9, height: 9, background: '#3491fa', border: '2px solid #101418' }} />
+      <Handle type="source" position={Position.Right} title="continuity out — drag to the next SHOT card to thread this card's last frame forward" style={{ width: 9, height: 9, background: '#3491fa', border: '2px solid #101418' }} />
       {/* slate header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'repeating-linear-gradient(135deg, #1d2530 0 12px, #f7ba1e 12px 24px)', borderBottom: '1px solid #2a313a' }}>
         <Tag size="small" style={{ background: '#101418', color: '#f7ba1e', border: 'none', fontWeight: 700 }}>SHOT {(data.cut ?? 0) + 1}</Tag>
+        {Number(data.takeCount) > 0 && (
+          <Tag
+            size="small"
+            className="nodrag"
+            title="Takes — open this card's renders in the Take Library"
+            onClick={(e) => { e.stopPropagation(); onOpenTakes && onOpenTakes(id); }}
+            style={{ background: '#101418', color: '#9fb4d0', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+          >🎞 {data.takeCount}</Tag>
+        )}
         {status && (
           <Tag size="small" style={{ background: '#101418', color: status.color, border: 'none', fontWeight: 700 }}>
             {data.status === 'running' ? <IconLoading style={{ marginRight: 3 }} /> : null}{status.label}
@@ -193,7 +267,6 @@ const CutNodeInner = ({ id, data, selected }) => {
               ))}
             </Select>
           </div>
-          <Input.TextArea className="nodrag nowheel" value={data.cinematography || ''} onChange={(v) => patch({ cinematography: v, cinePreset: 'Custom', shotTemplate: undefined })} placeholder="lens · DOF · light · grain · grade · movement" autoSize={{ minRows: 2, maxRows: 4 }} style={promptArea} />
         </div>
 
         <div>
@@ -212,10 +285,36 @@ const CutNodeInner = ({ id, data, selected }) => {
           </div>
         </div>
 
+        {/* ANCHORS — visual grounding: the composition the shot OPENS on and (optionally)
+            LANDS on, picked from any board still. Set → the shoot compiles through the
+            composition-pinned grammar; both empty → the classic path, untouched. */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
+            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>ANCHORS · visual grounding</Text>
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'baseline' }}>
+              {data.startAnchor?.url && <Text style={{ color: '#3491fa', fontSize: 9 }}>shoots composition-pinned</Text>}
+              <IconEye className="nodrag" onClick={openCompiled} title="Preview the EXACT compiled prompt 🎬 will send (no spend)" style={{ fontSize: 12, color: '#9fb4d0', cursor: 'pointer' }} />
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <AnchorSlot label="START" value={data.startAnchor} images={startImages} onPick={(im) => patch({ startAnchor: { ...im, pickedAt: Date.now() } })} onClear={() => patch({ startAnchor: null })} />
+            <AnchorSlot label="END" value={data.endAnchor} images={boardImages} onPick={(im) => patch({ endAnchor: { ...im, pickedAt: Date.now() } })} onClear={() => patch({ endAnchor: null })} />
+          </div>
+          {data.endAnchor?.url && !data.startAnchor?.url && (
+            <Text style={{ color: '#f7ba1e', fontSize: 9 }}>END rides only once START is set</Text>
+          )}
+          {data.endAnchor?.url && data.startAnchor?.url && data.endAnchor.url === data.startAnchor.url && (
+            <Text style={{ color: '#f53f3f', fontSize: 9 }}>START and END are the SAME image — the shot can't develop; pick a different END (it won't ride)</Text>
+          )}
+        </div>
+
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>REFERENCES → [Image1…N] · click to toggle</Text>
-            {refTotal > MAX_CUT_REFS && <Text style={{ color: '#f53f3f', fontSize: 9 }}>first {MAX_CUT_REFS} feed the shot</Text>}
+            {refTotal > MAX_CUT_REFS
+              ? <Text style={{ color: '#f53f3f', fontSize: 9 }}>first {MAX_CUT_REFS} feed the shot</Text>
+              : ((refTotal + (data.startAnchor?.url ? 1 : 0) + (data.endAnchor?.url ? 1 : 0)) > 5
+                && <Text style={{ color: '#f7ba1e', fontSize: 9 }} title="Seedance guide: 4-5 assets — more dilutes feature priority (anchors count)">&gt;5 refs — model may dilute</Text>)}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {(bibleEntries || []).map((b) => {
@@ -329,6 +428,37 @@ const CutNodeInner = ({ id, data, selected }) => {
           </div>
         </div>
       </div>
+      {/* CINEMATOGRAPHY — the DP look layer, ADDITIVE to the Camera preset line:
+          four one-line fields joined into the take's LOOK at shoot time (empty adds
+          nothing — never boilerplate). Collapsed by default; the toggle carries a dot
+          when it holds content, so hidden never reads as empty. Develop/Re-derive
+          never touch these — they rewrite the prompt only. */}
+      {data.cineOpen && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 10px 8px', borderTop: '1px solid #2a313a', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {[['lens', 'Lens & depth', '35mm, shallow focus, compressed background'],
+            ['light', 'Light', 'low hard sun from frame left, dust haze'],
+            ['grade', 'Grade', 'warm amber, crushed blacks, fine grain'],
+            ['move', 'Movement', 'slow push in, slight handheld sway']].map(([k, label, ph]) => (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Text style={{ width: 78, flexShrink: 0, color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>{label}</Text>
+                <Input className="nodrag" size="mini" value={(data.cine || {})[k] || ''} onChange={(v) => patch({ cine: { ...(data.cine || {}), [k]: v } })} placeholder={ph} style={{ flex: 1 }} />
+              </div>
+          ))}
+          {data.cinePreset === 'Custom' && String(data.cinematography || '').trim() ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Text style={{ width: 78, flexShrink: 0, color: '#b25c00', fontSize: 10, fontWeight: 700 }}>Legacy look</Text>
+              <Input className="nodrag" size="mini" value={data.cinematography} onChange={(v) => patch({ cinematography: v })} placeholder="hand-written look from the old field — rides into 🎬; clear to retire" style={{ flex: 1 }} />
+            </div>
+          ) : null}
+        </div>
+      )}
+      <div className="nodrag" style={{ display: 'flex', justifyContent: 'flex-end', padding: '1px 6px 4px' }}>
+        <Button size="mini" type="text" onClick={(e) => { e.stopPropagation(); patch({ cineOpen: !data.cineOpen }); }}
+          title="Cinematography — the DP look for this shot: lens & depth · light · grade · movement. Joined into the LOOK line at 🎬; empty fields add nothing."
+          style={{ color: hasLook ? '#f7ba1e' : '#5a6472', height: 18, padding: '0 4px', fontSize: 11 }}>
+          {data.cineOpen ? '−' : '+'} cinematography{hasLook && !data.cineOpen ? ' ●' : ''}
+        </Button>
+      </div>
       {editorOpen && (
         <PromptEditorModal
           open
@@ -340,6 +470,15 @@ const CutNodeInner = ({ id, data, selected }) => {
           onClose={() => setEditorOpen(false)}
         />
       )}
+      <Modal
+        visible={compiledOpen}
+        onCancel={() => setCompiledOpen(false)}
+        footer={null}
+        title="Compiled Seedance prompt — exactly what 🎬 sends"
+        style={{ width: 640 }}
+      >
+        <pre className="nodrag nowheel" style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: '17px', maxHeight: 420, overflowY: 'auto', background: '#161b22', color: '#cdd3dc', padding: 12, borderRadius: 6, margin: 0 }}>{compiledText || '(nothing to compile yet — write a prompt or set anchors)'}</pre>
+      </Modal>
     </div>
   );
 };

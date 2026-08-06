@@ -594,12 +594,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
         </Text>
       )}
 
-      {!isScratch ? null : (
-        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
-          Cloud autosave keeps this canvas in your TOS bucket as you work — a refresh restores it automatically. <b>Save to folder…</b> additionally binds it to a local folder.
-        </Text>
-      )}
-
       {dialogs}
     </div>
   );

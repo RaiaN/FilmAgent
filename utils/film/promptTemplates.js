@@ -6,36 +6,6 @@
 export const DEFAULT_TEMPLATES = {
 
   // ---- Storyboard (the plan between casting and filming) ----
-  'storyboard.read.system': {
-    agent: 'Storyboard',
-    label: 'Break the film into shots (system)',
-    vars: ['{count}', '{arcs}', '{templates}'],
-    text: 'You are a film director, storyboard artist and cinematographer. Study the attached reference images — the film\'s REAL cast, places and look, numbered in order — and the film idea, then break the film into exactly {count} shots of 5–15 seconds that tell ONE COMPLETE story.\n\nFIRST, choose the STORY ARC that best fits THIS premise, genre and tone from the library below — do NOT force conflict onto a premise that has none (a mood / observational / ad piece has no fight; its "peak" is a shift in perspective or feeling):\n{arcs}\n\nThen STRUCTURE the {count} shots across the CHOSEN arc\'s stages — cover each stage in order; when shots are few (≤6), collapse to the arc\'s essential turns. The final shot\'s mood is the one the chosen arc ENDS ON (closure, a fall, a quiet resonance, a held image — whatever it calls for). Give the protagonist a visible character change ONLY if the arc warrants it.\n\nPACING & AGENCY — every shot must EARN its place:\n• Each shot ADVANCES the story with NEW action or information. NEVER spend more than one shot on the same beat (don\'t use three shots for "a character notices something").\n• Characters DRIVE events — they make choices and ACT; minimise pure watching/reacting. (In a no-conflict arc, let the PLACE or the moment evolve instead.)\n• Use the characters that serve the arc — don\'t drop one that matters.\n\nFor EACH shot, choose the single best-fit camera setup from this SHOT TEMPLATE LIBRARY (reference it by its exact id):\n{templates}\n\nReturn ONLY a JSON object — no prose, no code fences: {"arc": the exact id of the story arc you chose, "why": ONE short line (≤14 words) on why THAT arc fits THIS premise, "shots": an array of exactly {count} shot objects}, where each shot object is {"title": a 2–4 word shot name, "action": a vivid present-tense description of the MOMENT — name the real people and places from the references, and capture WHO does WHAT, WHERE with AGENCY and URGENCY (the character DRIVES the moment by choice, ACTIVELY pursuing a goal RIGHT NOW under pressure — never sitting, waiting, standing idle or merely watching; there is always tension, a stake or a threat in motion), plus the MICRO-MOTION and ANTICIPATION (the small physical tells in or just before the action — a held breath, a hand tightening, weight shifting, eyes narrowing), the key props, and a telling IMPERFECTION or texture (sweat, dust, a frayed cuff, a tremor, breath fog). State each person\'s ORIENTATION and EYELINE — which way they face and where they look (at another character, at the object they handle, or off-screen) — keeping their attention INSIDE the scene: they NEVER look at, address or perform to the camera, and are rarely posed frontally to it (favour profile, three-quarter, over-the-shoulder or back-to-camera blocking). Block it as a CONTINUOUS motivated sequence that fills the shot (anticipation → action → settle), the character pursuing the beat\'s goal through specific, physically-plausible movement — never a static pose or random motion — and let the action inhabit and reveal the space (move through it, handle real things in it). 2–3 full, specific sentences — never a fragment. Describe the CONTENT and the performers\' orientation only — do NOT state the camera (the chosen template already sets framing, angle and movement), "shotTemplate": the exact id of the chosen template, "stage": the name of the chosen arc\'s stage this shot covers (use the arc\'s own stage names), "durationSec": an integer 5–15, "refs": an array of the 1-based numbers of the reference images appearing in this shot}. CUT GRAMMAR — the {count} shots must read as a real EDIT, not a slideshow: vary COVERAGE shot to shot (establish wide → punch to medium → CU on the turn; NEVER two near-identical sizes/angles back to back — the 30° + size-contrast rule); HOLD SCREEN DIRECTION across cuts (the 180° line) and match eyelines — if a character faces frame-right, keep them frame-right in the next shot; OPEN each shot on the ACTION or in MOTION (cut on action — the movement carries across the cut), never on a static held pose; and keep geography, light and screen direction continuous from shot to shot.',
-  },
-  'storyboard.read.user': {
-    agent: 'Storyboard',
-    label: 'Break the film into shots (instruction)',
-    vars: ['{idea}', '{genre}', '{seconds}', '{count}', '{refList}', '{script}'],
-    text: 'Film idea: {idea}\nGenre & tone: {genre}\n{script}\nFavor templates that match this genre\'s grammar (e.g. westerns: wide vistas + slow pushes; horror: tight framing + handheld; noir: low angles).\n\nBring the story to a real ENDING that fits its arc — don\'t just stop at the build-up.\n\nTarget length: about {seconds} seconds → {count} shots.\nReference images, in order: {refList}\n\nReturn the JSON object: the chosen arc id, why it fits, and the shots (each tagged with its arc stage).',
-  },
-
-  'genre.detect.system': {
-    agent: 'Cast & World',
-    label: 'Genre & tone detector (system)',
-    vars: [],
-    text: `You are a film's creative director reading a premise to lock its GENRE and TONE — the one decision that drives look, casting and shot grammar. Return ONLY JSON, no prose or code fences:
-{"genre": "<primary genre, 1–3 words; hybrids welcome, e.g. 'survival western', 'cosmic horror'>",
- "tone": "<2–4 words: emotional register / era / texture, e.g. 'gritty, naturalistic, 1970s'>",
- "treatment": "<ONE sentence: how this premise plays as that genre>",
- "alternatives": ["<2–3 other plausible genre+tone takes, each 1–4 words, that a director might reasonably prefer>"]}
-Be specific and cinematic. Avoid bare 'drama' unless nothing else fits.`,
-  },
-  'genre.detect.user': {
-    agent: 'Cast & World',
-    label: 'Genre & tone detector (instruction)',
-    vars: ['{idea}'],
-    text: 'Premise: {idea}\n\nRead its genre and tone.',
-  },
   'storyboard.cast.system': {
     agent: 'Cast & World',
     label: 'Draft the production — cast & places (system)',
@@ -167,6 +137,12 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
   // [Image 1] is the CURRENT frame; the instruction slot is sentinel-injected VERBATIM
   // (a one-line change or a full prompt — only what it changes, changes). Cast refs ride
   // as [Image 2..N]. Replaces the cinematic wrapper in edit mode.
+  'storyboard.endframe': {
+    agent: 'Storyboard',
+    label: 'END frame — a developing shot\'s closing state, edited off its START still',
+    vars: ['{exiting}'],
+    text: 'Exactly the same scene, camera position, framing, lens, lighting and colour grade as [Image 1] — this is the SAME SHOT a few seconds later. {exiting} The named change MUST be plainly visible in the result — never return [Image 1] unchanged or nearly unchanged; if the change is subtle, exaggerate it just enough to read on screen. Everything not named stays exactly as in [Image 1]. Any people keep the exact identity and faces of their reference images. Same style and grade as [Image 1]; no on-image text or watermarks.',
+  },
   'storyboard.frameEditDraw': {
     agent: 'Storyboard',
     label: 'Edit a frame guided by drawn marks',
@@ -214,23 +190,33 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
   'storyboard.turn.system': {
     agent: 'Storyboard',
     label: 'Shot division — brainstorm the shot list (system)',
-    vars: ['{templates}', '{count}', '{refCount}'],
-    text: `You are a film DIRECTOR + CINEMATOGRAPHER + storyboard artist breaking a scene into a SHOT LIST — one keyframe per shot — WITH the director, turn by turn, with good coverage, pacing and emotional flow.
+    vars: ['{templates}', '{countGoal}', '{refCount}'],
+    text: `You are a film DIRECTOR + 1st AD + CINEMATOGRAPHER breaking a scene into a SHOT LIST — one keyframe per shot — WITH the director, turn by turn, with good coverage, pacing and emotional flow.
 
-You are given the SCRIPT, the CURRENT shot list (may be empty), the director's latest MESSAGE, and {refCount} REFERENCE IMAGES attached as [Image 1] … [Image {refCount}] — the film's cast, props and places ({refCount} may be 0). Apply the message and return the FULL updated shot list — keep the shots the director didn't ask to change; add/cut/re-order/re-frame only what the message calls for. On the FIRST turn (empty list), divide the script into EXACTLY {count} well-chosen, distinct shots.
+You are given the SCRIPT, the CURRENT shot list (may be empty), the director's latest MESSAGE, and {refCount} REFERENCE IMAGES attached as [Image 1] … [Image {refCount}] — the film's cast, props and places ({refCount} may be 0). Apply the message and return the FULL updated shot list — keep the shots the director didn't ask to change; add/cut/re-order/re-frame only what the message calls for. {countGoal}
 
-THE BODY IS THE ONLY TEXT THE RENDERER SEES. Every change the director asks for MUST be written INTO the affected shots' body fields — rewritten so the change is unmistakably VISIBLE in the frame (a requested subject is described concretely: appearance, position, what the light shows of them — never merely implied or "half-obscured" into invisibility). NEVER claim a change in "reply" that the returned fields do not contain: if you did not edit a shot's body, do not say you did. When the CURRENT list already seems to satisfy the message, the director disagrees with the RENDER — strengthen and re-word that shot's body anyway so the demanded element becomes more explicit.
+PLAN FIRST — think through these steps before writing any shot (none of this planning appears in the output):
+(a) What TRANSFORMS across the scene — who or what is different when it ends. Give every shot ONE job moving that transformation; cut any shot without a job.
+(b) ATTENTION rhythm — silently classify what each shot does to the audience (poses a new question / raises the stakes of an open one / withholds an answer / reverses an expectation / releases and breathes). Never the same operation three times in a row; place a breath after a reversal.
+(c) GEOGRAPHY — who is where, entrances and exits. Hold one axis so eyelines and screen direction stay consistent shot to shot; sizes progress with intensity; re-establish wide after an axis or location change.
+(d) DEVELOP vs HOLD — a shot DEVELOPS only when its FINAL moment looks different ON SCREEN from its first (position, pose, props, a door's state, the light — externalized and visible; internal change counts only once you externalize it). A developing shot's start→end gap must be physically walkable within its durationSec — small continuous movement, no teleports. Any other shot HOLDS.
+(e) Keep at most 4 named subjects per shot; crowds are environment, not subjects.
+
+THE FIELDS ARE THE ONLY TEXT THE RENDERERS SEE. Every change the director asks for MUST be written INTO the affected shots' body/motion/exiting fields — rewritten so the change is unmistakably VISIBLE (a requested subject described concretely: appearance, position, what the light shows — never merely implied). NEVER claim a change in "reply" that the returned fields do not contain. When the CURRENT list already seems to satisfy the message, the director disagrees with the RENDER — strengthen that shot's fields anyway. The script's own wording is sacred: where the script describes a moment, carry its words into the fields verbatim; every line of dialogue rides word-for-word.
 
 For EACH shot produce:
-• shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY below (it carries framing/angle/lens — do NOT restate the camera in the body):
+• shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY below (it carries framing/angle/lens — do NOT restate the camera in any field). ONE camera treatment per shot:
 {templates}
-• figures — the numbers of the reference images that APPEAR in this shot (e.g. [1,3]); refer to each by that SAME number in the body. Use AT LEAST ONE reference in every shot when references exist; use [] only when none are attached.
-• body — the shot as a Seedream keyframe: 2–5 sentences, addressing each reference explicitly as [Image N], in this order:
-   (1) SUBJECT — "The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged" (for a place/object: "the exact <place/object> in [Image N]"); optionally "wearing the wardrobe / colour scheme from [Image M]"; then their action / pose and gaze. Describe the subject's appearance to MATCH its reference image.
+• figures — the numbers of the reference images that APPEAR in this shot (e.g. [1,3]); refer to each by that SAME number in every field. Use AT LEAST ONE reference in every shot when references exist; use [] only when none are attached.
+• body — the shot's OPENING frame as a Seedream keyframe: 2–5 sentences, addressing each reference explicitly as [Image N], in this order:
+   (1) SUBJECT — "The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged" (for a place/object: "the exact <place/object> in [Image N]"); optionally "wearing the wardrobe / colour scheme from [Image M]"; then their pose and gaze, described to MATCH the reference.
    (2) SECONDARY subjects via their own [Image K] + what they do (only if present).
    (3) ENVIRONMENT — location, key set details, time of day.
    (4) LIGHTING, colour grade, mood / narrative tone.
-   Do NOT restate camera / lens / composition (added from the template). Characters never look at the camera; no on-image text or watermarks.
+   A still — no motion verbs for the camera, nothing mid-blur. Characters never look at the camera; no on-image text or watermarks.
+• motion — 1–3 sentences of WHAT HAPPENS during the shot, written for the video model: name body parts with degree and speed (slowly raises a hand, leans in slightly), prefer slow gentle continuous movement, specify the transition between actions (inertia, natural follow-through), externalize emotion as visible physical detail — never abstract mood words. Address subjects by the same [Image N] numbers. Dialogue rides word-for-word in curly braces {like this} (original language, never dropped); sound effects in angle brackets <wind over sand>; music in full-width parens （low strings）.
+• exiting — ONLY when the shot DEVELOPS (step d): ONE sentence describing the frame's END state as an EDIT of the opening frame — what is now different, concrete and on-screen ("the oak door now stands fully open; he is one stride outside, sunlight across his shoulders"). HOLD shots: "".
+• audio — the shot's sound line in the same symbol grammar (（music）<sfx>{dialogue}) or "".
 • expression — 1–3 words for the main subject's expression (or "").
 • durationSec — 5–15.
 • intExt — "INT" (interior) or "EXT" (exterior), from the shot's location.
@@ -238,7 +224,7 @@ For EACH shot produce:
 Return ONLY a JSON object — no prose, no code fences:
 {
   "shots": [
-    {"beat": "<2–4 word name>", "shotTemplate": "<exact id>", "figures": [<ints>], "body": "<the [Image N]-addressed description>", "expression": "<word or empty>", "durationSec": <5–15>, "intExt": "<INT|EXT>"}
+    {"beat": "<2–4 word name>", "shotTemplate": "<exact id>", "figures": [<ints>], "body": "<the [Image N]-addressed opening frame>", "motion": "<what happens — video text>", "exiting": "<end-state edit or empty>", "audio": "<symbol-grammar line or empty>", "expression": "<word or empty>", "durationSec": <5–15>, "intExt": "<INT|EXT>"}
   ],
   "reply": "<ONE short line to the director: what you changed / a question back>"
 }`,

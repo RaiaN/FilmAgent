@@ -1,9 +1,9 @@
-// Storyboard core. The headless breakdown (readStoryboard): one reason call STUDIES the
-// real tagged assets (the VLM sees the actual cast and places) + the idea, and breaks the
-// film into 5–15s shots — what happens, the chosen SHOT TEMPLATE (one of the 50 in the
-// cinematography library), duration, and WHICH real assets appear; panelToShot turns each
-// into a Seedance prompt. Also home to the Story agent (writeFilmPrompt → idea/script → one
-// long cinematic prompt) and the pre-production draft (detectGenre / castFromIdea).
+// Storyboard core. The AD-PLANNER DIVISION (storyboardTurn) is the one storyboard
+// brain: brief/script → shot list (body · motion · exiting · audio per shot), turn by
+// turn with the director; storyboardKeyframe/storyboardEndframe render each shot's
+// START still and (for developing shots) its chained END frame. Also home to the Story
+// agent (writeFilmPrompt → idea/script → one long cinematic prompt) and the
+// pre-production draft (detectGenre / castFromIdea).
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
@@ -16,109 +16,9 @@ import { isImagePolicyError } from './operations';
 import { runWithConcurrency } from './parallel';
 
 // Shots are 5–15s (each breaks into cuts of ≤5–6s) → a 60–180s film is ~6–18 shots.
-export const shotCountFor = (seconds) => Math.max(2, Math.min(18, Math.round((Number(seconds) || 90) / 10)));
-
-// Clamp any shot duration into the 5–15s range (no longer a fixed 10/12/15 list).
-const clampDuration = (d) => Math.min(15, Math.max(5, Math.round(Number(d) || 10)));
-
-// Fallback when the Shot agent returns no/invalid template id — a neutral workhorse.
-const DEFAULT_SHOT_TEMPLATE = 'medium-shot';
-
-// Collapse the panels' per-shot stages into a readable story spine, grouping
-// consecutive shots that share a stage: "1–2 stable normal · 3 trouble strikes · …".
-export const storySpine = (panels = []) => {
-  const groups = [];
-  panels.forEach((p, i) => {
-    const stage = (p.stage || '').trim();
-    const last = groups[groups.length - 1];
-    if (last && last.stage === stage) last.end = i + 1;
-    else groups.push({ stage, start: i + 1, end: i + 1 });
-  });
-  return groups
-    .map((g) => `${g.start === g.end ? g.start : `${g.start}–${g.end}`}${g.stage ? ` ${g.stage}` : ''}`)
-    .join(' · ');
-};
-
-// The agent's NARRATIVE decision → a first-class object the Decision History logs:
-// which story arc it chose, WHY it fits THIS premise, and the per-shot stage spine.
-// Hidden from the main UI by design (we don't make the user pick an arc); the History
-// is the audit/transparency surface, so the choice belongs there. Null when the read
-// named no arc (a bare-array fallback) — then we simply log no spine.
-const resolveArc = (arcId, why, panels) => {
-  const def = STORY_ARC_BY_ID[arcId] || null;
-  if (!def && !arcId) return null;
-  const hasStages = panels.some((p) => p.stage);
-  const spine = hasStages ? storySpine(panels) : (def ? def.stages : '');
-  return def
-    ? { id: def.id, name: def.name, category: def.category, why: why || def.fit, stages: def.stages, spine }
-    : { id: arcId, name: arcId, category: '', why, stages: '', spine };
-};
-
-// ---- the read: idea + REAL assets → the shot list -------------------------------
-export const readStoryboard = async ({ idea, genre = '', targetSeconds = 90, bible = [], count: countOverride, script = '', systemTemplate = 'storyboard.read.system', config } = {}, ctx) => {
-  const t = String(idea || '').trim();
-  if (!t) throw new Error('The storyboard needs the film idea first.');
-  const anchors = (bible || []).filter((e) => e && e.url);
-  if (!anchors.length) throw new Error('Tag at least one cast or place image first — the storyboard is drawn around your real assets.');
-
-  // Caller can pin the shot count; else size it from length.
-  const count = Math.max(1, Math.min(50, Math.round(Number(countOverride) || shotCountFor(targetSeconds))));
-  const refList = anchors.map((e, i) => `${i + 1}. ${e.role}: ${e.name || 'asset'}`).join(' · ');
-  // When the user wrote/edited a SCRIPT (the Story node), the breakdown reads THAT as
-  // the authoritative narrative — break it into shots, don't invent a different story.
-  const scriptBlock = String(script || '').trim()
-    ? `\nWork from THIS SCRIPT — break it into shots faithfully; do NOT invent a different story. Produce ONE shot per numbered beat, in the SAME order (shot N covers beat N), so the shots stay aligned to the story:\n"""\n${String(script).trim().slice(0, 4000)}\n"""\n`
-    : '';
-  // Tolerant shape pick: a bare array, or ANY top-level array property ({"shots":…},
-  // {"panels":…}, whatever the model wrapped it in). Retry the read once when it
-  // parses to nothing — output-shape variance killed a run (2026-06-12).
-  const pickArray = (raw) => (Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? Object.values(raw).find(Array.isArray) : null));
-  // The read returns { arc, why, shots:[…] } — but stay tolerant of a bare array
-  // (older shape / a model that ignored the wrapper): pickArray finds the shots
-  // either way, and arc/why are read only when the object form is present.
-  const parsed = await withRetry(async () => {
-    const { content } = await ctx.client.reason({
-      prompt: renderTemplate('storyboard.read.user', { idea: t, genre: genre || 'unspecified', seconds: Math.round(Number(targetSeconds) || 90), count, refList, script: scriptBlock }),
-      systemPrompt: renderTemplate(systemTemplate, { count, arcs: storyArcCatalog(), templates: shotTemplateCatalog() }),
-      images: anchors.map((e) => e.url),
-      modelId: getModel('reasoner', config),
-      reasoningEffort: getRuntime(config).reasoningEffort,
-    });
-    const raw = parseJson(content);
-    const shots = pickArray(raw);
-    if (!shots || !shots.length) throw new Error('The storyboard read returned no shots — try rephrasing the idea.');
-    return { raw, shots };
-  }, { tries: 2, baseMs: 1500, shouldRetry: () => true });
-
-  const arr = parsed.shots;
-  const head = parsed.raw && !Array.isArray(parsed.raw) ? parsed.raw : {};
-  const arcId = typeof head.arc === 'string' ? head.arc.trim() : '';
-  const arcWhy = typeof head.why === 'string' ? head.why.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
-
-  const panels = arr.slice(0, count).map((p, i) => {
-    // The chosen template carries framing + angle + move; an invalid/missing id
-    // falls back to the neutral workhorse. The template's move lives in the
-    // cinematography line, so the SHOT card sends camera 'auto' (no double-encode).
-    const tpl = SHOT_TEMPLATE_BY_ID[p?.shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
-    return {
-      index: i,
-      title: String(p?.title || `Shot ${i + 1}`).slice(0, 48),
-      action: String(p?.action || '').replace(/\s+/g, ' ').trim().slice(0, 500),
-      shotTemplate: tpl.id,
-      framing: tpl.framing,
-      angle: tpl.angle,
-      camera: 'auto',
-      // The chosen arc's stage this shot covers — the narrative decision, surfaced
-      // only in the Decision History as the film's story spine (never in the UI).
-      stage: String(p?.stage || '').replace(/\s+/g, ' ').trim().slice(0, 40),
-      durationSec: clampDuration(p?.durationSec),
-      // 1-based reference numbers → the real bible entry ids this shot uses.
-      refEntryIds: (Array.isArray(p?.refs) ? p.refs : []).map((n) => anchors[Number(n) - 1]?.id).filter(Boolean),
-    };
-  }).filter((p) => p.action);
-  if (!panels.length) throw new Error('No usable shots in the storyboard read.');
-  return { anchors, panels, arc: resolveArc(arcId, arcWhy, panels) };
-};
+// (The pre-division Idea→shot-list reader and its helpers were PURGED 2026-08-07:
+// zero call sites — the AD-planner division is the one storyboard brain. Git history
+// holds the old reader.)
 
 // ---- Develop (the Brief node's OPT-IN rewrite): idea or script → ONE cinematic prompt --
 // A direct rewrite (no JSON, no key events, no appearances): the brief becomes a single
@@ -269,8 +169,16 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
 // updated shot list + a one-line reply. The canvas reconciles the list into a column of SHOT
 // cards (each a real CutNode = a Seedance prompt). No frames are rendered here — the shot list
 // IS the storyboard; the picture is shooting a card. Camera = a shotTemplate id from the library.
-export const storyboardTurn = async ({ script = '', shots = [], message = '', style = '', references = [], count, config } = {}, ctx) => {
-  const n = Math.max(1, Math.min(16, Math.round(Number(count) || 8))); // default 8 frames; 1–16
+export const storyboardTurn = async ({ script = '', shots = [], message = '', style = '', references = [], shotLength = 'auto', config } = {}, ctx) => {
+  // SHOT COUNT IS AN OUTPUT, not an input (2026-08-07): the material's length ÷ the
+  // chosen per-shot pace decides how many shots — one knob scales from a one-scene
+  // brief to a feature script. 'auto' lets pacing pick every duration; a number aims
+  // each shot at ~that many seconds. Hard cap 24 per division — over-long scripts
+  // divide their first stretch and SAY SO (no silent truncation).
+  const pace = String(shotLength || 'auto');
+  const countGoal = pace === 'auto'
+    ? 'On the FIRST turn (empty list): divide the script into as many shots as it NEEDS — every shot must earn its place (one job each), pacing picks each durationSec (5–15s). Never pad a thin script with filler shots; never cram a dense one. Hard cap 24 shots — a longer script divides its first stretch and the reply says what remains undivided.'
+    : `On the FIRST turn (empty list): divide the script aiming each shot at roughly ${pace} seconds (durationSec ≈ ${pace}, clamped 5–15) — the script's length decides HOW MANY shots that makes. Never pad; never cram. Hard cap 24 shots — a longer script divides its first stretch and the reply says what remains undivided.`;
   const refs = (references || []).filter(Boolean).slice(0, 10);        // the reference pool → [Image 1..N] (Pro caps at 10)
   const current = (shots || []).map((s, i) => ({
     n: i + 1, beat: s.beat || '', shotTemplate: s.shotTemplate || '', figures: s.figures || [], body: s.body || '', expression: s.expression || '', durationSec: s.durationSec || 10, intExt: s.intExt || '',
@@ -283,7 +191,7 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
       shots: JSON.stringify(current),
       message: String(message || '').trim() || '(start: break this into a shot list)',
     }),
-    systemPrompt: renderTemplate('storyboard.turn.system', { templates: shotTemplateCatalog(), count: String(n), refCount: String(refs.length) }),
+    systemPrompt: renderTemplate('storyboard.turn.system', { templates: shotTemplateCatalog(), countGoal, refCount: String(refs.length) }),
     images: refs, // the reference plates — the reasoner SEES them as [Image 1..N] and assigns per shot
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -300,6 +208,12 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
       shotTemplate: tpl.id,
       figures,
       body: String(s?.body || s?.prompt || s?.action || '').replace(/\s+/g, ' ').trim().slice(0, 900),
+      // The planner's video/pair fields (2026-08-07): motion = what happens (the card's
+      // shoot prompt), exiting = the END-state edit (present only for developing shots —
+      // drives the chained END still + endAnchor), audio = the symbol-grammar sound line.
+      motion: String(s?.motion || '').replace(/\s+/g, ' ').trim().slice(0, 700),
+      exiting: String(s?.exiting || '').replace(/\s+/g, ' ').trim().slice(0, 400),
+      audio: String(s?.audio || '').replace(/\s+/g, ' ').trim().slice(0, 300),
       expression: String(s?.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),
       durationSec: clampDuration(s?.durationSec),
       intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
@@ -315,6 +229,24 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
 // reference plates IN [Image 1..N] ORDER (the caller resolves + renumbers them). NOT a blend — each
 // image is a distinct addressed subject. composeKeyframePrompt wraps the body with the camera + finish
 // lines. Style/expression/ethnicity are optional overrides. One call per shot; the canvas streams them.
+// The END frame of a DEVELOPING shot: a chained edit of its freshly-rendered START
+// still — [Image 1] IS the start, the exiting sentence is the only named change, and
+// the casting refs ride behind for identity. The exiting text is injected via a
+// sentinel (verbatim — braces in author text can't break the template). Fast path
+// (thinking off), like every structure-locked edit.
+export const storyboardEndframe = async ({ exiting = '', startUrl = '', refs = [], imageModel = 'seedreamPro', config } = {}, ctx) => {
+  const line = String(exiting || '').trim().slice(0, 800);
+  if (!line || !startUrl) throw new Error('endframe needs an exiting sentence and the START still');
+  const SLOT = '@@EXIT@@';
+  const prompt = renderTemplate('storyboard.endframe', { exiting: SLOT }).split(SLOT).join(line);
+  const images = [startUrl, ...(refs || [])].filter(Boolean).slice(0, imageRefCap(imageModel));
+  const { url, cacheUrl } = await ctx.client.generateImage({
+    prompt, referenceImages: images, size: keyframeImageSize(imageModel), model: getModel(imageModel, config), optimizePrompt: false,
+  });
+  if (!url) throw new Error('No END-frame URL in response');
+  return { url, cacheUrl };
+};
+
 export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedreamPro', frameEdit = false, frameEditAnnotated = false, config } = {}, ctx) => {
   const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
   // frameEdit = the Edit-shot editor's structure lock: [Image 1] IS the current frame and

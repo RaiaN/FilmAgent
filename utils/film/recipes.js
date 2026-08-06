@@ -154,10 +154,70 @@ export const shotReferences = (data = {}, bibleEntries = []) => {
   // screened raw url.
   (data.refIds || []).forEach((id) => {
     const e = (bibleEntries || []).find((b) => b.id === id);
-    if (e && e.url) refs.push({ url: e.url, assetId: e.assetId || null, desc: [e.name, e.role].filter(Boolean).join(' — ') });
+    if (e && e.url) refs.push({ url: e.url, assetId: e.assetId || null, name: e.name || '', role: e.role || '', desc: [e.name, e.role].filter(Boolean).join(' — ') });
   });
-  (data.assetRefs || []).forEach((a) => { if (a && a.url) refs.push({ url: a.url, assetId: a.assetId || null, desc: a.label || 'asset' }); });
+  (data.assetRefs || []).forEach((a) => { if (a && a.url) refs.push({ url: a.url, assetId: a.assetId || null, name: a.label || '', role: a.role || '', desc: a.label || 'asset' }); });
   return refs.slice(0, 9);
+};
+
+// ---- Seedance 2.0 doc-grammar compiler (composition-pinned shots) -----------------
+// Emits the manual's advanced-formula sections in order: subject definitions →
+// Shot-N body with composition-binding lines → look/quality → constraint tail.
+// The binding phrases are PROBE-VERIFIED (M0, 2026-08-07): the model honored
+// "opens exactly on the composition of Image N" / "cuts to exactly …" /
+// "ends exactly on the composition of Image N" — treat them as load-bearing.
+// Pure function — the card's action text rides VERBATIM, nothing is rewritten.
+export const SEEDANCE_QUALITY_LINE = 'HD, cinematic texture, natural colors.';
+export const SEEDANCE_CONSTRAINT_TAIL = 'Keep it subtitle-free, avoid generating any text or subtitles. Do not generate watermarks or logos. Do not generate duplicate characters or twins of any defined subject — keep a single instance of each subject in frame.';
+
+// The manual defines subjects by category noun; our bible roles map onto them.
+const SUBJECT_NOUN = { character: 'person', location: 'location', prop: 'object', frame: 'frame' };
+
+// subjects: [{ index, name, role }] — index = the ref's 1-based Image number (badge order).
+// shots: [{ startPinIndex, endPinIndex, action, move, audio }] — indices into the same
+// Image numbering; action/audio are author text, verbatim.
+// audioRefCount/videoRefCount: attached media refs (audio items ride before video items
+// in the content array — the numbering here mirrors that invariant). The manual wants
+// the reference RELATIONSHIP stated in text, not just the item's role.
+export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0 } = {}) => {
+  // Plate names carry a "· face"/"· body" suffix — an artifact of the bible, not a
+  // subject name. Same-name plates collapse into ONE definition listing both images
+  // (the manual's headshot + full-body pattern).
+  const cleanName = (n) => String(n || '').replace(/\s*·\s*(face|body)\s*$/i, '').trim();
+  const byName = new Map();
+  subjects.filter((s) => s && s.index && cleanName(s.name)).forEach((s) => {
+    const key = cleanName(s.name);
+    if (byName.has(key)) byName.get(key).indices.push(s.index);
+    else byName.set(key, { role: s.role, indices: [s.index] });
+  });
+  const defs = [...byName.entries()].map(([name, s]) => {
+    const imgs = s.indices.map((i) => `Image ${i}`).join(' and ');
+    return `Define the ${SUBJECT_NOUN[s.role] || 'subject'} in ${imgs} as ${name}.`;
+  });
+  for (let i = 0; i < audioRefCount; i += 1) defs.push(`Use the sound and timbre of Audio ${i + 1} as reference.`);
+  for (let i = 0; i < videoRefCount; i += 1) defs.push(`Refer to the camera movement and motion in Video ${i + 1}.`);
+  const shotLines = shots.map((sh, i) => {
+    const parts = [];
+    if (sh.startPinIndex) {
+      parts.push(i === 0
+        ? `The shot opens exactly on the composition of Image ${sh.startPinIndex}.`
+        : `Cuts to exactly the composition of Image ${sh.startPinIndex}.`);
+    }
+    const move = String(sh.move || '').trim();
+    if (move) parts.push(move.endsWith('.') ? move : `${move}.`);
+    const action = String(sh.action || '').trim();
+    if (action) parts.push(action);
+    const aud = String(sh.audio || '').trim();
+    if (aud) parts.push(aud);
+    if (sh.endPinIndex) parts.push(`The shot ends exactly on the composition of Image ${sh.endPinIndex}.`);
+    return `Shot ${i + 1}: ${parts.join(' ')}`;
+  });
+  const look = [String(style || '').trim(), String(cinematography || '').trim()].filter(Boolean).join(' · ');
+  return [
+    defs.join('\n'),
+    shotLines.join('\n'),
+    [look, SEEDANCE_QUALITY_LINE, SEEDANCE_CONSTRAINT_TAIL].filter(Boolean).join(' '),
+  ].filter(Boolean).join('\n\n');
 };
 
 // Assemble a Seedance 2.0 prompt from a shot's pins: the reference images lead as

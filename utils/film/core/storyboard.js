@@ -16,9 +16,12 @@ import { isImagePolicyError } from './operations';
 import { runWithConcurrency } from './parallel';
 
 // Shots are 5–15s (each breaks into cuts of ≤5–6s) → a 60–180s film is ~6–18 shots.
-// (The pre-division Idea→shot-list reader and its helpers were PURGED 2026-08-07:
-// zero call sites — the AD-planner division is the one storyboard brain. Git history
-// holds the old reader.)
+// (The pre-division Idea→shot-list reader was PURGED 2026-08-07: zero call sites —
+// the AD-planner division is the one storyboard brain. Git history holds it.)
+// A shot's durationSec always lands in Seedance's 5–15s window, defaulting to 10.
+const clampDuration = (v) => Math.max(5, Math.min(15, Math.round(Number(v) || 10)));
+// The camera setup a divided shot falls back to when the planner names an unknown id.
+const DEFAULT_SHOT_TEMPLATE = 'medium-shot';
 
 // ---- Develop (the Brief node's OPT-IN rewrite): idea or script → ONE cinematic prompt --
 // A direct rewrite (no JSON, no key events, no appearances): the brief becomes a single

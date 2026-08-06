@@ -182,11 +182,6 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
               ]}
             />
           </div>
-          <Text type="secondary" style={{ fontSize: 9, display: 'block', marginTop: 3, textAlign: 'center' }}>
-            {(data.mode || 'multiple') === 'single'
-              ? '1 LLM division + one sheet render — or type guidance below first'
-              : '1 LLM call → as many text shot cards as the script needs, no renders — or type guidance below first'}
-          </Text>
         </div>
       )}
       {/* Shot list divided → the batch buy: render every card that lacks its still.

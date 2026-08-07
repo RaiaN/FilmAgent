@@ -4,6 +4,7 @@ import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover,
 import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, videoModelKeyOf } from '../../../utils/film/suiteConfig';
+import { ENRICH_LEVELS } from '../../../utils/film/core/storyboard';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import EditableLabel from './EditableLabel';
@@ -15,7 +16,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onEnrichCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null,
 });
 
 // One visual-grounding anchor slot (START | END): shows its picked still, or a dashed
@@ -96,7 +97,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onEnrichCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -170,6 +171,12 @@ const CutNodeInner = ({ id, data, selected }) => {
   // hand-type. Picking stores the template id (so the dropdown highlights it) + its
   // name (cinePreset, for display) + the cinematography line.
   const pickTemplate = (id) => { const t = SHOT_TEMPLATE_BY_ID[id]; if (t) patch({ shotTemplate: t.id, cinePreset: t.name, cinematography: t.cinematography }); };
+
+  // Edit/extend TRIGGER phrases + attached media refs silently flip the request into
+  // an EDIT/EXTEND task (ratio + duration lock). Advisory only — intentional edits are
+  // a legitimate future path, but a surprise flip ruins the take.
+  const EDIT_TRIGGERS = /\b(edit (the )?video|replace|remove|delete|insert|change (it |him |her |them )?to|extend (forward|backward)|continue from|extend the story)\b/i;
+  const triggerRisk = (audioRefs.length > 0 || videoRefs.length > 0) && EDIT_TRIGGERS.test(String(data.promptOverride || ''));
 
   const status = CUT_STATUS[data.status] || null;
   const borderColor = selected ? '#f7ba1e' : (status ? status.color : '#2a313a');
@@ -285,6 +292,21 @@ const CutNodeInner = ({ id, data, selected }) => {
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
             <span style={{ display: 'inline-flex', gap: 2 }}>
               <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onComposeCut || data.developing || data.splitting} onClick={() => onComposeCut && onComposeCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Compose — with keyframes: 2 visible calls (DERIVE the events from the keyframes alone, then ENRICH with the reference chips + your dialogue/names verbatim); without: 1 call, your text as the material. Overridden text is reported, the compiler keeps adding the binding lines, previous text stashed.">Compose</Button>
+              <Popover
+                trigger="click" position="bl" color="#161b22"
+                content={(
+                  <div className="nodrag" style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 2, width: 220 }}>
+                    <Text style={{ fontSize: 9, fontWeight: 700, color: '#9fb4d0' }}>DENSITY — target scales with the video model</Text>
+                    {ENRICH_LEVELS(videoModelKeyOf(data.videoModel)).map((lv) => (
+                      <Button key={lv.key} size="mini" long style={{ justifyContent: 'flex-start' }} onClick={() => onEnrichCut && onEnrichCut(id, lv.key)}>
+                        {lv.label} · ~{lv.words} words
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              >
+                <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconEdit />} disabled={!onEnrichCut || data.developing || data.splitting} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Enrich — expand THIS prompt with cinematic density (camera, motion micro-detail, texture, atmosphere, VFX, sound) while every event, [Image N] tag, dialogue line, reference and keyframe stays exactly as it is. Pick a density — 1 visible call. Previous text stashed.">Enrich</Button>
+              </Popover>
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
@@ -346,6 +368,11 @@ const CutNodeInner = ({ id, data, selected }) => {
             ))}
             <AnchorSlot label={`K${kfs.length + 1}`} value={null} images={kfImages} onPick={appendKf} onClear={() => {}} />
           </div>
+          {triggerRisk && (
+            <Text style={{ color: '#f7ba1e', fontSize: 9 }}>
+              ⚠ the prompt contains an edit/extend trigger word while media refs ride — Seedance may flip this into an EDIT/EXTEND task and lock ratio + duration; reword (e.g. "takes off" not "removes") unless intended
+            </Text>
+          )}
           {(data.composeDropped || []).length > 0 && (
             <Text title={(data.composeDropped || []).join('\n')} style={{ color: '#f7ba1e', fontSize: 9 }} ellipsis={{ rows: 2 }}>
               ⚠ keyframes overrode: {(data.composeDropped || []).join(' · ')} — original text stashed

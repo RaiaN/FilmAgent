@@ -174,10 +174,12 @@ Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only 
   'cut.derive.system': {
     agent: 'Shot',
     label: 'Compose step 1 — derive events from keyframes (system)',
-    vars: ['{kfCount}', '{modelLine}', '{durationSec}'],
+    vars: ['{kfCount}', '{modelLine}', '{craftRules}', '{durationSec}'],
     text: `You are a cinematographer reading a shot's APPROVED KEYFRAMES — {kfCount} stills attached IN ORDER: Keyframe 1 is the shot's opening composition, each next keyframe is a composition the shot passes through, the last is where it lands. These pictures are the shot's design; you see NOTHING else on purpose.
 
-STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), name body parts with degree and speed, prefer slow continuous movement with natural inertia between keyframes, externalize emotion as visible physical detail. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), prefer slow continuous movement with natural inertia between keyframes, externalize emotion as visible physical detail. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+
+{craftRules}
 
 {modelLine}
 
@@ -189,17 +191,50 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
     vars: ['{kfCount}'],
     text: 'The {kfCount} attached stills are the keyframes, in shot order. Read them and return the JSON.',
   },
+  'cut.enrich.system': {
+    agent: 'Shot',
+    label: 'Enrich — densify the existing prompt (system)',
+    vars: ['{refCount}', '{kfLine}', '{modelLine}', '{craftRules}', '{durationSec}', '{targetWords}'],
+    text: `You are a cinematographer EXPANDING an existing video-shot prompt. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
+
+{kfLine}
+
+THE CURRENT TEXT IS THE SKELETON — nothing it says may be lost or reordered: every event in its order, every existing [Image N] tag, and every dialogue line word-for-word in curly braces with its speaker. You ADD precision AROUND that skeleton:
+• camera — lens feel, movement quality, how the frame breathes (never a new setup)
+• motion — general verbs for the flow; body-part micro-detail (degree, speed, weight, inertia) spent only on the one or two story-bearing beats
+• appearance and texture — wardrobe, skin, materials, wear, grounded in what the attached images actually show; address subjects ONLY by their existing [Image N] numbers, never invent a new number
+• background and atmosphere — secondary life, weather, haze, dust, light behavior
+• VFX where the events imply them, described physically
+• sound — weave <sfx> and （music） moments at the right beats; dialogue stays untouched
+Everything you add must be FILMABLE in this one take and must not contradict the keyframe path. If the skeleton lacks an opening summary, make the FIRST sentence a one-sentence summary — subject + location + event + style + camera.
+
+{craftRules}
+
+{modelLine} The shot runs ~{durationSec}s. Target ≈{targetWords} words — density, never padding; if the skeleton cannot honestly carry that many words, stop sooner.
+
+Do NOT write composition-binding lines, subject definitions, quality/ratio/duration lines or transition markers — the compiler adds those.
+
+Return ONLY JSON — no prose, no code fences: {"action":"<the enriched action text>","audio":"<one sound line in the symbol grammar, or empty>"}`,
+  },
+  'cut.enrich.user': {
+    agent: 'Shot',
+    label: 'Enrich — densify the existing prompt (instruction)',
+    vars: ['{refRoster}', '{text}'],
+    text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE CURRENT PROMPT (the skeleton — every event, [Image N] tag and dialogue line rides verbatim):\n"""\n{text}\n"""\n\nReturn the JSON.',
+  },
   'cut.compose.system': {
     agent: 'Shot',
     label: 'Compose — keyframe-aware cinematic action (system)',
-    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{modelLine}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
     text: `You are a cinematographer writing ONE video shot's ACTION text. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
 
 {authorityLine}
 
-Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; name body parts with degree and speed (slowly raises a hand, leans in slightly); prefer slow continuous movement with natural inertia and follow-through; externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in full-width parens （…）. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; prefer slow continuous movement with natural inertia and follow-through; externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in full-width parens （…）. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+
+{craftRules}
 
 {modelLine}
 
@@ -258,8 +293,12 @@ Return ONLY a JSON object — no prose, no code fences:
   'storyboard.author.system': {
     agent: 'Storyboard',
     label: 'Author ONE shot from its verbatim span (system)',
-    vars: ['{refCount}'],
+    vars: ['{refCount}', '{craftRules}'],
     text: `You are a film director + cinematographer AUTHORING ONE SHOT of a larger scene. You receive the whole SCRIPT for context, but your shot covers ONLY its SPAN — the script's own words for this moment. The span is the source of truth: carry its wording; EVERY line of dialogue in the span rides word-for-word.
+
+{craftRules}
+
+If the shot runs LONGER than 15 seconds, structure "motion" as continuous integer-second intervals ("0-3s: … 3-8s: …", no gaps, one event cluster per 2-4 seconds, each interval with its own camera, action, dialogue and sound).
 
 {refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] — address each subject you use explicitly as [Image N].
 
@@ -275,8 +314,8 @@ Return ONLY JSON — no prose, no code fences:
   'storyboard.author.user': {
     agent: 'Storyboard',
     label: 'Author ONE shot (instruction)',
-    vars: ['{script}', '{span}', '{beat}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{note}', '{retry}'],
-    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. It {develops}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
+    vars: ['{script}', '{span}', '{beat}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{durationSec}', '{note}', '{retry}'],
+    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}, ~{durationSec}s. It {develops}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
   },
   // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
   'storyboard.shot.system': {

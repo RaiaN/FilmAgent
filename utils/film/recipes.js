@@ -251,6 +251,19 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     return `Shot ${i + 1}: ${parts.join(' ')}`;
   });
   const look = [String(style || '').trim(), String(cinematography || '').trim()].filter(Boolean).join(' · ');
+  if (modelKey === 'seedance25') {
+    // 2.5 closes with the guide's recurring-elements block: the look, then an identity
+    // clause naming the actual character chips, then quality + constraints.
+    const chars = [...byName.entries()].filter(([, sub]) => sub.role === 'character');
+    const consistency = chars.length
+      ? `The appearances of ${chars.map(([name, sub]) => `${name} (${sub.indices.map((i) => `Image ${i}`).join(' and ')})`).join(', ')} remain strictly consistent throughout — no face changes.`
+      : 'Subject appearances remain strictly consistent throughout.';
+    return [
+      defs.join('\n'),
+      shotLines.join('\n'),
+      `Overall requirements: ${[look, consistency, SEEDANCE_QUALITY_LINE, SEEDANCE_CONSTRAINT_TAIL].filter(Boolean).join(' ')}`,
+    ].filter(Boolean).join('\n\n');
+  }
   return [
     defs.join('\n'),
     shotLines.join('\n'),

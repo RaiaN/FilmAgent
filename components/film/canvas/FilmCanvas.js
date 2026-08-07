@@ -48,7 +48,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, composeShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
+import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, composeShotAction, enrichShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -2802,6 +2802,42 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
   }, [apiKey, onPatchCut]);
 
+  // ENRICH the card's CURRENT prompt in place — the expansion twin of Compose: the
+  // text is the skeleton (events, [Image N] tags, dialogue verbatim), the call adds
+  // camera/motion/texture/atmosphere/VFX/sound density around it. References and
+  // keyframes are read, never written.
+  const enrichCutPrompt = useCallback(async (id, level = 'rich') => {
+    if (splitFlightRef.current.has(`dev-${id}`)) return;
+    const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
+    if (!card || card.data?.developing || card.data?.splitting) return;
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
+    if (!text) { Message.warning('Enrich expands the existing prompt — write it, or Compose first.'); return; }
+    const baseRefs = shotReferences(card.data, bibleRef.current);
+    const kfPairs = cardKfPairs(card.data, baseRefs);
+    const kfIndices = kfPairs.map((x) => x.idx);
+    const roster = baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`);
+    const modelKey = videoModelKeyOf(card.data?.videoModel);
+    splitFlightRef.current.add(`dev-${id}`);
+    onPatchCut(id, { developing: true });
+    traceRef.current.startRun({ note: `Agent · Shot enrich (${level} · ${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 1 call)` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const out = await enrichShotAction({
+        text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey, level,
+        durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
+      }, ctx);
+      traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot enrich · ${text.length} → ${out.action.length} chars` });
+      onPatchCut(id, {
+        promptOverride: out.action,
+        developSource: card.data?.developSource || text,
+        ...(out.audio && !String(card.data?.audio || '').trim() ? { audio: out.audio } : {}),
+      });
+      Message.success(`Enriched — ${out.action.split(/\s+/).length} words; events, [Image N] tags and dialogue carried.`);
+    } catch (e) { Message.error(`Enrich failed: ${e.message}`); }
+    finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
+  }, [apiKey, onPatchCut]);
+
   // PROMOTE an approved storyboard keyframe to a production SHOT card — the boards →
   // shot-list handoff. The card carries the shot's beat/camera/duration, the keyframe
   // becomes its START ANCHOR (the pinned grammar's composition binding — no lock
@@ -2872,11 +2908,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onAttachAsset: attachRefToCut,
     onSplitCut: splitCardToShots,
     onComposeCut: composeCutPrompt,
+    onEnrichCut: enrichCutPrompt,
     onOpenTakes: openTakesForCard,
     boardImages,
     prevTakeFrames,
     onCompilePreview: previewCutPrompt,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, enrichCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt]);
 
   const filmMode = true; // Short-Film-only suite.
 
@@ -3234,6 +3271,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             const a = await storyboardAuthor({
               script, span: s.span, beat: s.beat, shotTemplate: s.shotTemplate, develops: s.develops,
               prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: poolUrls,
+              durationSec: s.durationSec,
             }, ctx);
             shots[i] = { ...shots[i], body: a.body, motion: a.motion, exiting: a.exiting, audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
             if (a.missingDialogue?.length) flagged += 1;
@@ -3322,7 +3360,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         script: chat.data.script || '', span: sh.span || sh.body || '', beat: sh.beat, shotTemplate: sh.shotTemplate,
         develops: !!String(sh.exiting || '').trim() || !!sh.develops,
         prevBeat: shots[idx - 1]?.beat || '', nextBeat: shots[idx + 1]?.beat || '',
-        references: freshPoolUrls(chat.data.refs || []), note,
+        references: freshPoolUrls(chat.data.refs || []), note, durationSec: sh.durationSec,
       }, ctx);
       patchShotAt(chatId, idx, { body: a.body, motion: a.motion, exiting: a.exiting, audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [], authorError: '' }, { markStale: true });
       log(a.missingDialogue?.length

@@ -237,7 +237,7 @@ const normText = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')
 // AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
 // motion dropped; still missing → returned in `missingDialogue` (the card flags it,
 // never silently).
-export const storyboardAuthor = async ({ script = '', span = '', beat = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', config } = {}, ctx) => {
+export const storyboardAuthor = async ({ script = '', span = '', beat = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', durationSec = 10, config } = {}, ctx) => {
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
   const wanted = spanDialogueLines(span);
@@ -247,10 +247,11 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', shot
         script: SPAN_SLOT, span: '@@SPAN@@', beat, framing: `${tpl.framing}, ${tpl.angle}, ${tpl.move}`,
         develops: develops ? 'DEVELOPS — write the exiting state' : 'HOLDS — exiting stays empty',
         prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
+        durationSec: String(Math.max(4, Math.round(Number(durationSec) || 10))),
         note: String(note || '').trim() ? "DIRECTOR'S NOTE — apply it to THIS shot (where it conflicts with the span, the note wins):\n@@NOTE@@\n" : '',
         retry: retryNote || '',
       }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)).split('@@NOTE@@').join(String(note).slice(0, 1000)),
-      systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length) }),
+      systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length), craftRules: CRAFT_RULES }),
       images: refs,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -370,12 +371,51 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // reported in dropped[], originals stashed by the caller). No keyframes → single
 // enrich call, text as the material. Binding lines / definitions / tails stay the
 // deterministic compiler's job either way.
+const modelLineOf = (modelKey) => (modelKey === 'seedance25'
+  ? 'Target: Seedance 2.5 — one continuous take of up to 30s. For a shot longer than ~12s, structure the action as CONTINUOUS integer-second intervals ("0-3s: … 3-8s: …" — no gaps), roughly ONE event cluster per 2-4 seconds; each interval carries its OWN camera, action, dialogue and sound; use time-POINTS for accents ("at the 5-second mark, …"). Never overpack an interval (causes phantom cuts) and never leave one thin (invites improvisation).'
+  : 'Target: Seedance 2.0 — one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (2.0 ignores them).');
+
+// The guide's craft doctrine, shared by every text-writing template.
+const CRAFT_RULES = `CRAFT RULES: camera is NAMED grammar — professional terms used raw (shot size, angle, movement, techniques like long take / dolly zoom / speed ramp), ONE camera treatment per segment, niche terms as [term + plain description]. Motion lives at TWO altitudes — general verbs carry the flow ("the two engage in close combat"); degree-and-speed micro-detail is spent on only one or two story-bearing beats per shot; NEVER repeat an action phrase (repetition loops the motion); adverbs set speed. Expressions are descriptive sentences, never idioms. Phrase everything positively — say what happens, not what doesn't. A transition names its trigger AND method ("at 5s, a quick left wipe with a natural dissolve") and never dangles.`;
+const kfLineOf = (kfIndices) => (kfIndices.length
+  ? `KEYFRAME PATH — the shot's visual spine, IN ORDER: it opens on the composition of [Image ${kfIndices[0]}]${kfIndices.slice(1, -1).map((k) => `, passes through [Image ${k}]`).join('')}${kfIndices.length > 1 ? ` and lands on [Image ${kfIndices[kfIndices.length - 1]}]` : ''}.`
+  : 'No keyframes are set — ground the action against the reference images and the text alone.');
+
+// Density levels for Enrich — approximate word ceilings per the model guides (2.0
+// dilutes past ~400 words; 2.5's 30s window rewards far denser text).
+export const ENRICH_LEVELS = (modelKey) => ([
+  { key: 'light', label: 'Light polish', words: modelKey === 'seedance25' ? 220 : 180 },
+  { key: 'rich', label: 'Rich detail', words: modelKey === 'seedance25' ? 400 : 280 },
+  { key: 'max', label: 'Maximal density', words: modelKey === 'seedance25' ? 600 : 380 },
+]);
+
+// ENRICH — expand the CURRENT prompt in place: the text is the untouchable skeleton
+// (events, order, [Image N] tags, dialogue verbatim); the call adds camera/motion/
+// texture/atmosphere/VFX/sound precision around it, grounded in the attached chips.
+// Keyframes and references are inputs, never outputs — the card's pointers and chip
+// list stay exactly as they are.
+export const enrichShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = 'seedance', durationSec = 10, level = 'rich', config } = {}, ctx) => {
+  const material = String(text || '').trim();
+  if (!material) throw new Error('Enrich needs the shot prompt — write it or Compose first.');
+  const lv = ENRICH_LEVELS(modelKey).find((l) => l.key === level) || ENRICH_LEVELS(modelKey)[1];
+  const SLOT = '@@PROMPT@@';
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('cut.enrich.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)),
+    systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), modelLine: modelLineOf(modelKey), craftRules: CRAFT_RULES, durationSec: String(durationSec), targetWords: String(lv.words) }),
+    images: references,
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const action = String(raw.action || '').trim();
+  if (!action) throw new Error('Enrich came back empty — try again.');
+  return { action, audio: String(raw.audio || '').trim() };
+};
+
 export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = 'seedance', durationSec = 10, config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
-  const modelLine = modelKey === 'seedance25'
-    ? 'Target: Seedance 2.5 — one continuous take of up to 30s; sustain a full performance across the whole duration.'
-    : 'Target: Seedance 2.0 — one continuous take of at most 15s; a tight, unbroken event chain.';
+  const modelLine = modelLineOf(modelKey);
   // ---- STEP 1 · DERIVE (keyframes only — deliberately blind to text and refs, so the
   // events come from the approved pictures with no old prompt to anchor on) ----
   let derived = '';
@@ -383,7 +423,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
     const kfUrls = kfIndices.map((k) => references[k - 1]).filter(Boolean);
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.derive.user', { kfCount: String(kfUrls.length) }),
-      systemPrompt: renderTemplate('cut.derive.system', { kfCount: String(kfUrls.length), modelLine, durationSec: String(durationSec) }),
+      systemPrompt: renderTemplate('cut.derive.system', { kfCount: String(kfUrls.length), modelLine, craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
       images: kfUrls,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -392,16 +432,14 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
     if (!derived) throw new Error('Deriving from the keyframes came back empty — try again.');
   }
   // ---- STEP 2 · ENRICH (all chips + roster + derived events + optional text) ----
-  const kfLine = kfIndices.length
-    ? `KEYFRAME PATH — the shot's visual spine, IN ORDER: it opens on the composition of [Image ${kfIndices[0]}]${kfIndices.slice(1, -1).map((k) => `, passes through [Image ${k}]`).join('')}${kfIndices.length > 1 ? ` and lands on [Image ${kfIndices[kfIndices.length - 1]}]` : ''}.`
-    : 'No keyframes are set — ground the action against the reference images and the text alone.';
+  const kfLine = kfLineOf(kfIndices);
   const authorityLine = kfIndices.length
     ? `THE DERIVED EVENTS below were read from the shot's APPROVED KEYFRAMES — they are the authority on WHAT HAPPENS:\n<<<\n${derived}\n>>>\nRewrite them into the final action: replace each visual handle with its subject's [Image N] number from the roster, keep the event order and pacing. From the director's text carry ONLY what pictures cannot show — every dialogue line word-for-word in curly braces with its speaker named (placed at the right moments), proper names, and intent that does not contradict the events. Any text event the derived events contradict is dropped — list each in "dropped" (one short line), never silently.`
     : `The director's text is the MATERIAL and the authority on WHAT HAPPENS: carry its wording, its events and every dialogue line word-for-word in curly braces with the speaker named — you re-structure and ground it against the images, you never re-invent it. "dropped" stays empty.`;
   const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)'),
-    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, modelLine, durationSec: String(durationSec) }),
+    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, modelLine, craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,

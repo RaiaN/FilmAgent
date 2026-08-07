@@ -15,10 +15,8 @@ import { withRetry, isTransient } from './retry';
 import { isImagePolicyError } from './operations';
 import { runWithConcurrency } from './parallel';
 
-// Shots are 5–15s (each breaks into cuts of ≤5–6s) → a 60–180s film is ~6–18 shots.
-// (The pre-division Idea→shot-list reader was PURGED 2026-08-07: zero call sites —
-// the AD-planner division is the one storyboard brain. Git history holds it.)
-// A shot's durationSec always lands in Seedance's 5–15s window, defaulting to 10.
+// A shot's durationSec always lands inside the default video model's window,
+// defaulting to 10s.
 const clampDuration = (v) => Math.max(5, Math.min(maxShotSeconds(defaultVideoModelKey()), Math.round(Number(v) || 10)));
 // The camera setup a divided shot falls back to when the planner names an unknown id.
 const DEFAULT_SHOT_TEMPLATE = 'medium-shot';
@@ -162,9 +160,6 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
   if (!out) throw new Error('No masked plate URL in response');
   return { url: out, cacheUrl };
 };
-
-// (The free-form editFrame op is PURGED: the universal Edit-shot editor covers it — the
-// frame rides as [Image 1] under a strict-follow lock when "use this frame" is ticked.)
 
 // ---- Storyboard: a conversational SHOT DIVISION — script → a shot list, turn by turn ----
 // The Storyboard agent is a cinematographer you brainstorm WITH. Each turn takes the script,
@@ -369,8 +364,7 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // wording/structure/action survive EXACTLY (Develop's output must not be flattened
 // into a still description); the only change is [Image N] tags matching the badge
 // order. Sentinel slot keeps the prompt verbatim through the template.
-// COMPOSE (2026-08-07, replaces Develop + Re-derive) — a 2-STEP PIPELINE (user
-// design, the carve→author lesson): STEP 1 DERIVE reads ONLY the keyframes and
+// COMPOSE — a 2-STEP PIPELINE: STEP 1 DERIVE reads ONLY the keyframes and
 // narrates the visual path; STEP 2 ENRICH binds subjects to their real [Image N]
 // chips and weaves in the text's dialogue/names/important wording (overrides
 // reported in dropped[], originals stashed by the caller). No keyframes → single
@@ -419,7 +413,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   return { action, audio: String(raw.audio || '').trim(), dropped, derived };
 };
 
-// ENHANCE a rendered still — the agentic finishing pass (2026-08-07): ONE tap = a
+// ENHANCE a rendered still — the agentic finishing pass: ONE tap = a
 // VLM look at the frame (writes a tailored change-only instruction: micro-detail,
 // light shaping, texture, atmosphere) + ONE structure-locked frameEdit applying it.
 // Composition/identity/blocking are hard-locked by both the instruction contract and

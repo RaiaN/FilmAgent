@@ -147,8 +147,8 @@ export const buildAnimatePrompt = ({ motion, camera, lens, focalLength, aperture
   return [cine, motionText].filter(Boolean).join('. ');
 };
 
-// The dominant LIVE failure mode (observed 2026-06-11/12): the OUTPUT-AUDIO policy
-// rejects an otherwise good shot ("output audio may contain sensitive information").
+// The dominant live failure mode: the OUTPUT-AUDIO policy rejects an otherwise
+// good shot ("output audio may contain sensitive information").
 // Callers catch this and retake the shot once with generateAudio:false — a silent
 // shot beats a hole in the final cut.
 export const isAudioPolicyError = (err) => /output audio may contain sensitive/i.test((err && err.message) || '');

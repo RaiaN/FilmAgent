@@ -13,9 +13,8 @@
 // Autonomous callers use runAll() (what produce()/the Service API drive). The canvas
 // drives review/auto via runStep + approve/skip + resume(). One engine, many loops.
 //
-// This is the node-free home of the logic that used to live in FilmCanvas
-// (executeAutoStep / advanceAuto / resolveAutoInputs / stitchAuto). Step outputs and
-// picks live on the step objects; the canvas mirrors them to board nodes via events.
+// Node-free by design: step outputs and picks live on the step objects; the canvas
+// mirrors them to board nodes via events.
 
 import { inspiration, characterVariations, locationVariations, animate, isAudioPolicyError } from './operations';
 import { withRetry } from './retry';
@@ -85,7 +84,7 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
       // Retry the WHOLE start+poll once on any failure (fresh task — a lapsed poll
       // can't be resumed). A re-render is cheap; a hole in the final cut is not.
       // The audio policy gets its own fallback: retake the shot WITHOUT audio —
-      // re-rolling with audio on just fails again (lost 2/5 shots, 2026-06-12).
+      // re-rolling with audio on just fails again.
       const { videoUrl, prompt, lastFrameUrl } = await withRetry(async () => {
         try {
           return await animateOnce(p.generateAudio);

@@ -7,8 +7,7 @@ const { Text } = Typography;
 
 // The five silhouette colors, in the mask template's left→right order (WHITE is the
 // camera, never a character).
-// The mask palette (blue→purple, left-to-right silhouette order) — was shared with the
-// purged Arrows editor; lives here now.
+// The mask palette (blue→purple, left-to-right silhouette order).
 const CAST_COLORS = [
   { hex: '#165dff', name: 'BLUE' },
   { hex: '#00b42a', name: 'GREEN' },

@@ -163,7 +163,7 @@ export const shotReferences = (data = {}, bibleEntries = []) => {
 // ---- Seedance 2.0 doc-grammar compiler (composition-pinned shots) -----------------
 // Emits the manual's advanced-formula sections in order: subject definitions →
 // Shot-N body with composition-binding lines → look/quality → constraint tail.
-// The binding phrases are PROBE-VERIFIED (M0, 2026-08-07): the model honored
+// The binding phrases are PROBE-VERIFIED — the model honored
 // "opens exactly on the composition of Image N" / "cuts to exactly …" /
 // "ends exactly on the composition of Image N" — treat them as load-bearing.
 // Pure function — the card's action text rides VERBATIM, nothing is rewritten.
@@ -173,7 +173,7 @@ export const SEEDANCE_CONSTRAINT_TAIL = 'Keep it subtitle-free, avoid generating
 // The manual defines subjects by category noun; our bible roles map onto them.
 // FRAME-role refs are deliberately absent: a frame carries COMPOSITION, not identity —
 // the keyframe binding line ("Use Image i… as keyframes" / "opens exactly on…") is its
-// whole contract, and defining one by its filename is pure noise (user call 2026-08-07).
+// whole contract; a Define line for a frame is noise.
 const SUBJECT_NOUN = { character: 'person', location: 'location', prop: 'object' };
 
 // subjects: [{ index, name, role }] — index = the ref's 1-based Image number (badge order).
@@ -215,7 +215,7 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     // the composition, the words make the content unambiguous.
     const sDesc = String(sh.startDesc || '').trim().replace(/\.$/, '');
     const eDesc = String(sh.endDesc || '').trim().replace(/\.$/, '');
-    // ORDERED KEYFRAME LIST (2026-08-07): kfIndices = [K1..Kn] chip positions; first
+    // ORDERED KEYFRAME LIST: kfIndices = [K1..Kn] chip positions; first
     // opens, last closes, middles pass through in order. Legacy start/end fields fold in.
     const kfs = Array.isArray(sh.kfIndices) && sh.kfIndices.length
       ? sh.kfIndices

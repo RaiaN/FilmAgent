@@ -17,7 +17,7 @@ const REF_BADGE = { fontSize: 9, background: 'rgba(0,0,0,0.28)', borderRadius: 8
 const asRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
 
 // A labeled GROUP on the control card — the visual separation between the card's
-// functional blocks (casting / stills / filming / list actions).
+// functional blocks.
 const Section = ({ label, children, style }) => (
   <div style={{ background: '#f7f8fa', border: '1px solid #eceff3', borderRadius: 6, padding: 6, ...style }}>
     <Text style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#86909c', letterSpacing: 0.4, marginBottom: 4 }}>{label}</Text>
@@ -25,11 +25,10 @@ const Section = ({ label, children, style }) => (
   </div>
 );
 
-// The Storyboard agent's CONTROL CARD, bound to its strip-board panel (1 row = 1 shot).
-// The free-text chat is PURGED (2026-08-07): the frames are the editing surface; this
-// card holds the pool, the batch buttons, and a CONSTRAINED action bar — pick 1 of M
-// structured actions (Note→re-author / Add / Cut / Re-divide), no routing LLM, plus a
-// read-only ACTION LOG of what was done to the list.
+// The Storyboard agent's CONTROL CARD, bound to its strip element (1 row = 1 shot).
+// There is deliberately NO free-text chat: the strip rows are the display surface and
+// this card holds the pool, the batch buttons, and a CONSTRAINED action bar — 1 of M
+// structured actions (Note→re-author / Add / Cut / Re-divide), no routing LLM.
 // Between the header and the log sits the REFERENCE POOL — the SHOT card's REFERENCES block,
 // adapted: bible entries as toggle chips (ON = filled + its [Image N] badge in POOL ORDER —
 // exactly the numbering the division and the keyframes use), loose board refs as grey chips

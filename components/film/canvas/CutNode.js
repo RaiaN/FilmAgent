@@ -99,8 +99,6 @@ const CutNodeInner = ({ id, data, selected }) => {
   const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
-  // The START picker leads with the previous take's last frame when a sequence bond
-  // provides one — the explicit one-tap replacement for the purged hidden threading.
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
   // then the previous take's last frame, then the whole board. Picking a board image
   // adopts it into the card's send list implicitly (one tap, no attach dance).
@@ -110,7 +108,7 @@ const CutNodeInner = ({ id, data, selected }) => {
     ...(data.assetRefs || []).filter((a) => a.url)
       .map((a) => ({ nodeId: a.nodeId || null, url: a.url, assetId: a.assetId || null, label: a.label || 'ref', onCard: true })),
   ];
-  // STRICT rule (user 2026-08-07): keyframes pick from the card's ENABLED chips ONLY.
+  // STRICT rule: keyframes pick from the card's ENABLED chips ONLY.
   // Board images reach the card through REFERENCES (drag onto the card / attach),
   // never through this picker — a keyframe is always a pointer to a visible chip.
   const kfImages = cardRefImages; // chips-only pool — every keyframe tile picks from here

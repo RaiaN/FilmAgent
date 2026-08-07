@@ -1,7 +1,7 @@
-// Transient-failure retry — pure, no imports. The 2026-06-11 trace showed ~3 image
-// generations and 2 of 6 shots dying on "server overload" / "Seedance timed out"
-// with no second attempt, leaving holes in the cut. Generative calls are cheap to
-// redo relative to a missing shot, so the engine retries transient errors with
+// Transient-failure retry — pure, no imports. Generative calls routinely die on
+// "server overload" / "Seedance timed out", and without a second attempt those are
+// holes in the cut. A redo is cheap relative to a missing shot, so the engine
+// retries transient errors with
 // exponential backoff + jitter (jitter so parallel retries don't re-stampede the
 // service that just shed load).
 

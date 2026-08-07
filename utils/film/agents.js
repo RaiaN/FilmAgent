@@ -175,9 +175,7 @@ export const locationVariationsAgent = {
   },
 };
 
-// (The Mix & Match agent was removed 2026-06-18 — per user. Its op, planner
-// template, suggest helpers, director action, production/Service-API step and the
-// canvas panel/dispatch are all gone too; characters land in locations via the
+// (There is no Mix & Match agent; characters land in locations via the
 // SHOT-card storyboard path now, not a standalone composite tool.)
 
 export const animateAgent = {
@@ -365,8 +363,6 @@ export const audioAgent = {
   },
 };
 
-// Deconstruct is GONE (2026-07-21, both stages): the Take Viewer (▶ on any board
-// video — scrub / extract frames / describe a frame / pull audio) replaced it.
 export const AGENTS = [
   storyAgent,
   storyboardAgent,

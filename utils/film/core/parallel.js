@@ -1,9 +1,7 @@
-// Dependency-wave scheduling — pure, no imports. The autonomous producer used to
-// run its plan strictly sequentially: with 6 shots that's ~6 × (keyframe + ~2.5min
-// Seedance render) back to back — the bulk of a 40-minute run. Steps that don't
-// depend on each other (every blueprint keyframe; every animate once its keyframe
-// exists) can run together, bounded by a small concurrency cap so we don't trigger
-// the very server-overload errors the retry layer exists to absorb.
+// Dependency-wave scheduling — pure, no imports. Steps that don't depend on each
+// other (every blueprint keyframe; every animate once its keyframe exists) run
+// together, bounded by a small concurrency cap so parallelism doesn't trigger the
+// very server-overload errors the retry layer exists to absorb.
 
 const TERMINAL = new Set(['approved', 'skipped', 'failed']);
 

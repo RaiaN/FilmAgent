@@ -397,8 +397,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // The updater runs against BOTH the React state and the RF instance store — two
   // snapshots that can already differ by the other write. A concat-style updater then
   // lands twice → DUPLICATE edge ids → React Flow renders NOTHING (duplicate keys).
-  // dedupeEdgeList makes every runtime writer idempotent by construction (observed
-  // live 2026-08-07: Create sequence saved each bond twice, board showed 0 edges).
+  // dedupeEdgeList makes every runtime writer idempotent by construction.
   const applyEdges = useCallback((updater) => {
     setEdges((es) => dedupeEdgeList(updater(es)));
     const inst = rfInstanceRef2.current;
@@ -1170,9 +1169,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const onBeforeDelete = useCallback(async (payload) => (beforeDeleteRef.current ? beforeDeleteRef.current(payload) : true), []);
   const onNodesDeleted = useCallback((deleted) => {
     if (rowsDeletedRef.current) rowsDeletedRef.current(deleted);
-    // Deleting the STRIP element is a real dismissal (user call 2026-08-07 — it used to
-    // self-heal back, "WTF"): remember it on the control node (persists), so nothing
-    // recreates the strip until Divide/Re-divide or the card's explicit "Show strip".
+    // Deleting the STRIP element is a dismissal, remembered on the control node —
+    // nothing recreates the strip except a fresh Divide/Re-divide.
     (deleted || []).forEach((n) => {
       if (String(n.id).startsWith('sbpanel-') && !/-\d+$/.test(String(n.id))) {
         const cid = String(n.id).replace('sbpanel', 'sbchat');
@@ -1663,8 +1661,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const tpl = SHOT_TEMPLATE_BY_ID[shot.shotTemplate];
       if (tpl) body = `Reframe to a ${tpl.framing}, ${tpl.angle} — the same scene, subjects and moment. ${body}`;
     }
-    // IN PLACE (user: "not replaced in place???"): the card IS the frame being iterated —
-    // the render replaces its image, exactly like a keyframe card. Duplicate first to keep
+    // The card IS the frame being iterated — the render replaces its image in place,
+    // exactly like a keyframe card. Duplicate first to keep
     // both versions (the previous image's bytes stay safe in the store/Library either way).
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, editBody: shot.body, editTemplate: shot.shotTemplate, editExpression: shot.expression, editFigures: shot.figures, editPool: plainPool, loading: true, error: undefined } } : n)));
     setExpandedKeyframeId(null);
@@ -1846,9 +1844,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // them, shoots any single card with its 🎬, and "🎬 Action" shoots the rest.
 
   // Dashed prerequisite edges into the card: bible refs (via their board nodes) AND
-  // per-cut attached board assets.
-  // (Gold per-reference edges — syncCutEdges — PURGED 2026-08-06: they duplicated the
-  // cards' REFERENCES chips as permanent visual noise. Edges are SEQUENCE-only now.)
+  // per-cut attached board assets. Edges are SEQUENCE-only — references show as chips,
+  // never as permanent edges.
 
   const onPatchCut = useCallback((id, p) => {
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)));
@@ -1957,11 +1954,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // pattern — no selection dance): ONE reason call reads the map + its stored brief
   // and writes the camera-relative blocking as the new card's prompt — visible,
   // editable; the brief is stashed as projectSource. 🎬 then shoots exactly what you
-  // see. MAP_AS_SEEDANCE_REF — the leak experiment CONCLUDED 2026-08-04: with the
-  // map riding as a reference, Seedance COMPOSITED the schematic into the take
-  // (circles, axis line, a labeled CONVOY box over photoreal bandits) despite the
-  // read-only clause — while the projected TEXT alone staged the geography
-  // correctly. So: false. The map is an AUTHORING artifact — the projection
+  // see. MAP_AS_SEEDANCE_REF stays false: with the map riding as a reference,
+  // Seedance COMPOSITES the schematic into the take (circles, axis line, labels over
+  // photoreal subjects) despite any read-only clause, while the projected TEXT alone
+  // stages the geography correctly. The map is an AUTHORING artifact — the projection
   // carries its geometry into the prompt; the map itself never rides to Seedance.
   const MAP_AS_SEEDANCE_REF = false;
   // ---- TAKES OFF THE CANVAS ---------------------------------------------------------
@@ -2065,8 +2061,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // anchor, then loose refs — same arithmetic as the plate lock), duration carried —
   // and consecutive cards arrive PRE-CHAINED with continuity edges. FREE: no
   // generation, no LLM. Text-only cards are skipped and counted honestly.
-  // THE promote assembly (Create sequence batch REMOVED 2026-08-07 — the strip's
-  // per-row Promote is the one road from storyboard to filming): resolve figures →
+  // THE promote assembly — the strip's per-row Promote, the one road from storyboard
+  // to filming: resolve figures →
   // chips, renumber [Image N] to live badges, motion = the prompt, audio verbatim,
   // K1 = START still (+ K2 = END frame when the pair rendered). Deterministic — the
   // smart pass is the card's own Compose button, never hidden in a free gesture.
@@ -2129,9 +2125,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const exiting0 = String(sShot.exiting || '').trim();
       const mappedExiting = exiting0 ? renumber(resolveShotRefs({ ...sShot, body: exiting0 }, pool).body) : '';
       const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
-      // A SEQUENCE reads top → bottom: one COLUMN (user call 2026-08-07) — long
-      // scripts scroll naturally; the bond arcs from a card's right dot down to the
-      // next card's left dot.
+      // A SEQUENCE reads top → bottom: one COLUMN — long scripts scroll naturally;
+      // the bond arcs from a card's right dot down to the next card's left dot.
             storyboardPanelRef.current({
         index: 0, cut, idPrefix, title: sShot.beat || kf.data.beat || `Shot ${(Number(kf.data.index) || 0) + 1}`,
         action: '', promptOverride: mappedMotion || mapped, framing: '',
@@ -2145,7 +2140,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // pair carries its END frame across as the END anchor (nodeId null — the END
       // lives on the START node's data, not as its own board node).
       // The stills are CHIPS (first + last assetRefs); the keyframes POINT at them —
-      // each image rides once (user rule 2026-08-07).
+      // each image rides once.
       const beatLabel = sShot.beat || `Frame ${(Number(kf.data.index) || 0) + 1}`;
       const endUrl = kf.data.endStill?.url ? (kf.data.endStill.cacheUrl || kf.data.endStill.url) : '';
       onPatchCut(cardId, {
@@ -2327,7 +2322,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // ---- KEYFRAME-PINNED PATH -----------------------------------------------------
     // A KEYFRAME is a POINTER to one of the card's ENABLED reference chips — the image
     // rides ONCE, at its chip position, and the binding line cites that [Image i]
-    // (user rule 2026-08-07: never send a ref twice). A pointer whose chip was removed
+    // (a ref never rides twice). A pointer whose chip was removed
     // or toggled off resolves to nothing — the card falls back to the classic path
     // and the face warns.
     const kfPairs = cardKfPairs(c.data, baseRefs);
@@ -2364,7 +2359,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         refAssetIds: refs.map((r) => r.assetId || null),
         firstFrameUrl: null,
         resolution: clampResolution(videoModelKeyOf(c.data.videoModel), c.data.resolution),
-        ratio: c.data.ratio || '21:9', // cinematic scope by default (user call 2026-08-07)
+        ratio: c.data.ratio || '21:9', // cinematic scope by default
         generateAudio: c.data.generateAudio,
         seed: c.data.seed,
         modelKey: videoModelKeyOf(c.data.videoModel),
@@ -2395,7 +2390,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // Standard Seedance 2.0 params edited on the card (fall back to engine defaults).
       // Clamp resolution to what the chosen endpoint allows (Mini caps at 720p).
       resolution: clampResolution(videoModelKeyOf(c.data.videoModel), c.data.resolution),
-      ratio: c.data.ratio || '21:9', // cinematic scope by default (user call 2026-08-07)
+      ratio: c.data.ratio || '21:9', // cinematic scope by default
       generateAudio: c.data.generateAudio,
       seed: c.data.seed, // the card's own seed (if set) — the global sequence seed is gone
       // Which Seedance endpoint to shoot on — the card's pick (default vs Mini).
@@ -2545,9 +2540,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // frame threads in. On a board with a chain, an edge-less card is a HARD CUT (no
     // threading). A board with ZERO chain edges keeps the legacy nearest-earlier
     // heuristic so old projects don't change behavior.
-    // Continuity has ONE mechanism: the card's START anchor (realized threading was
-    // PURGED 2026-08-07 — no hidden last-frame handoffs; the anchor picker offers the
-    // previous take's last frame as an explicit one-tap choice instead).
+    // Continuity has ONE mechanism: the card's own keyframes — no hidden last-frame
+    // handoffs between takes.
     // Drop the LOADING take into this card's SHOTGRID — a container beside the card that
     // accumulates every take. New takes append as one more cell; the grid grows by rows.
     // (Takes are children of the grid but NOT extent-clamped, so they're draggable out.)
@@ -2628,9 +2622,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // ▶ / Stitch).
   const handleAction = useCallback(async () => {
     // PRINT THE FILM: every un-shot card renders AT ONCE. Continuity is the cards'
-    // START anchors (designed boundaries) — no take feeds any other, a failure
-    // re-prints alone, order lives in the cut numbers and sequence bonds. The old
-    // sequential last-frame threading walk was PURGED 2026-08-07.
+    // keyframes (designed boundaries) — no take feeds any other, a failure re-prints
+    // alone, order lives in the cut numbers and sequence bonds.
     const cards = nodesRef.current.filter((n) => n.type === 'cut').sort((a, b) => (a.data?.cut ?? 0) - (b.data?.cut ?? 0));
     if (!cards.length) { Message.warning('No SHOT cards on the board — break the story into shots first.'); return; }
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
@@ -2689,9 +2682,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     }
   }, [apiKey, buildSession, shotFromCard, wireCutSession, onPatchCut, updateTimeline, upsertShotNodeForCard, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
 
-  // (The VLM Take-breakdown — handleBreakdownTake / the Take ✂ — was PURGED 2026-07-21;
-  // the Take Viewer (▶ on any video) is Deconstruct's successor.)
-
   // In-flight guard for split/develop by node id — the data flags drive the spinners,
   // but a setState flag can't stop a same-frame double-click (it commits AFTER the
   // second click); this ref can. laySeqRef keeps two same-millisecond lays from
@@ -2728,8 +2718,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [rfInstance, freeOrigin]);
 
   // ✂ on a SHOT card: the same segmentation (splitIntoShots — wording + timestamps
-  // preserved) on the card's prompt. The SOURCE CARD STAYS (user rule: Split ADDS,
-  // never replaces — the original wording, refs, takes and grid remain untouched);
+  // preserved) on the card's prompt. The SOURCE CARD STAYS — Split ADDS, never
+  // replaces; the original wording, refs, takes and grid remain untouched;
   // the segment cards slot in right AFTER it (later cards shift by len to make room).
   // Delete the original yourself if the pieces supersede it. Explicit tap only.
   const splitCardToShots = useCallback(async (id) => {
@@ -2769,8 +2759,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // develop output) becomes the new source; otherwise re-develops re-run from the
   // stashed original segment — never a rewrite of a rewrite, and manual edits are
   // never silently ignored. Explicit tap only; nothing runs under the hood.
-  // COMPOSE (2026-08-07, user: "only single button" — Develop + Re-derive merged and
-  // made KEYFRAME-AWARE): one visible call that reads the card's keyframes (ordered),
+  // COMPOSE — the card's ONE prompt-writing button, keyframe-aware: a visible call
+  // that reads the card's keyframes (ordered),
   // its enabled reference chips and the existing text, and writes the cinematic ACTION
   // for the SELECTED video model per the best-practice guide. The text's wording +
   // dialogue ride verbatim as the material; the compiler keeps owning binding lines.
@@ -2847,7 +2837,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     .map((n) => ({ nodeId: n.id, kind: n.data.kind, url: n.data.cacheUrl || n.data.url, label: n.data.label || n.data.kind, duration: Number(n.data.duration) || null })), [nodes]);
 
   // The card context: patching, shooting, attaching, splitting and developing.
-  // The EXPLICIT replacement for the purged last-frame threading: when a card has an
+  // Last-frame handoffs are always EXPLICIT: when a card has an
   // incoming sequence bond whose source already has a take, its START picker offers
   // that take's last frame FIRST — one visible tap instead of a hidden handoff.
   const prevTakeFrames = useMemo(() => {
@@ -3058,8 +3048,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const d = nodesRef.current.find((n) => n.id === id)?.data || {};
     const text = String(d.idea || '').trim();
     if (!text) { Message.warning('Write the brief first — Storyboard needs your description or script.'); return; }
-    // PANEL-FIRST (user call 2026-08-07, matching the rail): the button opens the
-    // Storyboard agent's configuration panel bound to THIS Brief — pace, output mode,
+    // PANEL-FIRST, matching the rail: the button opens the Storyboard agent's
+    // configuration panel bound to THIS Brief — pace, output mode,
     // Lite/Pro, style, refs — and the panel's primary spawns the chat. Nothing runs
     // on this click; the selected Brief is the panel's script source (verbatim).
     setNodes((ns) => ns.map((n) => (!!n.selected !== (n.id === id) ? { ...n, selected: n.id === id } : n)));
@@ -3125,8 +3115,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // nodes are PERMANENTLY HIDDEN data nodes (the takes pattern) — renders/editor/promote
   // address them by id; the strip is their only display surface. Surgery = strip buttons
   // (↑ ↓ ✕) plus the constrained action bar
-  // (Note→re-author / Add / Cut / Re-divide). storyboardTurn PURGED — the only reasoner
-  // calls are carve + author.
+  // (Note→re-author / Add / Cut / Re-divide). The only reasoner calls in the loop
+  // are carve + author.
   const SB_PANEL_H = GROUP_HEADER + GROUP_PAD * 2 + PLATE_ROW_H;   // spawn spacing estimate
 
   // The shot's fields as CARD DATA (shared by the layout reconciler AND row surgery —
@@ -3156,8 +3146,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const shotData = (s, i) => kfCardData(s, i, refs, style, imageModel, panelId);
     setNodes((ns) => {
       let next = ns;
-      // The strip element ("physically separate", 2026-08-07): its own draggable node,
-      // laid below the control card on first divide; self-heals if deleted.
+      // The strip element: its own draggable node, laid below the control card on
+      // first divide. A user-deleted strip stays deleted (stripHidden).
       const chatId2 = String(panelId).replace('sbpanel', 'sbchat');
       const chatNode = next.find((n) => n.id === chatId2);
       if (shots.length && !chatNode?.data?.stripHidden && !next.some((n) => n.id === panelId)) {
@@ -3551,16 +3541,16 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // one-tap batch. Renders stream in parallel; cards with stills are left alone.
   // Render ONE storyboard SHEET from the current shot list — the same plan, a second
   // artifact (pitch / share / a 2.5 storyboard-reference asset). The storyboard KIND
-  // is a render-time choice on the division panel, not a spawn-time mode (the Output
-  // selector died 2026-08-07); stills and sheet coexist from one division.
+  // is a render-time choice, not a spawn-time mode — stills and the page coexist
+  // from one division.
   const renderSheetFromChat = useCallback(async (chatId) => {
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const shots = chat?.data?.shots || [];
     if (!shots.length) { Message.warning('Divide into shots first — the page renders from the shot list.'); return; }
-    // PANEL BUDGET (user call 2026-08-07): the Panels select caps the page. Sampling is
-    // DETERMINISTIC — first + last always ride, middles are evenly spaced with a
-    // preference for DEVELOPS shots (the big state transitions), no LLM, no spend.
+    // PANEL BUDGET: the Panels select caps the page. Sampling is DETERMINISTIC —
+    // first + last always ride, middles are evenly spaced with a preference for
+    // DEVELOPS shots (the big state transitions), no LLM, no spend.
     const target = Number(chat.data?.sheetPanels) || 0;
     let pageShots = shots;
     if (target && shots.length > target) {
@@ -4323,8 +4313,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Drag a CHILD past its panel's edge → it DETACHES to the open board (absolute
   // position, no parent); the panel frame stays — the storyboard panel must survive
   // for reconciliation, and an empty variations frame is a visible, deletable thing.
-  // (The take-specific ShotGrid re-pack died with takes-off-the-canvas — take nodes
-  // are hidden data now, undraggable by construction; PURGED 2026-08-07.)
+  // (Take nodes are hidden data, undraggable by construction — no re-pack needed.)
   const handleNodeDragStop = useCallback((_e, node) => {
     if (!node?.parentId) return;
     const gridId = node.parentId;
@@ -4548,7 +4537,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [setNodes]);
 
   // The director's ✕ = RESET all the way back to the "What are we making?" launcher
-  // (user's explicit instruction — that IS the initial board state). So besides
+  // — that IS the initial board state. So besides
   // wiping the board/takes/idea, it CLEARS THE RECIPE (recipe:null → the launcher
   // shows again) and closes the dock. The decision History (audit log) is kept.
   const resetFilm = useCallback(() => {
@@ -4735,8 +4724,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Cast & World FROM the storyboard node (explicit tap on its ✦ chip): drafts anchors
   // from the SAME verbatim script the division reads. Plates land as tagged board
   // panels → their bible chips appear in this node's REFERENCES block to toggle on.
-  // PANEL-FIRST (user call 2026-08-07, same as the Brief's Storyboard button): the
-  // control card's Cast & World button OPENS the agent's rail panel with this
+  // PANEL-FIRST, same as the Brief's Storyboard button: the control card's
+  // Cast & World button OPENS the agent's rail panel with this
   // storyboard's verbatim script prefilled as the idea — nothing runs on the click;
   // the panel's Run is the explicit tap.
   const castFromStoryboard = useCallback((chatId) => {

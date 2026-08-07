@@ -8,8 +8,8 @@ import { SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 
 const { Text } = Typography;
 
-// THE STRIP — its OWN board element again ("physically separate", 2026-08-07): one
-// draggable node rendering the whole shot list as a strict-column table
+// THE STRIP — its own board element: one draggable node rendering the whole shot
+// list as a strict-column table
 // [# + text | START | END] with internal vertical scroll, laid below the Shot
 // Division control card on divide. The per-shot keyframe nodes still exist (renders,
 // editor, promote, persistence address them by id) but are PERMANENTLY HIDDEN board

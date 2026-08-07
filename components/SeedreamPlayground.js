@@ -186,11 +186,6 @@ const SeedreamPlayground = ({
                     // We need to bridge this to our existing handleImageUpload logic which expects an event-like object or handle directly.
                     // Since our existing logic reads files from input event, we might need to adapt.
                     // Actually, simpler to just use our custom upload box style but maybe wrap in Arco Card?
-                    // Or stick to the custom style which looks good, but maybe replace the inner input?
-                    // Let's revert to custom style for upload box to match the "playground" look exactly, 
-                    // as Arco's upload component is a bit different.
-                    // But wait, the user asked to use Arco components.
-                    // Let's try to adapt Arco Upload but keep it minimal.
                 }}
                 beforeUpload={(file) => {
                     if (refImages.length >= maxRefImages) {

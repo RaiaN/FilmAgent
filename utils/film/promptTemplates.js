@@ -91,8 +91,8 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
   },
 
   // ---- Mask: identity scrub — silhouette any image's people into a color plate ---------
-  // (Key stays 'previz.mask' so saved user overrides keep applying — the Previz AGENT
-  // itself was purged 2026-07-30; Mask survives as a tool on every image node.)
+  // (The key stays 'previz.mask' so saved user overrides keep applying, even though
+  // Mask now lives as a tool on every image node.)
   // {targets} = WHAT gets silhouetted — 'EVERY person in the frame' by default, or the
   // user's own words (sentinel-injected VERBATIM by maskFrame, like the edit slot).
   'previz.mask': {

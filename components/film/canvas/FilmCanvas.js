@@ -4938,7 +4938,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 6 }}>
             <div style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: 12, width: 560, maxWidth: 'calc(100% - 32px)', background: '#fff', border: '1px solid #e5e6eb', borderRadius: 14, boxShadow: '0 6px 24px rgba(0,0,0,0.09)', padding: 22 }}>
               <div>
-                <Text style={{ fontSize: 17, fontWeight: 700, display: 'block' }}>Make a short film</Text>
+                <Text style={{ fontSize: 17, fontWeight: 700, display: 'block' }}>Make AI film</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>Your words land on the board exactly as written — everything starts from the Brief.</Text>
               </div>
               <Input.TextArea

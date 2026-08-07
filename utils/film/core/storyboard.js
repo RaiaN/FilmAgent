@@ -7,7 +7,7 @@
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
-import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
 import { composeSeedancePrompt, composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
 import { parseJson } from './director';
@@ -19,7 +19,7 @@ import { runWithConcurrency } from './parallel';
 // (The pre-division Idea→shot-list reader was PURGED 2026-08-07: zero call sites —
 // the AD-planner division is the one storyboard brain. Git history holds it.)
 // A shot's durationSec always lands in Seedance's 5–15s window, defaulting to 10.
-const clampDuration = (v) => Math.max(5, Math.min(15, Math.round(Number(v) || 10)));
+const clampDuration = (v) => Math.max(5, Math.min(maxShotSeconds(defaultVideoModelKey()), Math.round(Number(v) || 10)));
 // The camera setup a divided shot falls back to when the planner names an unknown id.
 const DEFAULT_SHOT_TEMPLATE = 'medium-shot';
 

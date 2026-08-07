@@ -4,6 +4,7 @@
 // live in core/operations.js — this file only translates canvas ⇄ core.
 
 import { createBrowserClient } from './core/client';
+import { maxShotSeconds, defaultVideoModelKey, imageModelKeyOf } from './suiteConfig';
 import * as ops from './core/operations';
 import * as director from './core/director';
 import { buildAnimatePrompt } from './core/operations';
@@ -140,7 +141,7 @@ export const characterVariationsAgent = {
     if (!anchor) throw new Error('Select one character image first');
     const src = refUrl(anchor);
     const result = await ops.characterVariations(
-      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: settings.imageModel || 'seedreamPro' },
+      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: imageModelKeyOf(settings.imageModel) },
       ctx || browserCtx(apiKey),
       variationHooks('characterVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
@@ -165,7 +166,7 @@ export const locationVariationsAgent = {
     if (!anchor) throw new Error('Select one location image first');
     const src = refUrl(anchor);
     const result = await ops.locationVariations(
-      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: settings.imageModel || 'seedreamPro' },
+      { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: imageModelKeyOf(settings.imageModel) },
       ctx || browserCtx(apiKey),
       variationHooks('locationVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
@@ -242,7 +243,7 @@ export const castAgent = {
   describe: 'Drafts the film\'s recurring assets — characters, creatures, locations and key props/vehicles — in one shared look, as bible candidates.',
   async run({ prompt, settings = {}, apiKey, ctx, onPlan, onEntry, onError }) {
     const entries = await castFromIdea(
-      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '', ethnicity: settings.ethnicity || '', imageModel: settings.imageModel || 'seedreamPro', thinking: !!settings.imageThinking },
+      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '', ethnicity: settings.ethnicity || '', imageModel: imageModelKeyOf(settings.imageModel), thinking: !!settings.imageThinking },
       ctx || browserCtx(apiKey),
       { onPlan, onEntry, onError: (msg) => { if (onError) onError([msg]); } },
     );
@@ -329,7 +330,7 @@ export const shotAgent = {
   color: AGENT_COLORS.shot,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '', shotTemplate: 'medium-shot', durationSec: 15 },
+  defaultSettings: { prompt: '', shotTemplate: 'medium-shot', durationSec: maxShotSeconds(defaultVideoModelKey()) },
   describe: 'A SHOT card carrying your description and camera preset — edit on the card, attach references, then 🎬 to shoot.',
   async run() {
     throw new Error('The Shot agent lays a SHOT card on the canvas — run it from the board.');

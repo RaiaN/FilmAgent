@@ -203,8 +203,8 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // seed (sequence-level, optional): held constant across re-shoots it isolates the
   // prompt as the only changed variable; null lets the model roll its own each time.
   // Per-shot endpoint choice: the SHOT card may pick a variant (e.g. Seedance 2.0 Mini) by
-  // modelKey; unknown/blank falls back to the default seedance endpoint.
-  const videoModel = getModel(modelKey || 'seedance', config);
+  // modelKey; blank falls back to the env-preferred default slot, never a literal.
+  const videoModel = getModel(videoModelKeyOf(modelKey), config);
   const { taskId } = await withRetry(
     () => ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, seed }),
     { tries: 3, baseMs: 3000 },

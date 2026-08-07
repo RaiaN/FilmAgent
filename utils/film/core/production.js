@@ -20,7 +20,7 @@
 import { inspiration, characterVariations, locationVariations, animate, isAudioPolicyError } from './operations';
 import { withRetry } from './retry';
 import { readySteps, runWithConcurrency, isTerminalStatus } from './parallel';
-import { getAgentDefaults } from '../suiteConfig';
+import { getAgentDefaults, maxShotSeconds, defaultVideoModelKey } from '../suiteConfig';
 import { resolveBibleUrls, BIBLE_REF_CAP, EXPLICIT_REF_CAP } from '../timelineModel';
 
 let _oid = 0;
@@ -212,7 +212,7 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
     const shots = blueprint.shots || [];
     // Shots are 5–15s each. The total may exceed the nominal target — the spine is
     // allowed to run over budget; the timeline can always trim.
-    const perShot = Math.min(15, Math.max(5, Math.round(targetSeconds / Math.max(1, shots.length))));
+    const perShot = Math.min(maxShotSeconds(defaultVideoModelKey()), Math.max(5, Math.round(targetSeconds / Math.max(1, shots.length))));
     // The hero must look IDENTICAL across the ad — and every shot prompt names it
     // (promptSeed's hero line), so EVERY keyframe gets the hero's bible refs in
     // addition to its beat's roles. Without this, a beat whose roles have no bible

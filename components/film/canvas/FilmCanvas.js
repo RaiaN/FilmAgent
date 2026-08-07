@@ -50,7 +50,7 @@ import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
 import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, composeShotAction, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
-import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey } from '../../../utils/film/suiteConfig';
+import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -2246,7 +2246,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // idPrefix lets a parallel generator lay 'cut' cards with distinct ids so they don't
     // collide with — or get pruned alongside — the Story's cut-N (default prefix 'cut').
     const id = `${panel.idPrefix || 'cut'}-${panel.index}`;
-    const sec = Math.min(15, Math.max(5, panel.durationSec || 10));
+    const sec = Math.min(maxShotSeconds(defaultVideoModelKey()), Math.max(5, panel.durationSec || 10));
     const cine = shotTemplateCinematography(panel.shotTemplate, projectRef.current?.genre?.line || '');
     // The content a (re)derive writes from the panel — the prompt/camera/action/refs. NOT
     // the take (shotUrl/status) or the user's own asset attachments; those survive.
@@ -3146,7 +3146,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const cut = nodesRef.current.filter((n) => n.type === 'cut' && String(n.id).startsWith('film-')).length;
     storyboardPanelRef.current({
       index: 0, cut, idPrefix: `film-${Date.now().toString(36)}`, title: (storyNode?.data?.idea || 'Film').slice(0, 40),
-      action: prompt, promptOverride: prompt, framing: '', shotTemplate: 'medium-shot', durationSec: 15,
+      action: prompt, promptOverride: prompt, framing: '', shotTemplate: 'medium-shot', durationSec: maxShotSeconds(defaultVideoModelKey()),
       refEntryIds: [], audio: '',
     }, base);
     Message.success('SHOT card on the board — edit the prompt, camera and SD params, then 🎬 to shoot.');
@@ -3233,7 +3233,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     let refs = node?.data?.refs || seed?.refs || []; // optional reference assets (picked on Run)
     const ethnicity = node?.data?.ethnicity || seed?.ethnicity || ''; // consistency lever (whole storyboard)
     const style = node?.data?.style || seed?.style || ''; // aesthetic (Auto → the division decides)
-    const imageModel = node?.data?.imageModel || seed?.imageModel || 'seedreamPro'; // Seedream Lite | Pro
+    const imageModel = imageModelKeyOf(node?.data?.imageModel || seed?.imageModel); // Seedream Lite | Pro
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true } } : n)));
     traceRef.current.startRun({ note: 'Agent · Storyboard (shot division)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
@@ -3317,7 +3317,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const panelId = chat.data.panelId;
       const refs = chat.data.refs || [];
       const style = chat.data.style || '';
-      const imageModel = chat.data.imageModel || 'seedreamPro';
+      const imageModel = imageModelKeyOf(chat.data.imageModel);
       const panel = ns.find((n) => n.id === panelId);
       const base = panel?.position || { x: 0, y: 0 };
       let next = ns.filter((n) => !(String(n.id).startsWith(`${panelId}-`) && /^\d+$/.test(String(n.id).slice(panelId.length + 1))));
@@ -3530,7 +3530,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const refs = chat?.data?.refs?.length ? freshPoolUrls(chat.data.refs) : (bibleRef.current || []).map((e) => e.url).filter(Boolean);
     const style = chat?.data?.style || node.data.style || '';
     const ethnicity = chat?.data?.ethnicity || '';
-    const imageModel = chat?.data?.imageModel || node.data.imageModel || 'seedreamPro';
+    const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
     const { useFrame, annotatedFrame, ...editFields } = edits; // render-mode flags — never persisted onto the shot
     const shot = { beat: node.data.beat, shotTemplate: node.data.shotTemplate, expression: node.data.expression || '', figures: node.data.figures || [], body: node.data.body || '', ...editFields };
     let { ordered, body } = resolveShotRefs(shot, refs);
@@ -3602,7 +3602,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: 'Agent · Storyboard (sheet render)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const out = await storyboardSheet({ shots, style: chat.data?.style || '', title, references: freshPoolUrls(chat.data?.refs || []), imageModel: chat.data?.imageModel || 'seedreamPro' }, ctx);
+      const out = await storyboardSheet({ shots, style: chat.data?.style || '', title, references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || null, loading: false } } : n)));
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
@@ -3633,7 +3633,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!startUrl) { Message.warning('Render the still first — the END frame chains off it.'); return; }
     const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
     const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
-    const imageModel = chat?.data?.imageModel || node.data.imageModel || 'seedreamPro';
+    const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
     traceRef.current.startRun({ note: `Agent · Storyboard (END re-roll · ${String(node.data.beat || '').slice(0, 24)})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
@@ -3684,7 +3684,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chatId = panelId ? panelId.replace('sbpanel', 'sbchat') : null;
     const chat = chatId && nodesRef.current.find((n) => n.id === chatId);
     const style = chat?.data?.style || node.data.style || '';
-    const imageModel = chat?.data?.imageModel || node.data.imageModel || 'seedreamPro';
+    const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
     const merged = { shotTemplate: node.data.shotTemplate, expression: node.data.expression || '', ...patch };
     const body = node.data.bodyRendered || '';        // already renumbered to attach order
     const shotRefs = node.data.shotRefs || [];         // this shot's figures, in [Image 1..N] order
@@ -3844,7 +3844,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           pushFilmNote(`Drafting as ${genre} — characters, places and a look render into the Cast & World panel below.`);
           setPanelPhase(`Drafting as ${genre} — deciding the characters, places and look…`);
           const { created: entries } = await castAgent.run({
-            prompt: idea, settings: { genre, imageModel: params.imageModel || 'seedreamPro', imageThinking: !!params.imageThinking, ethnicity: params.ethnicity || '' }, ctx: castCtx,
+            prompt: idea, settings: { genre, imageModel: imageModelKeyOf(params.imageModel), imageThinking: !!params.imageThinking, ethnicity: params.ethnicity || '' }, ctx: castCtx,
             // onPlan: swap the status line for a LOADING cell per planned plate the instant
             // the read returns, so the whole pending block shows at once. AUTO-TAG: stamp
             // bibleRole + locked NOW — the draft IS the bible (children are still picked
@@ -4119,7 +4119,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const ent = bibleRef.current.find((b) => b.nodeId === n.id) || bibleRef.current.find((b) => b.url === u);
         return { entryId: ent?.id || null, nodeId: n.id, url, label: n.data?.label || ent?.name || 'reference' };
       }))).filter(Boolean);
-      spawnStoryboardChat(text, d.count, refs, d.ethnicity || '', d.style || '', d.imageModel || 'seedreamPro', d.shotLength || 'auto');
+      spawnStoryboardChat(text, d.count, refs, d.ethnicity || '', d.style || '', imageModelKeyOf(d.imageModel), d.shotLength || 'auto');
       // The scene field is ONE-SHOT: it became a Brief card — a stale copy must not
       // silently re-board old text on the next panel open.
       if (typed) setLayerSettings((prev) => ({ ...prev, storyboard: { ...(prev.storyboard || {}), script: '' } }));

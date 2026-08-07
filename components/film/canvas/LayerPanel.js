@@ -1,7 +1,7 @@
 import { Button, Checkbox, Input, InputNumber, Select, Typography } from '@arco-design/web-react';
 import { IconPlayArrow, IconPlus, IconClose } from '@arco-design/web-react/icon';
 import { AGENT_MAP, IMAGE_RESOLUTIONS } from '../../../utils/film/agents';
-import { IMAGE_MODEL_OPTIONS } from '../../../utils/film/suiteConfig';
+import { IMAGE_MODEL_OPTIONS, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 import { SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
@@ -65,7 +65,7 @@ const ShotTemplateSelect = ({ value, onChange, placeholder = 'let the model choo
 );
 
 const ModelSelect = ({ value, onChange }) => (
-  <Select size="small" style={{ width: '100%' }} value={value || 'seedreamPro'} onChange={onChange}
+  <Select size="small" style={{ width: '100%' }} value={imageModelKeyOf(value)} onChange={onChange}
     options={IMAGE_MODEL_OPTIONS.map((m) => ({ label: m.label, value: m.key }))} />
 );
 
@@ -184,7 +184,7 @@ const CastFields = ({ s, up }) => (
     <div>
       <Text style={FIELD_LABEL}>Image model</Text>
       <ModelSelect value={s.imageModel} onChange={(v) => up({ imageModel: v })} />
-      {(s.imageModel || 'seedreamPro') === 'seedreamPro' && (
+      {imageModelKeyOf(s.imageModel) === 'seedreamPro' && (
         <Checkbox style={{ marginTop: 6 }} checked={!!s.imageThinking} onChange={(c) => up({ imageThinking: c })}>
           <Text type="secondary" style={{ fontSize: 12 }}>Prompt thinking — Pro reasons about each plate first (slower; text-to-image plates only)</Text>
         </Checkbox>

@@ -200,6 +200,10 @@ export const maxShotSeconds = (model) => (model === 'seedance25' ? 30 : 15);
 const VIDEO_SLOT_PREFERENCE = ['seedance25', 'seedance', 'seedanceFast', 'seedanceMini'];
 export const defaultVideoModelKey = () => VIDEO_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedance';
 export const videoModelKeyOf = (picked) => picked || defaultVideoModelKey();
+// The image twin — one source for the default Seedream slot (no scattered literals).
+const IMAGE_SLOT_PREFERENCE = ['seedreamPro', 'seedream'];
+export const defaultImageModelKey = () => IMAGE_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedreamPro';
+export const imageModelKeyOf = (picked) => picked || defaultImageModelKey();
 export const clampResolution = (model, res) => {
   const opts = RES_BY_MODEL[model] || RES_BY_MODEL.seedance;
   return opts.includes(res) ? res : resDefault(model);

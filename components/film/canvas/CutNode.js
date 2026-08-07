@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Modal } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
-import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault } from '../../../utils/film/suiteConfig';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import EditableLabel from './EditableLabel';
@@ -122,9 +122,10 @@ const CutNodeInner = ({ id, data, selected }) => {
   // The SHOT's title (data.beat) is inline-renamed via the shared EditableLabel. The beat
   // is the card's NAME; it only feeds the shoot prompt as a FALLBACK when PROMPT is empty.
 
-  const durationSec = Math.min(15, Math.max(5, Math.round(Number(data.durationSec) || 10)));
-  // Resolution is gated by the chosen Seedance endpoint: Mini caps at 720p, standard adds 4K.
+  // Duration is gated by the endpoint: the 2.0 family caps at 15s, Seedance 2.5 at 30s.
   const videoModel = data.videoModel || 'seedance';
+  const maxDur = maxShotSeconds(videoModel);
+  const durationSec = Math.min(maxDur, Math.max(5, Math.round(Number(data.durationSec) || 10)));
   const resOptions = RES_BY_MODEL[videoModel] || RES_BY_MODEL.seedance;
   const resolution = resOptions.includes(data.resolution) ? data.resolution : resDefault(videoModel);
   // CINEMATOGRAPHY pin = pick one of the 50 shot templates (sets the whole line) OR
@@ -204,15 +205,15 @@ const CutNodeInner = ({ id, data, selected }) => {
         <span style={{ flex: 1 }} />
         {/* The SHOT's length — one configurable duration (5–15s), the single source of
             truth for how long this shot runs (drives shotFromCard). */}
-        <span title="Shot duration in seconds (5–15)" style={{ display: 'inline-flex' }}>
+        <span title="Shot duration in seconds (5–15; Seedance 2.5 allows up to 30)" style={{ display: 'inline-flex' }}>
           <InputNumber
             className="nodrag"
             size="mini"
             min={5}
-            max={15}
+            max={maxDur}
             step={1}
             value={durationSec}
-            onChange={(v) => patch({ durationSec: Math.min(15, Math.max(5, Math.round(Number(v) || 10))) })}
+            onChange={(v) => patch({ durationSec: Math.min(maxDur, Math.max(5, Math.round(Number(v) || 10))) })}
             suffix="s"
             style={{ width: 72 }}
           />
@@ -279,7 +280,7 @@ const CutNodeInner = ({ id, data, selected }) => {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <Select className="nodrag" size="mini" value={videoModel} onChange={(v) => patch({ videoModel: v, ...((RES_BY_MODEL[v] || RES_BY_MODEL.seedance).includes(data.resolution) ? {} : { resolution: resDefault(v) }) })} options={VIDEO_MODEL_OPTIONS.map((o) => ({ label: o.label, value: o.key }))} style={{ width: 148 }} triggerProps={{ autoAlignPopupWidth: false }} title="Which Seedance endpoint shoots this shot — Mini is faster/cheaper (caps at 720p)" />
             <Select className="nodrag" size="mini" value={resolution} onChange={(v) => patch({ resolution: v })} options={resOptions.map((o) => ({ label: o, value: o }))} style={{ width: 76 }} triggerProps={{ autoAlignPopupWidth: false }} />
-            <Select className="nodrag" size="mini" value={data.ratio || 'adaptive'} onChange={(v) => patch({ ratio: v })} options={['adaptive', '16:9', '9:16', '1:1', '4:3', '21:9'].map((o) => ({ label: o, value: o }))} style={{ width: 92 }} triggerProps={{ autoAlignPopupWidth: false }} />
+            <Select className="nodrag" size="mini" value={data.ratio || '21:9'} onChange={(v) => patch({ ratio: v })} options={['21:9', 'adaptive', '16:9', '9:16', '1:1', '4:3'].map((o) => ({ label: o, value: o }))} style={{ width: 92 }} triggerProps={{ autoAlignPopupWidth: false }} />
             <Checkbox className="nodrag" checked={data.generateAudio !== false} onChange={(c) => patch({ generateAudio: c })}><Text style={{ fontSize: 10, color: '#9fb4d0' }}>audio</Text></Checkbox>
             <InputNumber className="nodrag" size="mini" placeholder="seed" value={data.seed ?? undefined} onChange={(v) => patch({ seed: v == null || v === '' ? null : Math.round(Number(v)) })} style={{ width: 88 }} />
           </div>

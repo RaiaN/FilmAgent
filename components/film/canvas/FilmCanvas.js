@@ -47,8 +47,9 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, describeFrame, storyboardTurn, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, bindShotPromptToRefs, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
-import { clampResolution } from '../../../utils/film/suiteConfig';
+import { detectGenre, writeFilmPrompt, describeFrame, storyboardTurn, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, bindShotPromptToRefs, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
+import { runWithConcurrency } from '../../../utils/film/core/parallel';
+import { clampResolution, maxShotSeconds } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -719,8 +720,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const rect = wrapperRef.current ? wrapperRef.current.getBoundingClientRect() : { width: 1200, height: 700 };
         const view = { x: -vp.x / vp.zoom, y: -vp.y / vp.zoom, w: rect.width / vp.zoom, h: rect.height / vp.zoom };
         const byId = new Map(nodesRef.current.map((n) => [n.id, n]));
+        // Takes and their grids are born HIDDEN (the Take Library is their surface) —
+        // never chase an invisible node: the camera would land on empty board.
+        const visIds = ids.filter((nid) => { const n = byId.get(nid); return n && !n.hidden; });
+        if (!visIds.length) return;
         const absOf = (n) => { let x = n.position?.x || 0; let y = n.position?.y || 0; for (let c = byId.get(n.parentId); c; c = byId.get(c.parentId)) { x += c.position?.x || 0; y += c.position?.y || 0; } return { x, y }; };
-        const allVisible = ids.every((nid) => {
+        const allVisible = visIds.every((nid) => {
           const n = byId.get(nid);
           if (!n) return true;
           const pos = absOf(n);
@@ -729,7 +734,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           return pos.x >= view.x && pos.y >= view.y && pos.x + w <= view.x + view.w && pos.y + h <= view.y + view.h;
         });
         if (allVisible) return; // already on screen — don't yank the camera
-        rfInstance.fitView({ nodes: ids.map((nid) => ({ id: nid })), duration: 500, padding: 0.35, maxZoom: 1 });
+        rfInstance.fitView({ nodes: visIds.map((nid) => ({ id: nid })), duration: 500, padding: 0.35, maxZoom: 1 });
       } catch { /* camera nicety — never break the board over it */ }
     }, 350);
   }, [nodes, rfInstance, demoOverlay]);
@@ -2027,7 +2032,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chat = nodesRef.current.find((n) => n.id === chatId);
     if (!chat || !storyboardPanelRef.current) return;
     const shots = chat.data?.shots || [];
-    const pool = (chat.data?.pool || []).map(poolRef);
+    // The chat stores its reference pool as data.refs (data.pool is the PRE-rework name
+    // — reading it left every promoted card refless; bit live 2026-08-07).
+    const pool = (chat.data?.refs || chat.data?.pool || []).map(poolRef);
     const panelId = chatId.replace('sbchat', 'sbpanel');
     const panel = nodesRef.current.find((n) => n.id === panelId);
     const baseX = panel ? (panel.position?.x || 0) + (Number(panel.style?.width) || 600) + 80 : (chat.position?.x || 0) + 460;
@@ -2050,9 +2057,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // are computed AFTER the sort, so the body's renumbered [Image N] tags stay
       // consistent with what actually rides.
       const attachKind = ordered.map((p) => {
-        if (p.entryId && bibleRef.current.some((b) => b.id === p.entryId && b.url)) {
-          if (!refIds.includes(p.entryId)) refIds.push(p.entryId);
-          return { entryId: p.entryId };
+        // Pool entryIds drifted from bible ids across reworks — resolve the bible entry
+        // by id, node OR url so casting lands as proper refIds (identity chips), not loose.
+        const be = bibleRef.current.find((b) => b.url && (b.id === p.entryId || (p.nodeId && b.nodeId === p.nodeId) || b.url === p.url));
+        if (be) {
+          if (!refIds.includes(be.id)) refIds.push(be.id);
+          return { entryId: be.id };
         }
         if (p.url) {
           if (!looseRefs.some((a) => a.url === p.url)) looseRefs.push({ nodeId: p.nodeId || null, url: p.url, label: p.label || 'ref' });
@@ -2085,9 +2095,15 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // renumbering applies (both fields share the pool numbering).
       const motion0 = String(sShot.motion || '').trim();
       const mappedMotion = motion0 ? renumber(resolveShotRefs({ ...sShot, body: motion0 }, pool).body) : '';
+      // The anchors carry their WORDING (manual: text and image say the same thing) —
+      // START = the still's description, END = the exiting state, badges renumbered.
+      const exiting0 = String(sShot.exiting || '').trim();
+      const mappedExiting = exiting0 ? renumber(resolveShotRefs({ ...sShot, body: exiting0 }, pool).body) : '';
       const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
-      // A SEQUENCE reads left → right: one row, gap wide enough for the bond chip.
-      const pos = { x: baseX + laidIds.length * (CUT_COL_W + 110), y: baseY };
+      // A SEQUENCE reads top → bottom: one COLUMN (user call 2026-08-07) — long
+      // scripts scroll naturally; the bond arcs from a card's right dot down to the
+      // next card's left dot.
+      const pos = { x: baseX, y: baseY + laidIds.length * (CUT_ROW_H + 70) };
       storyboardPanelRef.current({
         index: 0, cut, idPrefix, title: sShot.beat || kf.data.beat || `Shot ${i + 1}`,
         action: '', promptOverride: mappedMotion || mapped, framing: '',
@@ -2102,8 +2118,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // lives on the START node's data, not as its own board node).
       onPatchCut(cardId, {
         assetRefs: looseRefs,
-        startAnchor: { nodeId: kf.id, url, assetId: kf.data.assetId || null, label: sShot.beat || `Frame ${i + 1}`, pickedAt: Date.now() },
-        ...(kf.data.endStill?.url ? { endAnchor: { nodeId: null, url: kf.data.endStill.cacheUrl || kf.data.endStill.url, assetId: null, label: `${sShot.beat || `Frame ${i + 1}`} · end`, pickedAt: Date.now() } } : {}),
+        startAnchor: { nodeId: kf.id, url, assetId: kf.data.assetId || null, label: sShot.beat || `Frame ${i + 1}`, desc: mapped, pickedAt: Date.now() },
+        ...(kf.data.endStill?.url ? { endAnchor: { nodeId: null, url: kf.data.endStill.cacheUrl || kf.data.endStill.url, assetId: null, label: `${sShot.beat || `Frame ${i + 1}`} · end`, desc: mappedExiting, pickedAt: Date.now() } } : {}),
       });
       laidIds.push(cardId);
       cut += 1;
@@ -2287,7 +2303,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       if (!a) return null;
       const live = a.nodeId ? nodesRef.current.find((n) => n.id === a.nodeId) : null;
       const url = (live && (live.data?.cacheUrl || live.data?.url)) || a.url || '';
-      return url ? { url, assetId: (live && live.data?.assetId) || a.assetId || null } : null;
+      return url ? { url, assetId: (live && live.data?.assetId) || a.assetId || null, desc: a.desc || '' } : null;
     };
     const startAnchor = resolveAnchor(c.data.startAnchor);
     let endAnchor = startAnchor ? resolveAnchor(c.data.endAnchor) : null;
@@ -2303,6 +2319,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         shots: [{
           startPinIndex: plates.length + 1,
           endPinIndex: endAnchor ? plates.length + 2 : 0,
+          startDesc: startAnchor.desc || '',
+          endDesc: (endAnchor && endAnchor.desc) || '',
           action: c.data.promptOverride || '',
           move: (SHOT_TEMPLATE_BY_ID[c.data.shotTemplate] || {}).move || '',
           audio: c.data.audio || '',
@@ -2316,13 +2334,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         direct: true,
         motion,
         camera: 'auto',
-        durationSec: Math.min(15, Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
+        durationSec: Math.min(maxShotSeconds(c.data.videoModel || 'seedance'), Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
         refEntryIds,
         refUrls: refs.map((r) => r.url),
         refAssetIds: refs.map((r) => r.assetId || null),
         firstFrameUrl: null,
         resolution: clampResolution(c.data.videoModel || 'seedance', c.data.resolution),
-        ratio: c.data.ratio,
+        ratio: c.data.ratio || '21:9', // cinematic scope by default (user call 2026-08-07)
         generateAudio: c.data.generateAudio,
         seed: c.data.seed,
         modelKey: c.data.videoModel || 'seedance',
@@ -2343,7 +2361,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       direct: true,
       motion,
       camera: 'auto',
-      durationSec: Math.min(15, Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
+      durationSec: Math.min(maxShotSeconds(c.data.videoModel || 'seedance'), Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
       refEntryIds,
       refUrls: references.map((r) => r.url),
       // Parallel to refUrls: a registered portrait-library id (or null) per ref, so the
@@ -2353,7 +2371,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // Standard Seedance 2.0 params edited on the card (fall back to engine defaults).
       // Clamp resolution to what the chosen endpoint allows (Mini caps at 720p).
       resolution: clampResolution(c.data.videoModel || 'seedance', c.data.resolution),
-      ratio: c.data.ratio,
+      ratio: c.data.ratio || '21:9', // cinematic scope by default (user call 2026-08-07)
       generateAudio: c.data.generateAudio,
       seed: c.data.seed, // the card's own seed (if set) — the global sequence seed is gone
       // Which Seedance endpoint to shoot on — the card's pick (default vs Mini).
@@ -2813,7 +2831,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       refEntryIds: [], audio: shot.audio || '',
     }, base);
     // The keyframe itself = the card's START anchor (composition binding, no ref slot).
-    onPatchCut(`${idPrefix}-0`, { startAnchor: { nodeId, url, assetId: kf.data.assetId || null, label: kf.data.beat || 'Keyframe', pickedAt: Date.now() } });
+    onPatchCut(`${idPrefix}-0`, { startAnchor: { nodeId, url, assetId: kf.data.assetId || null, label: kf.data.beat || 'Keyframe', desc: body, pickedAt: Date.now() } });
     Message.success(`SHOT ${cut + 1} laid from “${String(kf.data.beat || 'keyframe').slice(0, 24)}” — the still is its START anchor; add motion and dialogue, then 🎬.`);
   }, [freeOrigin, onPatchCut]);
 
@@ -3123,7 +3141,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       figureLabels: (s.figures || []).map((f) => String(refs[f - 1]?.label || `Image ${f}`).slice(0, 16)),
       // The planner's pair/video fields ride on the card so the still render (exiting →
       // chained END frame) and the promote (motion → prompt, audio → AUDIO) can read them.
+      // span/authorPending/missingDialogue = the 2-step division's fidelity surface.
       motion: s.motion || '', exiting: s.exiting || '', audio: s.audio || '',
+      span: s.span || '', authorPending: !!s.authorPending, missingDialogue: s.missingDialogue || [], authorError: s.authorError || '',
       style, imageModel, keyframe: true, panelId, index: i,
     });
     setNodes((ns) => {
@@ -3205,6 +3225,45 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           refs = bibleChars;
           setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, refs } } : n)));
         }
+      }
+      // ---- 2-STEP FIRST DIVISION: CARVE structure + verbatim spans, then AUTHOR each
+      // shot in parallel (one focused call per shot — kills late-list attention
+      // collapse). Cards land instantly from the carve SHOWING their script span;
+      // author calls fill body/motion/exiting/audio as they land. One tap, 1 + N
+      // reasoner calls, labeled on the button. Revision turns stay single-call below.
+      if (!prevShots.length && mode !== 'single') {
+        const poolUrls = freshPoolUrls(refs);
+        const carve = await storyboardCarve({ script, style, references: poolUrls, shotLength }, ctx);
+        const shots = carve.shots.map((s) => ({
+          beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures, durationSec: s.durationSec,
+          intExt: s.intExt, develops: s.develops, span: s.span,
+          body: s.span, motion: '', exiting: '', audio: '', expression: '', authorPending: true,
+        }));
+        const syncChat = (msg) => setNodes((ns) => ns.map((n) => (n.id === nodeId
+          ? { ...n, data: { ...n.data, busy: false, shots: [...shots], refs, shotCount: shots.length, ...(msg ? { messages: [...(n.data.messages || []), { from: 'agent', text: msg }] } : {}) } }
+          : n)));
+        syncChat(`${carve.reply} — ${shots.length} shots carved; authoring each in parallel…`);
+        applyShotCards(panelId, [...shots], [], refs, { style, imageModel });
+        let flagged = 0;
+        await runWithConcurrency(shots.map((s, i) => async () => {
+          try {
+            const a = await storyboardAuthor({
+              script, span: s.span, beat: s.beat, shotTemplate: s.shotTemplate, develops: s.develops,
+              prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: poolUrls,
+            }, ctx);
+            shots[i] = { ...shots[i], body: a.body, motion: a.motion, exiting: a.exiting, audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
+            if (a.missingDialogue?.length) flagged += 1;
+          } catch (e) {
+            shots[i] = { ...shots[i], authorPending: false, authorError: e.message };
+            flagged += 1;
+          }
+          syncChat('');
+          applyShotCards(panelId, [...shots], [], refs, { style, imageModel });
+        }), 4);
+        syncChat(flagged
+          ? `Authoring done — ⚠ ${flagged} shot${flagged === 1 ? '' : 's'} flagged (dropped dialogue or an error); check the marked cards before rendering.`
+          : 'Authoring done — every span carried, dialogue verified. Render stills when the words read right.');
+        return;
       }
       const { shots, reply } = await storyboardTurn({ script, shots: prevShots, message, shotLength, style, references: freshPoolUrls(refs) }, ctx);
       // HONEST no-op detection: the model can narrate a change in `reply` while echoing

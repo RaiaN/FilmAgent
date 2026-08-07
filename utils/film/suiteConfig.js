@@ -31,6 +31,7 @@ export const ROOT_CONFIG = {
     seedance: null,      // Seedance 2.0 video endpoint       (MODELARK_MODEL_SEEDANCE)
     seedanceFast: null,  // Seedance 2.0 Fast                 (MODELARK_MODEL_SEEDANCE_FAST)
     seedanceMini: null,  // Seedance 2.0 Mini                 (MODELARK_MODEL_SEEDANCE_MINI)
+    seedance25: null,    // Seedance 2.5 — 30s takes, 50 refs  (MODELARK_MODEL_SEEDANCE_25)
     reasoner: null,      // Seed 2.0 Pro reasoner             (MODELARK_MODEL_REASONER)
   },
   runtime: {
@@ -104,6 +105,7 @@ export const MODEL_ENV_VARS = {
   seedance: 'MODELARK_MODEL_SEEDANCE',
   seedanceFast: 'MODELARK_MODEL_SEEDANCE_FAST',
   seedanceMini: 'MODELARK_MODEL_SEEDANCE_MINI',
+  seedance25: 'MODELARK_MODEL_SEEDANCE_25',
   reasoner: 'MODELARK_MODEL_REASONER',
 };
 
@@ -148,6 +150,7 @@ export const getModel = (key, perCall) => {
 export const VIDEO_MODEL_OPTIONS = [
   { key: 'seedance', label: 'Seedance 2.0' },
   { key: 'seedanceMini', label: 'Seedance 2.0 Mini' },
+  { key: 'seedance25', label: 'Seedance 2.5 · 30s' },
 ];
 
 // The Seedream (image) models the Storyboard keyframes can render on. `key` indexes
@@ -184,8 +187,10 @@ export const clampSizeForModel = (modelKey, size) => {
 
 // Resolutions allowed per Seedance endpoint: the standard one goes up to 4K; Mini caps at 720p
 // (no 1080p, no 4K). Shared by the CutNode dropdown AND the shoot path so the two never diverge.
-export const RES_BY_MODEL = { seedance: ['480p', '720p', '1080p', '4K'], seedanceMini: ['480p', '720p'] };
-export const resDefault = (model) => (model === 'seedanceMini' ? '720p' : '1080p');
+export const RES_BY_MODEL = { seedance: ['480p', '720p', '1080p', '4K'], seedanceMini: ['480p', '720p'], seedance25: ['480p', '720p'] };
+export const resDefault = (model) => (model === 'seedanceMini' || model === 'seedance25' ? '720p' : '1080p');
+// Seedance 2.5 generates up to 30s in one take; the 2.0 family caps at 15s.
+export const maxShotSeconds = (model) => (model === 'seedance25' ? 30 : 15);
 export const clampResolution = (model, res) => {
   const opts = RES_BY_MODEL[model] || RES_BY_MODEL.seedance;
   return opts.includes(res) ? res : resDefault(model);

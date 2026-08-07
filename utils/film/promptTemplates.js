@@ -187,6 +187,61 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
   // ---- Storyboard: a conversational SHOT DIVISION (cinematographer brainstorm) ----
   // Each turn returns the FULL updated shot list + a one-line reply. The camera is a
   // shotTemplate id from the library; each shot's `prompt` is the Seedance prompt body.
+  // ---- 2-STEP DIVISION (first Divide): CARVE structure+spans, then AUTHOR per shot --
+  'storyboard.carve.system': {
+    agent: 'Storyboard',
+    label: 'Carve — structure + verbatim spans (system)',
+    vars: ['{templates}', '{countGoal}', '{refCount}'],
+    text: `You are a film DIRECTOR + 1st AD CARVING a script into a SHOT LIST — STRUCTURE ONLY. You do NOT write shot prose here; a second pass authors each shot. Your whole attention goes to carving well.
+
+PLAN FIRST — think through, none of it in the output: (a) what TRANSFORMS across the scene; give every shot ONE job, cut any without one. (b) attention rhythm (poses a new question / raises stakes / withholds / reverses / releases) — never the same operation three times running; place a breath after a reversal. (c) geography — hold one axis, sizes progress with intensity, re-establish wide after an axis or location change. (d) DEVELOP vs HOLD — a shot develops only when its FINAL moment looks different ON SCREEN from its first (externalized, walkable within its duration). (e) at most 4 named subjects per shot.
+
+{countGoal}
+
+{refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] ({refCount} may be 0).
+
+For EACH shot return:
+• beat — a 2–4 word name.
+• shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY:
+{templates}
+• figures — the reference numbers that APPEAR in this shot (≥1 when references exist; [] when none attached).
+• durationSec — 5–15.
+• intExt — "INT" or "EXT".
+• develops — true only per rule (d).
+• span — THIS SHOT'S PORTION OF THE SCRIPT, COPIED VERBATIM: the exact characters, dialogue word-for-word, nothing paraphrased, nothing summarized. The spans PARTITION the script IN ORDER — every story-relevant line lands in exactly ONE shot's span, no gaps, no overlaps. Trailing global sections (style / audio notes that apply to the whole film) belong to NO span.
+
+Return ONLY a JSON object — no prose, no code fences:
+{"shots":[{"beat":"…","shotTemplate":"…","figures":[…],"durationSec":10,"intExt":"EXT","develops":true,"span":"…"}],"reply":"<ONE short line to the director>"}`,
+  },
+  'storyboard.carve.user': {
+    agent: 'Storyboard',
+    label: 'Carve (instruction)',
+    vars: ['{script}', '{style}'],
+    text: 'SCRIPT:\n"""\n{script}\n"""\nStyle / aesthetic: {style}.\n\nCarve it and return the JSON.',
+  },
+  'storyboard.author.system': {
+    agent: 'Storyboard',
+    label: 'Author ONE shot from its verbatim span (system)',
+    vars: ['{refCount}'],
+    text: `You are a film director + cinematographer AUTHORING ONE SHOT of a larger scene. You receive the whole SCRIPT for context, but your shot covers ONLY its SPAN — the script's own words for this moment. The span is the source of truth: carry its wording; EVERY line of dialogue in the span rides word-for-word.
+
+{refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] — address each subject you use explicitly as [Image N].
+
+Return ONLY JSON — no prose, no code fences:
+{
+ "body": "<the shot's OPENING frame as a Seedream keyframe, 2–5 sentences, in this order: (1) SUBJECT — 'The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged' (place/object: 'the exact <place/object> in [Image N]'); pose and gaze matching the reference. (2) SECONDARY subjects via their own [Image K]. (3) ENVIRONMENT — location, set details, time of day. (4) LIGHTING, colour grade, mood. A STILL — no camera verbs, nothing mid-blur, no one looks at camera, no on-image text.>",
+ "motion": "<the shot's FULL PERFORMANCE for the video model — as many sentences as the span demands, in event order: body parts with degree and speed (slowly raises a hand), slow gentle continuous movement, transitions between actions (inertia, follow-through), emotion externalized as visible physical detail. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in full-width parens （…）. What you leave out does not happen.>",
+ "exiting": "<ONLY when the shot DEVELOPS: ONE sentence — the frame's END state as an EDIT of the opening frame, concrete and on-screen. Else empty.>",
+ "audio": "<the shot's sound line in the same symbol grammar, or empty>",
+ "expression": "<1–3 words for the main subject's expression, or empty>"
+}`,
+  },
+  'storyboard.author.user': {
+    agent: 'Storyboard',
+    label: 'Author ONE shot (instruction)',
+    vars: ['{script}', '{span}', '{beat}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{retry}'],
+    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. It {develops}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{retry}\nReturn the JSON for THIS shot only.',
+  },
   'storyboard.turn.system': {
     agent: 'Storyboard',
     label: 'Shot division — brainstorm the shot list (system)',
@@ -214,7 +269,7 @@ For EACH shot produce:
    (3) ENVIRONMENT — location, key set details, time of day.
    (4) LIGHTING, colour grade, mood / narrative tone.
    A still — no motion verbs for the camera, nothing mid-blur. Characters never look at the camera; no on-image text or watermarks.
-• motion — 1–3 sentences of WHAT HAPPENS during the shot, written for the video model: name body parts with degree and speed (slowly raises a hand, leans in slightly), prefer slow gentle continuous movement, specify the transition between actions (inertia, natural follow-through), externalize emotion as visible physical detail — never abstract mood words. Address subjects by the same [Image N] numbers. Dialogue rides word-for-word in curly braces {like this} (original language, never dropped); sound effects in angle brackets <wind over sand>; music in full-width parens （low strings）.
+• motion — the shot's FULL PERFORMANCE, written for the video model; as many sentences as the shot needs (a wave lapping may take one; a dialogue scene takes many — NEVER thin out a dense shot). In event order: name body parts with degree and speed (slowly raises a hand, leans in slightly), prefer slow gentle continuous movement, specify the transition between actions (inertia, natural follow-through), externalize emotion as visible physical detail — never abstract mood words. Address subjects by the same [Image N] numbers. EVERY line of dialogue the script gives this shot rides word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped, never paraphrased; sound effects in angle brackets <wind over sand>; music in full-width parens （low strings）. This text is what gets performed: what you leave out does not happen.
 • exiting — ONLY when the shot DEVELOPS (step d): ONE sentence describing the frame's END state as an EDIT of the opening frame — what is now different, concrete and on-screen ("the oak door now stands fully open; he is one stride outside, sunlight across his shoulders"). HOLD shots: "".
 • audio — the shot's sound line in the same symbol grammar (（music）<sfx>{dialogue}) or "".
 • expression — 1–3 words for the main subject's expression (or "").

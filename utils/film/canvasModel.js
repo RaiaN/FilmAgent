@@ -179,7 +179,7 @@ export const serializeNodes = (nodes) => {
     // localUrl is a huge base64 thumbnail; loading/preserving/busy/shooting/
     // storyboarding/casting/boarding/phase are in-flight flags (a Brief node
     // carries its own state).
-    const { localUrl, loading, preserving, busy, shooting, storyboarding, casting, boarding, splitting, developing, projecting, endLoading, phase, ...persistData } = n.data || {};
+    const { localUrl, loading, preserving, busy, shooting, storyboarding, casting, boarding, splitting, developing, projecting, endLoading, authorPending, phase, ...persistData } = n.data || {};
     return {
       id: n.id,
       type: n.type,

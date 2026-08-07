@@ -19,6 +19,7 @@ const defaultSeedreamModel = () => seedreamEndpointsLive()[0]?.value || null; //
 // is the human name shown in the dropdown. `.filter` drops any id not configured yet.
 const seedanceEndpointsLive = () => [
     { value: resolveModelId('seedance'), label: 'Seedance 2.0' },
+    { value: resolveModelId('seedance25'), label: 'Seedance 2.5 · 30s' },
     { value: resolveModelId('seedanceFast'), label: 'Seedance 2.0 Fast' },
     { value: resolveModelId('seedanceMini'), label: 'Seedance 2.0 Mini' },
 ].filter((o) => o.value);
@@ -133,7 +134,7 @@ export const baseSchemas = {
         type: 'enum',
         get options() { return seedanceEndpointsLive(); },
         get defaultValue() { return defaultSeedanceModel(); },
-        description: 'Seedance endpoint used for video generation. Fast trades a little fidelity for speed; Mini is the cheapest and caps at 720p.',
+        description: 'Seedance endpoint used for video generation. Fast trades a little fidelity for speed; Mini is the cheapest and caps at 720p. 2.5 does 30s takes but caps at 720p and needs an active 2.5 resource pack.',
       },
       {
         key: 'prompt',
@@ -166,7 +167,7 @@ export const baseSchemas = {
         type: 'enum',
         options: ['480p', '720p', '1080p', '4k'],
         defaultValue: '720p',
-        description: 'Resolution of the output video.',
+        description: 'Resolution of the output video. Seedance 2.5 supports 480p/720p only.',
       },
       {
         key: 'ratio',
@@ -180,9 +181,9 @@ export const baseSchemas = {
         key: 'duration',
         label: 'Duration (seconds)',
         type: 'enum',
-        options: ['auto', 2, 4, 5, 10, 11, 12],
+        options: ['auto', 2, 4, 5, 10, 11, 12, 15, 20, 25, 30],
         defaultValue: 'auto',
-        description: 'Video duration in seconds, or "smart" to let the model decide.',
+        description: 'Video duration in seconds, or auto to let the model decide. 16-30s requires Seedance 2.5 (the 2.0 family caps at 15s).',
       },
       {
         key: 'seed',

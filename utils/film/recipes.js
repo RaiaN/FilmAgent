@@ -198,10 +198,16 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
   for (let i = 0; i < videoRefCount; i += 1) defs.push(`Refer to the camera movement and motion in Video ${i + 1}.`);
   const shotLines = shots.map((sh, i) => {
     const parts = [];
+    // The anchors carry their own DESCRIPTIONS (the still's wording / the exiting
+    // state) — the manual wants text AND image to say the same thing: the image pins
+    // the composition, the words make the content unambiguous.
+    const sDesc = String(sh.startDesc || '').trim().replace(/\.$/, '');
+    const eDesc = String(sh.endDesc || '').trim().replace(/\.$/, '');
     if (sh.startPinIndex) {
-      parts.push(i === 0
-        ? `The shot opens exactly on the composition of Image ${sh.startPinIndex}.`
-        : `Cuts to exactly the composition of Image ${sh.startPinIndex}.`);
+      const open = i === 0
+        ? `The shot opens exactly on the composition of Image ${sh.startPinIndex}`
+        : `Cuts to exactly the composition of Image ${sh.startPinIndex}`;
+      parts.push(`${open}${sDesc ? ` — ${sDesc}` : ''}.`);
     }
     const move = String(sh.move || '').trim();
     if (move) parts.push(move.endsWith('.') ? move : `${move}.`);
@@ -209,7 +215,7 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     if (action) parts.push(action);
     const aud = String(sh.audio || '').trim();
     if (aud) parts.push(aud);
-    if (sh.endPinIndex) parts.push(`The shot ends exactly on the composition of Image ${sh.endPinIndex}.`);
+    if (sh.endPinIndex) parts.push(`The shot ends exactly on the composition of Image ${sh.endPinIndex}${eDesc ? `: ${eDesc}` : ''}.`);
     return `Shot ${i + 1}: ${parts.join(' ')}`;
   });
   const look = [String(style || '').trim(), String(cinematography || '').trim()].filter(Boolean).join(' · ');

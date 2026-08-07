@@ -170,7 +170,8 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
   // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
   if (!imageUrl && !assetId && !refUrls.length && !firstFrameUrl && !String(motion || '').trim()) throw new Error('animate requires a prompt, imageUrl, assetId, refUrls or firstFrameUrl');
-  duration = Math.min(15, Math.max(5, Math.round(Number(duration) || 10)));
+  // Duration cap is per-endpoint: the 2.0 family tops out at 15s, Seedance 2.5 at 30s.
+  duration = Math.min(modelKey === 'seedance25' ? 30 : 15, Math.max(5, Math.round(Number(duration) || 10)));
   const prompt = buildAnimatePrompt({ motion, camera, lens, focalLength, aperture });
   const content = [{ type: 'text', text: prompt }];
   // CONTINUITY: the previous shot's FINAL FRAME becomes the literal FIRST FRAME of this

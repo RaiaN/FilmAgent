@@ -172,6 +172,110 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
 // updated shot list + a one-line reply. The canvas reconciles the list into a column of SHOT
 // cards (each a real CutNode = a Seedance prompt). No frames are rendered here — the shot list
 // IS the storyboard; the picture is shooting a card. Camera = a shotTemplate id from the library.
+// ---- 2-STEP first division: CARVE (structure + verbatim spans) → AUTHOR (per shot) ----
+// Carve gives the whole call's attention to structure; each span partitions the script
+// word-for-word, which makes fidelity STRUCTURAL: the author pass gets its span as the
+// source, and the dialogue gate can verify every span line survived — per shot.
+const SPAN_SLOT = '@@BRIEF@@';
+export const storyboardCarve = async ({ script = '', style = '', references = [], shotLength = 'auto', config } = {}, ctx) => {
+  const text = String(script || '').trim();
+  if (!text) throw new Error('Carving needs the brief/script text first.');
+  const pace = String(shotLength || 'auto');
+  const countGoal = pace === 'auto'
+    ? 'Carve into as many shots as the script NEEDS — every shot must earn its place; pacing picks each durationSec (5–15s). Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.'
+    : `Carve aiming each shot at roughly ${pace} seconds (durationSec ≈ ${pace}, clamped 5–15) — the script's length decides HOW MANY shots that makes. Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.`;
+  const refs = (references || []).filter(Boolean).slice(0, 10);
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('storyboard.carve.user', { script: SPAN_SLOT, style: style || 'auto' }).split(SPAN_SLOT).join(text.slice(0, 12000)),
+    systemPrompt: renderTemplate('storyboard.carve.system', { templates: shotTemplateCatalog(), countGoal, refCount: String(refs.length) }),
+    images: refs,
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const arr = Array.isArray(raw.shots) ? raw.shots : [];
+  const shots = arr.map((s, i) => {
+    const tpl = SHOT_TEMPLATE_BY_ID[s?.shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
+    let figures = Array.isArray(s?.figures) ? [...new Set(s.figures.map((x) => Number(x)).filter((x) => x >= 1 && x <= refs.length))] : [];
+    if (!figures.length && refs.length) figures = [1];
+    return {
+      beat: String(s?.beat || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
+      shotTemplate: tpl.id,
+      figures,
+      durationSec: clampDuration(s?.durationSec),
+      intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
+      develops: !!s?.develops,
+      // The span keeps its line breaks — it IS the script slice, not prose.
+      span: String(s?.span || '').trim().slice(0, 4000),
+    };
+  }).filter((s) => s.span);
+  if (!shots.length) throw new Error('The carve came back empty — try rephrasing.');
+  return { shots, reply: String(raw.reply || '').replace(/\s+/g, ' ').trim().slice(0, 400) || 'Carved the script.' };
+};
+
+// The span's dialogue, extracted deterministically: quoted runs plus screenplay-style
+// lines under an ALL-CAPS speaker heading. Used by the author gate below.
+export const spanDialogueLines = (span = '') => {
+  const out = [];
+  String(span).replace(/[""]([^""]{4,200})[""]|"([^"]{4,200})"/g, (_, a, b) => { out.push((a || b).trim()); return ''; });
+  const lines = String(span).split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const name = lines[i].trim();
+    if (/^[A-Z][A-Z .'()-]{2,30}$/.test(name) && !/^(INT|EXT|FADE|CUT|MOVE|DAWN|LATER|SAME)/.test(name)) {
+      let j = i + 1;
+      let buf = [];
+      while (j < lines.length && lines[j].trim() && !/^[A-Z][A-Z .'()-]{2,30}$/.test(lines[j].trim())) {
+        const t = lines[j].trim();
+        if (!/^\(.*\)$/.test(t)) buf.push(t);
+        j += 1;
+      }
+      if (buf.length) out.push(buf.join(' ').trim());
+      i = j - 1;
+    }
+  }
+  return [...new Set(out.filter((l) => l.length >= 4))];
+};
+const normText = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+// AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
+// motion dropped; still missing → returned in `missingDialogue` (the card flags it,
+// never silently).
+export const storyboardAuthor = async ({ script = '', span = '', beat = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], config } = {}, ctx) => {
+  const refs = (references || []).filter(Boolean).slice(0, 10);
+  const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
+  const wanted = spanDialogueLines(span);
+  const run = async (retryNote) => {
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('storyboard.author.user', {
+        script: SPAN_SLOT, span: '@@SPAN@@', beat, framing: `${tpl.framing}, ${tpl.angle}, ${tpl.move}`,
+        develops: develops ? 'DEVELOPS — write the exiting state' : 'HOLDS — exiting stays empty',
+        prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
+        retry: retryNote || '',
+      }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)),
+      systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length) }),
+      images: refs,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    const raw = parseJson(content) || {};
+    return {
+      body: String(raw.body || '').replace(/\s+/g, ' ').trim().slice(0, 900),
+      motion: String(raw.motion || '').replace(/\s+/g, ' ').trim().slice(0, 1800),
+      exiting: develops ? String(raw.exiting || '').replace(/\s+/g, ' ').trim().slice(0, 400) : '',
+      audio: String(raw.audio || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+      expression: String(raw.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+    };
+  };
+  let out = await run('');
+  let missing = wanted.filter((l) => !normText(out.motion).includes(normText(l)));
+  if (missing.length && out.motion) {
+    out = await run(`\nRETRY — your previous draft DROPPED these dialogue lines; every one must appear word-for-word in motion's curly braces: ${missing.map((l) => `"${l}"`).join(' · ')}\n`);
+    missing = wanted.filter((l) => !normText(out.motion).includes(normText(l)));
+  }
+  if (!out.body || !out.motion) throw new Error(`Authoring "${beat}" came back empty.`);
+  return { ...out, missingDialogue: missing };
+};
+
 export const storyboardTurn = async ({ script = '', shots = [], message = '', style = '', references = [], shotLength = 'auto', config } = {}, ctx) => {
   // SHOT COUNT IS AN OUTPUT, not an input (2026-08-07): the material's length ÷ the
   // chosen per-shot pace decides how many shots — one knob scales from a one-scene
@@ -214,7 +318,7 @@ export const storyboardTurn = async ({ script = '', shots = [], message = '', st
       // The planner's video/pair fields (2026-08-07): motion = what happens (the card's
       // shoot prompt), exiting = the END-state edit (present only for developing shots —
       // drives the chained END still + endAnchor), audio = the symbol-grammar sound line.
-      motion: String(s?.motion || '').replace(/\s+/g, ' ').trim().slice(0, 700),
+      motion: String(s?.motion || '').replace(/\s+/g, ' ').trim().slice(0, 1800),
       exiting: String(s?.exiting || '').replace(/\s+/g, ' ').trim().slice(0, 400),
       audio: String(s?.audio || '').replace(/\s+/g, ' ').trim().slice(0, 300),
       expression: String(s?.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),

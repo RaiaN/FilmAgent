@@ -403,6 +403,17 @@ const AssetNodeInner = ({ id, data, selected }) => {
                   {data.body || '—'}
                 </Text>
               )}
+              {data.authorPending && (
+                <Text style={{ fontSize: 10, color: '#165dff' }}>✍ authoring from the script span…</Text>
+              )}
+              {String(data.authorError || '').trim() && (
+                <Text style={{ fontSize: 10, color: '#f53f3f' }} ellipsis={{ rows: 2 }}>⚠ authoring failed: {data.authorError} — re-divide or edit by hand</Text>
+              )}
+              {(data.missingDialogue || []).length > 0 && (
+                <Text title={(data.missingDialogue || []).join('\n')} style={{ fontSize: 10, color: '#b25c00' }} ellipsis={{ rows: 2 }}>
+                  ⚠ dropped dialogue ({data.missingDialogue.length}): {data.missingDialogue.join(' · ')}
+                </Text>
+              )}
               {String(data.exiting || '').trim() && (
                 <Text title="This shot DEVELOPS — rendering its still also renders this END state as a second chained frame (the pair pins the take)." style={{ fontSize: 10, lineHeight: '14px', color: '#1d6bc4' }} ellipsis={{ rows: 2 }}>
                   ⇥ END: {data.exiting}

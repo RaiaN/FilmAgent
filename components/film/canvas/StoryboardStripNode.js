@@ -154,7 +154,14 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                     style={{ position: 'absolute', top: 4, right: 4, zIndex: 4 }}
                   />
                 )}
-                {row.loading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', zIndex: 2 }}><IconLoading style={{ fontSize: 20, color: '#165dff' }} /></div>}
+                {row.loading && (
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.66)', zIndex: 2 }}>
+                    <IconLoading style={{ fontSize: 20, color: '#165dff' }} />
+                    <Text style={{ fontSize: 10, color: '#4e5969', fontWeight: 600 }}>
+                      {row.enhancePhase === 'look' ? '✦ 1/2 · agent studying the frame…' : row.enhancePhase === 'edit' ? '✦ 2/2 · applying the finishing pass…' : 'rendering…'}
+                    </Text>
+                  </div>
+                )}
                 {still ? (
                   <CellImg
                     srcs={[row.cacheUrl, row.localUrl, row.url]}
@@ -198,7 +205,12 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                   row.endStill?.url ? (
                     <CellImg srcs={[row.endStill.cacheUrl, row.endStill.url]} alt="END" title="END frame — renders with the still" />
                   ) : row.endLoading ? (
-                    <IconLoading style={{ fontSize: 18, color: '#165dff' }} />
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
+                      <IconLoading style={{ fontSize: 18, color: '#165dff' }} />
+                      <Text style={{ fontSize: 10, color: '#4e5969', fontWeight: 600 }}>
+                        {row.enhancePhase === 'look' ? '✦ 1/2 · agent studying the frame…' : row.enhancePhase === 'edit' ? '✦ 2/2 · applying the finishing pass…' : 'rendering END…'}
+                      </Text>
+                    </span>
                   ) : (
                     <Text title={`⇥ END: ${row.exiting} — renders with the still`} style={{ fontSize: 10, color: '#1d6bc4', padding: '0 10px', textAlign: 'center' }} ellipsis={{ rows: 4 }}>⇥ {row.exiting}</Text>
                   )

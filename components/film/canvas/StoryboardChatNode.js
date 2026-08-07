@@ -16,6 +16,15 @@ const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00',
 const REF_BADGE = { fontSize: 9, background: 'rgba(0,0,0,0.28)', borderRadius: 8, padding: '0 4px' };
 const asRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
 
+// A labeled GROUP on the control card — the visual separation between the card's
+// functional blocks (casting / stills / filming / list actions).
+const Section = ({ label, children, style }) => (
+  <div style={{ background: '#f7f8fa', border: '1px solid #eceff3', borderRadius: 6, padding: 6, ...style }}>
+    <Text style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#86909c', letterSpacing: 0.4, marginBottom: 4 }}>{label}</Text>
+    {children}
+  </div>
+);
+
 // The Storyboard agent's CONTROL CARD, bound to its strip-board panel (1 row = 1 shot).
 // The free-text chat is PURGED (2026-08-07): the frames are the editing surface; this
 // card holds the pool, the batch buttons, and a CONSTRAINED action bar — pick 1 of M
@@ -145,14 +154,16 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           from THIS storyboard's verbatim script; they come back as toggle chips above. */}
       {onCastFromScript && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0', flexShrink: 0 }}>
-          <Button
-            size="small" long
-            onClick={() => onCastFromScript(id)}
-            style={{ borderColor: '#b06f10', color: '#b06f10' }}
-            title="Opens the Cast & World panel with this storyboard's script prefilled (verbatim) — pick Lite/Pro and ethnicity there, then Run. Plates land tagged and appear as reference chips above."
-          >
-            Cast & World — generate reference plates
-          </Button>
+          <Section label="CASTING — feeds the REFERENCES pool">
+            <Button
+              size="small" long
+              onClick={() => onCastFromScript(id)}
+              style={{ borderColor: '#b06f10', color: '#b06f10', background: '#fff' }}
+              title="Opens the Cast & World panel with this storyboard's script prefilled (verbatim) — pick Lite/Pro and ethnicity there, then Run. Plates land tagged and appear as reference chips above."
+            >
+              Cast & World — generate reference plates
+            </Button>
+          </Section>
         </div>
       )}
       {/* The element lands INERT — this button IS the first division's explicit tap.
@@ -193,9 +204,10 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
       {/* Shot list divided → the batch buy: render every card that lacks its still.
           Per-card renders live on the cards; chat revisions keep editing the text. */}
       {(data.shots || []).length > 0 && onRenderAll && (
-        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <Section label="STILLS — batch renders">
           <Button
-            size="small" long icon={<IconPlayArrow />}
+            size="small" long icon={<IconPlayArrow />} style={{ background: '#fff' }}
             onClick={() => onRenderAll(id)}
             title="Render a still for every card that doesn't have one yet — cards with stills are left alone (re-render those from their tiles)"
           >
@@ -204,7 +216,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           {onRenderSheet && (
             <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
               <Button
-                size="small" style={{ flex: 1 }}
+                size="small" style={{ flex: 1, background: '#fff' }}
                 onClick={() => onRenderSheet(id)}
                 title="Render ONE storyboard PAGE — a single image of numbered panels from the shot list (pitching, sharing, or a Seedance 2.5 storyboard-reference asset). Capped by Panels: first + last always ride, middles sample the biggest transitions. Guide advice: ≤15 panels."
               >
@@ -214,7 +226,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
                 size="small"
                 value={data.sheetPanels || 0}
                 onChange={(v) => onPatchChat && onPatchChat(id, { sheetPanels: v })}
-                style={{ width: 92, flexShrink: 0 }}
+                style={{ width: 92, flexShrink: 0, background: '#fff' }}
                 title="How many panels the page holds — fewer than the shot count = deterministic sampling (first, last, biggest transitions)"
                 options={[
                   { label: 'All panels', value: 0 },
@@ -226,14 +238,17 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
               />
             </div>
           )}
+          </Section>
           {onPromoteAll && (
-            <Button
-              size="small" long type="primary" style={{ marginTop: 6, background: '#b06f10', borderColor: '#b06f10' }}
-              onClick={() => onPromoteAll(id)}
-              title="Create sequence: every RENDERED still becomes a SHOT card, laid left→right and CHAINED — still as the anchor lock, its cast riding as references, duration carried; each bond threads the previous shot's last frame into the next. Free: no generation. Then ▶ Action shoots the chain."
-            >
-              Create sequence
-            </Button>
+            <Section label="TO FILMING — free, lays SHOT cards">
+              <Button
+                size="small" long type="primary" style={{ background: '#b06f10', borderColor: '#b06f10' }}
+                onClick={() => onPromoteAll(id)}
+                title="Create sequence: every RENDERED still becomes a SHOT card, laid in a chained column — the still as its K1 keyframe (+ END as K2), its cast riding as references, duration carried. Free: no generation. Then ▶ Action shoots the chain."
+              >
+                Create sequence
+              </Button>
+            </Section>
           )}
         </div>
       )}
@@ -242,7 +257,9 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           only Note/Add spend ONE author call (labeled). Frames stay the main surface —
           this bar is the discoverable front door for list-level moves. */}
       {count > 0 && onListAction && (
-        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
+          <Section label="LIST ACTIONS — words via the author, structure free">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ display: 'flex', gap: 4 }}>
             <Select
               size="mini" value={act} onChange={(v) => setAct(v)} style={{ flex: 1 }}
@@ -290,6 +307,8 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
               {act === 'note' ? 'Re-author — 1 reasoner call' : act === 'add' ? (actNote.trim() ? 'Add + author — 1 reasoner call' : 'Add blank row — free') : 'Cut — free'}
             </Button>
           )}
+          </div>
+          </Section>
         </div>
       )}
       {data.busy && (

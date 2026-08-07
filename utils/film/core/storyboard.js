@@ -424,8 +424,9 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
 // light shaping, texture, atmosphere) + ONE structure-locked frameEdit applying it.
 // Composition/identity/blocking are hard-locked by both the instruction contract and
 // the frameEdit grammar. Returns the new frame + the instruction (surfaced, never silent).
-export const enhanceStill = async ({ imageUrl, context = '', imageModel = 'seedreamPro', config } = {}, ctx) => {
+export const enhanceStill = async ({ imageUrl, context = '', imageModel = 'seedreamPro', onPhase, config } = {}, ctx) => {
   if (!imageUrl) throw new Error('Enhance needs the rendered still.');
+  if (onPhase) onPhase('look'); // step 1 of 2 — the VLM studies the frame
   const SLOT = '@@CTX@@';
   const { content } = await ctx.client.reason({
     prompt: 'The attached image is the frame. Return the JSON.',
@@ -436,6 +437,7 @@ export const enhanceStill = async ({ imageUrl, context = '', imageModel = 'seedr
   });
   const instruction = String((parseJson(content) || {}).instruction || '').trim();
   if (!instruction) throw new Error('The finishing pass came back empty — try again.');
+  if (onPhase) onPhase('edit'); // step 2 of 2 — the locked edit renders
   const { url, cacheUrl } = await storyboardKeyframe({ body: instruction, refs: [imageUrl], imageModel, frameEdit: true, config }, ctx);
   return { url, cacheUrl, instruction };
 };

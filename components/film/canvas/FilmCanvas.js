@@ -3653,16 +3653,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
     const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
     const busyKey = isEnd ? 'endLoading' : 'loading';
-    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [busyKey]: true, error: undefined, endError: undefined } } : n)));
+    const setPhase = (ph) => setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, enhancePhase: ph } } : n)));
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [busyKey]: true, enhancePhase: 'look', error: undefined, endError: undefined } } : n)));
     traceRef.current.startRun({ note: `Agent · Enhance still (${isEnd ? 'END · ' : ''}${String(node.data.beat || '').slice(0, 24)} · 1 VLM + 1 image)` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const out = await enhanceStill({ imageUrl: src, context: isEnd ? (node.data.exiting || '') : (node.data.body || ''), imageModel }, ctx);
+      const out = await enhanceStill({ imageUrl: src, context: isEnd ? (node.data.exiting || '') : (node.data.body || ''), imageModel, onPhase: setPhase }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? {
         ...n,
         data: {
           ...n.data,
           [busyKey]: false,
+          enhancePhase: undefined,
           // in place — the enhanced frame replaces the old one; provenance of the old
           // src is dropped so nothing stale (localUrl/assetId) can shadow it
           ...(isEnd
@@ -3672,7 +3674,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       } : n)));
       Message.success(`Enhanced${isEnd ? ' END frame' : ''} — ${out.instruction.slice(0, 140)}${out.instruction.length > 140 ? '…' : ''}`);
     } catch (e) {
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [busyKey]: false } } : n)));
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [busyKey]: false, enhancePhase: undefined } } : n)));
       Message.error(`Enhance failed: ${e.message}`);
     }
   }, [apiKey, setNodes]);

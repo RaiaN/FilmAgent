@@ -236,10 +236,10 @@ const CutNodeInner = ({ id, data, selected }) => {
           <Tag
             size="small"
             className="nodrag"
-            title="Takes — open this card's renders in the Take Library"
+            title="Open this card's renders in the Take Library — scrub, download, add to the timeline"
             onClick={(e) => { e.stopPropagation(); onOpenTakes && onOpenTakes(id); }}
             style={{ background: '#101418', color: '#9fb4d0', border: 'none', fontWeight: 700, cursor: 'pointer' }}
-          >🎞 {data.takeCount}</Tag>
+          >🎞 View takes ({data.takeCount})</Tag>
         )}
         {status && (
           <Tag size="small" style={{ background: '#101418', color: status.color, border: 'none', fontWeight: 700 }}>

@@ -119,15 +119,11 @@ const StoryboardFields = ({ s, up, imageAssets }) => (
       />
     </div>
     <div>
-      <Text style={FIELD_LABEL}>Output</Text>
-      <Select size="small" style={{ width: '100%' }} value={s.mode || 'multiple'} onChange={(v) => up({ mode: v })}
-        options={[{ label: 'Multiple images (keyframe grid)', value: 'multiple' }, { label: 'Single image (one storyboard sheet)', value: 'single' }]} />
+      <Text style={FIELD_LABEL}>Shot length — pace decides the count</Text>
+      <Select size="small" style={{ width: '100%' }} value={s.shotLength || 'auto'} onChange={(v) => up({ shotLength: v })}
+        options={[{ label: 'Auto pace', value: 'auto' }, { label: '~5s shots', value: '5' }, { label: '~8s shots', value: '8' }, { label: '~10s shots', value: '10' }, { label: '~15s shots', value: '15' }, { label: '~20s shots (Seedance 2.5)', value: '20' }, { label: '~30s shots (Seedance 2.5)', value: '30' }]} />
     </div>
     <div style={{ display: 'flex', gap: 10 }}>
-      <div>
-        <Text style={FIELD_LABEL}>Frames</Text>
-        <InputNumber size="small" min={1} max={16} value={s.count} onChange={(v) => up({ count: v })} placeholder="8" style={{ width: 90 }} />
-      </div>
       <div style={{ flex: 1 }}>
         <Text style={FIELD_LABEL}>Style</Text>
         <Select allowCreate size="small" style={{ width: '100%' }} placeholder="Auto"

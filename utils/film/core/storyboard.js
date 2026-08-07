@@ -7,7 +7,7 @@
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
-import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, videoTraits } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
 import { composeSeedancePrompt, composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
 import { parseJson } from './director';
@@ -371,9 +371,7 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // reported in dropped[], originals stashed by the caller). No keyframes → single
 // enrich call, text as the material. Binding lines / definitions / tails stay the
 // deterministic compiler's job either way.
-const modelLineOf = (modelKey) => (modelKey === 'seedance25'
-  ? 'Target: Seedance 2.5 — one continuous take of up to 30s. For a shot longer than ~12s, structure the action as CONTINUOUS integer-second intervals ("0-3s: … 3-8s: …" — no gaps), roughly ONE event cluster per 2-4 seconds; each interval carries its OWN camera, action, dialogue and sound; use time-POINTS for accents ("at the 5-second mark, …"). Never overpack an interval (causes phantom cuts) and never leave one thin (invites improvisation).'
-  : 'Target: Seedance 2.0 — one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (2.0 ignores them).');
+const modelLineOf = (modelKey) => videoTraits(modelKey).promptTargetLine;
 
 // The guide's craft doctrine, shared by every text-writing template.
 const CRAFT_RULES = `CRAFT RULES: camera is NAMED grammar — professional terms used raw (shot size, angle, movement, techniques like long take / dolly zoom / speed ramp), ONE camera treatment per segment, niche terms as [term + plain description]. Motion lives at TWO altitudes — general verbs carry the flow ("the two engage in close combat"); degree-and-speed micro-detail is spent on only one or two story-bearing beats per shot; NEVER repeat an action phrase (repetition loops the motion); adverbs set speed. Expressions are descriptive sentences, never idioms. Phrase everything positively — say what happens, not what doesn't. A transition names its trigger AND method ("at 5s, a quick left wipe with a natural dissolve") and never dangles.`;
@@ -383,11 +381,14 @@ const kfLineOf = (kfIndices) => (kfIndices.length
 
 // Density levels for Enrich — approximate word ceilings per the model guides (2.0
 // dilutes past ~400 words; 2.5's 30s window rewards far denser text).
-export const ENRICH_LEVELS = (modelKey) => ([
-  { key: 'light', label: 'Light polish', words: modelKey === 'seedance25' ? 220 : 180 },
-  { key: 'rich', label: 'Rich detail', words: modelKey === 'seedance25' ? 400 : 280 },
-  { key: 'max', label: 'Maximal density', words: modelKey === 'seedance25' ? 600 : 380 },
-]);
+export const ENRICH_LEVELS = (modelKey) => {
+  const w = videoTraits(modelKey).enrichWords;
+  return [
+    { key: 'light', label: 'Light polish', words: w.light },
+    { key: 'rich', label: 'Rich detail', words: w.rich },
+    { key: 'max', label: 'Maximal density', words: w.max },
+  ];
+};
 
 // ENRICH — expand the CURRENT prompt in place: the text is the untouchable skeleton
 // (events, order, [Image N] tags, dialogue verbatim); the call adds camera/motion/

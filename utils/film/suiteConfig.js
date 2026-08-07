@@ -1,13 +1,6 @@
 // Root settings for the agentic film suite — the single source of truth for how
 // every agent behaves: which models they call, their default parameters, runtime
 // timings, and (via promptTemplates) their prompts.
-//
-// Resolution cascade (last wins):
-//   ROOT_CONFIG (bundled)  ←  client config (SDK init / canvas localStorage)  ←  per-call overrides
-//
-// The Service API / SDK will pass `config` (client) and per-call overrides; the
-// canvas uses the localStorage layer. Server code reads ROOT_CONFIG and honors
-// per-request overrides passed in the request body.
 
 import {
   renderTemplate,
@@ -185,12 +178,52 @@ export const clampSizeForModel = (modelKey, size) => {
   return `${snap(w)}x${snap(h)}`;
 };
 
-// Resolutions allowed per Seedance endpoint: the standard one goes up to 4K; Mini caps at 720p
-// (no 1080p, no 4K). Shared by the CutNode dropdown AND the shoot path so the two never diverge.
-export const RES_BY_MODEL = { seedance: ['480p', '720p', '1080p', '4K'], seedanceMini: ['480p', '720p'], seedance25: ['480p', '720p'] };
-export const resDefault = (model) => (model === 'seedanceMini' || model === 'seedance25' ? '720p' : '1080p');
-// Seedance 2.5 generates up to 30s in one take; the 2.0 family caps at 15s.
-export const maxShotSeconds = (model) => (model === 'seedance25' ? 30 : 15);
+// PER-SLOT CAPABILITY TABLE — the ONE place a video slot's behavior is declared.
+// Everything downstream (compiler grammar, prompt targets, duration/resolution caps,
+// enrich density) keys off these TRAITS, never off slot-name comparisons — a new slot
+// is one entry here, zero call-site edits.
+const VIDEO_MODEL_TRAITS = {
+  seedance: {
+    maxSeconds: 15,
+    res: ['480p', '720p', '1080p', '4K'],
+    resDefault: '1080p',
+    keyframeGrammar: 'composition',   // opens-exactly-on / passes / ends-exactly-on
+    overallBlock: false,              // no closing Overall-requirements section
+    promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
+    enrichWords: { light: 180, rich: 280, max: 380 },
+  },
+  seedanceFast: {
+    maxSeconds: 15,
+    res: ['480p', '720p', '1080p', '4K'],
+    resDefault: '1080p',
+    keyframeGrammar: 'composition',
+    overallBlock: false,
+    promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
+    enrichWords: { light: 180, rich: 280, max: 380 },
+  },
+  seedanceMini: {
+    maxSeconds: 15,
+    res: ['480p', '720p'],
+    resDefault: '720p',
+    keyframeGrammar: 'composition',
+    overallBlock: false,
+    promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
+    enrichWords: { light: 180, rich: 280, max: 380 },
+  },
+  seedance25: {
+    maxSeconds: 30,
+    res: ['480p', '720p'],
+    resDefault: '720p',
+    keyframeGrammar: 'keyframes',     // "Use Image a, Image b … in order as keyframes."
+    overallBlock: true,               // closes with the Overall-requirements section
+    promptTargetLine: 'Target: one continuous take of up to 30s. For a shot longer than ~12s, structure the action as CONTINUOUS integer-second intervals ("0-3s: … 3-8s: …" — no gaps), roughly ONE event cluster per 2-4 seconds; each interval carries its OWN camera, action, dialogue and sound; use time-POINTS for accents ("at the 5-second mark, …"). Never overpack an interval (causes phantom cuts) and never leave one thin (invites improvisation).',
+    enrichWords: { light: 220, rich: 400, max: 600 },
+  },
+};
+export const videoTraits = (key) => VIDEO_MODEL_TRAITS[key] || VIDEO_MODEL_TRAITS[videoModelKeyOf(key)] || VIDEO_MODEL_TRAITS.seedance;
+export const RES_BY_MODEL = Object.fromEntries(Object.entries(VIDEO_MODEL_TRAITS).map(([k, t]) => [k, t.res]));
+export const resDefault = (model) => videoTraits(model).resDefault;
+export const maxShotSeconds = (model) => videoTraits(model).maxSeconds;
 
 // The DEFAULT video slot for a card that hasn't picked one: the FIRST CONFIGURED
 // slot in preference order (2.5 leads when its env var is set). Env-driven — never

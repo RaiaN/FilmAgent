@@ -1,3 +1,5 @@
+import { videoTraits } from './suiteConfig';
+
 // Recipes — the agentic answer to "what's the best recipe for use case XYZ?". A
 // recipe maps a use case → the bible roles it needs, the shot grammar (by duration),
 // the cinematic look packages, and which bible roles each shot pulls. Pure data +
@@ -223,7 +225,7 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     const kFirst = kfs[0] || 0;
     const kLast = kfs.length > 1 ? kfs[kfs.length - 1] : 0;
     const kMids = kfs.slice(1, -1);
-    if (kFirst && modelKey === 'seedance25') {
+    if (kFirst && videoTraits(modelKey).keyframeGrammar === 'keyframes') {
       // Seedance 2.5 keyframe grammar (strict alignment, UNLOCKED task — ratio and
       // duration stay ours). 2.0 keeps the probe-verified phrasing below.
       parts.push(kfs.length > 1
@@ -244,15 +246,15 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     const aud = String(sh.audio || '').trim();
     if (aud) parts.push(aud);
     if (kLast) {
-      parts.push(modelKey === 'seedance25'
+      parts.push(videoTraits(modelKey).keyframeGrammar === 'keyframes'
         ? `Image ${kLast} is the closing frame${eDesc ? `: ${eDesc}` : ''}.`
         : `The shot ends exactly on the composition of Image ${kLast}${eDesc ? `: ${eDesc}` : ''}.`);
     }
     return `Shot ${i + 1}: ${parts.join(' ')}`;
   });
   const look = [String(style || '').trim(), String(cinematography || '').trim()].filter(Boolean).join(' · ');
-  if (modelKey === 'seedance25') {
-    // 2.5 closes with the guide's recurring-elements block: the look, then an identity
+  if (videoTraits(modelKey).overallBlock) {
+    // Closes with the guide's recurring-elements block: the look, then an identity
     // clause naming the actual character chips, then quality + constraints.
     const chars = [...byName.entries()].filter(([, sub]) => sub.role === 'character');
     const consistency = chars.length

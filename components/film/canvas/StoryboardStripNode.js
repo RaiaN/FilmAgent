@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useMemo, useState } from 'react';
 import { useNodesData } from '@xyflow/react';
 import { Button, Typography } from '@arco-design/web-react';
-import { IconRefresh, IconPlayCircle, IconLoading, IconVideoCamera, IconArrowUp, IconArrowDown, IconClose, IconExpand, IconBrush } from '@arco-design/web-react/icon';
+import { IconRefresh, IconPlayCircle, IconLoading, IconVideoCamera, IconArrowUp, IconArrowDown, IconClose, IconExpand, IconBrush, IconTag } from '@arco-design/web-react/icon';
 import { AssetNodeContext } from './AssetNode';
 import { StoryboardChatContext } from './StoryboardChatNode';
 import { SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
@@ -54,7 +54,7 @@ const CellImg = ({ srcs, alt, title, onDoubleClick, onDead }) => {
 };
 
 const StoryboardStripInner = ({ id, data, selected }) => {
-  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onViewImage, onImgError, onRenderEnd, onEnhanceStill } = useContext(AssetNodeContext);
+  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onViewImage, onImgError, onRenderEnd, onEnhanceStill, onTagFrame } = useContext(AssetNodeContext);
   const { onListAction } = useContext(StoryboardChatContext);
   const chatId = data.chatId || String(id).replace('sbpanel', 'sbchat');
   const chatArr = useNodesData([chatId]);
@@ -154,6 +154,14 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                     style={{ position: 'absolute', top: 4, right: 4, zIndex: 4 }}
                   />
                 )}
+                {still && !row.loading && onTagFrame && (
+                  <Button
+                    size="mini" icon={<IconTag />}
+                    onClick={(e) => { e.stopPropagation(); onTagFrame(nodeId, 'start'); }}
+                    title="Tag as FRAME — lands this still as a tagged board asset; it becomes a reference chip on every SHOT card, pickable as a keyframe (free)"
+                    style={{ position: 'absolute', top: 4, right: 34, zIndex: 4 }}
+                  >Tag</Button>
+                )}
                 {row.loading && (
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.66)', zIndex: 2 }}>
                     <IconLoading style={{ fontSize: 20, color: '#165dff' }} />
@@ -200,6 +208,14 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                     title="Enhance the END frame — finishing pass with composition/identity locked. 1 VLM + 1 image, replaces in place."
                     style={{ position: 'absolute', top: 4, right: 34, zIndex: 4 }}
                   />
+                )}
+                {develops && !row.endLoading && row.endStill?.url && onTagFrame && (
+                  <Button
+                    size="mini" icon={<IconTag />}
+                    onClick={(e) => { e.stopPropagation(); onTagFrame(nodeId, 'end'); }}
+                    title="Tag the END frame as a FRAME chip — usable as a keyframe on any SHOT card (free)"
+                    style={{ position: 'absolute', top: 4, right: 64, zIndex: 4 }}
+                  >Tag</Button>
                 )}
                 {develops ? (
                   row.endStill?.url ? (

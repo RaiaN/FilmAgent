@@ -3452,6 +3452,31 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     return () => clearTimeout(t);
   }, [project.id, setNodes]);
 
+  // TAG a strip still into the bible as a FRAME: lands a NEW visible board asset
+  // (same url) with the frame role — decoupled from row surgery, so cutting or
+  // re-ordering rows never breaks a card that references it. This is how arbitrary
+  // storyboard frames become keyframe-pickable chips on ANY SHOT card.
+  const tagStripStill = useCallback((nodeId, which = 'start') => {
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    if (!node?.data?.keyframe) return;
+    const isEnd = which === 'end';
+    const src = isEnd ? (node.data.endStill?.cacheUrl || node.data.endStill?.url) : (node.data.cacheUrl || node.data.url);
+    if (!src) { Message.warning('Render the still first — tagging needs pixels.'); return; }
+    const label = `${node.data.beat || 'Frame'}${isEnd ? ' · end' : ''}`;
+    if (nodesRef.current.some((n) => n.data?.bibleRole === 'frame' && (n.data?.url === src || n.data?.bibleRefUrl === src))) {
+      Message.info(`"${label}" is already tagged as a frame.`);
+      return;
+    }
+    const panel = node.data.panelId ? nodesRef.current.find((n) => n.id === node.data.panelId) : null;
+    const pref = panel
+      ? { x: (panel.position?.x || 0) + (Number(panel.style?.width) || 780) + 40, y: (panel.position?.y || 0) + (Number(node.data.index) || 0) * 40 }
+      : { x: 160, y: 160 };
+    const pos = freeOrigin({ w: 230, h: 240, preferred: pref });
+    const asset = createAssetNode({ kind: 'image', url: src, label, position: pos, layerId: 'storyboard' });
+    setNodes((ns) => ns.concat({ ...asset, data: { ...asset.data, bibleRole: 'frame' } }));
+    Message.success(`"${label}" tagged as a FRAME — it's now a reference chip on every SHOT card (enable it, then pick it as a keyframe).`);
+  }, [freeOrigin, setNodes]);
+
   // Delete-key on storyboard rows = CUT those shots: the list shrinks, survivors
   // renumber and re-pitch, their stills travel along. Runs via rowsDeletedRef because
   // onNodesDeleted is declared far above the surgery helpers.
@@ -4693,10 +4718,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
   const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster, onPromoteMap: promoteMapToCard,
-    onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onRenderEnd: renderEndOnly, onEnhanceStill: enhanceRowStill,
+    onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onRenderEnd: renderEndOnly, onEnhanceStill: enhanceRowStill, onTagFrame: tagStripStill,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
-    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, renderEndOnly, enhanceRowStill, duplicateNode, ensurePoster, promoteMapToCard, lodCoarse, demoOverlay]);
+    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, renderEndOnly, enhanceRowStill, tagStripStill, duplicateNode, ensurePoster, promoteMapToCard, lodCoarse, demoOverlay]);
 
   // The Storyboard chat node runs one brainstorm turn per message, scoped to its own cards.
   // Pool mutations for the chat node's REFS block (SHOT-card-style chips): toggle a bible

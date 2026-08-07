@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useMemo, useState } from 'react';
 import { Button, Typography, Select, Popconfirm, Input } from '@arco-design/web-react';
 import { IconMessage, IconPlus, IconPlayArrow, IconLoading } from '@arco-design/web-react/icon';
-import { imageRefCap, imageModelKeyOf } from '../../../utils/film/suiteConfig';
+import { imageRefCap, imageTraits } from '../../../utils/film/suiteConfig';
 
 const { Text } = Typography;
 
@@ -46,7 +46,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
   // real room, and let the header collapse it to one line when the chat needs the space.
   const [refsOpen, setRefsOpen] = useState(true);
   const pool = useMemo(() => (data.refs || []).map(asRef).filter((r) => r.url), [data.refs]);
-  const cap = imageRefCap(imageModelKeyOf(data.imageModel));
+  const cap = imageRefCap(data.imageModel);
   const bible = bibleEntries || [];
   // Pool refs with no bible identity (panel-picked loose images, "+ board image" adds).
   const loose = pool.filter((r) => !bible.some((b) => (r.entryId && b.id === r.entryId) || b.url === r.url));
@@ -145,7 +145,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
         )}
         {refsOpen && pool.length > cap && (
           <Text style={{ color: '#ff7d00', fontSize: 9, display: 'block', marginTop: 2 }}>
-            first {cap} ride per render ({imageModelKeyOf(data.imageModel) === 'seedreamPro' ? 'Pro' : 'Lite'} reference cap)
+            first {cap} ride per render ({imageTraits(data.imageModel).shortLabel} reference cap)
           </Text>
         )}
       </div>

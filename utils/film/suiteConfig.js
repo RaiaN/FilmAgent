@@ -154,8 +154,15 @@ export const IMAGE_MODEL_OPTIONS = [
   { key: 'seedreamPro', label: 'Seedream 5.0 Pro' },
   { key: 'seedream', label: 'Seedream 5.0 Lite' },
 ];
-export const IMAGE_REF_CAP = { seedream: 6, seedreamPro: 10 };
-export const imageRefCap = (key) => IMAGE_REF_CAP[key] || 6;
+// Per-slot IMAGE capability table — same contract as VIDEO_MODEL_TRAITS: behavior
+// keys off traits, never off slot-name comparisons.
+const IMAGE_MODEL_TRAITS = {
+  seedream: { refCap: 6, shortLabel: 'Lite', thinkingToggle: false },
+  seedreamPro: { refCap: 10, shortLabel: 'Pro', thinkingToggle: true },
+};
+export const imageTraits = (key) => IMAGE_MODEL_TRAITS[key] || IMAGE_MODEL_TRAITS[imageModelKeyOf(key)] || IMAGE_MODEL_TRAITS.seedream;
+export const IMAGE_REF_CAP = Object.fromEntries(Object.entries(IMAGE_MODEL_TRAITS).map(([k, t]) => [k, t.refCap]));
+export const imageRefCap = (key) => imageTraits(key).refCap;
 // Seedream 5.0 Pro caps the image AREA at 4,194,304 px (2048²) — the 2K 16:9 (2848×1600 = 4.56MP)
 // exceeds it, so Pro renders at the largest 16:9 under the cap (2560×1440 = 3.69MP). Lite allows 2K.
 export const keyframeImageSize = (key) => (key === 'seedreamPro' ? '2560x1440' : '2848x1600');

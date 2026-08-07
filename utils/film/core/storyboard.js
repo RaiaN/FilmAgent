@@ -7,7 +7,7 @@
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
-import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, videoTraits } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, videoTraits, imageTraits } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
 import { composeSeedancePrompt, composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
 import { parseJson } from './director';
@@ -624,7 +624,7 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedr
         model: getModel(imageModel, config),
         // Pro "thinking" prompt optimization — applies to the TEXT-TO-IMAGE plates
         // (faces/places/props); the body sheet refs its face, so the transport drops it there.
-        optimizePrompt: !!thinking && imageModel === 'seedreamPro',
+        optimizePrompt: !!thinking && imageTraits(imageModel).thinkingToggle,
       }),
       { tries: 4, baseMs: 2500, shouldRetry: (err) => isTransient(err) || isImagePolicyError(err), onRetry: (err) => { if (isImagePolicyError(err)) policyHit = true; } },
     );

@@ -8,7 +8,7 @@ const { Text } = Typography;
 // Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data) — same context pattern as CutContext / StoryScriptContext.
 export const StoryboardChatContext = createContext({
-  onDivide: null, onListAction: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPromoteAll: null, onPatchChat: null,
+  onDivide: null, onListAction: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPatchChat: null,
 });
 
 // Same role palette as the SHOT card's reference chips — the two blocks must read as one system.
@@ -36,7 +36,7 @@ const Section = ({ label, children, style }) => (
 // (click to remove), and "+ board image" to add any board image mid-conversation. The next
 // turn / render reads the live pool; finished stills keep their frames.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onDivide, onListAction, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll, onRenderSheet, onCastFromScript, onPromoteAll, onPatchChat } = useContext(StoryboardChatContext);
+  const { onDivide, onListAction, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll, onRenderSheet, onCastFromScript, onPatchChat } = useContext(StoryboardChatContext);
   const count = data.shotCount || 0;
   const [addOpen, setAddOpen] = useState(false);
   // The constrained action bar's local draft (1 of M + structured args).
@@ -53,7 +53,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
   const loose = pool.filter((r) => !bible.some((b) => (r.entryId && b.id === r.entryId) || b.url === r.url));
   const addable = (imageAssets || []).filter((a) => !pool.some((r) => r.url === a.url || (r.nodeId && r.nodeId === a.id)));
   return (
-    <div style={{ width: 320, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+    <div style={{ width: 460, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
       <div style={{ height: 4, background: '#4e5969' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderBottom: '1px solid #f2f3f5' }}>
         <IconMessage style={{ color: '#4e5969', fontSize: 14 }} />
@@ -154,7 +154,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           from THIS storyboard's verbatim script; they come back as toggle chips above. */}
       {onCastFromScript && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0', flexShrink: 0 }}>
-          <Section label="CASTING — feeds the REFERENCES pool">
+          <Section label="REFERENCES">
             <Button
               size="small" long
               onClick={() => onCastFromScript(id)}
@@ -205,7 +205,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           Per-card renders live on the cards; chat revisions keep editing the text. */}
       {(data.shots || []).length > 0 && onRenderAll && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <Section label="STILLS — batch renders">
+          <Section label="STILLS">
           <Button
             size="small" long icon={<IconPlayArrow />} style={{ background: '#fff' }}
             onClick={() => onRenderAll(id)}
@@ -214,11 +214,11 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             Render all stills
           </Button>
           {onRenderSheet && (
-            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'stretch' }}>
               <Button
                 size="small" style={{ flex: 1, background: '#fff' }}
                 onClick={() => onRenderSheet(id)}
-                title="Render ONE storyboard PAGE — a single image of numbered panels from the shot list (pitching, sharing, or a Seedance 2.5 storyboard-reference asset). Capped by Panels: first + last always ride, middles sample the biggest transitions. Guide advice: ≤15 panels."
+                title="Render ONE storyboard PAGE — a single image of numbered panels from the shot list (pitching, sharing, or a Seedance 2.5 storyboard-reference asset). Capped by the panel count on the right: first + last always ride, middles sample the biggest transitions. Guide advice: ≤15 panels."
               >
                 Storyboard page — 1 image
               </Button>
@@ -226,7 +226,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
                 size="small"
                 value={data.sheetPanels || 0}
                 onChange={(v) => onPatchChat && onPatchChat(id, { sheetPanels: v })}
-                style={{ width: 92, flexShrink: 0, background: '#fff' }}
+                style={{ width: 118, flexShrink: 0, background: '#fff' }}
                 title="How many panels the page holds — fewer than the shot count = deterministic sampling (first, last, biggest transitions)"
                 options={[
                   { label: 'All panels', value: 0 },
@@ -239,17 +239,6 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             </div>
           )}
           </Section>
-          {onPromoteAll && (
-            <Section label="TO FILMING — free, lays SHOT cards">
-              <Button
-                size="small" long type="primary" style={{ background: '#b06f10', borderColor: '#b06f10' }}
-                onClick={() => onPromoteAll(id)}
-                title="Create sequence: every RENDERED still becomes a SHOT card, laid in a chained column — the still as its K1 keyframe (+ END as K2), its cast riding as references, duration carried. Free: no generation. Then ▶ Action shoots the chain."
-              >
-                Create sequence
-              </Button>
-            </Section>
-          )}
         </div>
       )}
       {/* CONSTRAINED ACTION BAR — 1 of M structured actions on the shot list. No free
@@ -258,7 +247,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           this bar is the discoverable front door for list-level moves. */}
       {count > 0 && onListAction && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
-          <Section label="LIST ACTIONS — words via the author, structure free">
+          <Section label="ACTIONS">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ display: 'flex', gap: 4 }}>
             <Select

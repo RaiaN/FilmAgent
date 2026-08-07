@@ -1170,6 +1170,15 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const onBeforeDelete = useCallback(async (payload) => (beforeDeleteRef.current ? beforeDeleteRef.current(payload) : true), []);
   const onNodesDeleted = useCallback((deleted) => {
     if (rowsDeletedRef.current) rowsDeletedRef.current(deleted);
+    // Deleting the STRIP element is a real dismissal (user call 2026-08-07 — it used to
+    // self-heal back, "WTF"): remember it on the control node (persists), so nothing
+    // recreates the strip until Divide/Re-divide or the card's explicit "Show strip".
+    (deleted || []).forEach((n) => {
+      if (String(n.id).startsWith('sbpanel-') && !/-\d+$/.test(String(n.id))) {
+        const cid = String(n.id).replace('sbpanel', 'sbchat');
+        setNodes((ns) => ns.map((x) => (x.id === cid ? { ...x, data: { ...x.data, stripHidden: true } } : x)));
+      }
+    });
     const ids = new Set((deleted || []).map((n) => n.id));
     updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => !ids.has(e.shotNodeId) && !ids.has(e.keyframeNodeId)) }));
     // Chain HEAL: deleting a chained card reconnects its neighbours. The healed bond is
@@ -1184,7 +1193,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       });
       return heals.length ? es.concat(heals.filter((h) => !es.some((e) => e.id === h.id))) : es;
     });
-  }, [updateTimeline, applyEdges]);
+  }, [updateTimeline, applyEdges, setNodes]);
 
   // ---- layers ----
   const cycleVisibility = useCallback((layerId) => {
@@ -2056,8 +2065,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // anchor, then loose refs — same arithmetic as the plate lock), duration carried —
   // and consecutive cards arrive PRE-CHAINED with continuity edges. FREE: no
   // generation, no LLM. Text-only cards are skipped and counted honestly.
-  // ONE assembly for every promote (single row AND Create sequence — unified
-  // 2026-08-07 after the single-row path shipped without refs/K2): resolve figures →
+  // THE promote assembly (Create sequence batch REMOVED 2026-08-07 — the strip's
+  // per-row Promote is the one road from storyboard to filming): resolve figures →
   // chips, renumber [Image N] to live badges, motion = the prompt, audio verbatim,
   // K1 = START still (+ K2 = END frame when the pair rendered). Deterministic — the
   // smart pass is the card's own Compose button, never hidden in a free gesture.
@@ -2153,48 +2162,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       return cardId;
   }, [onPatchCut]);
 
-  const promoteAllKeyframes = useCallback((chatId) => {
-    const chat = nodesRef.current.find((n) => n.id === chatId);
-    if (!chat || !storyboardPanelRef.current) return;
-    const shots = chat.data?.shots || [];
-    // The chat stores its reference pool as data.refs (data.pool is the PRE-rework name
-    // — reading it left every promoted card refless; bit live 2026-08-07).
-    const pool = (chat.data?.refs || chat.data?.pool || []).map(poolRef);
-    const panelId = chatId.replace('sbchat', 'sbpanel');
-    const panel = nodesRef.current.find((n) => n.id === panelId);
-    const baseX = panel ? (panel.position?.x || 0) + (Number(panel.style?.width) || 600) + 80 : (chat.position?.x || 0) + 840;
-    const baseY = panel ? (panel.position?.y || 0) : (chat.position?.y || 0);
-    let cut = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
-    const laidIds = [];
-    let skipped = 0;
-    shots.forEach((sShot, i) => {
-      const kf = nodesRef.current.find((n) => n.id === `${panelId}-${i}`);
-      const pos = { x: baseX, y: baseY + laidIds.length * (CUT_ROW_H + 70) };
-      const cardId = layAnchoredCard(kf, sShot, pool, cut, pos);
-      if (!cardId) { skipped += 1; return; }
-      laidIds.push(cardId);
-      cut += 1;
-    });
-    if (!laidIds.length) { Message.warning('No rendered stills to sequence — render the storyboard first (text-only cards are skipped).'); return; }
-    // Pre-chain: consecutive cards get continuity bonds (last frame threads forward).
-    // DEFERRED one tick: xyflow won't render edges added in the same commit as their
-    // endpoint nodes (they only appeared after a full remount) — let the cards mount
-    // and measure first, then bond them.
-    setTimeout(() => {
-      applyEdges((es) => es.concat(laidIds.slice(1).map((tid, j) => ({
-        id: `cont-${laidIds[j]}-${tid}`, source: laidIds[j], target: tid, type: 'continuity',
-      })).filter((e2) => !es.some((e) => e.id === e2.id))));
-      // The SEQUENCE element — the chain's owner bar, above the row. Collapse /
-      // shoot-one-by-one live here.
-      setNodes((ns) => ns.concat({
-        id: `seq-${Date.now().toString(36)}`,
-        type: 'sequence',
-        position: { x: baseX, y: baseY - 120 },
-        data: { cardIds: laidIds, collapsed: false, label: chat.data?.title || 'Sequence' },
-      }));
-      Message.success(`Sequence created — ${laidIds.length} SHOT cards chained in order${skipped ? ` (${skipped} text-only skipped)` : ''}. Shoot them one by one from the SEQUENCE bar, or ▶ Action for the whole chain.`);
-    }, 80);
-  }, [layAnchoredCard, onPatchCut, applyEdges, setNodes]);
 
   const promoteMapToCard = useCallback(async (mapId) => {
     const map = nodesRef.current.find((n) => n.id === mapId);
@@ -3192,8 +3159,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // The strip element ("physically separate", 2026-08-07): its own draggable node,
       // laid below the control card on first divide; self-heals if deleted.
       const chatId2 = String(panelId).replace('sbpanel', 'sbchat');
-      if (shots.length && !next.some((n) => n.id === panelId)) {
-        const chat = next.find((n) => n.id === chatId2);
+      const chatNode = next.find((n) => n.id === chatId2);
+      if (shots.length && !chatNode?.data?.stripHidden && !next.some((n) => n.id === panelId)) {
+        const chat = chatNode;
         const pos = chat
           ? { x: chat.position?.x || 0, y: (chat.position?.y || 0) + (chat.measured?.height || 560) + 30 }
           : { x: 120, y: 120 };
@@ -3234,7 +3202,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const ethnicity = node?.data?.ethnicity || seed?.ethnicity || ''; // consistency lever (whole storyboard)
     const style = node?.data?.style || seed?.style || ''; // aesthetic (Auto → the division decides)
     const imageModel = imageModelKeyOf(node?.data?.imageModel || seed?.imageModel); // Seedream Lite | Pro
-    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true } } : n)));
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true, stripHidden: false } } : n)));
     traceRef.current.startRun({ note: 'Agent · Storyboard (shot division)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
@@ -3435,7 +3403,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   useEffect(() => {
     const t = setTimeout(() => {
       const isRowId = (nid) => /-\d+$/.test(String(nid));
-      const chats = nodesRef.current.filter((n) => n.type === 'sbchat' && (n.data?.shots || []).length && n.data?.panelId);
+      const chats = nodesRef.current.filter((n) => n.type === 'sbchat' && (n.data?.shots || []).length && n.data?.panelId && !n.data?.stripHidden);
       const stale = chats.some((c) => nodesRef.current.find((x) => x.id === c.data.panelId)?.type !== 'sbstrip')
         || nodesRef.current.some((n) => String(n.id).startsWith('sbpanel-') && !isRowId(n.id) && n.type !== 'sbstrip');
       if (!stale) return;
@@ -4782,9 +4750,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const sbChatCtx = useMemo(() => ({
     onDivide: runDivide, onListAction: storyboardListAction, bibleEntries, imageAssets,
     onToggleBibleRef: sbToggleBibleRef, onRemoveRef: sbRemoveRef, onAddBoardRef: sbAddBoardRef,
-    onRenderAll: renderAllStills, onRenderSheet: renderSheetFromChat, onCastFromScript: castFromStoryboard, onPromoteAll: promoteAllKeyframes,
+    onRenderAll: renderAllStills, onRenderSheet: renderSheetFromChat, onCastFromScript: castFromStoryboard,
     onPatchChat: (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))),
-  }), [runDivide, storyboardListAction, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills, castFromStoryboard, promoteAllKeyframes]);
+  }), [runDivide, storyboardListAction, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills, castFromStoryboard]);
 
   // Handlers only — each Brief node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Brief element on the board.

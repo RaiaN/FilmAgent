@@ -3,7 +3,7 @@
 // The canvas and the headless SDK both call these; only the injected `client`
 // differs. Prompts/models resolve through suiteConfig (root ← client ← per-call).
 
-import { renderTemplate, getModel, getRuntime, clampSizeForModel } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, clampSizeForModel, maxShotSeconds, videoModelKeyOf } from '../suiteConfig';
 import { withRetry } from './retry';
 
 // Variation "axes" and styles are no longer hardcoded pools — the agentic
@@ -166,12 +166,13 @@ export const isImagePolicyError = (err) => /image may contain sensitive/i.test((
 // Two source modes: a single imageUrl/assetId (the classic keyframe → first frame),
 // or `refUrls` — SEVERAL real reference images (direct-to-video: the storyboard's
 // cast/place assets, untouched, so the video model preserves the subjects itself).
-export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], firstFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, modelKey = 'seedance', config } = {}, ctx) => {
+export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], firstFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, modelKey = null, config } = {}, ctx) => {
+  modelKey = videoModelKeyOf(modelKey); // env-driven default — first CONFIGURED video slot, never a literal
   // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
   // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
   if (!imageUrl && !assetId && !refUrls.length && !firstFrameUrl && !String(motion || '').trim()) throw new Error('animate requires a prompt, imageUrl, assetId, refUrls or firstFrameUrl');
-  // Duration cap is per-endpoint: the 2.0 family tops out at 15s, Seedance 2.5 at 30s.
-  duration = Math.min(modelKey === 'seedance25' ? 30 : 15, Math.max(5, Math.round(Number(duration) || 10)));
+  // Duration cap comes from the slot capability table — never an inline literal.
+  duration = Math.min(maxShotSeconds(modelKey), Math.max(5, Math.round(Number(duration) || 10)));
   const prompt = buildAnimatePrompt({ motion, camera, lens, focalLength, aperture });
   const content = [{ type: 'text', text: prompt }];
   // CONTINUITY: the previous shot's FINAL FRAME becomes the literal FIRST FRAME of this

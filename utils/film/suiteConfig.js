@@ -148,9 +148,9 @@ export const getModel = (key, perCall) => {
 // The Seedance (video) endpoints a SHOT card can shoot a take on. `key` indexes
 // ROOT_CONFIG.models; the card stores the key in data.videoModel ('seedance' = default).
 export const VIDEO_MODEL_OPTIONS = [
+  { key: 'seedance25', label: 'Seedance 2.5 · 30s' },
   { key: 'seedance', label: 'Seedance 2.0' },
   { key: 'seedanceMini', label: 'Seedance 2.0 Mini' },
-  { key: 'seedance25', label: 'Seedance 2.5 · 30s' },
 ];
 
 // The Seedream (image) models the Storyboard keyframes can render on. `key` indexes
@@ -191,6 +191,15 @@ export const RES_BY_MODEL = { seedance: ['480p', '720p', '1080p', '4K'], seedanc
 export const resDefault = (model) => (model === 'seedanceMini' || model === 'seedance25' ? '720p' : '1080p');
 // Seedance 2.5 generates up to 30s in one take; the 2.0 family caps at 15s.
 export const maxShotSeconds = (model) => (model === 'seedance25' ? 30 : 15);
+
+// The DEFAULT video slot for a card that hasn't picked one: the FIRST CONFIGURED
+// slot in preference order (2.5 leads when its env var is set). Env-driven — never
+// a hardcoded model id, and an unconfigured slot is skipped, not silently used.
+// With nothing configured the seedance slot key is returned so the shoot fails
+// loudly with getModel's exact MODELARK_MODEL_SEEDANCE message.
+const VIDEO_SLOT_PREFERENCE = ['seedance25', 'seedance', 'seedanceFast', 'seedanceMini'];
+export const defaultVideoModelKey = () => VIDEO_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedance';
+export const videoModelKeyOf = (picked) => picked || defaultVideoModelKey();
 export const clampResolution = (model, res) => {
   const opts = RES_BY_MODEL[model] || RES_BY_MODEL.seedance;
   return opts.includes(res) ? res : resDefault(model);

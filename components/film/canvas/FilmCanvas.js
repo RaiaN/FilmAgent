@@ -49,7 +49,7 @@ import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
 import { detectGenre, writeFilmPrompt, describeFrame, storyboardTurn, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, bindShotPromptToRefs, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
-import { clampResolution, maxShotSeconds } from '../../../utils/film/suiteConfig';
+import { clampResolution, maxShotSeconds, videoModelKeyOf } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -2328,22 +2328,23 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         cinematography: [String(c.data.cinematography || '').trim(), cineLook].filter(Boolean).join(' · '),
         audioRefCount: audioRefUrls.length,
         videoRefCount: videoRefUrls.length,
+        modelKey: videoModelKeyOf(c.data.videoModel),
       });
       return {
         beat: c.data.beat,
         direct: true,
         motion,
         camera: 'auto',
-        durationSec: Math.min(maxShotSeconds(c.data.videoModel || 'seedance'), Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
+        durationSec: Math.min(maxShotSeconds(videoModelKeyOf(c.data.videoModel)), Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
         refEntryIds,
         refUrls: refs.map((r) => r.url),
         refAssetIds: refs.map((r) => r.assetId || null),
         firstFrameUrl: null,
-        resolution: clampResolution(c.data.videoModel || 'seedance', c.data.resolution),
+        resolution: clampResolution(videoModelKeyOf(c.data.videoModel), c.data.resolution),
         ratio: c.data.ratio || '21:9', // cinematic scope by default (user call 2026-08-07)
         generateAudio: c.data.generateAudio,
         seed: c.data.seed,
-        modelKey: c.data.videoModel || 'seedance',
+        modelKey: videoModelKeyOf(c.data.videoModel),
         ...(audioRefUrls.length ? { audioRefUrls } : {}),
         ...(videoRefUrls.length ? { videoRefUrls, videoRefAssetIds } : {}),
         ...(keepTake && c.data.shotUrl ? { shotUrl: c.data.shotUrl } : {}),
@@ -2361,7 +2362,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       direct: true,
       motion,
       camera: 'auto',
-      durationSec: Math.min(maxShotSeconds(c.data.videoModel || 'seedance'), Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
+      durationSec: Math.min(maxShotSeconds(videoModelKeyOf(c.data.videoModel)), Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
       refEntryIds,
       refUrls: references.map((r) => r.url),
       // Parallel to refUrls: a registered portrait-library id (or null) per ref, so the
@@ -2370,12 +2371,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       firstFrameUrl: null,
       // Standard Seedance 2.0 params edited on the card (fall back to engine defaults).
       // Clamp resolution to what the chosen endpoint allows (Mini caps at 720p).
-      resolution: clampResolution(c.data.videoModel || 'seedance', c.data.resolution),
+      resolution: clampResolution(videoModelKeyOf(c.data.videoModel), c.data.resolution),
       ratio: c.data.ratio || '21:9', // cinematic scope by default (user call 2026-08-07)
       generateAudio: c.data.generateAudio,
       seed: c.data.seed, // the card's own seed (if set) — the global sequence seed is gone
       // Which Seedance endpoint to shoot on — the card's pick (default vs Mini).
-      modelKey: c.data.videoModel || 'seedance',
+      modelKey: videoModelKeyOf(c.data.videoModel),
       // The card's attached media (pre-resolved to data:/http, chip order) — Seedance's
       // reference AUDIO tracks and reference VIDEOS (≤15s each): music + voices the take
       // realizes, camera/motion it follows, instead of inventing its own.

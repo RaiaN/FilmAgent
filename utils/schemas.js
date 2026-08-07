@@ -18,8 +18,8 @@ const defaultSeedreamModel = () => seedreamEndpointsLive()[0]?.value || null; //
 // the suite-config registry (ROOT_CONFIG.models) so they live in one place; `label`
 // is the human name shown in the dropdown. `.filter` drops any id not configured yet.
 const seedanceEndpointsLive = () => [
-    { value: resolveModelId('seedance'), label: 'Seedance 2.0' },
     { value: resolveModelId('seedance25'), label: 'Seedance 2.5 · 30s' },
+    { value: resolveModelId('seedance'), label: 'Seedance 2.0' },
     { value: resolveModelId('seedanceFast'), label: 'Seedance 2.0 Fast' },
     { value: resolveModelId('seedanceMini'), label: 'Seedance 2.0 Mini' },
 ].filter((o) => o.value);
@@ -134,7 +134,7 @@ export const baseSchemas = {
         type: 'enum',
         get options() { return seedanceEndpointsLive(); },
         get defaultValue() { return defaultSeedanceModel(); },
-        description: 'Seedance endpoint used for video generation. Fast trades a little fidelity for speed; Mini is the cheapest and caps at 720p. 2.5 does 30s takes but caps at 720p and needs an active 2.5 resource pack.',
+        description: 'Seedance endpoint used for video generation. 2.5 does 30s takes and richer references (caps at 720p); Fast trades a little fidelity for speed; Mini is the cheapest.',
       },
       {
         key: 'prompt',

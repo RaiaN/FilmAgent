@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Modal } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
-import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds } from '../../../utils/film/suiteConfig';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, videoModelKeyOf } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import EditableLabel from './EditableLabel';
@@ -123,7 +123,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   // is the card's NAME; it only feeds the shoot prompt as a FALLBACK when PROMPT is empty.
 
   // Duration is gated by the endpoint: the 2.0 family caps at 15s, Seedance 2.5 at 30s.
-  const videoModel = data.videoModel || 'seedance';
+  const videoModel = videoModelKeyOf(data.videoModel);
   const maxDur = maxShotSeconds(videoModel);
   const durationSec = Math.min(maxDur, Math.max(5, Math.round(Number(data.durationSec) || 10)));
   const resOptions = RES_BY_MODEL[videoModel] || RES_BY_MODEL.seedance;

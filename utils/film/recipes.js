@@ -179,7 +179,7 @@ const SUBJECT_NOUN = { character: 'person', location: 'location', prop: 'object'
 // audioRefCount/videoRefCount: attached media refs (audio items ride before video items
 // in the content array — the numbering here mirrors that invariant). The manual wants
 // the reference RELATIONSHIP stated in text, not just the item's role.
-export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0 } = {}) => {
+export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0, modelKey = 'seedance' } = {}) => {
   // Plate names carry a "· face"/"· body" suffix — an artifact of the bible, not a
   // subject name. Same-name plates collapse into ONE definition listing both images
   // (the manual's headshot + full-body pattern).
@@ -203,7 +203,14 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     // the composition, the words make the content unambiguous.
     const sDesc = String(sh.startDesc || '').trim().replace(/\.$/, '');
     const eDesc = String(sh.endDesc || '').trim().replace(/\.$/, '');
-    if (sh.startPinIndex) {
+    if (sh.startPinIndex && modelKey === 'seedance25') {
+      // Seedance 2.5 keyframe grammar (its guide's strict-alignment form — an UNLOCKED
+      // task, so ratio/duration stay ours). 2.0 keeps the probe-verified phrasing below.
+      parts.push(sh.endPinIndex
+        ? `Use Image ${sh.startPinIndex} and Image ${sh.endPinIndex} in order as keyframes.`
+        : `Use Image ${sh.startPinIndex} as the opening keyframe.`);
+      if (sDesc) parts.push(`Image ${sh.startPinIndex} is the opening frame — ${sDesc}.`);
+    } else if (sh.startPinIndex) {
       const open = i === 0
         ? `The shot opens exactly on the composition of Image ${sh.startPinIndex}`
         : `Cuts to exactly the composition of Image ${sh.startPinIndex}`;
@@ -215,7 +222,11 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     if (action) parts.push(action);
     const aud = String(sh.audio || '').trim();
     if (aud) parts.push(aud);
-    if (sh.endPinIndex) parts.push(`The shot ends exactly on the composition of Image ${sh.endPinIndex}${eDesc ? `: ${eDesc}` : ''}.`);
+    if (sh.endPinIndex) {
+      parts.push(modelKey === 'seedance25'
+        ? `Image ${sh.endPinIndex} is the closing frame${eDesc ? `: ${eDesc}` : ''}.`
+        : `The shot ends exactly on the composition of Image ${sh.endPinIndex}${eDesc ? `: ${eDesc}` : ''}.`);
+    }
     return `Shot ${i + 1}: ${parts.join(' ')}`;
   });
   const look = [String(style || '').trim(), String(cinematography || '').trim()].filter(Boolean).join(' · ');

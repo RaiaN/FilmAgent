@@ -146,12 +146,12 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
       {onCastFromScript && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0', flexShrink: 0 }}>
           <Button
-            size="small" long loading={!!data.casting}
+            size="small" long
             onClick={() => onCastFromScript(id)}
             style={{ borderColor: '#b06f10', color: '#b06f10' }}
-            title="Draft characters, locations and a shared look from this storyboard's script (verbatim). Plates land on the board as tagged anchors and appear as reference chips above. One explicit run."
+            title="Opens the Cast & World panel with this storyboard's script prefilled (verbatim) — pick Lite/Pro and ethnicity there, then Run. Plates land tagged and appear as reference chips above."
           >
-            {data.casting ? 'Casting…' : 'Cast & World — generate reference plates'}
+            Cast & World — generate reference plates
           </Button>
         </div>
       )}
@@ -202,13 +202,29 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             Render all stills
           </Button>
           {onRenderSheet && (
-            <Button
-              size="small" long style={{ marginTop: 6 }}
-              onClick={() => onRenderSheet(id)}
-              title="Render ONE multi-panel storyboard SHEET from the same shot list — a second artifact from the same plan (pitching, sharing, or a Seedance 2.5 storyboard-reference asset). Guide advice: ≤15 panels per sheet."
-            >
-              Render sheet — 1 image
-            </Button>
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <Button
+                size="small" style={{ flex: 1 }}
+                onClick={() => onRenderSheet(id)}
+                title="Render ONE storyboard PAGE — a single image of numbered panels from the shot list (pitching, sharing, or a Seedance 2.5 storyboard-reference asset). Capped by Panels: first + last always ride, middles sample the biggest transitions. Guide advice: ≤15 panels."
+              >
+                Storyboard page — 1 image
+              </Button>
+              <Select
+                size="small"
+                value={data.sheetPanels || 0}
+                onChange={(v) => onPatchChat && onPatchChat(id, { sheetPanels: v })}
+                style={{ width: 92, flexShrink: 0 }}
+                title="How many panels the page holds — fewer than the shot count = deterministic sampling (first, last, biggest transitions)"
+                options={[
+                  { label: 'All panels', value: 0 },
+                  { label: '6 panels', value: 6 },
+                  { label: '8 panels', value: 8 },
+                  { label: '12 panels', value: 12 },
+                  { label: '15 panels', value: 15 },
+                ]}
+              />
+            </div>
           )}
           {onPromoteAll && (
             <Button

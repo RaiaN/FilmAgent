@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useMemo, useState } from 'react';
 import { useNodesData } from '@xyflow/react';
 import { Button, Typography } from '@arco-design/web-react';
-import { IconRefresh, IconPlayCircle, IconLoading, IconVideoCamera, IconArrowUp, IconArrowDown, IconClose, IconExpand } from '@arco-design/web-react/icon';
+import { IconRefresh, IconPlayCircle, IconLoading, IconVideoCamera, IconArrowUp, IconArrowDown, IconClose, IconExpand, IconBrush } from '@arco-design/web-react/icon';
 import { AssetNodeContext } from './AssetNode';
 import { StoryboardChatContext } from './StoryboardChatNode';
 import { SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
@@ -54,7 +54,7 @@ const CellImg = ({ srcs, alt, title, onDoubleClick, onDead }) => {
 };
 
 const StoryboardStripInner = ({ id, data, selected }) => {
-  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onViewImage, onImgError, onRenderEnd } = useContext(AssetNodeContext);
+  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onViewImage, onImgError, onRenderEnd, onEnhanceStill } = useContext(AssetNodeContext);
   const { onListAction } = useContext(StoryboardChatContext);
   const chatId = data.chatId || String(id).replace('sbpanel', 'sbchat');
   const chatArr = useNodesData([chatId]);
@@ -146,6 +146,14 @@ const StoryboardStripInner = ({ id, data, selected }) => {
               {/* START cell */}
               <div style={cellBase}>
                 <span style={{ ...badge, background: 'rgba(16,20,24,0.78)' }}>{String(i + 1).padStart(2, '0')}</span>
+                {still && !row.loading && onEnhanceStill && (
+                  <Button
+                    size="mini" icon={<IconBrush />}
+                    onClick={(e) => { e.stopPropagation(); onEnhanceStill(nodeId, 'start'); }}
+                    title="Enhance — the agent studies THIS frame and applies a finishing pass (micro-detail, light shaping, texture, atmosphere) with composition, identity and blocking locked. 1 VLM + 1 image, replaces in place."
+                    style={{ position: 'absolute', top: 4, right: 4, zIndex: 4 }}
+                  />
+                )}
                 {row.loading && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', zIndex: 2 }}><IconLoading style={{ fontSize: 20, color: '#165dff' }} /></div>}
                 {still ? (
                   <CellImg
@@ -176,6 +184,14 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                     onClick={(e) => { e.stopPropagation(); onRenderEnd(nodeId); }}
                     title="Re-render the END frame ONLY — one image from the current START still + end state; the START stays"
                     style={{ position: 'absolute', top: 4, right: 4, zIndex: 4 }}
+                  />
+                )}
+                {develops && !row.endLoading && row.endStill?.url && onEnhanceStill && (
+                  <Button
+                    size="mini" icon={<IconBrush />}
+                    onClick={(e) => { e.stopPropagation(); onEnhanceStill(nodeId, 'end'); }}
+                    title="Enhance the END frame — finishing pass with composition/identity locked. 1 VLM + 1 image, replaces in place."
+                    style={{ position: 'absolute', top: 4, right: 34, zIndex: 4 }}
                   />
                 )}
                 {develops ? (

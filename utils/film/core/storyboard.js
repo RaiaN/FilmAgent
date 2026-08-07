@@ -419,6 +419,27 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   return { action, audio: String(raw.audio || '').trim(), dropped, derived };
 };
 
+// ENHANCE a rendered still — the agentic finishing pass (2026-08-07): ONE tap = a
+// VLM look at the frame (writes a tailored change-only instruction: micro-detail,
+// light shaping, texture, atmosphere) + ONE structure-locked frameEdit applying it.
+// Composition/identity/blocking are hard-locked by both the instruction contract and
+// the frameEdit grammar. Returns the new frame + the instruction (surfaced, never silent).
+export const enhanceStill = async ({ imageUrl, context = '', imageModel = 'seedreamPro', config } = {}, ctx) => {
+  if (!imageUrl) throw new Error('Enhance needs the rendered still.');
+  const SLOT = '@@CTX@@';
+  const { content } = await ctx.client.reason({
+    prompt: 'The attached image is the frame. Return the JSON.',
+    systemPrompt: renderTemplate('storyboard.enhance', { context: String(context || '').trim() ? `\nThe shot's text, for grounding only (never re-stage it):\n${SLOT}\n` : '' }).split(SLOT).join(String(context || '').slice(0, 1200)),
+    images: [imageUrl],
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const instruction = String((parseJson(content) || {}).instruction || '').trim();
+  if (!instruction) throw new Error('The finishing pass came back empty — try again.');
+  const { url, cacheUrl } = await storyboardKeyframe({ body: instruction, refs: [imageUrl], imageModel, frameEdit: true, config }, ctx);
+  return { url, cacheUrl, instruction };
+};
+
 // Take Viewer 📝: ONE extracted still → prompt-ready text (subjects, blocking, setting,
 // camera, light) via the Seed 2.0 Pro VLM. One explicit tap = one call; the canvas
 // lands the text as an editable NOTE node beside the take. Returns { text }.

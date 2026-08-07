@@ -150,6 +150,16 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: 'EDIT [Image 1]. The red hand-drawn marks show where to change: {instruction}. Remove the marks; change nothing unmarked.',
   },
 
+  'storyboard.enhance': {
+    agent: 'Storyboard',
+    label: 'Enhance a still — the finishing pass (VLM writes the edit)',
+    vars: ['{context}'],
+    text: `You are a stills finisher (DI artist) looking at ONE rendered storyboard frame. Identify what would most lift its CRAFT and write ONE edit instruction for an image-edit model — a chain of change-only clauses, concrete and local: micro-detail and material texture (fabric weave, skin pores, wet surfaces, wear), light shaping (key/fill/rim separation, motivated shadows), atmosphere (haze, dust motes, breath, condensation), color depth and contrast. Pick what THIS frame actually needs; skip what it already does well.
+
+HARD RULES — the frame must remain the SAME shot, upgraded: never change composition, camera, framing, blocking, subject identity, wardrobe, expression, pose, or story content; add no new subjects, props or text; keep the style.
+{context}
+Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only edit instruction>"}`,
+  },
   'storyboard.frameEdit': {
     agent: 'Storyboard',
     label: 'Edit a frame in place (structure locked)',

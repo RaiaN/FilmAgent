@@ -48,7 +48,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, composeShotAction, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
+import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, composeShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -3589,24 +3589,42 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const shots = chat?.data?.shots || [];
-    if (!shots.length) { Message.warning('Divide into shots first — the sheet renders from the shot list.'); return; }
-    if (shots.length > 15) Message.warning(`${shots.length} panels — the Seedance guide advises ≤15 per sheet; ordering may suffer.`);
+    if (!shots.length) { Message.warning('Divide into shots first — the page renders from the shot list.'); return; }
+    // PANEL BUDGET (user call 2026-08-07): the Panels select caps the page. Sampling is
+    // DETERMINISTIC — first + last always ride, middles are evenly spaced with a
+    // preference for DEVELOPS shots (the big state transitions), no LLM, no spend.
+    const target = Number(chat.data?.sheetPanels) || 0;
+    let pageShots = shots;
+    if (target && shots.length > target) {
+      const picked = new Set([0, shots.length - 1]);
+      const need = Math.max(0, target - picked.size);
+      for (let k = 1; k <= need; k += 1) {
+        const ideal = Math.max(1, Math.min(shots.length - 2, Math.round((k * (shots.length - 1)) / (need + 1))));
+        const cands = [ideal, ideal - 1, ideal + 1].filter((x) => x > 0 && x < shots.length - 1 && !picked.has(x));
+        const dev = cands.find((x) => String(shots[x]?.exiting || '').trim());
+        const chosen = dev ?? cands[0];
+        if (chosen !== undefined) picked.add(chosen);
+      }
+      pageShots = [...picked].sort((a, b) => a - b).map((i2) => shots[i2]);
+      Message.info(`Page condensed to ${pageShots.length} of ${shots.length} shots — first, last and the biggest transitions.`);
+    }
+    if (pageShots.length > 15) Message.warning(`${pageShots.length} panels — the Seedream guide advises ≤15 per page; ordering may suffer.`);
     const panel = nodesRef.current.find((n) => n.id === chat.data?.panelId);
     const pos = freeOrigin({ w: 760, h: 480, preferred: panel
       ? { x: panel.position?.x || 0, y: (panel.position?.y || 0) + (Number(panel.style?.height) || 600) + 60 }
       : { x: (chat.position?.x || 0) + 840, y: chat.position?.y || 0 } });
     const title = String(chat.data?.script || '').split(/[.\n]/)[0].trim().slice(0, 50);
     const nodeId = `sbsheet-${Date.now().toString(36)}`;
-    const base = createAssetNode({ kind: 'image', url: '', label: `Storyboard sheet${title ? ` — ${title}` : ''}`, position: pos });
+    const base = createAssetNode({ kind: 'image', url: '', label: `Storyboard page${title ? ` — ${title}` : ''}`, position: pos });
     setNodes((ns) => ns.concat({ ...base, id: nodeId, data: { ...base.data, loading: true } }));
-    traceRef.current.startRun({ note: 'Agent · Storyboard (sheet render)' });
+    traceRef.current.startRun({ note: 'Agent · Storyboard (page render · ' + pageShots.length + ' panels)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const out = await storyboardSheet({ shots, style: chat.data?.style || '', title, references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx);
+      const out = await storyboardSheet({ shots: pageShots, style: chat.data?.style || '', title, references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || null, loading: false } } : n)));
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
-      Message.error(`Sheet render failed: ${err.message}`);
+      Message.error(`Page render failed: ${err.message}`);
     }
   }, [apiKey, setNodes, freeOrigin]);
 
@@ -3619,6 +3637,45 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     Message.info(`Rendering ${pending.length} still${pending.length === 1 ? '' : 's'} — tiles fill as they land.`);
     await Promise.all(pending.map((n) => saveKeyframeShot(n.id, {})));
   }, [saveKeyframeShot]);
+
+  // ENHANCE a rendered still IN PLACE — the agentic finishing pass: 1 VLM look (writes
+  // the tailored change-only instruction) + 1 structure-locked edit. Works on a row's
+  // START still or its END frame; the text is untouched so nothing goes stale.
+  const enhanceRowStill = useCallback(async (nodeId, which = 'start') => {
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    if (!node?.data?.keyframe) return;
+    const isEnd = which === 'end';
+    const src = isEnd ? (node.data.endStill?.cacheUrl || node.data.endStill?.url) : (node.data.cacheUrl || node.data.url);
+    if (!src) { Message.warning('Render the still first — Enhance upgrades an existing frame.'); return; }
+    if (node.data.loading || node.data.endLoading) { Message.warning('A render is in flight on this row — let it land first.'); return; }
+    const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
+    const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
+    const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
+    const busyKey = isEnd ? 'endLoading' : 'loading';
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [busyKey]: true, error: undefined, endError: undefined } } : n)));
+    traceRef.current.startRun({ note: `Agent · Enhance still (${isEnd ? 'END · ' : ''}${String(node.data.beat || '').slice(0, 24)} · 1 VLM + 1 image)` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const out = await enhanceStill({ imageUrl: src, context: isEnd ? (node.data.exiting || '') : (node.data.body || ''), imageModel }, ctx);
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? {
+        ...n,
+        data: {
+          ...n.data,
+          [busyKey]: false,
+          // in place — the enhanced frame replaces the old one; provenance of the old
+          // src is dropped so nothing stale (localUrl/assetId) can shadow it
+          ...(isEnd
+            ? { endStill: { url: out.url, cacheUrl: out.cacheUrl || null } }
+            : { url: out.url, cacheUrl: out.cacheUrl || null, localUrl: undefined, assetId: undefined, preserved: undefined }),
+        },
+      } : n)));
+      Message.success(`Enhanced${isEnd ? ' END frame' : ''} — ${out.instruction.slice(0, 140)}${out.instruction.length > 140 ? '…' : ''}`);
+    } catch (e) {
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [busyKey]: false } } : n)));
+      Message.error(`Enhance failed: ${e.message}`);
+    }
+  }, [apiKey, setNodes]);
 
   // Re-roll ONLY the END frame — the boundary-iteration loop: the chained edit re-runs
   // from the CURRENT start still + CURRENT end-state sentence; the START never re-renders.
@@ -4639,10 +4696,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
   const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster, onPromoteMap: promoteMapToCard,
-    onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onRenderEnd: renderEndOnly,
+    onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onRenderEnd: renderEndOnly, onEnhanceStill: enhanceRowStill,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
-    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, renderEndOnly, duplicateNode, ensurePoster, promoteMapToCard, lodCoarse, demoOverlay]);
+    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, renderEndOnly, enhanceRowStill, duplicateNode, ensurePoster, promoteMapToCard, lodCoarse, demoOverlay]);
 
   // The Storyboard chat node runs one brainstorm turn per message, scoped to its own cards.
   // Pool mutations for the chat node's REFS block (SHOT-card-style chips): toggle a bible
@@ -4708,18 +4765,17 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Cast & World FROM the storyboard node (explicit tap on its ✦ chip): drafts anchors
   // from the SAME verbatim script the division reads. Plates land as tagged board
   // panels → their bible chips appear in this node's REFERENCES block to toggle on.
-  const castFromStoryboard = useCallback(async (chatId) => {
+  // PANEL-FIRST (user call 2026-08-07, same as the Brief's Storyboard button): the
+  // control card's Cast & World button OPENS the agent's rail panel with this
+  // storyboard's verbatim script prefilled as the idea — nothing runs on the click;
+  // the panel's Run is the explicit tap.
+  const castFromStoryboard = useCallback((chatId) => {
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const script = String(chat?.data?.script || '').trim();
     if (!script) { Message.warning('This storyboard carries no script text to cast from.'); return; }
-    if (!castRunRef.current) return;
-    setNodes((ns) => ns.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, casting: true } } : n)));
-    try {
-      await castRunRef.current(script);
-      Message.success('Cast & World drafted — toggle the new chips into this storyboard\'s REFERENCES.');
-    } catch (err) { Message.error(err.message); }
-    finally { setNodes((ns) => ns.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, casting: false } } : n))); }
-  }, [setNodes]);
+    setLayerSettings((prev) => ({ ...prev, cast: { ...(prev.cast || {}), prompt: script } }));
+    setPanelAgentId('cast');
+  }, []);
 
   const sbChatCtx = useMemo(() => ({
     onDivide: runDivide, onListAction: storyboardListAction, bibleEntries, imageAssets,

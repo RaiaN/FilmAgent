@@ -154,9 +154,9 @@ export const shotReferences = (data = {}, bibleEntries = []) => {
   // screened raw url.
   (data.refIds || []).forEach((id) => {
     const e = (bibleEntries || []).find((b) => b.id === id);
-    if (e && e.url) refs.push({ url: e.url, assetId: e.assetId || null, name: e.name || '', role: e.role || '', desc: [e.name, e.role].filter(Boolean).join(' — ') });
+    if (e && e.url) refs.push({ url: e.url, assetId: e.assetId || null, nodeId: e.nodeId || null, name: e.name || '', role: e.role || '', desc: [e.name, e.role].filter(Boolean).join(' — ') });
   });
-  (data.assetRefs || []).forEach((a) => { if (a && a.url) refs.push({ url: a.url, assetId: a.assetId || null, name: a.label || '', role: a.role || '', desc: a.label || 'asset' }); });
+  (data.assetRefs || []).forEach((a) => { if (a && a.url) refs.push({ url: a.url, assetId: a.assetId || null, nodeId: a.nodeId || null, name: a.label || '', role: a.role || '', desc: a.label || 'asset' }); });
   return refs.slice(0, 9);
 };
 
@@ -171,21 +171,33 @@ export const SEEDANCE_QUALITY_LINE = 'HD, cinematic texture, natural colors.';
 export const SEEDANCE_CONSTRAINT_TAIL = 'Keep it subtitle-free, avoid generating any text or subtitles. Do not generate watermarks or logos. Do not generate duplicate characters or twins of any defined subject — keep a single instance of each subject in frame.';
 
 // The manual defines subjects by category noun; our bible roles map onto them.
-const SUBJECT_NOUN = { character: 'person', location: 'location', prop: 'object', frame: 'frame' };
+// FRAME-role refs are deliberately absent: a frame carries COMPOSITION, not identity —
+// the keyframe binding line ("Use Image i… as keyframes" / "opens exactly on…") is its
+// whole contract, and defining one by its filename is pure noise (user call 2026-08-07).
+const SUBJECT_NOUN = { character: 'person', location: 'location', prop: 'object' };
 
 // subjects: [{ index, name, role }] — index = the ref's 1-based Image number (badge order).
-// shots: [{ startPinIndex, endPinIndex, action, move, audio }] — indices into the same
-// Image numbering; action/audio are author text, verbatim.
+// shots: [{ kfIndices: [K1..Kn], startDesc, endDesc, action, move, audio }] — ordered
+// keyframe chip positions in the same Image numbering (legacy startPinIndex/endPinIndex
+// fold in as a 2-list); action/audio are author text, verbatim.
 // audioRefCount/videoRefCount: attached media refs (audio items ride before video items
 // in the content array — the numbering here mirrors that invariant). The manual wants
 // the reference RELATIONSHIP stated in text, not just the item's role.
+// Transition markers (CUT TO: / FADE OUT …) are INTER-shot grammar — the sequence's
+// job, not a take's. A marker left dangling at the END of one card's action invites
+// the model to cut to nowhere; strip it (mid-text wording stays verbatim).
+const stripTrailingTransition = (t) => String(t || '').trim()
+  .replace(/(?:\s|\n)*(?:CUT TO:?|CUT:|SMASH CUT(?: TO)?:?|FADE (?:OUT|TO BLACK|IN):?|DISSOLVE(?: TO)?:?|MATCH CUT(?: TO)?:?)\s*$/i, '').trim();
+
 export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0, modelKey = 'seedance' } = {}) => {
   // Plate names carry a "· face"/"· body" suffix — an artifact of the bible, not a
   // subject name. Same-name plates collapse into ONE definition listing both images
   // (the manual's headshot + full-body pattern).
   const cleanName = (n) => String(n || '').replace(/\s*·\s*(face|body)\s*$/i, '').trim();
   const byName = new Map();
-  subjects.filter((s) => s && s.index && cleanName(s.name)).forEach((s) => {
+  // Only identity-bearing roles get defined; frame-role and role-less chips (board
+  // stills, filename-labeled images) are compositions — the binding lines cover them.
+  subjects.filter((s) => s && s.index && SUBJECT_NOUN[s.role] && cleanName(s.name)).forEach((s) => {
     const key = cleanName(s.name);
     if (byName.has(key)) byName.get(key).indices.push(s.index);
     else byName.set(key, { role: s.role, indices: [s.index] });
@@ -203,29 +215,38 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     // the composition, the words make the content unambiguous.
     const sDesc = String(sh.startDesc || '').trim().replace(/\.$/, '');
     const eDesc = String(sh.endDesc || '').trim().replace(/\.$/, '');
-    if (sh.startPinIndex && modelKey === 'seedance25') {
-      // Seedance 2.5 keyframe grammar (its guide's strict-alignment form — an UNLOCKED
-      // task, so ratio/duration stay ours). 2.0 keeps the probe-verified phrasing below.
-      parts.push(sh.endPinIndex
-        ? `Use Image ${sh.startPinIndex} and Image ${sh.endPinIndex} in order as keyframes.`
-        : `Use Image ${sh.startPinIndex} as the opening keyframe.`);
-      if (sDesc) parts.push(`Image ${sh.startPinIndex} is the opening frame — ${sDesc}.`);
-    } else if (sh.startPinIndex) {
+    // ORDERED KEYFRAME LIST (2026-08-07): kfIndices = [K1..Kn] chip positions; first
+    // opens, last closes, middles pass through in order. Legacy start/end fields fold in.
+    const kfs = Array.isArray(sh.kfIndices) && sh.kfIndices.length
+      ? sh.kfIndices
+      : [sh.startPinIndex, sh.endPinIndex].filter((x) => x > 0);
+    const kFirst = kfs[0] || 0;
+    const kLast = kfs.length > 1 ? kfs[kfs.length - 1] : 0;
+    const kMids = kfs.slice(1, -1);
+    if (kFirst && modelKey === 'seedance25') {
+      // Seedance 2.5 keyframe grammar (strict alignment, UNLOCKED task — ratio and
+      // duration stay ours). 2.0 keeps the probe-verified phrasing below.
+      parts.push(kfs.length > 1
+        ? `Use ${kfs.map((k) => `Image ${k}`).join(', ')} in order as keyframes.`
+        : `Use Image ${kFirst} as the opening keyframe.`);
+      if (sDesc) parts.push(`Image ${kFirst} is the opening frame — ${sDesc}.`);
+    } else if (kFirst) {
       const open = i === 0
-        ? `The shot opens exactly on the composition of Image ${sh.startPinIndex}`
-        : `Cuts to exactly the composition of Image ${sh.startPinIndex}`;
+        ? `The shot opens exactly on the composition of Image ${kFirst}`
+        : `Cuts to exactly the composition of Image ${kFirst}`;
       parts.push(`${open}${sDesc ? ` — ${sDesc}` : ''}.`);
+      kMids.forEach((k) => parts.push(`Passes exactly through the composition of Image ${k}.`));
     }
     const move = String(sh.move || '').trim();
     if (move) parts.push(move.endsWith('.') ? move : `${move}.`);
-    const action = String(sh.action || '').trim();
+    const action = stripTrailingTransition(sh.action);
     if (action) parts.push(action);
     const aud = String(sh.audio || '').trim();
     if (aud) parts.push(aud);
-    if (sh.endPinIndex) {
+    if (kLast) {
       parts.push(modelKey === 'seedance25'
-        ? `Image ${sh.endPinIndex} is the closing frame${eDesc ? `: ${eDesc}` : ''}.`
-        : `The shot ends exactly on the composition of Image ${sh.endPinIndex}${eDesc ? `: ${eDesc}` : ''}.`);
+        ? `Image ${kLast} is the closing frame${eDesc ? `: ${eDesc}` : ''}.`
+        : `The shot ends exactly on the composition of Image ${kLast}${eDesc ? `: ${eDesc}` : ''}.`);
     }
     return `Shot ${i + 1}: ${parts.join(' ')}`;
   });
@@ -266,7 +287,7 @@ export const composeSeedancePrompt = ({ references = [], cuts = [], cinematograp
 export const composeFilmShotPrompt = ({ prompt = '', shotTemplate = '', cinematography = '', audio = '' } = {}) => {
   const move = (SHOT_TEMPLATE_BY_ID[shotTemplate] || {}).move || '';
   return [
-    String(prompt || '').trim(),
+    stripTrailingTransition(prompt),
     move ? `CAMERA — ${move}: one continuous move through the space that follows the action` : '',
     String(cinematography || '').trim() ? `LOOK — ${cinematography.trim()}` : '',
     String(audio || '').trim() ? `AUDIO — ${audio.trim()}` : '',

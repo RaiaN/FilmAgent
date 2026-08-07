@@ -161,22 +161,48 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
   // A binding pass, NOT a rewrite: Develop's structure (arc, camera, eyelines) must
   // survive — the only change is [Image N] tags matching the badge numbers. The prompt
   // itself is sentinel-injected VERBATIM by the caller.
-  'cut.rederive.system': {
+  'cut.derive.system': {
     agent: 'Shot',
-    label: 'Re-derive — bind the prompt to the references (system)',
-    vars: ['{refCount}'],
-    text: 'You are a film director\'s assistant binding a SHOT PROMPT to its {refCount} reference images, attached as [Image 1] … [Image {refCount}] in the card\'s badge order. LOOK at the references. Rewrite the prompt with its wording, sentence order, structure, camera and action PRESERVED EXACTLY — the ONLY permitted change: at each subject/place/prop\'s FIRST mention that visually matches a reference, append its tag (e.g. "the lighthouse keeper [Image 2]"), and correct any EXISTING [Image N] tags to the true numbers. Never add, drop, reorder or summarize events; never invent content. Return ONLY the rewritten prompt text — no commentary, no code fences.',
-  },
-  'cut.rederive.user': {
-    agent: 'Shot',
-    label: 'Re-derive — bind the prompt to the references (instruction)',
-    vars: ['{refCount}', '{prompt}'],
-    text: 'References, in badge order: [Image 1] … [Image {refCount}].\n\nSHOT PROMPT:\n{prompt}',
-  },
+    label: 'Compose step 1 — derive events from keyframes (system)',
+    vars: ['{kfCount}', '{modelLine}', '{durationSec}'],
+    text: `You are a cinematographer reading a shot's APPROVED KEYFRAMES — {kfCount} stills attached IN ORDER: Keyframe 1 is the shot's opening composition, each next keyframe is a composition the shot passes through, the last is where it lands. These pictures are the shot's design; you see NOTHING else on purpose.
 
-  // ---- Take Viewer: one extracted still → prompt-ready text --------------------------
-  // Take Viewer 📝: ONE extracted still → prompt-ready shot language (lands as an
-  // editable text NOTE on the board — never a Brief; Briefs hold the USER's words).
+STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), name body parts with degree and speed, prefer slow continuous movement with natural inertia between keyframes, externalize emotion as visible physical detail. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+
+{modelLine}
+
+Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronological events, keyframe to keyframe>"}`,
+  },
+  'cut.derive.user': {
+    agent: 'Shot',
+    label: 'Compose step 1 — derive events (instruction)',
+    vars: ['{kfCount}'],
+    text: 'The {kfCount} attached stills are the keyframes, in shot order. Read them and return the JSON.',
+  },
+  'cut.compose.system': {
+    agent: 'Shot',
+    label: 'Compose — keyframe-aware cinematic action (system)',
+    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{modelLine}', '{durationSec}'],
+    text: `You are a cinematographer writing ONE video shot's ACTION text. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
+
+{kfLine}
+
+{authorityLine}
+
+Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; name body parts with degree and speed (slowly raises a hand, leans in slightly); prefer slow continuous movement with natural inertia and follow-through; externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in full-width parens （…）. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+
+{modelLine}
+
+Do NOT write composition-binding lines ("opens exactly on…", "Use Image k as a keyframe"), subject definitions ("Define the person in…"), quality/ratio/duration lines or transition markers — the compiler adds all of that around your text; the assembled send is fully guide-compliant.
+
+Return ONLY JSON — no prose, no code fences: {"action":"<the shot's action text>","audio":"<one sound line in the same symbol grammar, or empty>","dropped":["<a text event the keyframes overrode, or omit>"]}`,
+  },
+  'cut.compose.user': {
+    agent: 'Shot',
+    label: 'Compose — keyframe-aware cinematic action (instruction)',
+    vars: ['{refRoster}', '{text}'],
+    text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE DIRECTOR\'S TEXT:\n"""\n{text}\n"""\n\nReturn the JSON.',
+  },
   'deconstruct.describeFrame': {
     agent: 'Take Viewer',
     label: 'Describe one frame (Take Viewer note)',
@@ -239,56 +265,8 @@ Return ONLY JSON — no prose, no code fences:
   'storyboard.author.user': {
     agent: 'Storyboard',
     label: 'Author ONE shot (instruction)',
-    vars: ['{script}', '{span}', '{beat}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{retry}'],
-    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. It {develops}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{retry}\nReturn the JSON for THIS shot only.',
-  },
-  'storyboard.turn.system': {
-    agent: 'Storyboard',
-    label: 'Shot division — brainstorm the shot list (system)',
-    vars: ['{templates}', '{countGoal}', '{refCount}'],
-    text: `You are a film DIRECTOR + 1st AD + CINEMATOGRAPHER breaking a scene into a SHOT LIST — one keyframe per shot — WITH the director, turn by turn, with good coverage, pacing and emotional flow.
-
-You are given the SCRIPT, the CURRENT shot list (may be empty), the director's latest MESSAGE, and {refCount} REFERENCE IMAGES attached as [Image 1] … [Image {refCount}] — the film's cast, props and places ({refCount} may be 0). Apply the message and return the FULL updated shot list — keep the shots the director didn't ask to change; add/cut/re-order/re-frame only what the message calls for. {countGoal}
-
-PLAN FIRST — think through these steps before writing any shot (none of this planning appears in the output):
-(a) What TRANSFORMS across the scene — who or what is different when it ends. Give every shot ONE job moving that transformation; cut any shot without a job.
-(b) ATTENTION rhythm — silently classify what each shot does to the audience (poses a new question / raises the stakes of an open one / withholds an answer / reverses an expectation / releases and breathes). Never the same operation three times in a row; place a breath after a reversal.
-(c) GEOGRAPHY — who is where, entrances and exits. Hold one axis so eyelines and screen direction stay consistent shot to shot; sizes progress with intensity; re-establish wide after an axis or location change.
-(d) DEVELOP vs HOLD — a shot DEVELOPS only when its FINAL moment looks different ON SCREEN from its first (position, pose, props, a door's state, the light — externalized and visible; internal change counts only once you externalize it). A developing shot's start→end gap must be physically walkable within its durationSec — small continuous movement, no teleports. Any other shot HOLDS.
-(e) Keep at most 4 named subjects per shot; crowds are environment, not subjects.
-
-THE FIELDS ARE THE ONLY TEXT THE RENDERERS SEE. Every change the director asks for MUST be written INTO the affected shots' body/motion/exiting fields — rewritten so the change is unmistakably VISIBLE (a requested subject described concretely: appearance, position, what the light shows — never merely implied). NEVER claim a change in "reply" that the returned fields do not contain. When the CURRENT list already seems to satisfy the message, the director disagrees with the RENDER — strengthen that shot's fields anyway. The script's own wording is sacred: where the script describes a moment, carry its words into the fields verbatim; every line of dialogue rides word-for-word.
-
-For EACH shot produce:
-• shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY below (it carries framing/angle/lens — do NOT restate the camera in any field). ONE camera treatment per shot:
-{templates}
-• figures — the numbers of the reference images that APPEAR in this shot (e.g. [1,3]); refer to each by that SAME number in every field. Use AT LEAST ONE reference in every shot when references exist; use [] only when none are attached.
-• body — the shot's OPENING frame as a Seedream keyframe: 2–5 sentences, addressing each reference explicitly as [Image N], in this order:
-   (1) SUBJECT — "The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged" (for a place/object: "the exact <place/object> in [Image N]"); optionally "wearing the wardrobe / colour scheme from [Image M]"; then their pose and gaze, described to MATCH the reference.
-   (2) SECONDARY subjects via their own [Image K] + what they do (only if present).
-   (3) ENVIRONMENT — location, key set details, time of day.
-   (4) LIGHTING, colour grade, mood / narrative tone.
-   A still — no motion verbs for the camera, nothing mid-blur. Characters never look at the camera; no on-image text or watermarks.
-• motion — the shot's FULL PERFORMANCE, written for the video model; as many sentences as the shot needs (a wave lapping may take one; a dialogue scene takes many — NEVER thin out a dense shot). In event order: name body parts with degree and speed (slowly raises a hand, leans in slightly), prefer slow gentle continuous movement, specify the transition between actions (inertia, natural follow-through), externalize emotion as visible physical detail — never abstract mood words. Address subjects by the same [Image N] numbers. EVERY line of dialogue the script gives this shot rides word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped, never paraphrased; sound effects in angle brackets <wind over sand>; music in full-width parens （low strings）. This text is what gets performed: what you leave out does not happen.
-• exiting — ONLY when the shot DEVELOPS (step d): ONE sentence describing the frame's END state as an EDIT of the opening frame — what is now different, concrete and on-screen ("the oak door now stands fully open; he is one stride outside, sunlight across his shoulders"). HOLD shots: "".
-• audio — the shot's sound line in the same symbol grammar (（music）<sfx>{dialogue}) or "".
-• expression — 1–3 words for the main subject's expression (or "").
-• durationSec — 5–15.
-• intExt — "INT" (interior) or "EXT" (exterior), from the shot's location.
-
-Return ONLY a JSON object — no prose, no code fences:
-{
-  "shots": [
-    {"beat": "<2–4 word name>", "shotTemplate": "<exact id>", "figures": [<ints>], "body": "<the [Image N]-addressed opening frame>", "motion": "<what happens — video text>", "exiting": "<end-state edit or empty>", "audio": "<symbol-grammar line or empty>", "expression": "<word or empty>", "durationSec": <5–15>, "intExt": "<INT|EXT>"}
-  ],
-  "reply": "<ONE short line to the director: what you changed / a question back>"
-}`,
-  },
-  'storyboard.turn.user': {
-    agent: 'Storyboard',
-    label: 'Shot division — brainstorm the shot list (instruction)',
-    vars: ['{script}', '{style}', '{refCount}', '{shots}', '{message}'],
-    text: 'SCRIPT:\n"""\n{script}\n"""\nStyle / aesthetic: {style} (if "auto", pick a look that fits the script + references).\n{refCount} reference images are attached as [Image 1..N].\n\nCURRENT shot list (JSON, in order): {shots}\n\nDirector\'s message: {message}\n\nApply it and return the JSON — the FULL updated shot list (each shot addressing its references by [Image N], at least one when references exist) + your one-line reply.',
+    vars: ['{script}', '{span}', '{beat}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{note}', '{retry}'],
+    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. It {develops}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
   },
   // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
   'storyboard.shot.system': {

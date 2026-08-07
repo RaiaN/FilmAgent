@@ -1,6 +1,7 @@
 import { memo, useEffect } from 'react';
 import { Button, Empty, Popconfirm, Spin, Tag, Typography } from '@arco-design/web-react';
-import { IconClose, IconPlayArrow, IconPlus, IconCheck, IconDelete } from '@arco-design/web-react/icon';
+import { IconClose, IconPlayArrow, IconPlus, IconCheck, IconDelete, IconDownload } from '@arco-design/web-react/icon';
+import { downloadMedia } from '../../../utils/film/mediaDownload';
 
 const { Text } = Typography;
 
@@ -13,7 +14,7 @@ const { Text } = Typography;
 const STATUS_COLOR = { running: '#165dff', shot: '#00b42a', failed: '#f53f3f' };
 
 const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onNeedPoster }) => {
-  const { id, url, posterUrl, posterScaled, loading, error, label } = take;
+  const { id, url, cacheUrl, posterUrl, posterScaled, loading, error, label } = take;
   // Same lazy-poster contract as the board cards: ask once per session; a full-res
   // poster stamped before downscaling existed re-asks and self-heals.
   useEffect(() => {
@@ -63,6 +64,13 @@ const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemov
               style={{ fontSize: 15, cursor: 'pointer', color: '#165dff' }}
             />
           ))}
+          {url && !loading && (
+            <IconDownload
+              onClick={() => downloadMedia(cacheUrl || url, label || 'take', 'mp4')}
+              title="Download this take to disk"
+              style={{ fontSize: 14, cursor: 'pointer', color: '#86909c' }}
+            />
+          )}
           {!loading && (
             <Popconfirm title="Delete this take?" okText="Delete" position="left" onOk={() => onDeleteTake(id)}>
               <IconDelete

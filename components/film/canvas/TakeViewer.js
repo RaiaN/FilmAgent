@@ -12,7 +12,9 @@ import {
   IconFile,
   IconSound,
   IconRefresh,
+  IconDownload,
 } from '@arco-design/web-react/icon';
+import { downloadMedia } from '../../../utils/film/mediaDownload';
 
 const { Text } = Typography;
 
@@ -111,6 +113,7 @@ const TakeViewer = ({ src, title, busy, onClose, onExtractFrame, onFirstFrame, o
           <Text type="secondary" style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
             {fmt(t)} / {fmt(duration)}
           </Text>
+          <Button size="mini" type="text" icon={<IconDownload />} onClick={() => downloadMedia(src, title || 'take', 'mp4')} title="Download this video to disk" />
           <Button size="mini" type="text" icon={<IconClose />} onClick={() => { if (!busy) onClose(); }} />
         </div>
 

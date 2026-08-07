@@ -1,20 +1,13 @@
 import { memo } from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, useNodesData } from '@xyflow/react';
 
-// The SEQUENCE bond between two SHOT cards. Continuity has exactly ONE mechanism —
-// the target's START anchor (realized last-frame threading was PURGED 2026-08-07):
-// DESIGNED (blue) — the target opens on its own START anchor; the chip is that
-//   anchor; stale (AMBER) = the anchor was re-picked AFTER the target's take.
-// ORDER (grey) — no anchor on the target: the bond is pure sequence order, a hard
-//   cut. Want continuity? Set the target's START anchor (the picker offers the
-//   source take's last frame first).
-// Both modes draw dashed until the target has its take.
 const ContinuityEdge = ({ id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition }) => {
   const pair = useNodesData([source, target]);
   const tgt = (pair && pair[1] && pair[1].data) || {};
-  const designed = !!(tgt.startAnchor && tgt.startAnchor.url);
-  const stale = designed && !!(tgt.shotAt && tgt.startAnchor.pickedAt && tgt.startAnchor.pickedAt > tgt.shotAt);
-  const thumb = designed ? tgt.startAnchor.url : null;
+  const k0 = (Array.isArray(tgt.keyframes) && tgt.keyframes[0]) || tgt.startAnchor || null;
+  const designed = !!(k0 && k0.url);
+  const stale = designed && !!(tgt.shotAt && k0.pickedAt && k0.pickedAt > tgt.shotAt);
+  const thumb = designed ? k0.url : null;
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const color = stale ? '#ff7d00' : (designed ? '#3491fa' : '#7a8699');
   return (

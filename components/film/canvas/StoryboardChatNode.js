@@ -1,7 +1,6 @@
 import { createContext, memo, useContext, useMemo, useState } from 'react';
-import { Button, Typography, Select } from '@arco-design/web-react';
-import { IconMessage, IconPlus, IconPlayArrow } from '@arco-design/web-react/icon';
-import ChatThread from './ChatThread';
+import { Button, Typography, Select, Popconfirm, Input } from '@arco-design/web-react';
+import { IconMessage, IconPlus, IconPlayArrow, IconLoading } from '@arco-design/web-react/icon';
 import { imageRefCap } from '../../../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -9,7 +8,7 @@ const { Text } = Typography;
 // Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data) — same context pattern as CutContext / StoryScriptContext.
 export const StoryboardChatContext = createContext({
-  onTurn: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onCastFromScript: null, onPromoteAll: null, onPatchChat: null,
+  onDivide: null, onListAction: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPromoteAll: null, onPatchChat: null,
 });
 
 // Same role palette as the SHOT card's reference chips — the two blocks must read as one system.
@@ -17,17 +16,24 @@ const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00',
 const REF_BADGE = { fontSize: 9, background: 'rgba(0,0,0,0.28)', borderRadius: 8, padding: '0 4px' };
 const asRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
 
-// The Storyboard agent's conversational element: a chat bound to a panel of keyframe stills.
-// Between the header and the chat sits the REFERENCE POOL — the SHOT card's REFERENCES block,
+// The Storyboard agent's CONTROL CARD, bound to its strip-board panel (1 row = 1 shot).
+// The free-text chat is PURGED (2026-08-07): the frames are the editing surface; this
+// card holds the pool, the batch buttons, and a CONSTRAINED action bar — pick 1 of M
+// structured actions (Note→re-author / Add / Cut / Re-divide), no routing LLM, plus a
+// read-only ACTION LOG of what was done to the list.
+// Between the header and the log sits the REFERENCE POOL — the SHOT card's REFERENCES block,
 // adapted: bible entries as toggle chips (ON = filled + its [Image N] badge in POOL ORDER —
 // exactly the numbering the division and the keyframes use), loose board refs as grey chips
 // (click to remove), and "+ board image" to add any board image mid-conversation. The next
 // turn / render reads the live pool; finished stills keep their frames.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onTurn, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll, onCastFromScript, onPromoteAll, onPatchChat } = useContext(StoryboardChatContext);
-  const messages = data.messages || [];
+  const { onDivide, onListAction, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll, onRenderSheet, onCastFromScript, onPromoteAll, onPatchChat } = useContext(StoryboardChatContext);
   const count = data.shotCount || 0;
   const [addOpen, setAddOpen] = useState(false);
+  // The constrained action bar's local draft (1 of M + structured args).
+  const [act, setAct] = useState('note');
+  const [actShot, setActShot] = useState(1);
+  const [actNote, setActNote] = useState('');
   // The reference pool can be a whole cast (face + body plate per character) — give it
   // real room, and let the header collapse it to one line when the chat needs the space.
   const [refsOpen, setRefsOpen] = useState(true);
@@ -38,7 +44,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
   const loose = pool.filter((r) => !bible.some((b) => (r.entryId && b.id === r.entryId) || b.url === r.url));
   const addable = (imageAssets || []).filter((a) => !pool.some((r) => r.url === a.url || (r.nodeId && r.nodeId === a.id)));
   return (
-    <div style={{ width: 320, height: 540, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+    <div style={{ width: 320, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
       <div style={{ height: 4, background: '#4e5969' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderBottom: '1px solid #f2f3f5' }}>
         <IconMessage style={{ color: '#4e5969', fontSize: 14 }} />
@@ -162,7 +168,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             <Button
               size="small" type="primary" loading={!!data.busy}
               icon={<IconPlayArrow />}
-              onClick={() => onTurn && onTurn(id, '')}
+              onClick={() => onDivide && onDivide(id)}
               style={{ background: '#4e5969', borderColor: '#4e5969', flex: 1 }}
             >
               {data.busy ? 'Dividing…' : 'Divide into shots'}
@@ -186,7 +192,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
       )}
       {/* Shot list divided → the batch buy: render every card that lacks its still.
           Per-card renders live on the cards; chat revisions keep editing the text. */}
-      {(data.shots || []).length > 0 && (data.mode || 'multiple') !== 'single' && onRenderAll && (
+      {(data.shots || []).length > 0 && onRenderAll && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
           <Button
             size="small" long icon={<IconPlayArrow />}
@@ -195,6 +201,15 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           >
             Render all stills
           </Button>
+          {onRenderSheet && (
+            <Button
+              size="small" long style={{ marginTop: 6 }}
+              onClick={() => onRenderSheet(id)}
+              title="Render ONE multi-panel storyboard SHEET from the same shot list — a second artifact from the same plan (pitching, sharing, or a Seedance 2.5 storyboard-reference asset). Guide advice: ≤15 panels per sheet."
+            >
+              Render sheet — 1 image
+            </Button>
+          )}
           {onPromoteAll && (
             <Button
               size="small" long type="primary" style={{ marginTop: 6, background: '#b06f10', borderColor: '#b06f10' }}
@@ -206,9 +221,64 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           )}
         </div>
       )}
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <ChatThread messages={messages} busy={!!data.busy} onSend={(text) => onTurn && onTurn(id, text)} />
-      </div>
+      {/* CONSTRAINED ACTION BAR — 1 of M structured actions on the shot list. No free
+          text routing: the action is explicit, the args are explicit, surgery is code,
+          only Note/Add spend ONE author call (labeled). Frames stay the main surface —
+          this bar is the discoverable front door for list-level moves. */}
+      {count > 0 && onListAction && (
+        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Select
+              size="mini" value={act} onChange={(v) => setAct(v)} style={{ flex: 1 }}
+              options={[
+                { label: 'Note → re-author shot', value: 'note' },
+                { label: 'Add shot after', value: 'add' },
+                { label: 'Cut shot', value: 'cut' },
+                { label: 'Re-divide script', value: 'redivide' },
+              ]}
+            />
+            {act !== 'redivide' && (
+              <Select
+                size="mini" value={Math.min(actShot, count)} onChange={(v) => setActShot(v)} style={{ width: 62, flexShrink: 0 }}
+                options={Array.from({ length: count }, (_, i) => ({ label: `#${i + 1}`, value: i + 1 }))}
+              />
+            )}
+          </div>
+          {(act === 'note' || act === 'add') && (
+            <Input.TextArea
+              value={actNote}
+              onChange={(v) => setActNote(v)}
+              rows={2}
+              placeholder={act === 'note'
+                ? 'Director\u2019s note — ONE author call re-writes just this shot from its verbatim span + this note'
+                : 'What the new shot covers — your words ride verbatim as its span; empty = a blank row to hand-write'}
+              style={{ fontSize: 11 }}
+            />
+          )}
+          {act === 'redivide' ? (
+            <Popconfirm
+              title="Throw away this shot list (and its authored text) and re-divide the script from scratch?"
+              okText="Re-divide"
+              onOk={() => onListAction(id, { action: 'redivide' })}
+            >
+              <Button size="mini" long status="warning" loading={!!data.busy}>
+                Re-divide — 1 + N reasoner calls (pace: {data.shotLength || 'auto'})
+              </Button>
+            </Popconfirm>
+          ) : (
+            <Button
+              size="mini" long type="primary" style={{ background: '#4e5969', borderColor: '#4e5969' }}
+              disabled={act === 'note' && !actNote.trim()}
+              onClick={() => { onListAction(id, { action: act, shot: Math.min(actShot, count) - 1, note: actNote }); setActNote(''); }}
+            >
+              {act === 'note' ? 'Re-author — 1 reasoner call' : act === 'add' ? (actNote.trim() ? 'Add + author — 1 reasoner call' : 'Add blank row — free') : 'Cut — free'}
+            </Button>
+          )}
+        </div>
+      )}
+      {data.busy && (
+        <Text style={{ fontSize: 10, color: '#165dff', padding: '4px 10px' }}><IconLoading /> working…</Text>
+      )}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-// Storyboard core. The AD-PLANNER DIVISION (storyboardTurn) is the one storyboard
+// Storyboard core. The AD-PLANNER DIVISION (storyboardCarve → storyboardAuthor) is the one storyboard
 // brain: brief/script → shot list (body · motion · exiting · audio per shot), turn by
 // turn with the director; storyboardKeyframe/storyboardEndframe render each shot's
 // START still and (for developing shots) its chained END frame. Also home to the Story
@@ -202,7 +202,9 @@ export const storyboardCarve = async ({ script = '', style = '', references = []
       beat: String(s?.beat || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
       shotTemplate: tpl.id,
       figures,
-      durationSec: clampDuration(s?.durationSec),
+      // Planning space allows the 2.5 range (4-30s); the CARD clamps per-model at
+      // print time, so a wide-paced plan degrades loudly there, never silently here.
+      durationSec: Math.max(4, Math.min(30, Math.round(Number(s?.durationSec) || 10))),
       intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
       develops: !!s?.develops,
       // The span keeps its line breaks — it IS the script slice, not prose.
@@ -240,7 +242,7 @@ const normText = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')
 // AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
 // motion dropped; still missing → returned in `missingDialogue` (the card flags it,
 // never silently).
-export const storyboardAuthor = async ({ script = '', span = '', beat = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], config } = {}, ctx) => {
+export const storyboardAuthor = async ({ script = '', span = '', beat = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', config } = {}, ctx) => {
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
   const wanted = spanDialogueLines(span);
@@ -250,8 +252,9 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', shot
         script: SPAN_SLOT, span: '@@SPAN@@', beat, framing: `${tpl.framing}, ${tpl.angle}, ${tpl.move}`,
         develops: develops ? 'DEVELOPS — write the exiting state' : 'HOLDS — exiting stays empty',
         prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
+        note: String(note || '').trim() ? "DIRECTOR'S NOTE — apply it to THIS shot (where it conflicts with the span, the note wins):\n@@NOTE@@\n" : '',
         retry: retryNote || '',
-      }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)),
+      }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)).split('@@NOTE@@').join(String(note).slice(0, 1000)),
       systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length) }),
       images: refs,
       modelId: getModel('reasoner', config),
@@ -274,61 +277,6 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', shot
   }
   if (!out.body || !out.motion) throw new Error(`Authoring "${beat}" came back empty.`);
   return { ...out, missingDialogue: missing };
-};
-
-export const storyboardTurn = async ({ script = '', shots = [], message = '', style = '', references = [], shotLength = 'auto', config } = {}, ctx) => {
-  // SHOT COUNT IS AN OUTPUT, not an input (2026-08-07): the material's length ÷ the
-  // chosen per-shot pace decides how many shots — one knob scales from a one-scene
-  // brief to a feature script. 'auto' lets pacing pick every duration; a number aims
-  // each shot at ~that many seconds. Hard cap 24 per division — over-long scripts
-  // divide their first stretch and SAY SO (no silent truncation).
-  const pace = String(shotLength || 'auto');
-  const countGoal = pace === 'auto'
-    ? 'On the FIRST turn (empty list): divide the script into as many shots as it NEEDS — every shot must earn its place (one job each), pacing picks each durationSec (5–15s). Never pad a thin script with filler shots; never cram a dense one. Hard cap 24 shots — a longer script divides its first stretch and the reply says what remains undivided.'
-    : `On the FIRST turn (empty list): divide the script aiming each shot at roughly ${pace} seconds (durationSec ≈ ${pace}, clamped 5–15) — the script's length decides HOW MANY shots that makes. Never pad; never cram. Hard cap 24 shots — a longer script divides its first stretch and the reply says what remains undivided.`;
-  const refs = (references || []).filter(Boolean).slice(0, 10);        // the reference pool → [Image 1..N] (Pro caps at 10)
-  const current = (shots || []).map((s, i) => ({
-    n: i + 1, beat: s.beat || '', shotTemplate: s.shotTemplate || '', figures: s.figures || [], body: s.body || '', expression: s.expression || '', durationSec: s.durationSec || 10, intExt: s.intExt || '',
-  }));
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('storyboard.turn.user', {
-      script: String(script || '').trim() || '(none given)',
-      style: String(style || '').trim() || 'auto',
-      refCount: String(refs.length),
-      shots: JSON.stringify(current),
-      message: String(message || '').trim() || '(start: break this into a shot list)',
-    }),
-    systemPrompt: renderTemplate('storyboard.turn.system', { templates: shotTemplateCatalog(), countGoal, refCount: String(refs.length) }),
-    images: refs, // the reference plates — the reasoner SEES them as [Image 1..N] and assigns per shot
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const raw = parseJson(content) || {};
-  const arr = Array.isArray(raw.shots) ? raw.shots : (Array.isArray(raw) ? raw : []);
-  const out = arr.map((s, i) => {
-    const tpl = SHOT_TEMPLATE_BY_ID[s?.shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
-    // Validate the assigned figures against the pool (1..N, deduped); guarantee ≥1 when refs exist.
-    let figures = Array.isArray(s?.figures) ? [...new Set(s.figures.map((x) => Number(x)).filter((x) => x >= 1 && x <= refs.length))] : [];
-    if (!figures.length && refs.length) figures = [1];
-    return {
-      beat: String(s?.beat || s?.title || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
-      shotTemplate: tpl.id,
-      figures,
-      body: String(s?.body || s?.prompt || s?.action || '').replace(/\s+/g, ' ').trim().slice(0, 900),
-      // The planner's video/pair fields (2026-08-07): motion = what happens (the card's
-      // shoot prompt), exiting = the END-state edit (present only for developing shots —
-      // drives the chained END still + endAnchor), audio = the symbol-grammar sound line.
-      motion: String(s?.motion || '').replace(/\s+/g, ' ').trim().slice(0, 1800),
-      exiting: String(s?.exiting || '').replace(/\s+/g, ' ').trim().slice(0, 400),
-      audio: String(s?.audio || '').replace(/\s+/g, ' ').trim().slice(0, 300),
-      expression: String(s?.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),
-      durationSec: clampDuration(s?.durationSec),
-      intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
-    };
-  }).filter((s) => s.body);
-  if (!out.length) throw new Error('The shot read came back empty — try rephrasing.');
-  const reply = String(raw.reply || '').replace(/\s+/g, ' ').trim().slice(0, 400) || 'Updated the shot list.';
-  return { shots: out, reply };
 };
 
 // ONE storyboard KEYFRAME: a Seedream 5.0 still per shot. The `body` (written by the reference-aware
@@ -421,21 +369,54 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // wording/structure/action survive EXACTLY (Develop's output must not be flattened
 // into a still description); the only change is [Image N] tags matching the badge
 // order. Sentinel slot keeps the prompt verbatim through the template.
-export const bindShotPromptToRefs = async ({ prompt, references = [], config } = {}, ctx) => {
-  const text = String(prompt || '').trim();
-  if (!text) throw new Error('Re-derive needs the shot prompt.');
-  if (!references.length) throw new Error('Re-derive needs the reference images.');
+// COMPOSE (2026-08-07, replaces Develop + Re-derive) — a 2-STEP PIPELINE (user
+// design, the carve→author lesson): STEP 1 DERIVE reads ONLY the keyframes and
+// narrates the visual path; STEP 2 ENRICH binds subjects to their real [Image N]
+// chips and weaves in the text's dialogue/names/important wording (overrides
+// reported in dropped[], originals stashed by the caller). No keyframes → single
+// enrich call, text as the material. Binding lines / definitions / tails stay the
+// deterministic compiler's job either way.
+export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = 'seedance', durationSec = 10, config } = {}, ctx) => {
+  const material = String(text || '').trim();
+  if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
+  const modelLine = modelKey === 'seedance25'
+    ? 'Target: Seedance 2.5 — one continuous take of up to 30s; sustain a full performance across the whole duration.'
+    : 'Target: Seedance 2.0 — one continuous take of at most 15s; a tight, unbroken event chain.';
+  // ---- STEP 1 · DERIVE (keyframes only — deliberately blind to text and refs, so the
+  // events come from the approved pictures with no old prompt to anchor on) ----
+  let derived = '';
+  if (kfIndices.length) {
+    const kfUrls = kfIndices.map((k) => references[k - 1]).filter(Boolean);
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('cut.derive.user', { kfCount: String(kfUrls.length) }),
+      systemPrompt: renderTemplate('cut.derive.system', { kfCount: String(kfUrls.length), modelLine, durationSec: String(durationSec) }),
+      images: kfUrls,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    derived = String((parseJson(content) || {}).events || '').trim();
+    if (!derived) throw new Error('Deriving from the keyframes came back empty — try again.');
+  }
+  // ---- STEP 2 · ENRICH (all chips + roster + derived events + optional text) ----
+  const kfLine = kfIndices.length
+    ? `KEYFRAME PATH — the shot's visual spine, IN ORDER: it opens on the composition of [Image ${kfIndices[0]}]${kfIndices.slice(1, -1).map((k) => `, passes through [Image ${k}]`).join('')}${kfIndices.length > 1 ? ` and lands on [Image ${kfIndices[kfIndices.length - 1]}]` : ''}.`
+    : 'No keyframes are set — ground the action against the reference images and the text alone.';
+  const authorityLine = kfIndices.length
+    ? `THE DERIVED EVENTS below were read from the shot's APPROVED KEYFRAMES — they are the authority on WHAT HAPPENS:\n<<<\n${derived}\n>>>\nRewrite them into the final action: replace each visual handle with its subject's [Image N] number from the roster, keep the event order and pacing. From the director's text carry ONLY what pictures cannot show — every dialogue line word-for-word in curly braces with its speaker named (placed at the right moments), proper names, and intent that does not contradict the events. Any text event the derived events contradict is dropped — list each in "dropped" (one short line), never silently.`
+    : `The director's text is the MATERIAL and the authority on WHAT HAPPENS: carry its wording, its events and every dialogue line word-for-word in curly braces with the speaker named — you re-structure and ground it against the images, you never re-invent it. "dropped" stays empty.`;
   const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
-    prompt: renderTemplate('cut.rederive.user', { refCount: references.length, prompt: SLOT }).split(SLOT).join(text.slice(0, 6000)),
-    systemPrompt: renderTemplate('cut.rederive.system', { refCount: references.length }),
+    prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)'),
+    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, modelLine, durationSec: String(durationSec) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
-  const body = String(content || '').trim();
-  if (!body) throw new Error('The re-derive came back empty.');
-  return { body };
+  const raw = parseJson(content) || {};
+  const action = String(raw.action || '').trim();
+  if (!action) throw new Error('Compose came back empty — try again.');
+  const dropped = (Array.isArray(raw.dropped) ? raw.dropped : []).map((c) => String(c || '').trim()).filter(Boolean).slice(0, 6);
+  return { action, audio: String(raw.audio || '').trim(), dropped, derived };
 };
 
 // Take Viewer 📝: ONE extracted still → prompt-ready text (subjects, blocking, setting,

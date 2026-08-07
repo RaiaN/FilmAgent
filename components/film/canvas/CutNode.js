@@ -15,7 +15,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onDevelopCut: null, onRederiveCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null,
 });
 
 // One visual-grounding anchor slot (START | END): shows its picked still, or a dashed
@@ -24,28 +24,29 @@ export const CutContext = createContext({
 // composition-pinned Seedance grammar (probe-verified); clearing it flips back.
 const AnchorSlot = ({ label, value, images, onPick, onClear }) => {
   const [open, setOpen] = useState(false);
+  const grid = (list) => list.map((im) => (
+    <img
+      key={im.nodeId || im.url}
+      src={im.url}
+      alt={im.label}
+      title={im.label}
+      loading="lazy"
+      decoding="async"
+      onClick={() => { onPick(im); setOpen(false); }}
+      style={{ width: 76, height: 43, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', border: im.onCard ? '1px solid #3491fa' : '1px solid #2a313a' }}
+    />
+  ));
   const picker = (
-    <div className="nodrag nowheel" style={{ width: 252, maxHeight: 240, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 6, padding: 2 }}>
-      {(images || []).map((im) => (
-        <img
-          key={im.nodeId || im.url}
-          src={im.url}
-          alt={im.label}
-          title={im.label}
-          loading="lazy"
-          decoding="async"
-          onClick={() => { onPick(im); setOpen(false); }}
-          style={{ width: 76, height: 43, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', border: '1px solid #2a313a' }}
-        />
-      ))}
-      {!(images || []).length && <Text style={{ fontSize: 11, color: '#86909c', padding: 8 }}>No board images yet — render a storyboard still first.</Text>}
+    <div className="nodrag nowheel" style={{ width: 252, maxHeight: 260, overflowY: 'auto', padding: 2 }}>
+      {(images || []).length > 0 && <Text style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#9fb4d0', margin: '2px 0 4px' }}>THIS CARD'S REFERENCES</Text>}
+      {(images || []).length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{grid(images)}</div>}
     </div>
   );
   return (
     <Popover trigger="click" position="bl" popupVisible={open} onVisibleChange={setOpen} content={picker} color="#161b22">
       <div
         className="nodrag"
-        title={value?.url ? `${label} anchor: ${value.label || 'board still'} — click to swap` : `Set the ${label} anchor — the composition this shot ${label === 'START' ? 'opens on' : 'lands on'}`}
+        title={value?.url ? `${label} keyframe: ${value.label || 'board still'} — click to swap` : `Add keyframe ${label} — the shot passes through the picked compositions in order`}
         style={{
           position: 'relative', width: 104, height: 58, borderRadius: 5, cursor: 'pointer', overflow: 'hidden',
           border: value?.url ? '1px solid #3491fa' : '1px dashed #3c4553', background: '#101418',
@@ -58,7 +59,7 @@ const AnchorSlot = ({ label, value, images, onPick, onClear }) => {
             <span style={{ position: 'absolute', left: 3, top: 2, fontSize: 8, fontWeight: 700, color: '#fff', background: 'rgba(16,20,24,0.75)', borderRadius: 3, padding: '0 4px' }}>{label}</span>
             <span
               onClick={(e) => { e.stopPropagation(); onClear(); }}
-              title={`Clear the ${label} anchor`}
+              title={`Clear the ${label} keyframe`}
               style={{ position: 'absolute', right: 2, top: 1, fontSize: 10, color: '#fff', background: 'rgba(16,20,24,0.75)', borderRadius: 3, padding: '0 4px', cursor: 'pointer' }}
             >✕</span>
           </>
@@ -95,18 +96,57 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onDevelopCut, onRederiveCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
+  const refIds = data.refIds || [];
+  const assetRefs = data.assetRefs || [];
   // The START picker leads with the previous take's last frame when a sequence bond
   // provides one — the explicit one-tap replacement for the purged hidden threading.
-  const startImages = (prevTakeFrames && prevTakeFrames[id]) ? [prevTakeFrames[id], ...(boardImages || [])] : boardImages;
-  // Compiled-prompt preview (full-prompt-preview rule): the 👁 in the ANCHORS header
+  // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
+  // then the previous take's last frame, then the whole board. Picking a board image
+  // adopts it into the card's send list implicitly (one tap, no attach dance).
+  const cardRefImages = [
+    ...(bibleEntries || []).filter((b) => (data.refIds || []).includes(b.id) && b.url)
+      .map((b) => ({ nodeId: b.nodeId || null, url: b.url, assetId: b.assetId || null, label: b.name || b.role, onCard: true })),
+    ...(data.assetRefs || []).filter((a) => a.url)
+      .map((a) => ({ nodeId: a.nodeId || null, url: a.url, assetId: a.assetId || null, label: a.label || 'ref', onCard: true })),
+  ];
+  // STRICT rule (user 2026-08-07): keyframes pick from the card's ENABLED chips ONLY.
+  // Board images reach the card through REFERENCES (drag onto the card / attach),
+  // never through this picker — a keyframe is always a pointer to a visible chip.
+  const kfImages = cardRefImages; // chips-only pool — every keyframe tile picks from here
+  // A KEYFRAME is a POINTER to an enabled chip (never a second send). Picking a
+  // non-chip image (board still, prev-take frame) auto-attaches it as a chip first,
+  // so the invariant holds with one tap. Slot labels resolve the pointer's LIVE
+  // [Image i]; a pointer whose chip is gone shows a warning instead of a number.
+  const sentBibleIds = refIds.filter((rid) => (bibleEntries || []).some((b) => b.id === rid && b.url));
+  const sentList = [
+    ...sentBibleIds.map((rid) => { const b = (bibleEntries || []).find((x) => x.id === rid); return { url: b?.url, nodeId: b?.nodeId }; }),
+    ...assetRefs.map((a) => ({ url: a.url, nodeId: a.nodeId })),
+  ];
+  const kfIndex = (a) => {
+    if (!a || !a.url) return 0;
+    const i = sentList.findIndex((r) => (a.nodeId && r.nodeId === a.nodeId) || r.url === a.url);
+    return i < 0 ? 0 : i + 1;
+  };
+  // ORDERED KEYFRAME LIST: K1 opens, Kn closes, middles pass through in order.
+  // Legacy start/end fields fold in for old cards; any write migrates to the list.
+  const kfs = (Array.isArray(data.keyframes) && data.keyframes.length)
+    ? data.keyframes
+    : [data.startAnchor, data.endAnchor].filter((a) => a && a.url);
+  const setKfs = (arr) => patch({ keyframes: arr, startAnchor: null, endAnchor: null });
+  const kfPtr = (im) => ({ nodeId: im.nodeId || null, url: im.url, label: im.label || '', pickedAt: Date.now() });
+  const appendKf = (im) => setKfs([...kfs, kfPtr(im)]);
+  const replaceKf = (i) => (im) => setKfs(kfs.map((k, j) => (j === i ? kfPtr(im) : k)));
+  const removeKf = (i) => () => setKfs(kfs.filter((_, j) => j !== i));
+  const kfIdxs = kfs.map(kfIndex);
+  const anyKfBroken = kfs.length > 0 && kfIdxs.some((i) => !i);
+  const startKfIdx = kfIdxs[0] || 0;
+  // Compiled-prompt preview (full-prompt-preview rule): the 👁 in the KEYFRAMES header
   // shows EXACTLY what 🎬 would send right now — anchors, subjects, constraint tail.
   const [compiledOpen, setCompiledOpen] = useState(false);
   const [compiledText, setCompiledText] = useState('');
   const openCompiled = (e) => { e.stopPropagation(); setCompiledText(onCompilePreview ? onCompilePreview(id) : ''); setCompiledOpen(true); };
   const patch = (p) => onPatchCut && onPatchCut(id, p);
-  const refIds = data.refIds || [];
-  const assetRefs = data.assetRefs || [];
   const hasLook = Object.values(data.cine || {}).some((v) => String(v || '').trim())
     || (data.cinePreset === 'Custom' && !!String(data.cinematography || '').trim());
   // Seedance media references (plural — e.g. a camera-track video + a motion video +
@@ -114,7 +154,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   const audioRefs = data.audioRefs || (data.audioRef ? [data.audioRef] : []);
   const videoRefs = data.videoRefs || (data.videoRef ? [data.videoRef] : []);
   const toggleRef = (entryId) => patch({ refIds: refIds.includes(entryId) ? refIds.filter((r) => r !== entryId) : [...refIds, entryId] });
-  const removeAssetRef = (url) => patch({ assetRefs: assetRefs.filter((a) => a.url !== url) });
+  const removeAssetRef = (url) => patch({ assetRefs: (data.assetRefs || []).filter((a) => a.url !== url) }); // write from the RAW list — the view above hides anchored refs
   const removeAudioRef = (url) => patch({ audioRefs: audioRefs.filter((a) => a.url !== url), audioRef: null });
   const removeVideoRef = (url) => patch({ videoRefs: videoRefs.filter((a) => a.url !== url), videoRef: null });
   const [dragOver, setDragOver] = useState(false);
@@ -140,7 +180,6 @@ const CutNodeInner = ({ id, data, selected }) => {
   // Index each reference by its ACTUAL send order (= "Image1…N" in the Seedance prompt):
   // enabled bible refs in refIds order, then per-shot assets. Each sent chip shows its image
   // number so the prompt can address "Image1" etc. without guessing which plate is which.
-  const sentBibleIds = refIds.filter((rid) => (bibleEntries || []).some((b) => b.id === rid && b.url));
   const bibleImageIndex = (entryId) => { const i = sentBibleIds.indexOf(entryId); return i < 0 ? null : i + 1; };
   const assetImageIndex = (j) => sentBibleIds.length + j + 1;
 
@@ -247,10 +286,9 @@ const CutNodeInner = ({ id, data, selected }) => {
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
             <span style={{ display: 'inline-flex', gap: 2 }}>
-              <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onRederiveCut || data.developing || data.splitting} onClick={() => onRederiveCut && onRederiveCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Re-derive — bind THIS prompt to the card's reference images: wording and structure preserved (Develop's output survives), matching subjects tagged [Image N] per the badge numbers. A FIRST FRAME lock stays; your previous text is stashed.">Re-derive</Button>
+              <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onComposeCut || data.developing || data.splitting} onClick={() => onComposeCut && onComposeCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Compose — with keyframes: 2 visible calls (DERIVE the events from the keyframes alone, then ENRICH with the reference chips + your dialogue/names verbatim); without: 1 call, your text as the material. Overridden text is reported, the compiler keeps adding the binding lines, previous text stashed.">Compose</Button>
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
-              <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconEdit />} disabled={!onDevelopCut || data.developing || data.splitting} onClick={() => onDevelopCut && onDevelopCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Develop — rewrite this prompt into one cinematic Seedance prompt (tight, close to your text; events preserved). Re-runs always start from your ORIGINAL text.">Develop</Button>
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
             </span>
           </div>
@@ -286,26 +324,40 @@ const CutNodeInner = ({ id, data, selected }) => {
           </div>
         </div>
 
-        {/* ANCHORS — visual grounding: the composition the shot OPENS on and (optionally)
-            LANDS on, picked from any board still. Set → the shoot compiles through the
-            composition-pinned grammar; both empty → the classic path, untouched. */}
+        {/* KEYFRAMES — visual grounding: an ORDERED list of pointers into the enabled
+            ref chips. K1 = the composition the shot opens on, Kn = where it lands,
+            middles are passed through in order. Empty list → the classic path, untouched. */}
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
-            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>ANCHORS · visual grounding</Text>
+            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>KEYFRAMES · visual grounding</Text>
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'baseline' }}>
-              {data.startAnchor?.url && <Text style={{ color: '#3491fa', fontSize: 9 }}>shoots composition-pinned</Text>}
+              {startKfIdx > 0 && <Text style={{ color: '#3491fa', fontSize: 9 }}>shoots keyframe-pinned</Text>}
               <IconEye className="nodrag" onClick={openCompiled} title="Preview the EXACT compiled prompt 🎬 will send (no spend)" style={{ fontSize: 12, color: '#9fb4d0', cursor: 'pointer' }} />
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <AnchorSlot label="START" value={data.startAnchor} images={startImages} onPick={(im) => patch({ startAnchor: { ...im, pickedAt: Date.now() } })} onClear={() => patch({ startAnchor: null })} />
-            <AnchorSlot label="END" value={data.endAnchor} images={boardImages} onPick={(im) => patch({ endAnchor: { ...im, pickedAt: Date.now() } })} onClear={() => patch({ endAnchor: null })} />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {kfs.map((k, i) => (
+              <AnchorSlot
+                key={`${k.url}-${i}`}
+                label={kfIdxs[i] ? `K${i + 1} · Image ${kfIdxs[i]}` : `K${i + 1} · ref off!`}
+                value={k}
+                images={kfImages}
+                onPick={replaceKf(i)}
+                onClear={removeKf(i)}
+              />
+            ))}
+            <AnchorSlot label={`K${kfs.length + 1}`} value={null} images={kfImages} onPick={appendKf} onClear={() => {}} />
           </div>
-          {data.endAnchor?.url && !data.startAnchor?.url && (
-            <Text style={{ color: '#f7ba1e', fontSize: 9 }}>END rides only once START is set</Text>
+          {(data.composeDropped || []).length > 0 && (
+            <Text title={(data.composeDropped || []).join('\n')} style={{ color: '#f7ba1e', fontSize: 9 }} ellipsis={{ rows: 2 }}>
+              ⚠ keyframes overrode: {(data.composeDropped || []).join(' · ')} — original text stashed
+            </Text>
           )}
-          {data.endAnchor?.url && data.startAnchor?.url && data.endAnchor.url === data.startAnchor.url && (
-            <Text style={{ color: '#f53f3f', fontSize: 9 }}>START and END are the SAME image — the shot can't develop; pick a different END (it won't ride)</Text>
+          {anyKfBroken && (
+            <Text style={{ color: '#f53f3f', fontSize: 9 }}>a keyframe points to a removed/disabled ref — toggle its chip back on or re-pick</Text>
+          )}
+          {kfs.some((k, i) => i > 0 && k.url === kfs[i - 1].url) && (
+            <Text style={{ color: '#f7ba1e', fontSize: 9 }}>adjacent keyframes are the SAME image — the duplicate won't ride</Text>
           )}
         </div>
 
@@ -314,8 +366,8 @@ const CutNodeInner = ({ id, data, selected }) => {
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>REFERENCES → [Image1…N] · click to toggle</Text>
             {refTotal > MAX_CUT_REFS
               ? <Text style={{ color: '#f53f3f', fontSize: 9 }}>first {MAX_CUT_REFS} feed the shot</Text>
-              : ((refTotal + (data.startAnchor?.url ? 1 : 0) + (data.endAnchor?.url ? 1 : 0)) > 5
-                && <Text style={{ color: '#f7ba1e', fontSize: 9 }} title="Seedance guide: 4-5 assets — more dilutes feature priority (anchors count)">&gt;5 refs — model may dilute</Text>)}
+              : (refTotal > 5
+                && <Text style={{ color: '#f7ba1e', fontSize: 9 }} title="Seedance guide: 4-5 assets — more dilutes feature priority (keyframes are pointers, they add nothing)">&gt;5 refs — model may dilute</Text>)}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {(bibleEntries || []).map((b) => {

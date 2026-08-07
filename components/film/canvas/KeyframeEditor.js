@@ -12,11 +12,16 @@ const EXPR_OPTS = ['neutral', 'slight smile', 'smiling', 'laughing', 'surprised'
 // a still has no duration; pacing edits belong to the chat revision and the promoted SHOT card.)
 // Reference numbers are GLOBAL (the pool = [Image 1..N]); the canvas renumbers them to attach
 // order at render time.
-export default function KeyframeEditor({ shot = {}, pool = [], preview, loading, imageAssets = [], onClose, onSave, onRederive, onAddRef }) {
+export default function KeyframeEditor({ shot = {}, pool = [], preview, loading, imageAssets = [], onClose, onSave, onRederive, onAddRef, onSaveText }) {
   const [body, setBody] = useState(String(shot.body || ''));
   const [figures, setFigures] = useState(Array.isArray(shot.figures) ? shot.figures : []);
   const [shotTemplate, setShotTemplate] = useState(shot.shotTemplate || 'medium-shot');
   const [expression, setExpression] = useState(shot.expression || '');
+  // The take's WORD fields (storyboard rows are display-only — this editor is where
+  // they change by hand; Save words is FREE, no render).
+  const [motion, setMotion] = useState(String(shot.motion || ''));
+  const [exiting, setExiting] = useState(String(shot.exiting || ''));
+  const [audio, setAudio] = useState(String(shot.audio || ''));
   const [rederiving, setRederiving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   // Structure lock (default ON when a frame exists): the CURRENT frame rides as the
@@ -86,6 +91,18 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
   const doAdd = async (url) => {
     try { const n = await onAddRef(url); if (n) { setFigures((f) => (f.includes(n) ? f : [...f, n].sort((a, b) => a - b))); setAddOpen(false); } }
     catch (e) { Message.error(e.message); }
+  };
+  const saveWords = () => {
+    const edits = {};
+    if (body.trim() !== String(shot.body || '')) edits.body = body.trim();
+    if (motion.trim() !== String(shot.motion || '')) edits.motion = motion.trim();
+    if (exiting.trim() !== String(shot.exiting || '')) { edits.exiting = exiting.trim(); edits.develops = !!exiting.trim(); }
+    if (audio.trim() !== String(shot.audio || '')) edits.audio = audio.trim();
+    if (!Object.keys(edits).length) { Message.info('Nothing changed.'); return; }
+    onSaveText(edits);
+    Message.success(edits.exiting !== undefined
+      ? (edits.exiting ? 'Words saved — the shot now DEVELOPS; its END frame renders with the still.' : 'Words saved — the shot now HOLDS (no END frame).')
+      : 'Words saved — free, nothing rendered.');
   };
   const doRegenerate = async () => {
     let annotatedFrame = null;
@@ -166,6 +183,17 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
           </Text>
           <Input.TextArea value={body} onChange={setBody} autoSize={{ minRows: 4, maxRows: 10 }} style={{ marginBottom: 6 }} />
           <Button size="mini" loading={rederiving} onClick={doRederive} style={{ marginBottom: 12 }}>Re-derive body from references</Button>
+          {onSaveText && (
+            <div style={{ marginBottom: 12, padding: '8px 10px', border: '1px solid #e5e6eb', borderRadius: 6 }}>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Action — what the take performs; dialogue in {'{'}curly braces{'}'}</Text>
+              <Input.TextArea value={motion} onChange={setMotion} autoSize={{ minRows: 2, maxRows: 6 }} style={{ marginBottom: 6 }} />
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>End state — one on-screen sentence; empty = HOLD, written = DEVELOPS (chained END frame)</Text>
+              <Input.TextArea value={exiting} onChange={setExiting} autoSize={{ minRows: 1, maxRows: 3 }} style={{ marginBottom: 6 }} />
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Audio —（music） &lt;sfx&gt; {'{'}dialogue{'}'}</Text>
+              <Input value={audio} onChange={setAudio} style={{ marginBottom: 8 }} />
+              <Button size="mini" onClick={saveWords} title="Write the word fields back to the shot — free, nothing renders; a changed frame/end marks the stills stale">Save words — free</Button>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 14 }}>
             <div style={{ flex: 1 }}>
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Camera</Text>

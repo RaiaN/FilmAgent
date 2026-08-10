@@ -18,7 +18,7 @@ const dark = {
 
 const NAV_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Enter', 'Escape']);
 
-const PromptEditorModal = ({ open, value, references = [], onAttach, maxRefs = 9, onChange, onClose }) => {
+const PromptEditorModal = ({ open, value, references = [], media = [], onAttach, maxRefs = 9, onChange, onClose }) => {
   const [text, setText] = useState(value || '');
   const [menu, setMenu] = useState(null); // { items: [{index,name,url}], hi } while an @-query is active
   const taRef = useRef(null);
@@ -44,9 +44,11 @@ const PromptEditorModal = ({ open, value, references = [], onAttach, maxRefs = 9
     if (!el) return;
     const before = el.value.slice(0, el.selectionStart);
     const m = before.match(/@(\w*)$/);
-    if (!m || !references.length) { setMenu(null); return; }
+    if (!m || (!references.length && !media.length)) { setMenu(null); return; }
     const q = m[1].toLowerCase();
-    const items = references.filter((r) => !q || r.name.toLowerCase().includes(q) || (r.index != null && `image${r.index}`.includes(q)));
+    const imgItems = references.filter((r) => !q || r.name.toLowerCase().includes(q) || (r.index != null && `image${r.index}`.includes(q)));
+    const mediaItems = media.filter((r) => !q || (r.name || '').toLowerCase().includes(q) || `${r.kind}${r.index}`.includes(q));
+    const items = [...imgItems, ...mediaItems];
     setMenu(items.length ? { items, hi: 0 } : null);
   };
 
@@ -56,6 +58,18 @@ const PromptEditorModal = ({ open, value, references = [], onAttach, maxRefs = 9
   // If the chosen plate isn't a reference on this shot yet, ATTACH it (give it the next index)
   // so the tag actually points at a sent image. Respects the reference cap.
   const insertRef = (r) => {
+    if (r.kind === 'audio' || r.kind === 'video') {
+      const el = taRef.current;
+      const caret = el ? el.selectionStart : text.length;
+      const val = el ? el.value : text;
+      const at = val.slice(0, caret).lastIndexOf('@');
+      const start = at >= 0 ? at : caret;
+      const token = `${r.kind === 'audio' ? 'Audio' : 'Video'} ${r.index} `;
+      apply(val.slice(0, start) + token + val.slice(caret));
+      reposRef.current = start + token.length;
+      setMenu(null);
+      return;
+    }
     let idx = r.index;
     if (idx == null) {
       idx = references.filter((x) => x.index != null).length + 1;
@@ -92,7 +106,7 @@ const PromptEditorModal = ({ open, value, references = [], onAttach, maxRefs = 9
       escToExit
     >
       <Text type="secondary" style={{ fontSize: 12 }}>
-        Type <b>@</b> to attach a reference image to a subject — it inserts that plate&apos;s <b>[Image N]</b> tag.
+        Type <b>@</b> to reference an image, audio or video asset — it inserts the matching <b>[Image N]</b> / <b>Audio N</b> / <b>Video N</b> tag at the cursor.
       </Text>
       <div style={{ position: 'relative', marginTop: 8 }}>
         <textarea
@@ -109,14 +123,16 @@ const PromptEditorModal = ({ open, value, references = [], onAttach, maxRefs = 9
           <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 5, minWidth: 220, maxHeight: 240, overflowY: 'auto', background: '#161b22', border: '1px solid #2a313a', borderRadius: 8, boxShadow: '0 8px 28px rgba(0,0,0,0.5)', padding: 4 }}>
             {menu.items.map((r, i) => (
               <div
-                key={r.index}
+                key={`${r.kind || 'img'}-${r.index}`}
                 onMouseDown={(e) => { e.preventDefault(); insertRef(r); }}
                 onMouseEnter={() => setMenu((mn) => mn && { ...mn, hi: i })}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, cursor: 'pointer', background: i === menu.hi ? '#2a313a' : 'transparent' }}
               >
-                <b style={{ fontSize: 10, color: '#fff', background: r.index != null ? 'rgba(0,0,0,0.5)' : '#165dff', borderRadius: 7, padding: '0 5px' }}>{r.index != null ? `Image${r.index}` : '+ add'}</b>
-                {r.url ? <img src={r.url} alt="" style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'cover' }} /> : null}
-                <span style={{ fontSize: 12, color: '#e5e6eb' }}>{r.name}</span>
+                <b style={{ fontSize: 10, color: '#fff', background: r.kind === 'audio' ? 'rgba(120,22,255,0.7)' : r.kind === 'video' ? '#165dff' : r.index != null ? 'rgba(0,0,0,0.5)' : '#165dff', borderRadius: 7, padding: '0 5px' }}>
+                  {r.kind === 'audio' ? `Audio${r.index}` : r.kind === 'video' ? `Video${r.index}` : r.index != null ? `Image${r.index}` : '+ add'}
+                </b>
+                {r.url && !r.kind ? <img src={r.url} alt="" style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'cover' }} /> : null}
+                <span style={{ fontSize: 12, color: '#e5e6eb' }}>{r.name}{r.role ? ` · ${r.role}` : ''}</span>
               </div>
             ))}
           </div>

@@ -87,7 +87,7 @@ const GROUP_HEADER = 34;
 
 // SHOT cards are 500px wide and TALL — the prompt + cinematography + audio + params +
 // references run ~600–700px. Tile on a generous pitch so rows never collide.
-const CUT_COL_W = 540;
+const CUT_COL_W = 820; // SHOT card node width (780) + gutter — drives every card-laying grid
 const CUT_ROW_H = 760;
 // The color-binding line a blocking plate drops into a SHOT card's prompt on attach —
 // plain editable text; the user corrects the [Image N] numbers to the reference badges.
@@ -2346,6 +2346,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         cinematography: [String(c.data.cinematography || '').trim(), cineLook].filter(Boolean).join(' · '),
         audioRefCount: audioRefUrls.length,
         videoRefCount: videoRefUrls.length,
+        audioRoles: (c.data.audioRefs || []).map((r) => r.role || ''),
+        videoRoles: (c.data.videoRefs || []).map((r) => r.role || ''),
         modelKey: videoModelKeyOf(c.data.videoModel),
       });
       return {
@@ -2774,7 +2776,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const kfIndices = kfPairs.map((x) => x.idx);
     const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
     if (!text && !baseRefs.length) { Message.warning('Compose needs something to work from — write the prompt, or attach references / keyframes.'); return; }
-    const roster = baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`);
+    const roster = [
+      ...baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`),
+      ...(card.data.audioRefs || []).map((a, i) => `Audio ${i + 1} = ${a.label || 'audio clip'}${a.role ? ` (${a.role})` : ''}`),
+      ...(card.data.videoRefs || []).map((v, i) => `Video ${i + 1} = ${v.label || 'video'}${v.role ? ` (${v.role})` : ''}`),
+    ];
     const modelKey = videoModelKeyOf(card.data?.videoModel);
     splitFlightRef.current.add(`dev-${id}`);
     onPatchCut(id, { developing: true });
@@ -2814,7 +2820,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const baseRefs = shotReferences(card.data, bibleRef.current);
     const kfPairs = cardKfPairs(card.data, baseRefs);
     const kfIndices = kfPairs.map((x) => x.idx);
-    const roster = baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`);
+    const roster = [
+      ...baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`),
+      ...(card.data.audioRefs || []).map((a, i) => `Audio ${i + 1} = ${a.label || 'audio clip'}${a.role ? ` (${a.role})` : ''}`),
+      ...(card.data.videoRefs || []).map((v, i) => `Video ${i + 1} = ${v.label || 'video'}${v.role ? ` (${v.role})` : ''}`),
+    ];
     splitFlightRef.current.add(`dev-${id}`);
     onPatchCut(id, { developing: true });
     traceRef.current.startRun({ note: 'Agent · Shot direct (note · 1 call)' });
@@ -2849,7 +2859,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const baseRefs = shotReferences(card.data, bibleRef.current);
     const kfPairs = cardKfPairs(card.data, baseRefs);
     const kfIndices = kfPairs.map((x) => x.idx);
-    const roster = baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`);
+    const roster = [
+      ...baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`),
+      ...(card.data.audioRefs || []).map((a, i) => `Audio ${i + 1} = ${a.label || 'audio clip'}${a.role ? ` (${a.role})` : ''}`),
+      ...(card.data.videoRefs || []).map((v, i) => `Video ${i + 1} = ${v.label || 'video'}${v.role ? ` (${v.role})` : ''}`),
+    ];
     const modelKey = videoModelKeyOf(card.data?.videoModel);
     splitFlightRef.current.add(`dev-${id}`);
     onPatchCut(id, { developing: true });

@@ -95,10 +95,11 @@ const DraftText = ({ value, onCommit, textarea = false, ...rest }) => {
 };
 
 // Visual state of the cut as it shoots (border + header tag).
+// 'failed' is deliberately absent: individual takes fail and that's fine — the take
+// itself carries its error in the Take Library; the card never wears a failure.
 const CUT_STATUS = {
   running: { color: '#165dff', label: 'rolling…' },
   shot: { color: '#00b42a', label: 'shot ✓' },
-  failed: { color: '#f53f3f', label: 'failed' },
 };
 
 const MAX_CUT_REFS = 9; // Seedream's reference-image limit — first 9 feed the shot
@@ -175,6 +176,12 @@ const CutNodeInner = ({ id, data, selected }) => {
   const toggleRef = (entryId) => patch({ refIds: refIds.includes(entryId) ? refIds.filter((r) => r !== entryId) : [...refIds, entryId] });
   const removeAssetRef = (url) => patch({ assetRefs: (data.assetRefs || []).filter((a) => a.url !== url) }); // write from the RAW list — the view above hides anchored refs
   const removeAudioRef = (url) => patch({ audioRefs: audioRefs.filter((a) => a.url !== url), audioRef: null });
+  // Media chip ROLE cycles on the tag (voice → music → ambience / motion → camera →
+  // style) — the compiler emits the matching binding line; unset = the generic line.
+  const AUDIO_ROLES = ['voice', 'music', 'ambience'];
+  const VIDEO_ROLES = ['motion', 'camera', 'style'];
+  const cycleAudioRole = (url) => patch({ audioRefs: audioRefs.map((a) => (a.url === url ? { ...a, role: AUDIO_ROLES[(AUDIO_ROLES.indexOf(a.role) + 1) % AUDIO_ROLES.length] } : a)) });
+  const cycleVideoRole = (url) => patch({ videoRefs: videoRefs.map((v) => (v.url === url ? { ...v, role: VIDEO_ROLES[(VIDEO_ROLES.indexOf(v.role) + 1) % VIDEO_ROLES.length] } : v)) });
   const removeVideoRef = (url) => patch({ videoRefs: videoRefs.filter((a) => a.url !== url), videoRef: null });
   const [dragOver, setDragOver] = useState(false);
   const [directNote, setDirectNote] = useState('');
@@ -243,7 +250,7 @@ const CutNodeInner = ({ id, data, selected }) => {
       onDragOver={onDragOver}
       onDragLeave={() => setDragOver(false)}
       onDrop={onDrop}
-      style={{ width: 500, background: '#101418', borderRadius: 10, border: `2px solid ${dragOver ? '#f7ba1e' : borderColor}`, boxShadow: selected ? '0 0 0 3px rgba(247,186,30,0.15)' : '0 1px 4px rgba(0,0,0,0.2)', overflow: 'hidden', color: '#fff' }}
+      style={{ width: 780, background: '#101418', borderRadius: 10, border: `2px solid ${dragOver ? '#f7ba1e' : borderColor}`, boxShadow: selected ? '0 0 0 3px rgba(247,186,30,0.15)' : '0 1px 4px rgba(0,0,0,0.2)', overflow: 'hidden', color: '#fff' }}
     >
       {/* invisible target handle — the asset→cut prerequisite edges land here */}
       {/* SEQUENCE handles — drag right-dot → left-dot to chain two cards: the source's
@@ -488,36 +495,40 @@ const CutNodeInner = ({ id, data, selected }) => {
             })}
             {/* Seedance media refs — audio clips (music / voices) and videos (camera / motion),
                 attached by tapping a ★-tagged offer chip below; click an attached chip to detach. */}
-            {audioRefs.map((a) => (
+            {audioRefs.map((a, ai) => (
               <span
                 key={a.url}
                 className="nodrag"
-                onClick={() => removeAudioRef(a.url)}
-                title={`${a.label || 'audio clip'} — reference audio (≤15s): the take realizes this sound. Click to detach.`}
+                title={`Audio ${ai + 1} — ${a.label || 'audio clip'} (≤15s). Click the role tag to cycle voice → music → ambience; ✕ detaches.`}
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
                   padding: '1px 6px', borderRadius: 10, fontSize: 10,
                   border: '1px solid rgba(120,22,255,0.55)', background: 'rgba(120,22,255,0.16)', color: '#c0a1ff',
                 }}
               >
+                <b style={REF_BADGE}>A{ai + 1}</b>
                 <IconSound style={{ fontSize: 11 }} />
-                {(a.label || 'audio').slice(0, 14)}{Number(a.duration) ? ` · ${Math.round(a.duration)}s` : ''}
+                {(a.label || 'audio').slice(0, 12)}{Number(a.duration) ? ` · ${Math.round(a.duration)}s` : ''}
+                <b onClick={() => cycleAudioRole(a.url)} title="Role — what this clip is a reference FOR (drives the binding line)" style={{ ...REF_BADGE, cursor: 'pointer', minWidth: 0 }}>{a.role || 'sound'}</b>
+                <span onClick={() => removeAudioRef(a.url)} title="Detach" style={{ cursor: 'pointer' }}>✕</span>
               </span>
             ))}
-            {videoRefs.map((v) => (
+            {videoRefs.map((v, vi) => (
               <span
                 key={v.url}
                 className="nodrag"
-                onClick={() => removeVideoRef(v.url)}
-                title={`${v.label || 'video'} — reference video (≤15s): the take follows its camera / motion. Click to detach.`}
+                title={`Video ${vi + 1} — ${v.label || 'video'} (≤15s). Click the role tag to cycle motion → camera → style; ✕ detaches.`}
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
                   padding: '1px 6px', borderRadius: 10, fontSize: 10,
                   border: '1px solid #165dff', background: 'rgba(22,93,255,0.15)', color: '#6ea0ff',
                 }}
               >
+                <b style={REF_BADGE}>V{vi + 1}</b>
                 <IconVideoCamera style={{ fontSize: 11 }} />
-                {(v.label || 'video').slice(0, 14)}
+                {(v.label || 'video').slice(0, 12)}
+                <b onClick={() => cycleVideoRole(v.url)} title="Role — what this clip is a reference FOR (drives the binding line)" style={{ ...REF_BADGE, cursor: 'pointer', minWidth: 0 }}>{v.role || 'cam+motion'}</b>
+                <span onClick={() => removeVideoRef(v.url)} title="Detach" style={{ cursor: 'pointer' }}>✕</span>
               </span>
             ))}
             {/* CANON media (★-tagged board audio/video) not yet on this shot — dim offer
@@ -583,6 +594,10 @@ const CutNodeInner = ({ id, data, selected }) => {
           open
           value={data.promptOverride || ''}
           references={attachableRefs}
+          media={[
+            ...audioRefs.map((a, i) => ({ kind: 'audio', index: i + 1, name: a.label || 'audio clip', role: a.role || '' })),
+            ...videoRefs.map((v, i) => ({ kind: 'video', index: i + 1, name: v.label || 'video', role: v.role || '' })),
+          ]}
           onAttach={attachRef}
           maxRefs={MAX_CUT_REFS}
           onChange={(v) => patch({ promptOverride: v })}

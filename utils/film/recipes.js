@@ -191,7 +191,7 @@ const SUBJECT_NOUN = { character: 'person', location: 'location', prop: 'object'
 const stripTrailingTransition = (t) => String(t || '').trim()
   .replace(/(?:\s|\n)*(?:CUT TO:?|CUT:|SMASH CUT(?: TO)?:?|FADE (?:OUT|TO BLACK|IN):?|DISSOLVE(?: TO)?:?|MATCH CUT(?: TO)?:?)\s*$/i, '').trim();
 
-export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0, modelKey = 'seedance' } = {}) => {
+export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0, audioRoles = [], videoRoles = [], modelKey = 'seedance' } = {}) => {
   // Plate names carry a "· face"/"· body" suffix — an artifact of the bible, not a
   // subject name. Same-name plates collapse into ONE definition listing both images
   // (the manual's headshot + full-body pattern).
@@ -208,8 +208,22 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     const imgs = s.indices.map((i) => `Image ${i}`).join(' and ');
     return `Define the ${SUBJECT_NOUN[s.role] || 'subject'} in ${imgs} as ${name}.`;
   });
-  for (let i = 0; i < audioRefCount; i += 1) defs.push(`Use the sound and timbre of Audio ${i + 1} as reference.`);
-  for (let i = 0; i < videoRefCount; i += 1) defs.push(`Refer to the camera movement and motion in Video ${i + 1}.`);
+  // Media binding lines are ROLE-scoped (the guide's partial-reference pattern) —
+  // each asset contributes exactly its intended feature; unset role = the generic line.
+  for (let i = 0; i < audioRefCount; i += 1) {
+    const role = (audioRoles || [])[i];
+    defs.push(role === 'music' ? `Use Audio ${i + 1} as the music reference.`
+      : role === 'ambience' ? `Use Audio ${i + 1} as the ambience and sound-design reference.`
+        : role === 'voice' ? `Use the voice timbre of Audio ${i + 1}.`
+          : `Use the sound and timbre of Audio ${i + 1} as reference.`);
+  }
+  for (let i = 0; i < videoRefCount; i += 1) {
+    const role = (videoRoles || [])[i];
+    defs.push(role === 'camera' ? `Refer to the camera movement in Video ${i + 1}.`
+      : role === 'style' ? `Refer to the visual style of Video ${i + 1}.`
+        : role === 'motion' ? `Refer to the motion in Video ${i + 1}.`
+          : `Refer to the camera movement and motion in Video ${i + 1}.`);
+  }
   const shotLines = shots.map((sh, i) => {
     const parts = [];
     // The anchors carry their own DESCRIPTIONS (the still's wording / the exiting

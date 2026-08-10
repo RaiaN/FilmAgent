@@ -68,7 +68,7 @@ async function normalizeSeedanceContent(content) {
         : item.type === 'video_url'
           ? 'video_url'
           : 'audio_url';
-    let mediaUrl = item?.[key]?.url;
+    const mediaUrl = item?.[key]?.url;
 
     // A media-STORE url (a ★ reference clip, an extracted frame, any checked-in
     // media). The bytes already live content-addressed in TOS (mirrored at check-in),
@@ -76,6 +76,11 @@ async function normalizeSeedanceContent(content) {
     // Seedance the URL. Bodies stay tiny; a reference video never rides as base64.
     if (String(mediaUrl || '').includes('/api/film/media?key=')) {
       const storeKey = (/[?&]key=([a-f0-9]{16,64}\.[a-z0-9]{1,5})/.exec(mediaUrl) || [])[1];
+      // FORMAT GUARD: Seedance rejects non-mp3 reference audio — fail loudly here
+      // with the fix, never ship a request the model will bounce.
+      if (item.type === 'audio_url' && storeKey && storeKey.split('.').pop().toLowerCase() !== 'mp3') {
+        throw new Error(`${item.role || 'reference_audio'}: .${storeKey.split('.').pop()} is not supported by Seedance — attach an mp3 (convert the clip and re-attach).`);
+      }
       let presigned = null;
       if (storeKey && tosConfig.accessKey && tosConfig.secretKey && tosConfig.tosBucket) {
         const objectKey = `${CLOUD_MEDIA_PREFIX}/${storeKey}`;
@@ -117,6 +122,9 @@ async function normalizeSeedanceContent(content) {
     }
 
     const contentType = mediaUrl.slice(5, mediaUrl.indexOf(';')).toLowerCase();
+    if (item.type === 'audio_url' && contentType.startsWith('audio/') && !['audio/mpeg', 'audio/mp3'].includes(contentType)) {
+      throw new Error(`${item.role || 'reference_audio'}: ${contentType} is not supported by Seedance — attach an mp3 (convert the clip and re-attach).`);
+    }
     const staged = await uploadLocalMediaToTos({
       ...tosConfig,
       localData: mediaUrl,

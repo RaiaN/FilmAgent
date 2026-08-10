@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Input, Select, Button, Typography, Message, Checkbox } from '@arco-design/web-react';
-import { IconPlus, IconCheck } from '@arco-design/web-react/icon';
+import { IconPlus, IconCheck, IconLoading } from '@arco-design/web-react/icon';
 import { SHOT_TEMPLATES } from '../../../utils/film/recipes';
 
 const { Text } = Typography;
@@ -131,7 +131,15 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
         <div style={{ flex: '1.15 1 0', minWidth: 0, alignSelf: 'flex-start' }}>
           {preview ? (
             <div ref={wrapRef} style={{ position: 'relative' }}>
-              <img src={preview} alt="keyframe" style={{ width: '100%', maxHeight: '68vh', objectFit: 'contain', borderRadius: 8, display: 'block', background: '#101418' }} />
+              <img src={preview} alt="keyframe" style={{ width: '100%', maxHeight: '68vh', objectFit: 'contain', borderRadius: 8, display: 'block', background: '#101418', opacity: loading ? 0.55 : 1 }} />
+              {loading && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', justifyContent: 'center', zIndex: 5, pointerEvents: 'none' }}>
+                  <IconLoading style={{ fontSize: 28, color: '#165dff' }} />
+                  <Text style={{ fontSize: 12, fontWeight: 600, color: '#fff', background: 'rgba(16,20,24,0.7)', borderRadius: 4, padding: '2px 8px' }}>
+                    {mode === 'frame' ? 'applying the edit…' : 'rendering the pair…'}
+                  </Text>
+                </div>
+              )}
               <canvas
                 ref={canvasRef}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', cursor: drawOn ? 'crosshair' : 'default', pointerEvents: drawOn ? 'auto' : 'none', touchAction: 'none' }}

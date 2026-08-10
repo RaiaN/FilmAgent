@@ -413,6 +413,31 @@ export const enrichShotAction = async ({ text = '', references = [], roster = []
   return { action, audio: String(raw.audio || '').trim() };
 };
 
+// DIRECT — apply ONE director's note to the card's prompt: the note shapes how the
+// shot FEELS and READS (tone, pacing, emphasis, atmosphere, wording); events, order,
+// [Image N] tags, dialogue, references and keyframes all stay. The note wins over the
+// old text where they disagree.
+export const directShotAction = async ({ text = '', note = '', references = [], roster = [], kfIndices = [], modelKey = 'seedance', durationSec = 10, config } = {}, ctx) => {
+  const material = String(text || '').trim();
+  const theNote = String(note || '').trim();
+  if (!material) throw new Error('Direct needs the shot prompt — write it or Compose first.');
+  if (!theNote) throw new Error('Write the note — what should this shot feel or read like?');
+  const T = '@@TEXT@@';
+  const N = '@@NOTE@@';
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
+      .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)),
+    systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), modelLine: modelLineOf(modelKey), craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
+    images: references,
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const action = String(raw.action || '').trim();
+  if (!action) throw new Error('Direct came back empty — try again.');
+  return { action, audio: String(raw.audio || '').trim() };
+};
+
 export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = 'seedance', durationSec = 10, config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');

@@ -222,6 +222,30 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the enriched action t
     vars: ['{refRoster}', '{text}'],
     text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE CURRENT PROMPT (the skeleton — every event, [Image N] tag and dialogue line rides verbatim):\n"""\n{text}\n"""\n\nReturn the JSON.',
   },
+  'cut.direct.system': {
+    agent: 'Shot',
+    label: 'Direct — a note on how the shot feels/reads (system)',
+    vars: ['{refCount}', '{kfLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
+    text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — the shot's fixed cast, places and frames; they never change.
+
+{kfLine}
+
+THE CURRENT PROMPT IS THE SHOT: its events, their order, every [Image N] tag and every dialogue line word-for-word in curly braces all stay. You re-shape HOW it feels and reads per the note — tone, pacing, emphasis, atmosphere, wording. Where the note and the current text disagree, the note wins. Never add, drop or renumber an [Image N] tag.
+
+{craftRules}
+
+{modelLine} The shot runs ~{durationSec}s.
+
+Do NOT write composition-binding lines, subject definitions, quality/ratio/duration lines or transition markers — the compiler adds those.
+
+Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action text>","audio":"<only if the note touches sound, else empty>"}`,
+  },
+  'cut.direct.user': {
+    agent: 'Shot',
+    label: 'Direct — apply the note (instruction)',
+    vars: ['{refRoster}', '{text}', '{note}'],
+    text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE CURRENT PROMPT (the shot — events, [Image N] tags and dialogue stay):\n"""\n{text}\n"""\n\nTHE DIRECTOR\'S NOTE (verbatim — it wins where they disagree):\n"""\n{note}\n"""\n\nReturn the JSON.',
+  },
   'cut.compose.system': {
     agent: 'Shot',
     label: 'Compose — keyframe-aware cinematic action (system)',

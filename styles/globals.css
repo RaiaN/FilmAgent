@@ -16,12 +16,19 @@
   box-sizing: border-box;
 }
 
+html {
+  /* Canvas panning must never escalate into the browser's history swipe — a
+     horizontal overscroll on the board otherwise triggers macOS back/forward. */
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', sans-serif;
   background-color: var(--background-color);
   color: var(--text-color);
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .workflow-toolbox-scroll {

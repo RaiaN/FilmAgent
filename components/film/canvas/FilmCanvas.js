@@ -48,7 +48,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, composeShotAction, enrichShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
+import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -2802,6 +2802,39 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
   }, [apiKey, onPatchCut]);
 
+  // DIRECT — apply one director's note to the card's prompt: the note shapes how the
+  // shot feels/reads; events, [Image N] tags, dialogue, refs and keyframes all stay.
+  const directCutPrompt = useCallback(async (id, note = '') => {
+    if (splitFlightRef.current.has(`dev-${id}`)) return;
+    const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
+    if (!card || card.data?.developing || card.data?.splitting) return;
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
+    if (!text) { Message.warning('Direct re-shapes the existing prompt — write it, or Compose first.'); return; }
+    const baseRefs = shotReferences(card.data, bibleRef.current);
+    const kfPairs = cardKfPairs(card.data, baseRefs);
+    const kfIndices = kfPairs.map((x) => x.idx);
+    const roster = baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`);
+    splitFlightRef.current.add(`dev-${id}`);
+    onPatchCut(id, { developing: true });
+    traceRef.current.startRun({ note: 'Agent · Shot direct (note · 1 call)' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const out = await directShotAction({
+        text, note, references: baseRefs.map((r) => r.url), roster, kfIndices,
+        modelKey: videoModelKeyOf(card.data?.videoModel),
+        durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
+      }, ctx);
+      onPatchCut(id, {
+        promptOverride: out.action,
+        developSource: card.data?.developSource || text,
+        ...(out.audio ? { audio: out.audio } : {}),
+      });
+      Message.success('Note applied — the shot reads as directed; references, dialogue and keyframes untouched.');
+    } catch (e) { Message.error(`Direct failed: ${e.message}`); }
+    finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
+  }, [apiKey, onPatchCut]);
+
   // ENRICH the card's CURRENT prompt in place — the expansion twin of Compose: the
   // text is the skeleton (events, [Image N] tags, dialogue verbatim), the call adds
   // camera/motion/texture/atmosphere/VFX/sound density around it. References and
@@ -2909,11 +2942,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onSplitCut: splitCardToShots,
     onComposeCut: composeCutPrompt,
     onEnrichCut: enrichCutPrompt,
+    onDirectCut: directCutPrompt,
     onOpenTakes: openTakesForCard,
     boardImages,
     prevTakeFrames,
     onCompilePreview: previewCutPrompt,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, enrichCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, enrichCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt]);
 
   const filmMode = true; // Short-Film-only suite.
 

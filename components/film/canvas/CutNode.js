@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Modal } from '@arco-design/web-react';
-import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
+import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, videoModelKeyOf } from '../../../utils/film/suiteConfig';
 import { ENRICH_LEVELS } from '../../../utils/film/core/storyboard';
@@ -16,7 +16,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onEnrichCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onEnrichCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null,
 });
 
 // One visual-grounding anchor slot (START | END): shows its picked still, or a dashed
@@ -74,6 +74,26 @@ const AnchorSlot = ({ label, value, images, onPick, onClear }) => {
 
 const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
 
+// Text fields draft LOCALLY and commit on blur: routing every keystroke through the
+// React Flow store makes the controlled value arrive back a beat late, which resets
+// the caret to the end. External updates (Compose/Direct/Enrich) still flow in
+// whenever the field isn't focused.
+const DraftText = ({ value, onCommit, textarea = false, ...rest }) => {
+  const [draft, setDraft] = useState(null); // null = not editing → show live value
+  const commit = () => { if (draft !== null && draft !== (value || '')) onCommit(draft); setDraft(null); };
+  const C = textarea ? Input.TextArea : Input;
+  return (
+    <C
+      {...rest}
+      value={draft !== null ? draft : (value || '')}
+      onChange={(v) => setDraft(v)}
+      onFocus={() => setDraft(value || '')}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.target.blur(); }}
+    />
+  );
+};
+
 // Visual state of the cut as it shoots (border + header tag).
 const CUT_STATUS = {
   running: { color: '#165dff', label: 'rolling…' },
@@ -97,7 +117,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onEnrichCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onEnrichCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -157,6 +177,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   const removeAudioRef = (url) => patch({ audioRefs: audioRefs.filter((a) => a.url !== url), audioRef: null });
   const removeVideoRef = (url) => patch({ videoRefs: videoRefs.filter((a) => a.url !== url), videoRef: null });
   const [dragOver, setDragOver] = useState(false);
+  const [directNote, setDirectNote] = useState('');
 
   // The SHOT's title (data.beat) is inline-renamed via the shared EditableLabel. The beat
   // is the card's NAME; it only feeds the shoot prompt as a FALLBACK when PROMPT is empty.
@@ -307,12 +328,32 @@ const CutNodeInner = ({ id, data, selected }) => {
               >
                 <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconEdit />} disabled={!onEnrichCut || data.developing || data.splitting} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Enrich — expand THIS prompt with cinematic density (camera, motion micro-detail, texture, atmosphere, VFX, sound) while every event, [Image N] tag, dialogue line, reference and keyframe stays exactly as it is. Pick a density — 1 visible call. Previous text stashed.">Enrich</Button>
               </Popover>
+              <Popover
+                trigger="click" position="bl" color="#161b22"
+                content={(
+                  <div className="nodrag" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 2, width: 260 }}>
+                    <Text style={{ fontSize: 9, fontWeight: 700, color: '#9fb4d0' }}>DIRECTOR'S NOTE — how should this shot feel or read?</Text>
+                    <Input.TextArea
+                      value={directNote}
+                      onChange={setDirectNote}
+                      autoSize={{ minRows: 2, maxRows: 5 }}
+                      placeholder="e.g. slower and heavier · colder mood · the wind carries the scene · less frantic, let it breathe"
+                      style={{ fontSize: 11 }}
+                    />
+                    <Button size="mini" long type="primary" disabled={!directNote.trim()} onClick={() => { onDirectCut && onDirectCut(id, directNote.trim()); setDirectNote(''); }}>
+                      Apply note — 1 call
+                    </Button>
+                  </div>
+                )}
+              >
+                <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconMessage />} disabled={!onDirectCut || data.developing || data.splitting} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Direct — one note on how the shot FEELS or READS (tone, pacing, mood, emphasis); the prompt is re-shaped to match while events, [Image N] tags, dialogue, references and keyframes all stay. 1 visible call, previous text stashed.">Direct</Button>
+              </Popover>
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
             </span>
           </div>
-          <Input.TextArea className="nodrag nowheel" value={data.promptOverride || ''} onChange={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt — Expand to @-mention references" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
+          <DraftText textarea className="nodrag nowheel" value={data.promptOverride} onCommit={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt — Expand to @-mention references" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
         </div>
 
         <div>
@@ -330,7 +371,7 @@ const CutNodeInner = ({ id, data, selected }) => {
 
         <div>
           <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700, display: 'block', marginBottom: 2 }}>AUDIO <span style={{ color: '#5a6472', fontWeight: 400 }}>· optional</span></Text>
-          <Input.TextArea className="nodrag nowheel" value={data.audio || ''} onChange={(v) => patch({ audio: v })} placeholder="dialogue · ambient · foley · score" autoSize={{ minRows: 1, maxRows: 3 }} style={promptArea} />
+          <DraftText textarea className="nodrag nowheel" value={data.audio} onCommit={(v) => patch({ audio: v })} placeholder="dialogue · ambient · foley · score" autoSize={{ minRows: 1, maxRows: 3 }} style={promptArea} />
         </div>
 
         <div>
@@ -519,13 +560,13 @@ const CutNodeInner = ({ id, data, selected }) => {
             ['move', 'Movement', 'slow push in, slight handheld sway']].map(([k, label, ph]) => (
               <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Text style={{ width: 78, flexShrink: 0, color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>{label}</Text>
-                <Input className="nodrag" size="mini" value={(data.cine || {})[k] || ''} onChange={(v) => patch({ cine: { ...(data.cine || {}), [k]: v } })} placeholder={ph} style={{ flex: 1 }} />
+                <DraftText className="nodrag" size="mini" value={(data.cine || {})[k]} onCommit={(v) => patch({ cine: { ...(data.cine || {}), [k]: v } })} placeholder={ph} style={{ flex: 1 }} />
               </div>
           ))}
           {data.cinePreset === 'Custom' && String(data.cinematography || '').trim() ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Text style={{ width: 78, flexShrink: 0, color: '#b25c00', fontSize: 10, fontWeight: 700 }}>Legacy look</Text>
-              <Input className="nodrag" size="mini" value={data.cinematography} onChange={(v) => patch({ cinematography: v })} placeholder="hand-written look from the old field — rides into 🎬; clear to retire" style={{ flex: 1 }} />
+              <DraftText className="nodrag" size="mini" value={data.cinematography} onCommit={(v) => patch({ cinematography: v })} placeholder="hand-written look from the old field — rides into 🎬; clear to retire" style={{ flex: 1 }} />
             </div>
           ) : null}
         </div>

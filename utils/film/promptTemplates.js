@@ -137,12 +137,6 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
   // [Image 1] is the CURRENT frame; the instruction slot is sentinel-injected VERBATIM
   // (a one-line change or a full prompt — only what it changes, changes). Cast refs ride
   // as [Image 2..N]. Replaces the cinematic wrapper in edit mode.
-  'storyboard.endframe': {
-    agent: 'Storyboard',
-    label: 'END frame — a developing shot\'s closing state, edited off its START still',
-    vars: ['{exiting}'],
-    text: 'Exactly the same scene, camera position, framing, lens, lighting and colour grade as [Image 1] — this is the SAME SHOT a few seconds later. {exiting} The named change MUST be plainly visible in the result — never return [Image 1] unchanged or nearly unchanged; if the change is subtle, exaggerate it just enough to read on screen. Everything not named stays exactly as in [Image 1]. Any people keep the exact identity and faces of their reference images. Same style and grade as [Image 1]; no on-image text or watermarks.',
-  },
   'storyboard.frameEditDraw': {
     agent: 'Storyboard',
     label: 'Edit a frame guided by drawn marks',
@@ -159,6 +153,12 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
 HARD RULES — the frame must remain the SAME shot, upgraded: never change composition, camera, framing, blocking, subject identity, wardrobe, expression, pose, or story content; add no new subjects, props or text; keep the style.
 {context}
 Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only edit instruction>"}`,
+  },
+  'storyboard.quickPage': {
+    agent: 'Storyboard',
+    label: 'Quick Storyboard — one page straight from the script (no division)',
+    vars: ['{panels}', '{style}', '{script}'],
+    text: 'ONE storyboard PAGE: a single image containing {panels} numbered panels in a clean grid, read left-to-right, top-to-bottom, telling this script as a visual sequence — choose the {panels} most story-bearing moments yourself:\n"""\n{script}\n"""\nSimple, readable panel compositions with a cohesive look{style}; characters match the attached reference images across every panel. Panel numbers only — no other on-image text, no watermarks.',
   },
   'storyboard.frameEdit': {
     agent: 'Storyboard',

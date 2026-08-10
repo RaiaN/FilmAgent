@@ -157,7 +157,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             <Button
               size="small" long
               onClick={() => onCastFromScript(id)}
-              style={{ borderColor: '#b06f10', color: '#b06f10', background: '#fff' }}
+              style={{ background: '#b06f10', borderColor: '#b06f10', color: '#fff' }}
               title="Opens the Cast & World panel with this storyboard's script prefilled (verbatim) — pick Lite/Pro and ethnicity there, then Run. Plates land tagged and appear as reference chips above."
             >
               Cast & World — generate reference plates
@@ -179,7 +179,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
               size="small" type="primary" loading={!!data.busy}
               icon={<IconPlayArrow />}
               onClick={() => onDivide && onDivide(id)}
-              style={{ background: '#4e5969', borderColor: '#4e5969', flex: 1 }}
+              style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1 }}
             >
               {data.busy ? 'Dividing…' : 'Divide into shots'}
             </Button>
@@ -200,43 +200,47 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           </div>
         </div>
       )}
-      {/* Shot list divided → the batch buy: render every card that lacks its still.
-          Per-card renders live on the cards; chat revisions keep editing the text. */}
-      {(data.shots || []).length > 0 && onRenderAll && (
+      {/* STILLS — batch renders. Quick Storyboard works BEFORE a division too (one
+          page straight from the verbatim script); Render all needs rows. */}
+      {(onRenderAll || onRenderSheet) && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <Section label="STILLS">
-          <Button
-            size="small" long icon={<IconPlayArrow />} style={{ background: '#fff' }}
-            onClick={() => onRenderAll(id)}
-            title="Render a still for every card that doesn't have one yet — cards with stills are left alone (re-render those from their tiles)"
-          >
-            Render all stills
-          </Button>
-          {onRenderSheet && (
-            <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'stretch' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+            {(data.shots || []).length > 0 && onRenderAll && (
               <Button
-                size="small" style={{ flex: 1, background: '#fff' }}
-                onClick={() => onRenderSheet(id)}
-                title="Render ONE storyboard PAGE — a single image of numbered panels from the shot list (pitching, sharing, or a Seedance 2.5 storyboard-reference asset). Capped by the panel count on the right: first + last always ride, middles sample the biggest transitions. Guide advice: ≤15 panels."
+                size="small" icon={<IconPlayArrow />} type="primary" style={{ flex: 1, background: '#b06f10', borderColor: '#b06f10' }}
+                onClick={() => onRenderAll(id)}
+                title="Render a still for every card that doesn't have one yet — cards with stills are left alone (re-render those from their tiles)"
               >
-                Storyboard page — 1 image
+                Render all stills
               </Button>
-              <Select
-                size="small"
-                value={data.sheetPanels || 0}
-                onChange={(v) => onPatchChat && onPatchChat(id, { sheetPanels: v })}
-                style={{ width: 118, flexShrink: 0, background: '#fff' }}
-                title="How many panels the page holds — fewer than the shot count = deterministic sampling (first, last, biggest transitions)"
-                options={[
-                  { label: 'All panels', value: 0 },
-                  { label: '6 panels', value: 6 },
-                  { label: '8 panels', value: 8 },
-                  { label: '12 panels', value: 12 },
-                  { label: '15 panels', value: 15 },
-                ]}
-              />
-            </div>
-          )}
+            )}
+            {onRenderSheet && (
+              <>
+                <Button
+                  size="small" style={{ flex: 1, background: '#b06f10', borderColor: '#b06f10', color: '#fff' }}
+                  onClick={() => onRenderSheet(id)}
+                  title="Quick Storyboard — ONE image of numbered panels, landing below this card. Before a division it renders straight from the script (the renderer picks the moments); after, it renders from the shot list (first + last always ride, middles sample the biggest transitions). Guide advice: ≤15 panels."
+                >
+                  Quick Storyboard
+                </Button>
+                <Select
+                  size="small"
+                  value={data.sheetPanels || 0}
+                  onChange={(v) => onPatchChat && onPatchChat(id, { sheetPanels: v })}
+                  style={{ width: 100, flexShrink: 0, background: '#fff' }}
+                  title="How many panels the page holds — fewer than the shot count = deterministic sampling (first, last, biggest transitions)"
+                  options={[
+                    { label: 'All panels', value: 0 },
+                    { label: '6 panels', value: 6 },
+                    { label: '8 panels', value: 8 },
+                    { label: '12 panels', value: 12 },
+                    { label: '15 panels', value: 15 },
+                  ]}
+                />
+              </>
+            )}
+          </div>
           </Section>
         </div>
       )}
@@ -288,7 +292,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
             </Popconfirm>
           ) : (
             <Button
-              size="mini" long type="primary" style={{ background: '#4e5969', borderColor: '#4e5969' }}
+              size="mini" long type="primary" style={{ background: '#b06f10', borderColor: '#b06f10' }}
               disabled={act === 'note' && !actNote.trim()}
               onClick={() => { onListAction(id, { action: act, shot: Math.min(actShot, count) - 1, note: actNote }); setActNote(''); }}
             >

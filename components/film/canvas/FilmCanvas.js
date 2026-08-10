@@ -48,7 +48,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
+import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -3609,11 +3609,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: `Agent · Storyboard (${frameEdit ? 'edit in place' : 'render still'})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style, expression: shot.expression, ethnicity, refs: ordered, imageModel, frameEdit, frameEditAnnotated: !!annotatedFrame }, ctx);
+      const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style, expression: shot.expression, ethnicity, refs: ordered, imageModel, frameEdit, frameEditAnnotated: !!annotatedFrame }, ctx);
       // renderedFrameEdit rides with bodyRendered/shotRefs so a tile ↻ re-rolls the SAME
       // kind of render (a locked edit re-rolls as a locked edit).
       const stashRefs = annotatedFrame ? [node.data.cacheUrl || node.data.url, ...ordered.slice(1)].filter(Boolean) : ordered; // never persist megabyte annotated data: urls
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false, shotRefs: stashRefs, bodyRendered: body, renderedFrameEdit: frameEdit, staleStill: undefined } } : n)));
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false, shotRefs: stashRefs, bodyRendered: body, renderedFrameEdit: frameEdit, promptUsed, staleStill: undefined } } : n)));
       // PAIR: a DEVELOPING shot (the planner wrote an `exiting` sentence) chains its
       // END frame off the still that just landed — same tap, second named spend. The
       // END rides as data.endStill and becomes the card's END anchor at promote.
@@ -3622,8 +3622,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
         traceRef.current.startRun({ note: `Agent · Storyboard (END frame · ${String(node.data.beat || '').slice(0, 24)})` });
         try {
-          const end = await storyboardEndframe({ exiting, startUrl: cacheUrl || url, refs: ordered, imageModel }, ctx);
-          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: end.url, cacheUrl: end.cacheUrl || null }, endLoading: false } } : n)));
+          const end = await storyboardEndframe({ exiting, startUrl: cacheUrl || url, refs: ordered, imageModel, shotTemplate: node.data.shotTemplate }, ctx);
+          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: end.url, cacheUrl: end.cacheUrl || null, promptUsed: end.prompt }, endLoading: false } } : n)));
         } catch (e) {
           setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: false, endError: e.message } } : n)));
           Message.warning(`END frame failed (${e.message}) — the START still stands; re-render to retry the pair.`);
@@ -3644,13 +3644,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const shots = chat?.data?.shots || [];
-    if (!shots.length) { Message.warning('Divide into shots first — the page renders from the shot list.'); return; }
+    const preDivision = !shots.length; // no rows yet → one page straight from the script
     // PANEL BUDGET: the Panels select caps the page. Sampling is DETERMINISTIC —
     // first + last always ride, middles are evenly spaced with a preference for
     // DEVELOPS shots (the big state transitions), no LLM, no spend.
     const target = Number(chat.data?.sheetPanels) || 0;
     let pageShots = shots;
-    if (target && shots.length > target) {
+    if (!preDivision && target && shots.length > target) {
       const picked = new Set([0, shots.length - 1]);
       const need = Math.max(0, target - picked.size);
       for (let k = 1; k <= need; k += 1) {
@@ -3663,19 +3663,21 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       pageShots = [...picked].sort((a, b) => a - b).map((i2) => shots[i2]);
       Message.info(`Page condensed to ${pageShots.length} of ${shots.length} shots — first, last and the biggest transitions.`);
     }
-    if (pageShots.length > 15) Message.warning(`${pageShots.length} panels — the Seedream guide advises ≤15 per page; ordering may suffer.`);
-    const panel = nodesRef.current.find((n) => n.id === chat.data?.panelId);
-    const pos = freeOrigin({ w: 760, h: 480, preferred: panel
-      ? { x: panel.position?.x || 0, y: (panel.position?.y || 0) + (Number(panel.style?.height) || 600) + 60 }
-      : { x: (chat.position?.x || 0) + 840, y: chat.position?.y || 0 } });
+    if (!preDivision && pageShots.length > 15) Message.warning(`${pageShots.length} panels — the Seedream guide advises ≤15 per page; ordering may suffer.`);
+    // The Quick Storyboard lands directly BELOW the Shot Division control card (its
+    // own board element); freeOrigin nudges it clear of the strip when both are there.
+    const pos = freeOrigin({ w: 760, h: 480, preferred: { x: chat.position?.x || 0, y: (chat.position?.y || 0) + (chat.measured?.height || 560) + 30 } });
     const title = String(chat.data?.script || '').split(/[.\n]/)[0].trim().slice(0, 50);
     const nodeId = `sbsheet-${Date.now().toString(36)}`;
-    const base = createAssetNode({ kind: 'image', url: '', label: `Storyboard page${title ? ` — ${title}` : ''}`, position: pos });
+    const base = createAssetNode({ kind: 'image', url: '', label: `Quick Storyboard${title ? ` — ${title}` : ''}`, position: pos });
     setNodes((ns) => ns.concat({ ...base, id: nodeId, data: { ...base.data, loading: true } }));
-    traceRef.current.startRun({ note: 'Agent · Storyboard (page render · ' + pageShots.length + ' panels)' });
+    const quickPanels = target || 6;
+    traceRef.current.startRun({ note: 'Agent · Storyboard (Quick Storyboard · ' + (preDivision ? quickPanels + ' panels from script' : pageShots.length + ' panels') + ')' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const out = await storyboardSheet({ shots: pageShots, style: chat.data?.style || '', title, references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx);
+      const out = preDivision
+        ? await storyboardQuickPage({ script: chat.data?.script || '', panels: quickPanels, style: chat.data?.style || '', references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx)
+        : await storyboardSheet({ shots: pageShots, style: chat.data?.style || '', title, references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || null, loading: false } } : n)));
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
@@ -3687,9 +3689,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const panelId = chat?.data?.panelId;
     if (!panelId) return;
-    const pending = nodesRef.current.filter((n) => n.parentId === panelId && n.data?.keyframe && !(n.data.url || n.data.cacheUrl) && !n.data.loading);
-    if (!pending.length) { Message.info('Every still is already rendered — re-render individual cards from their tiles.'); return; }
-    Message.info(`Rendering ${pending.length} still${pending.length === 1 ? '' : 's'} — tiles fill as they land.`);
+    // Pending = never rendered OR stale (the words moved after the render) — a batch
+    // "make the pixels match the text" pass, never touching up-to-date pairs.
+    const pending = nodesRef.current.filter((n) => String(n.id).startsWith(`${panelId}-`) && n.data?.keyframe
+      && (!(n.data.url || n.data.cacheUrl) || n.data.staleStill) && !n.data.loading);
+    if (!pending.length) { Message.info('Every still matches its text — nothing to render.'); return; }
+    Message.info(`Rendering ${pending.length} still${pending.length === 1 ? '' : 's'} — cells fill as they land.`);
     await Promise.all(pending.map((n) => saveKeyframeShot(n.id, {})));
   }, [saveKeyframeShot]);
 
@@ -3723,8 +3728,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           // in place — the enhanced frame replaces the old one; provenance of the old
           // src is dropped so nothing stale (localUrl/assetId) can shadow it
           ...(isEnd
-            ? { endStill: { url: out.url, cacheUrl: out.cacheUrl || null } }
-            : { url: out.url, cacheUrl: out.cacheUrl || null, localUrl: undefined, assetId: undefined, preserved: undefined }),
+            ? { endStill: { url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt } }
+            : { url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt, localUrl: undefined, assetId: undefined, preserved: undefined }),
         },
       } : n)));
       Message.success(`Enhanced${isEnd ? ' END frame' : ''} — ${out.instruction.slice(0, 140)}${out.instruction.length > 140 ? '…' : ''}`);
@@ -3752,8 +3757,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: `Agent · Storyboard (END re-roll · ${String(node.data.beat || '').slice(0, 24)})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const end = await storyboardEndframe({ exiting, startUrl, refs: node.data.shotRefs || [], imageModel }, ctx);
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: end.url, cacheUrl: end.cacheUrl || null }, endLoading: false } } : n)));
+      const end = await storyboardEndframe({ exiting, startUrl, refs: node.data.shotRefs || [], imageModel, shotTemplate: node.data.shotTemplate }, ctx);
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: end.url, cacheUrl: end.cacheUrl || null, promptUsed: end.prompt }, endLoading: false } } : n)));
       Message.success('END frame re-rolled — the START stands untouched.');
     } catch (e) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: false, endError: e.message } } : n)));
@@ -3812,8 +3817,21 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: 'Agent · Storyboard (keyframe edit)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: merged.shotTemplate, style, expression: merged.expression, refs: shotRefs, imageModel, frameEdit: !!node.data.renderedFrameEdit }, ctx);
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false } } : n)));
+      const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: merged.shotTemplate, style, expression: merged.expression, refs: shotRefs, imageModel, frameEdit: !!node.data.renderedFrameEdit }, ctx);
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, promptUsed, loading: false } } : n)));
+      // A fresh roll is a NEW composition — a DEVELOPS shot re-chains its END so the
+      // pair never silently mismatches.
+      const exiting2 = String(node.data.exiting || '').trim();
+      if (exiting2 && !node.data.renderedFrameEdit) {
+        setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
+        try {
+          const end = await storyboardEndframe({ exiting: exiting2, startUrl: cacheUrl || url, refs: shotRefs, imageModel, shotTemplate: merged.shotTemplate }, ctx);
+          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: end.url, cacheUrl: end.cacheUrl || null, promptUsed: end.prompt }, endLoading: false } } : n)));
+        } catch (e2) {
+          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: false, endError: e2.message } } : n)));
+          Message.warning(`END re-chain failed (${e2.message}) — the new START stands; END ↻ retries the pair's second frame.`);
+        }
+      }
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
     }
@@ -3822,6 +3840,82 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // ---- Keyframe Expand editor: see/edit the whole shot (body + references + camera/expression) ----
   // (Its Regenerate = saveKeyframeShot above — same fresh-render path as the card's Render still.)
   const [expandedKeyframeId, setExpandedKeyframeId] = useState(null);
+  // The END frame opens in the SAME Edit-shot UI: instruction edit + draw marks +
+  // camera-under-lock reframe, applied through the one frameEdit grammar; the result
+  // replaces endStill in place. Pair GENERATION is untouched.
+  const [endEditId, setEndEditId] = useState(null);
+  const [startEditId, setStartEditId] = useState(null);
+  // Pixels-only edit of the START still, in place: same frameEdit grammar, same pool
+  // mechanics as the END editor. Text untouched → nothing goes stale; the END keeps
+  // its chain to the pre-edit composition (locked edits hold framing) — END ↻ pulls
+  // the improvement across when wanted.
+  const applyStartFrameEdit = useCallback(async (nodeId, edits = {}) => {
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    const src = node?.data?.cacheUrl || node?.data?.url;
+    if (!src) return;
+    const { annotatedFrame, body = '', shotTemplate, figures } = edits;
+    let instruction = String(body || '').trim();
+    if (!instruction && !annotatedFrame) { Message.warning('Describe the change — the frame edits by instruction (or draw marks).'); return; }
+    const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
+    const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
+    const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
+    const editorPool = [src, ...freshPoolUrls(chat?.data?.refs || [])];
+    const ticked = [1, ...((Array.isArray(figures) ? figures : []).filter((f) => f > 1))];
+    const { ordered, body: renumbered } = resolveShotRefs({ figures: ticked, body: instruction }, editorPool);
+    instruction = renumbered;
+    if (shotTemplate && shotTemplate !== node.data.shotTemplate) {
+      const t = SHOT_TEMPLATE_BY_ID[shotTemplate];
+      if (t) instruction = `Reframe to a ${t.framing}, ${t.angle} — the same scene, subjects and moment. ${instruction}`;
+    }
+    const refsToSend = [annotatedFrame || ordered[0] || src, ...ordered.slice(1)];
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true, error: undefined } } : n)));
+    traceRef.current.startRun({ note: `Agent · Storyboard (START frame edit · ${String(node.data.beat || '').slice(0, 24)})` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const out = await storyboardKeyframe({ body: instruction, refs: refsToSend, imageModel, frameEdit: true, frameEditAnnotated: !!annotatedFrame }, ctx);
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt, localUrl: undefined, assetId: undefined, preserved: undefined, loading: false } } : n)));
+      Message.success('START frame edited in place — text untouched, nothing stale. END ↻ re-chains from it when you want.');
+    } catch (e) {
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: e.message } } : n)));
+      Message.error(`START edit failed: ${e.message}`);
+    }
+  }, [apiKey, setNodes]);
+  const applyEndFrameEdit = useCallback(async (nodeId, edits = {}) => {
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    const src = node?.data?.endStill?.cacheUrl || node?.data?.endStill?.url;
+    if (!src) return;
+    const { annotatedFrame, body = '', shotTemplate, figures } = edits;
+    let instruction = String(body || '').trim();
+    if (!instruction && !annotatedFrame) { Message.warning('Describe the change — the END frame edits by instruction (or draw marks).'); return; }
+    const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
+    const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
+    const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
+    // The editor's pool = [END frame, ...the storyboard's ref pool]. Ticked refs ride
+    // behind the frame (props/casting for the change); the instruction's [Image N]
+    // numbers are renumbered to the attach order by the shared resolver.
+    const editorPool = [src, ...freshPoolUrls(chat?.data?.refs || [])];
+    const ticked = [1, ...((Array.isArray(figures) ? figures : []).filter((f) => f > 1))];
+    const { ordered, body: renumbered } = resolveShotRefs({ figures: ticked, body: instruction }, editorPool);
+    instruction = renumbered;
+    if (shotTemplate && shotTemplate !== node.data.shotTemplate) {
+      const t = SHOT_TEMPLATE_BY_ID[shotTemplate];
+      if (t) instruction = `Reframe to a ${t.framing}, ${t.angle} — the same scene, subjects and moment. ${instruction}`;
+    }
+    const refsToSend = [annotatedFrame || ordered[0] || src, ...ordered.slice(1)];
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
+    traceRef.current.startRun({ note: `Agent · Storyboard (END frame edit · ${String(node.data.beat || '').slice(0, 24)})` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const out = await storyboardKeyframe({ body: instruction, refs: refsToSend, imageModel, frameEdit: true, frameEditAnnotated: !!annotatedFrame }, ctx);
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt }, endLoading: false } } : n)));
+      Message.success('END frame edited in place — the START stands untouched.');
+    } catch (e) {
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: false, endError: e.message } } : n)));
+      Message.error(`END edit failed: ${e.message}`);
+    }
+  }, [apiKey, setNodes]);
 
   // Re-derive ONE shot's [Image N] body for a chosen figure set (the editor's "Re-derive from
   // references" — run after toggling/adding references). Returns { body, expression }; the editor
@@ -4752,7 +4846,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
   const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster, onPromoteMap: promoteMapToCard,
-    onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onRenderEnd: renderEndOnly, onEnhanceStill: enhanceRowStill, onTagFrame: tagStripStill,
+    onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onRenderEnd: renderEndOnly, onEnhanceStill: enhanceRowStill, onTagFrame: tagStripStill, onEditEndFrame: setEndEditId, onEditStartFrame: setStartEditId,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
     lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, renderEndOnly, enhanceRowStill, tagStripStill, duplicateNode, ensurePoster, promoteMapToCard, lodCoarse, demoOverlay]);
@@ -5165,8 +5259,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
               loading={kf.data.loading}
               imageAssets={imageAssets}
               onClose={() => setExpandedKeyframeId(null)}
+              mode="shot"
               onSave={(edits) => saveKeyframeShot(expandedKeyframeId, edits)}
               onSaveText={(edits) => patchKeyframeText(expandedKeyframeId, edits)}
+              promptUsed={kf.data.promptUsed}
               onRederive={(figures) => rederiveKeyframeBody(expandedKeyframeId, figures)}
               onAddRef={(url) => addReferenceToPool(chatId, url)}
             />
@@ -5189,6 +5285,52 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             onSave={(edits) => regeneratePlainFrame(expandedKeyframeId, edits)}
             onRederive={(figures) => rederivePlainBody(expandedKeyframeId, figures)}
             onAddRef={(url) => { const p = plainPool; if (p.includes(url)) return p.indexOf(url) + 1; setPlainPool([...p, url]); return p.length + 1; }}
+          />
+        );
+      })()}
+      {startEditId && (() => {
+        const kf = nodes.find((n) => n.id === startEditId);
+        const src = kf?.data?.cacheUrl || kf?.data?.url;
+        if (!kf || !src) return null;
+        const chatId = kf.data.panelId ? String(kf.data.panelId).replace('sbpanel', 'sbchat') : null;
+        const chat = chatId && nodes.find((n) => n.id === chatId);
+        const pool = [src, ...freshPoolUrls(chat?.data?.refs || [])]; // [1] = the START frame itself
+        return (
+          <KeyframeEditor
+            key={`start-${startEditId}`}
+            mode="frame"
+            shot={{ beat: `${kf.data.beat || 'Shot'} · START`, body: '', shotTemplate: kf.data.shotTemplate || 'medium-shot', expression: '', figures: [1] }}
+            pool={pool}
+            preview={src}
+            loading={!!kf.data.loading}
+            imageAssets={imageAssets}
+            onClose={() => setStartEditId(null)}
+            onSave={(edits) => applyStartFrameEdit(startEditId, edits)}
+            onAddRef={chatId ? (async (url) => { const n = await addReferenceToPool(chatId, url); return n ? n + 1 : null; }) : undefined}
+            promptUsed={kf.data.promptUsed}
+          />
+        );
+      })()}
+      {endEditId && (() => {
+        const kf = nodes.find((n) => n.id === endEditId);
+        const src = kf?.data?.endStill?.cacheUrl || kf?.data?.endStill?.url;
+        if (!kf || !src) return null;
+        const chatId = kf.data.panelId ? String(kf.data.panelId).replace('sbpanel', 'sbchat') : null;
+        const chat = chatId && nodes.find((n) => n.id === chatId);
+        const pool = [src, ...freshPoolUrls(chat?.data?.refs || [])]; // [1] = the END frame itself
+        return (
+          <KeyframeEditor
+            key={`end-${endEditId}`}
+            shot={{ beat: `${kf.data.beat || 'Shot'} · END`, body: '', shotTemplate: kf.data.shotTemplate || 'medium-shot', expression: '', figures: [1] }}
+            pool={pool}
+            preview={src}
+            loading={!!kf.data.endLoading}
+            imageAssets={imageAssets}
+            mode="frame"
+            onClose={() => setEndEditId(null)}
+            onSave={(edits) => applyEndFrameEdit(endEditId, edits)}
+            promptUsed={kf.data.endStill?.promptUsed}
+            onAddRef={chatId ? (async (url) => { const n = await addReferenceToPool(chatId, url); return n ? n + 1 : null; }) : undefined}
           />
         );
       })()}

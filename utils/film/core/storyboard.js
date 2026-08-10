@@ -280,22 +280,48 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', shot
 // reference plates IN [Image 1..N] ORDER (the caller resolves + renumbers them). NOT a blend — each
 // image is a distinct addressed subject. composeKeyframePrompt wraps the body with the camera + finish
 // lines. Style/expression/ethnicity are optional overrides. One call per shot; the canvas streams them.
-// The END frame of a DEVELOPING shot: a chained edit of its freshly-rendered START
-// still — [Image 1] IS the start, the exiting sentence is the only named change, and
-// the casting refs ride behind for identity. The exiting text is injected via a
-// sentinel (verbatim — braces in author text can't break the template). Fast path
-// (thinking off), like every structure-locked edit.
-export const storyboardEndframe = async ({ exiting = '', startUrl = '', refs = [], imageModel = 'seedreamPro', config } = {}, ctx) => {
+// The END frame of a DEVELOPING shot: a structure-locked frameEdit of its
+// freshly-rendered START still — [Image 1] IS the start, the composed instruction
+// carries the advance (+ the camera-under-lock reframe when the shot's camera moves),
+// and the casting refs ride behind for identity. Fast path, like every locked edit.
+export const storyboardEndframe = async ({ exiting = '', startUrl = '', refs = [], imageModel = 'seedreamPro', shotTemplate = '', config } = {}, ctx) => {
   const line = String(exiting || '').trim().slice(0, 800);
   if (!line || !startUrl) throw new Error('endframe needs an exiting sentence and the START still');
-  const SLOT = '@@EXIT@@';
-  const prompt = renderTemplate('storyboard.endframe', { exiting: SLOT }).split(SLOT).join(line);
-  const images = [startUrl, ...(refs || [])].filter(Boolean).slice(0, imageRefCap(imageModel));
+  // LITERALLY the Edit-shot call: the END STATE sentence rides VERBATIM as the edit
+  // instruction — no wrapper prose. The only composition is the established
+  // camera-under-lock reframe clause when the shot's camera moves (the same clause an
+  // Edit-shot camera change adds).
+  const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate];
+  const move = String(tpl?.move || '').trim();
+  const isStatic = !move || /static|lock/i.test(move);
+  const instruction = [
+    isStatic ? '' : `Reframe to the composition the camera reaches at the end of its ${move} — the same scene, subjects and moment.`,
+    line,
+  ].filter(Boolean).join(' ');
+  const out = await storyboardKeyframe({
+    body: instruction, refs: [startUrl, ...(refs || [])].filter(Boolean), imageModel, frameEdit: true, config,
+  }, ctx);
+  return out; // { url, cacheUrl, prompt }
+};
+
+// QUICK STORYBOARD, pre-division: ONE page rendered straight from the VERBATIM
+// script — the renderer picks the moments itself. No carve, no rows, no side
+// effects; after a division the page renders from the real shot list instead.
+export const storyboardQuickPage = async ({ script = '', panels = 6, style = '', references = [], imageModel = 'seedreamPro', config } = {}, ctx) => {
+  const text = String(script || '').trim();
+  if (!text) throw new Error('Quick Storyboard needs the script.');
+  const SLOT = '@@SCRIPT@@';
+  const prompt = renderTemplate('storyboard.quickPage', {
+    panels: String(Math.max(2, Math.min(15, Math.round(Number(panels) || 6)))),
+    style: String(style || '').trim() ? ` (${String(style).trim()})` : '',
+    script: SLOT,
+  }).split(SLOT).join(text.slice(0, 6000));
+  const images = (references || []).filter(Boolean).slice(0, imageRefCap(imageModel));
   const { url, cacheUrl } = await ctx.client.generateImage({
-    prompt, referenceImages: images, size: keyframeImageSize(imageModel), model: getModel(imageModel, config), optimizePrompt: false,
+    prompt, referenceImages: images, size: keyframeImageSize(imageModel), model: getModel(imageModel, config),
   });
-  if (!url) throw new Error('No END-frame URL in response');
-  return { url, cacheUrl };
+  if (!url) throw new Error('No page URL in response');
+  return { url, cacheUrl, prompt };
 };
 
 export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedreamPro', frameEdit = false, frameEditAnnotated = false, config } = {}, ctx) => {
@@ -318,7 +344,7 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
     ...(frameEdit ? { optimizePrompt: false } : {}),
   });
   if (!url) throw new Error('No keyframe URL in response');
-  return { url, cacheUrl };
+  return { url, cacheUrl, prompt }; // the EXACT sent prompt — stashed as promptUsed
 };
 
 // SINGLE-IMAGE mode: render the WHOLE storyboard as ONE sheet (a grid of numbered panels). Composed
@@ -496,8 +522,8 @@ export const enhanceStill = async ({ imageUrl, context = '', imageModel = 'seedr
   const instruction = String((parseJson(content) || {}).instruction || '').trim();
   if (!instruction) throw new Error('The finishing pass came back empty — try again.');
   if (onPhase) onPhase('edit'); // step 2 of 2 — the locked edit renders
-  const { url, cacheUrl } = await storyboardKeyframe({ body: instruction, refs: [imageUrl], imageModel, frameEdit: true, config }, ctx);
-  return { url, cacheUrl, instruction };
+  const { url, cacheUrl, prompt } = await storyboardKeyframe({ body: instruction, refs: [imageUrl], imageModel, frameEdit: true, config }, ctx);
+  return { url, cacheUrl, instruction, prompt };
 };
 
 // Take Viewer 📝: ONE extracted still → prompt-ready text (subjects, blocking, setting,

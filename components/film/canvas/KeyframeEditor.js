@@ -12,7 +12,7 @@ const EXPR_OPTS = ['neutral', 'slight smile', 'smiling', 'laughing', 'surprised'
 // a still has no duration; pacing edits belong to the chat revision and the promoted SHOT card.)
 // Reference numbers are GLOBAL (the pool = [Image 1..N]); the canvas renumbers them to attach
 // order at render time.
-export default function KeyframeEditor({ shot = {}, pool = [], preview, loading, imageAssets = [], onClose, onSave, onRederive, onAddRef, onSaveText }) {
+export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], preview, loading, imageAssets = [], onClose, onSave, onRederive, onAddRef, onSaveText, promptUsed }) {
   const [body, setBody] = useState(String(shot.body || ''));
   const [figures, setFigures] = useState(Array.isArray(shot.figures) ? shot.figures : []);
   const [shotTemplate, setShotTemplate] = useState(shot.shotTemplate || 'medium-shot');
@@ -92,17 +92,28 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
     try { const n = await onAddRef(url); if (n) { setFigures((f) => (f.includes(n) ? f : [...f, n].sort((a, b) => a - b))); setAddOpen(false); } }
     catch (e) { Message.error(e.message); }
   };
-  const saveWords = () => {
+  const saveWords = (opts = {}) => {
     const edits = {};
     if (body.trim() !== String(shot.body || '')) edits.body = body.trim();
+    if (shotTemplate !== (shot.shotTemplate || 'medium-shot')) edits.shotTemplate = shotTemplate;
+    if (expression.trim() !== String(shot.expression || '')) edits.expression = expression.trim();
+    if (JSON.stringify(figures) !== JSON.stringify(Array.isArray(shot.figures) ? shot.figures : [])) edits.figures = figures;
     if (motion.trim() !== String(shot.motion || '')) edits.motion = motion.trim();
     if (exiting.trim() !== String(shot.exiting || '')) { edits.exiting = exiting.trim(); edits.develops = !!exiting.trim(); }
     if (audio.trim() !== String(shot.audio || '')) edits.audio = audio.trim();
-    if (!Object.keys(edits).length) { Message.info('Nothing changed.'); return; }
+    if (!Object.keys(edits).length) { if (!opts.silent) Message.info('Nothing changed.'); return; }
     onSaveText(edits);
-    Message.success(edits.exiting !== undefined
-      ? (edits.exiting ? 'Words saved — the shot now DEVELOPS; its END frame renders with the still.' : 'Words saved — the shot now HOLDS (no END frame).')
-      : 'Words saved — free, nothing rendered.');
+    if (!opts.silent) {
+      Message.success(edits.exiting !== undefined
+        ? (edits.exiting ? 'Words saved — the shot now DEVELOPS; its END frame renders with the still.' : 'Words saved — the shot now HOLDS (no END frame).')
+        : 'Words saved — free, nothing rendered.');
+    }
+  };
+  const saveAndRender = () => {
+    saveWords({ silent: true });
+    // The render call carries the render-relevant fields itself, so it never races
+    // the word patch; motion/audio only ride the patch (they don't touch pixels).
+    onSave({ body: body.trim(), figures, shotTemplate, expression, exiting: exiting.trim() });
   };
   const doRegenerate = async () => {
     let annotatedFrame = null;
@@ -132,7 +143,7 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
           ) : (
             <div style={{ height: 280, background: '#f2f3f5', borderRadius: 8 }} />
           )}
-          {preview && (
+          {mode === 'frame' && preview && (
             <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
               <Button size="mini" type={drawOn ? 'primary' : 'secondary'} onClick={() => setDrawOn((v) => !v)} style={drawOn ? { background: '#ff2d2d', borderColor: '#ff2d2d' } : {}}>
                 {drawOn ? 'Drawing…' : '✏ Draw on frame'}
@@ -142,6 +153,12 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
             </div>
           )}
           {loading && <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>Rendering…</Text>}
+          {promptUsed && (
+            <div style={{ marginTop: 10 }}>
+              <Text type="secondary" style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 2 }}>Prompt used — the exact text this frame was rendered with</Text>
+              <Input.TextArea readOnly value={promptUsed} autoSize={{ minRows: 2, maxRows: 7 }} style={{ fontSize: 11, background: '#f7f8fa' }} />
+            </div>
+          )}
         </div>
         <div style={{ flex: '1 1 0', minWidth: 320 }}>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>References — tick which appear in this shot (the prompt refers to them as [Image N])</Text>
@@ -157,10 +174,12 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
                 </div>
               );
             })}
-            <div onClick={() => setAddOpen((v) => !v)} title="Add a board image as a reference"
-              style={{ width: 56, height: 56, borderRadius: 6, border: '2px dashed #c9cdd4', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#86909c' }}>
-              <IconPlus />
-            </div>
+            {onAddRef && (
+              <div onClick={() => setAddOpen((v) => !v)} title="Add a board image as a reference"
+                style={{ width: 56, height: 56, borderRadius: 6, border: '2px dashed #c9cdd4', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#86909c' }}>
+                <IconPlus />
+              </div>
+            )}
           </div>
           {addOpen && (
             <div style={{ marginBottom: 10, padding: 8, border: '1px solid #e5e6eb', borderRadius: 6, maxHeight: 132, overflowY: 'auto' }}>
@@ -176,13 +195,13 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
               )}
             </div>
           )}
-          <Text type="secondary" title={useFrame && preview ? 'The frame anchors the structure: the render keeps its composition and changes ONLY what this text changes. Address references as [Image N].' : undefined} style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-            {useFrame && preview
-              ? 'Edit instruction or full prompt'
-              : 'Prompt (body) — describe the shot; address references as [Image N]'}
+          <Text type="secondary" title={mode === 'frame' ? 'The frame anchors the structure: the render keeps its composition and changes ONLY what this text changes. Address references as [Image N].' : undefined} style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+            {mode === 'frame'
+              ? 'Edit instruction — change only what you name; address references as [Image N]'
+              : 'Frame text — what the still renders from; address references as [Image N]'}
           </Text>
           <Input.TextArea value={body} onChange={setBody} autoSize={{ minRows: 4, maxRows: 10 }} style={{ marginBottom: 6 }} />
-          <Button size="mini" loading={rederiving} onClick={doRederive} style={{ marginBottom: 12 }}>Re-derive body from references</Button>
+          {onRederive && <Button size="mini" loading={rederiving} onClick={doRederive} style={{ marginBottom: 12 }}>Re-derive body from references</Button>}
           {onSaveText && (
             <div style={{ marginBottom: 12, padding: '8px 10px', border: '1px solid #e5e6eb', borderRadius: 6 }}>
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Action — what the take performs; dialogue in {'{'}curly braces{'}'}</Text>
@@ -190,8 +209,7 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>End state — one on-screen sentence; empty = HOLD, written = DEVELOPS (chained END frame)</Text>
               <Input.TextArea value={exiting} onChange={setExiting} autoSize={{ minRows: 1, maxRows: 3 }} style={{ marginBottom: 6 }} />
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Audio —（music） &lt;sfx&gt; {'{'}dialogue{'}'}</Text>
-              <Input value={audio} onChange={setAudio} style={{ marginBottom: 8 }} />
-              <Button size="mini" onClick={saveWords} title="Write the word fields back to the shot — free, nothing renders; a changed frame/end marks the stills stale">Save words — free</Button>
+              <Input value={audio} onChange={setAudio} />
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 14 }}>
@@ -199,12 +217,14 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Camera</Text>
               <Select size="small" showSearch value={shotTemplate} onChange={setShotTemplate} options={SHOT_OPTS} style={{ width: '100%' }} />
             </div>
-            <div style={{ flex: 1 }}>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Expression</Text>
-              <Select size="small" allowClear allowCreate value={expression || undefined} onChange={(v) => setExpression(v || '')} options={EXPR_OPTS} style={{ width: '100%' }} />
-            </div>
+            {mode === 'shot' && (
+              <div style={{ flex: 1 }}>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Expression</Text>
+                <Select size="small" allowClear allowCreate value={expression || undefined} onChange={(v) => setExpression(v || '')} options={EXPR_OPTS} style={{ width: '100%' }} />
+              </div>
+            )}
           </div>
-          {preview && (
+          {mode === 'frame' && preview && (
             <Checkbox checked={useFrame} onChange={setUseFrame} style={{ marginBottom: 12, display: 'block' }}>
               <Text style={{ fontSize: 12 }}>
                 Use this frame as reference — keep its composition and figure positions; change <b>only</b> what the text changes (a Camera change reframes the same scene)
@@ -213,9 +233,19 @@ export default function KeyframeEditor({ shot = {}, pool = [], preview, loading,
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <Button onClick={onClose}>Close</Button>
-            <Button type="primary" loading={loading} onClick={doRegenerate} title={useFrame && preview ? 'Edit IN PLACE — the frame anchors the structure; the text drives the change' : 'Re-compose from text + ticked references (fresh roll)'}>
-              {useFrame && preview ? 'Apply edit' : 'Regenerate'}
-            </Button>
+            {mode === 'shot' && onSaveText && (
+              <Button onClick={() => saveWords()} title="Write every changed field back to the shot — free, nothing renders; changed frame/end text marks the stills stale">Save</Button>
+            )}
+            {mode === 'shot' && (
+              <Button type="primary" loading={loading} onClick={saveAndRender} title="Save every field AND re-render the pair from them now — 1 image, +1 chained END on a developing shot">
+                Render
+              </Button>
+            )}
+            {mode === 'frame' && (
+              <Button type="primary" loading={loading} onClick={doRegenerate} title={useFrame && preview ? 'Edit IN PLACE — the frame anchors the structure; the text drives the change' : 'Re-compose from text + ticked references (fresh roll)'}>
+                {useFrame && preview ? 'Apply edit' : 'Regenerate'}
+              </Button>
+            )}
           </div>
         </div>
       </div>

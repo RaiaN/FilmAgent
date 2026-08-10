@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useMemo, useState } from 'react';
 import { useNodesData } from '@xyflow/react';
 import { Button, Typography } from '@arco-design/web-react';
-import { IconRefresh, IconPlayCircle, IconLoading, IconVideoCamera, IconArrowUp, IconArrowDown, IconClose, IconExpand, IconBrush, IconTag } from '@arco-design/web-react/icon';
+import { IconRefresh, IconPlayCircle, IconLoading, IconVideoCamera, IconArrowUp, IconArrowDown, IconClose, IconExpand, IconBrush, IconTag, IconEdit } from '@arco-design/web-react/icon';
 import { AssetNodeContext } from './AssetNode';
 import { StoryboardChatContext } from './StoryboardChatNode';
 import { SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
@@ -54,7 +54,7 @@ const CellImg = ({ srcs, alt, title, onDoubleClick, onDead }) => {
 };
 
 const StoryboardStripInner = ({ id, data, selected }) => {
-  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onViewImage, onImgError, onRenderEnd, onEnhanceStill, onTagFrame } = useContext(AssetNodeContext);
+  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onViewImage, onImgError, onRenderEnd, onEnhanceStill, onTagFrame, onEditEndFrame, onEditStartFrame } = useContext(AssetNodeContext);
   const { onListAction } = useContext(StoryboardChatContext);
   const chatId = data.chatId || String(id).replace('sbpanel', 'sbchat');
   const chatArr = useNodesData([chatId]);
@@ -118,14 +118,8 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                 <div style={{ display: 'flex', gap: 4, marginTop: 'auto', alignItems: 'center' }}>
                   {still ? (
                     <>
-                      {row.staleStill && onRenderStill && (
-                        <Button size="mini" type="primary" style={{ flex: 1, background: '#ff7d00', borderColor: '#ff7d00' }} icon={<IconRefresh />} onClick={() => onRenderStill(nodeId)} title="Text moved on — re-render the still to match">re-render</Button>
-                      )}
                       {onPromoteKeyframe && (
                         <Button size="mini" type="primary" style={{ flex: 1, background: '#b06f10', borderColor: '#b06f10' }} icon={<IconVideoCamera />} onClick={() => onPromoteKeyframe(nodeId)} title="→ SHOT card — the still rides as its K1 keyframe; beat / camera / duration carried">SHOT card</Button>
-                      )}
-                      {onEditKeyframe && !row.staleStill && (
-                        <Button size="mini" icon={<IconRefresh />} onClick={() => onEditKeyframe(nodeId, {})} title="Regenerate this still" />
                       )}
                     </>
                   ) : (
@@ -133,7 +127,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                       <Button size="mini" type="primary" style={{ flex: 1, background: '#4e5969', borderColor: '#4e5969' }} loading={!!row.loading} icon={<IconPlayCircle />} onClick={() => onRenderStill(nodeId)} title="Render this shot's still — ONE Seedream image from exactly this text + its references">Render still</Button>
                     )
                   )}
-                  {onExpandKeyframe && <Button size="mini" icon={<IconExpand />} onClick={() => onExpandKeyframe(nodeId)} title="Shot editor — text, references, camera, expression, frame lock" />}
+                  {onExpandKeyframe && <Button size="mini" icon={<IconExpand />} onClick={() => onExpandKeyframe(nodeId)} title="Shot editor (words) — frame text, action, end state, audio, camera, expression, references" />}
                   {onListAction && (
                     <>
                       <Button size="mini" icon={<IconArrowUp />} disabled={i === 0} onClick={() => onListAction(chatId, { action: 'move', shot: i, to: i - 1 })} title="Move this shot up" />
@@ -146,21 +140,21 @@ const StoryboardStripInner = ({ id, data, selected }) => {
               {/* START cell */}
               <div style={cellBase}>
                 <span style={{ ...badge, background: 'rgba(16,20,24,0.78)' }}>{String(i + 1).padStart(2, '0')}</span>
-                {still && !row.loading && onEnhanceStill && (
-                  <Button
-                    size="mini" icon={<IconBrush />}
-                    onClick={(e) => { e.stopPropagation(); onEnhanceStill(nodeId, 'start'); }}
-                    title="Enhance — the agent studies THIS frame and applies a finishing pass (micro-detail, light shaping, texture, atmosphere) with composition, identity and blocking locked. 1 VLM + 1 image, replaces in place."
-                    style={{ position: 'absolute', top: 4, right: 4, zIndex: 4 }}
-                  />
-                )}
-                {still && !row.loading && onTagFrame && (
-                  <Button
-                    size="mini" icon={<IconTag />}
-                    onClick={(e) => { e.stopPropagation(); onTagFrame(nodeId, 'start'); }}
-                    title="Tag as FRAME — lands this still as a tagged board asset; it becomes a reference chip on every SHOT card, pickable as a keyframe (free)"
-                    style={{ position: 'absolute', top: 4, right: 34, zIndex: 4 }}
-                  >Tag</Button>
+                {still && !row.loading && (
+                  <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, display: 'flex', gap: 3 }}>
+                    {onEditStartFrame && (
+                      <Button size="mini" icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditStartFrame(nodeId); }} title="Edit the START frame (pixels) — instruction, draw marks, camera reframe; replaces in place, text untouched" />
+                    )}
+                    {onEnhanceStill && (
+                      <Button size="mini" icon={<IconBrush />} onClick={(e) => { e.stopPropagation(); onEnhanceStill(nodeId, 'start'); }} title="Enhance — the agent studies THIS frame and applies a finishing pass (micro-detail, light shaping, texture, atmosphere) with composition, identity and blocking locked. 1 VLM + 1 image, replaces in place." />
+                    )}
+                    {onTagFrame && (
+                      <Button size="mini" icon={<IconTag />} onClick={(e) => { e.stopPropagation(); onTagFrame(nodeId, 'start'); }} title="Tag as FRAME — lands this still as a tagged board asset; it becomes a reference chip on every SHOT card, pickable as a keyframe (free)">Tag</Button>
+                    )}
+                    {onRenderStill && (
+                      <Button size="mini" icon={<IconRefresh />} onClick={(e) => { e.stopPropagation(); onRenderStill(nodeId); }} title="Re-render from the CURRENT text (a developing shot chains a fresh END too) — the stale-sync and the fresh re-roll are the same action" />
+                    )}
+                  </div>
                 )}
                 {row.loading && (
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.66)', zIndex: 2 }}>
@@ -182,7 +176,11 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                   <Text type="secondary" style={{ fontSize: 10 }}>not rendered</Text>
                 )}
                 {row.staleStill && still && (
-                  <span style={{ position: 'absolute', bottom: 5, left: 5, right: 5, zIndex: 3, background: 'rgba(255,125,0,0.92)', color: '#fff', fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, textAlign: 'center', pointerEvents: 'none' }}>text changed — re-render</span>
+                  <span
+                    onClick={(e) => { e.stopPropagation(); if (onRenderStill) onRenderStill(nodeId); }}
+                    title="The words moved after this render — click to re-render the pair from the current text"
+                    style={{ position: 'absolute', bottom: 5, left: 5, right: 5, zIndex: 3, background: 'rgba(255,125,0,0.92)', color: '#fff', fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, textAlign: 'center', cursor: 'pointer' }}
+                  >text changed — click to re-render</span>
                 )}
               </div>
               {/* END cell — ALWAYS present so the columns align. ↻ re-rolls JUST the END
@@ -193,29 +191,21 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                 onClick={() => { if (!develops && onExpandKeyframe) onExpandKeyframe(nodeId); }}
               >
                 {develops && <span style={{ ...badge, background: 'rgba(29,107,196,0.9)' }}>END</span>}
-                {develops && !row.endLoading && still && onRenderEnd && (
-                  <Button
-                    size="mini" icon={<IconRefresh />}
-                    onClick={(e) => { e.stopPropagation(); onRenderEnd(nodeId); }}
-                    title="Re-render the END frame ONLY — one image from the current START still + end state; the START stays"
-                    style={{ position: 'absolute', top: 4, right: 4, zIndex: 4 }}
-                  />
-                )}
-                {develops && !row.endLoading && row.endStill?.url && onEnhanceStill && (
-                  <Button
-                    size="mini" icon={<IconBrush />}
-                    onClick={(e) => { e.stopPropagation(); onEnhanceStill(nodeId, 'end'); }}
-                    title="Enhance the END frame — finishing pass with composition/identity locked. 1 VLM + 1 image, replaces in place."
-                    style={{ position: 'absolute', top: 4, right: 34, zIndex: 4 }}
-                  />
-                )}
-                {develops && !row.endLoading && row.endStill?.url && onTagFrame && (
-                  <Button
-                    size="mini" icon={<IconTag />}
-                    onClick={(e) => { e.stopPropagation(); onTagFrame(nodeId, 'end'); }}
-                    title="Tag the END frame as a FRAME chip — usable as a keyframe on any SHOT card (free)"
-                    style={{ position: 'absolute', top: 4, right: 64, zIndex: 4 }}
-                  >Tag</Button>
+                {develops && !row.endLoading && (
+                  <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, display: 'flex', gap: 3 }}>
+                    {row.endStill?.url && onEditEndFrame && (
+                      <Button size="mini" icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditEndFrame(nodeId); }} title="Edit the END frame — instruction edit, draw marks, camera reframe; the result replaces the END in place (the Edit-shot editor)" />
+                    )}
+                    {row.endStill?.url && onEnhanceStill && (
+                      <Button size="mini" icon={<IconBrush />} onClick={(e) => { e.stopPropagation(); onEnhanceStill(nodeId, 'end'); }} title="Enhance the END frame — finishing pass with composition/identity locked. 1 VLM + 1 image, replaces in place." />
+                    )}
+                    {row.endStill?.url && onTagFrame && (
+                      <Button size="mini" icon={<IconTag />} onClick={(e) => { e.stopPropagation(); onTagFrame(nodeId, 'end'); }} title="Tag the END frame as a FRAME chip — usable as a keyframe on any SHOT card (free)">Tag</Button>
+                    )}
+                    {still && onRenderEnd && (
+                      <Button size="mini" icon={<IconRefresh />} onClick={(e) => { e.stopPropagation(); onRenderEnd(nodeId); }} title="Re-render the END frame ONLY — one image from the current START still + end state; the START stays" />
+                    )}
+                  </div>
                 )}
                 {develops ? (
                   row.endStill?.url ? (

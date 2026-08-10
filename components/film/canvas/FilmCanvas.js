@@ -215,6 +215,17 @@ const downscaleRef = async (url) => {
   try { return await makeThumbnail(url, 1024); } catch { return url; }
 };
 
+// Inline a same-origin media url (store url / localUrl) as a data: url — the voice
+// service can't fetch anything of ours, so its references must ride in the body.
+// Throws on unreadable/CORS-blocked urls; callers degrade per-reference.
+const inlineAsDataUrl = async (url) => {
+  const u = String(url || '');
+  if (u.startsWith('data:')) return u;
+  const r = await fetch(u);
+  if (!r.ok) throw new Error(`fetch failed (HTTP ${r.status})`);
+  return await readFileAsDataUrl(await r.blob());
+};
+
 // Resolve a storyboard shot's references for the Seedream request: its `figures` → the pool refs (in
 // order), and renumber the body's GLOBAL [Image N] → attach-order [Image N] (`@@N@@` sentinel avoids
 // clobbering real numbers). Shots with no figures (Breakdown) fall back to a single pool ref. Shared
@@ -810,6 +821,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const imageAssets = useMemo(() => nodes
     .filter((n) => n.data?.kind === 'image' && refUrl(n) && !n.data?.loading)
     .map((n) => ({ id: n.id, url: refUrl(n), label: n.data?.label || 'Image' })), [nodes]);
+  // Board audio clips, for the Audio agent's voice/sound reference picker (@Audio1..N).
+  const audioAssets = useMemo(() => nodes
+    .filter((n) => n.data?.kind === 'audio' && refUrl(n) && !n.data?.loading)
+    .map((n) => ({ id: n.id, label: n.data?.label || 'Audio', duration: Number(n.data?.duration) || null })), [nodes]);
 
   // ---- drop / add assets ----
   const onDragOver = useCallback((event) => {
@@ -1495,25 +1510,42 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // The AUDIO agent: the typed prompt goes out VERBATIM (word for word, original
   // language) and comes back as a playable clip node — one explicit tap, one call,
   // mixed into nothing. Seed Audio 1.0 (default) follows the prompt — voice id
-  // optional, or ONE ticked board image as a scene-mood reference; Seed TTS 2.0
-  // reads word-for-word and needs the voice id. The clip lands loading-first
-  // (instant feedback), fills in when the voice API returns, and the media store
-  // checks its data: url into a real file seconds later.
-  const runAudioClip = useCallback(async ({ text, voice = '', instruction = '', model = 'seedAudio', imageRef = '', near = null } = {}) => {
+  // optional; references = up to 3 ticked board clips (@Audio1..N — a voice or
+  // sound to imitate) OR one board image for scene mood; Seed TTS 2.0 reads
+  // word-for-word and needs the voice id. The clip lands loading-first (instant
+  // feedback), fills in when the voice API returns, and the media store checks
+  // its data: url into a real file seconds later.
+  const runAudioClip = useCallback(async ({ text, voice = '', instruction = '', model = 'seedAudio', imageRef = '', audioRefs = [], near = null } = {}) => {
     const line = String(text || '').trim() ? String(text) : '';
     if (!line) { Message.warning(model === 'seedAudio' ? 'Type the audio prompt first — it goes to the model word for word.' : 'Type the line to speak first — it is spoken word for word.'); return; }
     // Seed Audio casts voices FROM THE PROMPT — no voice id in that mode (a stale panel
     // value must not sneak in as a `speaker` reference and collide with the mood image).
     if (model === 'seedAudio') voice = '';
     else if (!String(voice || '').trim()) { Message.warning('Seed TTS 2.0 needs a voice id — set it in the panel (or switch to Seed Audio 1.0).'); return; }
-    // The mood reference: ONE board image, downscaled to a data: url so the voice
-    // service never has to fetch anything (same inlining rule as every other ref path).
+    // The mood reference: ONE board image, inlined (then downscaled) to a data: url so
+    // the voice service never has to fetch anything (same rule as every other ref path).
     let imageData;
     if (model === 'seedAudio' && imageRef) {
       const refNode = nodesRef.current.find((x) => x.id === imageRef);
       const u = refNode && refUrl(refNode);
-      if (u) { try { imageData = await downscaleRef(absLocalMediaUrl(u)); } catch { /* mood ref is optional — proceed without it */ } }
+      if (u) { try { imageData = await downscaleRef(await inlineAsDataUrl(absLocalMediaUrl(u))); } catch { /* mood ref is optional — proceed without it */ } }
       if (!imageData) Message.warning('The picked reference image could not be read — generating without it.');
+    }
+    // Voice/sound references: board clips, inlined in pick order — @Audio1..N in the prompt.
+    const audioRefData = [];
+    if (model === 'seedAudio') {
+      for (const rid of (audioRefs || []).slice(0, 3)) {
+        const clip = nodesRef.current.find((x) => x.id === rid);
+        const u = clip && refUrl(clip);
+        if (!u) { Message.warning('A picked reference clip is gone from the board — skipping it.'); continue; }
+        if (Number(clip.data?.duration) > 30) Message.warning(`"${clip.data?.label || 'clip'}" runs ${Math.round(clip.data.duration)}s — Seed Audio reference clips cap at 30s, it may be rejected.`);
+        try { audioRefData.push(await inlineAsDataUrl(absLocalMediaUrl(u))); } // eslint-disable-line no-await-in-loop
+        catch { Message.warning(`Reference clip "${clip.data?.label || 'clip'}" could not be read — generating without it.`); }
+      }
+      if (audioRefData.length && imageData) {
+        Message.warning('Audio references and a mood image cannot mix — using the audio references.');
+        imageData = undefined;
+      }
     }
     const pref = near || (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 260 }) : { x: 220, y: 240 });
     const position = freeOrigin({ w: 280, h: 150, preferred: pref });
@@ -1525,7 +1557,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: `Agent · Audio (${model === 'seedAudio' ? 'Seed Audio 1.0' : 'Seed TTS 2.0'})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const { url, duration } = await generateFilmAudio({ text: line, voice, model, instruction, imageData }, ctx);
+      const { url, duration } = await generateFilmAudio({ text: line, voice, model, instruction, imageData, audioRefs: audioRefData }, ctx);
       // duration persists on the clip — the SHOT-card attach path shows it and warns
       // when it exceeds Seedance's 15s reference-audio cap.
       setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, url, duration: Number(duration) || null, loading: false } } : n)));
@@ -4250,7 +4282,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         if (!typed && !selStory) { Message.warning('Type the scene text — or select a Brief node and leave the field empty.'); return; }
         await runFloorPlan({ brief: typed || String(selStory.data.idea).trim(), near: beside });
       } else if (agentId === 'audio') {
-        await runAudioClip({ text: s.prompt, voice: s.voice, instruction: s.instruction, model: s.model || 'seedAudio', imageRef: s.imageRef || '', near: beside });
+        await runAudioClip({ text: s.prompt, voice: s.voice, instruction: s.instruction, model: s.model || 'seedAudio', imageRef: s.imageRef || '', audioRefs: s.audioRefs || [], near: beside });
       } else if (agentId === 'characterVariations' || agentId === 'locationVariations') {
         const anchor = nodesRef.current.find((n) => n.id === s.anchorId && n.data?.kind === 'image' && n.data?.url);
         if (!anchor) { Message.warning('Pick the source image on the card first.'); return; }
@@ -5247,6 +5279,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             ? (patch) => patchAgentSettings(selectedAgentNode.id, patch)
             : (patch) => setLayerSettings((prev) => ({ ...prev, [panelAgentId]: { ...(prev[panelAgentId] || {}), ...patch } }))}
           imageAssets={imageAssets}
+          audioAssets={audioAssets}
           running={selectedAgentNode ? agentRunning.includes(selectedAgentNode.id) : false}
           draft={!selectedAgentNode}
           onPrimary={selectedAgentNode ? () => runAgentNode(selectedAgentNode.id) : panelPrimary}

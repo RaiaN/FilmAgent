@@ -50,6 +50,35 @@ const BoardImagePicker = ({ imageAssets, value, onPick, multi = false, emptyHint
   );
 };
 
+// Picker over the board's audio clips — ordered multi-pick; pick order IS the
+// @Audio1..N numbering the prompt uses. Cap 3 (the API's reference limit).
+const BoardAudioPicker = ({ audioAssets, value, onPick, max = 3 }) => {
+  const picked = value || [];
+  if (!audioAssets.length) {
+    return <Text type="secondary" style={{ fontSize: 11, opacity: 0.8 }}>No board audio yet — generate or drop a clip first.</Text>;
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 150, overflowY: 'auto' }}>
+      {audioAssets.map((a) => {
+        const at = picked.indexOf(a.id);
+        const on = at >= 0;
+        return (
+          <div
+            key={a.id}
+            onClick={() => onPick(on ? picked.filter((x) => x !== a.id) : (picked.length >= max ? picked : [...picked, a.id]))}
+            title={a.label}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12, border: on ? '1px solid #7816ff' : '1px solid #e5e6eb', background: on ? '#f5f0ff' : '#fff', opacity: !on && picked.length >= max ? 0.5 : 1 }}
+          >
+            <span style={{ fontWeight: 600, color: '#7816ff', minWidth: 54, flexShrink: 0 }}>{on ? `@Audio${at + 1}` : '🔊'}</span>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.label}</span>
+            {a.duration ? <span style={{ color: '#86909c', flexShrink: 0 }}>{Math.round(a.duration)}s</span> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const ShotTemplateSelect = ({ value, onChange, placeholder = 'let the model choose' }) => (
   <Select
     size="small" style={{ width: '100%' }} placeholder={placeholder} allowClear showSearch
@@ -261,9 +290,10 @@ const VariationsFields = ({ agentId, s, up, imageAssets }) => (
 );
 
 
-const AudioFields = ({ s, up, imageAssets }) => {
+const AudioFields = ({ s, up, imageAssets, audioAssets }) => {
   const engine = s.model || 'seedAudio';
   const seedAudio = engine === 'seedAudio';
+  const nRefs = (s.audioRefs || []).length;
   return (
     <>
       <div>
@@ -300,8 +330,14 @@ const AudioFields = ({ s, up, imageAssets }) => {
       )}
       {seedAudio && (
         <div>
-          <Text style={FIELD_LABEL}>Mood reference (optional) — one board image sets the scene</Text>
-          <BoardImagePicker imageAssets={imageAssets} value={s.imageRef || ''} onPick={(imageRef) => up({ imageRef })} />
+          <Text style={FIELD_LABEL}>Voice / sound references (optional, up to 3) — pick board clips, then call them @Audio1{nRefs > 1 ? `…@Audio${nRefs}` : ''} in the prompt (pick order = number)</Text>
+          <BoardAudioPicker audioAssets={audioAssets} value={s.audioRefs || []} onPick={(audioRefs) => up({ audioRefs, ...(audioRefs.length ? { imageRef: '' } : {}) })} />
+        </div>
+      )}
+      {seedAudio && (
+        <div>
+          <Text style={FIELD_LABEL}>Mood reference (optional) — one board image sets the scene; cannot mix with audio references</Text>
+          <BoardImagePicker imageAssets={imageAssets} value={s.imageRef || ''} onPick={(imageRef) => up({ imageRef, ...(imageRef ? { audioRefs: [] } : {}) })} />
         </div>
       )}
     </>
@@ -329,7 +365,7 @@ const DRAFT_PRIMARY = {
   storyboard: { label: 'Add storyboard', needsKey: false },
 };
 
-const LayerPanel = ({ agentId, values, onChange, imageAssets = [], running, draft, onPrimary, onClose, apiKeyPresent }) => {
+const LayerPanel = ({ agentId, values, onChange, imageAssets = [], audioAssets = [], running, draft, onPrimary, onClose, apiKeyPresent }) => {
   const agent = AGENT_MAP[agentId];
   if (!agent) return null;
   const s = values || {};
@@ -353,7 +389,7 @@ const LayerPanel = ({ agentId, values, onChange, imageAssets = [], running, draf
       </div>
       <div style={{ padding: '0 14px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>{agent.describe}</Paragraph>
-        {Body ? <Body agentId={agentId} s={s} up={onChange} imageAssets={imageAssets} /> : null}
+        {Body ? <Body agentId={agentId} s={s} up={onChange} imageAssets={imageAssets} audioAssets={audioAssets} /> : null}
       </div>
       <div style={{ padding: 12, borderTop: '1px solid #f2f3f5' }}>
         {primary.needsKey && !apiKeyPresent && (

@@ -215,15 +215,16 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
 // The AUDIO agent's one operation. The user's text goes out VERBATIM (the consistency
 // rule applies to speech too — no rewriting, no translation): with Seed Audio 1.0
 // (default) it IS the prompt the model follows (ambience / drama / SFX / speech; voice
-// id optional, or ONE reference image for scene mood), with Seed TTS 2.0 it is spoken
+// id optional; references = up to 3 audio clips as data: urls — @Audio1..N in the
+// prompt — OR one reference image for scene mood), with Seed TTS 2.0 it is spoken
 // word-for-word by a required voice id, `instruction` being an explicit user-typed
 // delivery direction. Returns the clip as a data: url; the caller decides where it lands.
-export const generateFilmAudio = async ({ text, voice, model = 'seedAudio', instruction = '', imageData } = {}, ctx) => {
+export const generateFilmAudio = async ({ text, voice, model = 'seedAudio', instruction = '', imageData, audioRefs } = {}, ctx) => {
   if (!String(text || '').trim()) throw new Error('The Audio agent needs the prompt / line first.');
   if (model !== 'seedAudio' && !String(voice || '').trim()) throw new Error('Seed TTS 2.0 needs a voice id (Seed Audio 1.0 does not).');
   if (typeof ctx?.client?.generateSpeech !== 'function') throw new Error('This transport has no speech support yet (canvas/browser client only for now).');
   const out = await withRetry(
-    () => ctx.client.generateSpeech({ text: String(text), voice, model, instruction, imageData }),
+    () => ctx.client.generateSpeech({ text: String(text), voice, model, instruction, imageData, audioRefs }),
     { tries: 2, baseMs: 2000 },
   );
   if (!out?.url) throw new Error('The audio engine returned no clip.');

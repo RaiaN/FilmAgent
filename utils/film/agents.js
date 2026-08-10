@@ -350,13 +350,14 @@ export const audioAgent = {
   color: AGENT_COLORS.audio,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '', model: 'seedAudio', voice: '', instruction: '', imageRef: '' },
-  describe: 'Your words, word for word → a playable clip: line reads, narration, ambience, SFX — optionally one board image for scene mood. Nothing is mixed into the film.',
+  defaultSettings: { prompt: '', model: 'seedAudio', voice: '', instruction: '', imageRef: '', audioRefs: [] },
+  describe: 'Your words, word for word → a playable clip: line reads, narration, ambience, SFX — optionally board clips as @Audio1..N voice/sound references, or one board image for scene mood. Nothing is mixed into the film.',
   async run({ prompt, settings = {}, apiKey, ctx }) {
     const model = settings.model || 'seedAudio';
     const out = await ops.generateFilmAudio(
       // Seed Audio casts voices from the prompt — `voice` (a speaker id) is a seedTts input.
-      { text: (prompt && String(prompt)) || settings.prompt || '', voice: model === 'seedAudio' ? '' : (settings.voice || ''), model, instruction: settings.instruction || '', imageData: settings.imageData },
+      // settings.imageData / settings.audioRefs arrive as data: urls (this entry has no board).
+      { text: (prompt && String(prompt)) || settings.prompt || '', voice: model === 'seedAudio' ? '' : (settings.voice || ''), model, instruction: settings.instruction || '', imageData: settings.imageData, audioRefs: settings.audioRefs },
       ctx || browserCtx(apiKey),
     );
     return { created: [{ kind: 'audio', url: out.url, label: String(prompt || settings.prompt || 'Audio').slice(0, 40) }], errors: [] };

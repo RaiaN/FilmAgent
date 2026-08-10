@@ -7,7 +7,8 @@ import { checkInBytes } from '../../../utils/server/mediaStore';
 //  • 'seedAudio' (default) — Seed Audio 1.0 via its OWN endpoint, /api/v3/tts/create
 //    (per the official HTTP guide): single X-Api-Key header, `text_prompt` is a PROMPT
 //    the model follows (ambience, multi-voice drama, SFX — not just verbatim TTS),
-//    optional references = a speaker voice id OR one reference image (scene mood),
+//    optional references = a speaker voice id / up to 3 audio clips (@Audio1..N,
+//    ≤30s each — voice or sound to imitate) OR one reference image (scene mood),
 //    single JSON response with base64 audio (its `url` is temporary — 2h — so the
 //    bytes are decoded here and never depended on). The old 403 came from calling
 //    seed-audio-1.0 as a tts/unidirectional resource — it isn't one.
@@ -31,7 +32,7 @@ const MIME = { mp3: 'audio/mpeg', ogg_opus: 'audio/ogg', pcm: 'audio/pcm', wav: 
 
 export const config = {
   api: {
-    bodyParser: { sizeLimit: '30mb' }, // an inlined reference image (base64, ≤10MB file) rides in the body
+    bodyParser: { sizeLimit: '30mb' }, // inlined references (an image / up to 3 audio clips, base64) ride in the body
     responseLimit: false,              // 120s of audio as a data: url exceeds Next's 4MB default
   },
 };
@@ -39,7 +40,7 @@ export const config = {
 // Seed Audio 1.0 — one shot, one JSON. Success is the presence of `audio` (base64);
 // if the service ever answers with only its temporary `url`, fetch THAT server-side
 // immediately (it lapses in 2h) so the client still receives durable bytes.
-async function createAudio(res, { token, text, voice, imageData, format, sampleRate, speechRate, loudnessRate, pitchRate }) {
+async function createAudio(res, { token, text, voice, imageData, audioRefs, format, sampleRate, speechRate, loudnessRate, pitchRate }) {
   const prompt = String(text);
   if (prompt.length > 2048) {
     return res.status(400).json({ error: `Seed Audio prompts cap at 2048 characters (this one is ${prompt.length}) — split the script into shorter clips.` });
@@ -47,11 +48,23 @@ async function createAudio(res, { token, text, voice, imageData, format, sampleR
   // The API forbids mixing audio references (a speaker id counts as one) with an image
   // reference — the UI enforces the choice, this is the backstop.
   const speaker = String(voice || '').trim();
-  if (speaker && imageData) {
-    return res.status(400).json({ error: 'Seed Audio takes a voice OR a reference image, not both — clear one and re-run.' });
+  const clips = (Array.isArray(audioRefs) ? audioRefs : []).filter(Boolean);
+  if ((speaker || clips.length) && imageData) {
+    return res.status(400).json({ error: 'Seed Audio takes audio references (a voice id counts as one) OR a reference image, not both — clear one and re-run.' });
+  }
+  if (speaker && clips.length > 2) {
+    return res.status(400).json({ error: 'Seed Audio takes at most 3 audio references and the voice id counts as one — drop a clip.' });
+  }
+  if (clips.length > 3) {
+    return res.status(400).json({ error: 'Seed Audio takes at most 3 reference clips (@Audio1..@Audio3) — drop one and re-run.' });
   }
   const references = [];
   if (speaker) references.push({ speaker });
+  for (const clip of clips) {
+    // Reference order IS the prompt's @Audio1..N numbering — preserved as sent.
+    if (!/^data:audio\//.test(String(clip))) return res.status(400).json({ error: 'Reference clips must arrive as data:audio urls.' });
+    references.push({ audio_data: String(clip).replace(/^data:audio\/[a-z0-9.+-]+;base64,/i, '') });
+  }
   if (imageData) {
     if (!/^data:image\//.test(String(imageData))) return res.status(400).json({ error: 'The reference image must arrive as a data: url.' });
     references.push({ image_data: String(imageData).replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '') });
@@ -141,6 +154,7 @@ export default async function filmAudioHandler(req, res) {
     pitchRate = 0,
     instruction = '', // seedTts only: delivery direction (rides as context_texts)
     imageData,        // seedAudio only: ONE reference image as a data: url (scene mood)
+    audioRefs,        // seedAudio only: ≤3 reference clips as data:audio urls (@Audio1..N, order = numbering)
   } = req.body || {};
 
   const token = process.env.BYTEPLUSVOICE_API_KEY;
@@ -158,7 +172,7 @@ export default async function filmAudioHandler(req, res) {
       return res.status(500).json({ error: 'MODELARK_MODEL_SEED_AUDIO is not configured — set it in .env.local (see .env.example).' });
     }
     try {
-      return await createAudio(res, { token, text, voice, imageData, format, sampleRate, speechRate, loudnessRate, pitchRate });
+      return await createAudio(res, { token, text, voice, imageData, audioRefs, format, sampleRate, speechRate, loudnessRate, pitchRate });
     } catch (error) {
       return res.status(500).json({ error: error.message || 'Seed Audio request crashed' });
     }

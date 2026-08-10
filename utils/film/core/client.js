@@ -88,15 +88,15 @@ export const createBrowserClient = (apiKey) => ({
   },
 
   // Audio via the app's film audio route — Seed Audio 1.0 (prompt-driven, voice
-  // optional, one optional reference image) or Seed TTS 2.0 (verbatim, voice required).
-  // The BytePlus voice key lives server-side (BYTEPLUSVOICE_API_KEY) — no apiKey rides
-  // along. Returns a data: url; the canvas's media store turns it into a real file
-  // right after the node lands.
-  async generateSpeech({ text, voice, model, instruction, imageData, format, sampleRate }) {
+  // optional, references = up to 3 audio clips (@Audio1..N) OR one image) or Seed
+  // TTS 2.0 (verbatim, voice required). The BytePlus voice key lives server-side
+  // (BYTEPLUSVOICE_API_KEY) — no apiKey rides along. Returns a data: url; the
+  // canvas's media store turns it into a real file right after the node lands.
+  async generateSpeech({ text, voice, model, instruction, imageData, audioRefs, format, sampleRate }) {
     const res = await fetch('/api/film/audio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice, model, instruction, imageData, format, sampleRate }),
+      body: JSON.stringify({ text, voice, model, instruction, imageData, audioRefs, format, sampleRate }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(errMsg(data, `Speech generation failed (HTTP ${res.status})`));

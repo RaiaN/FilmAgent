@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { checkInBytes } from '../../../utils/server/mediaStore';
+import { checkInBytes, CLOUD_MEDIA_PREFIX, mediaFileExists, mirrorKeyToTos } from '../../../utils/server/mediaStore';
+import { getServerTosConfig, presignTosObject, headTosObject } from '../../../utils/server/tosUpload';
 
 // The film suite's audio route — TWO engines behind one contract, both returning a
 // data: url the canvas checks into the local media store seconds after the clip lands.
@@ -29,6 +30,33 @@ const SEED_AUDIO_MODEL = process.env.MODELARK_MODEL_SEED_AUDIO || null; // REQUI
 const RESOURCE_IDS = { seedTts: process.env.MODELARK_MODEL_SEED_TTS || null }; // REQUIRED via env
 
 const MIME = { mp3: 'audio/mpeg', ogg_opus: 'audio/ogg', pcm: 'audio/pcm', wav: 'audio/wav' };
+
+// A reference in ANY form the canvas holds → what tts/create accepts. URL ALWAYS
+// (the /api/seedance doctrine — bytes never move through this route): a media-store
+// url becomes a presigned projects/media/<sha> link, a remote signed url passes
+// verbatim. Inline base64 exists ONLY for a data: payload, which has no hosted copy.
+async function refToReference(ref, kind, what) {
+  const s = String(ref || '');
+  if (s.startsWith('data:')) {
+    if (!s.startsWith(`data:${kind}/`)) throw new Error(`${what} must be ${kind} data (got ${s.slice(5, s.indexOf(';'))}).`);
+    return { [`${kind}_data`]: s.slice(s.indexOf(',') + 1) };
+  }
+  const storeKey = (/[?&]key=([a-f0-9]{16,64}\.[a-z0-9]{1,5})/.exec(s) || [])[1];
+  if (storeKey && s.includes('/api/film/media')) {
+    const cfg = getServerTosConfig();
+    const objectKey = `${CLOUD_MEDIA_PREFIX}/${storeKey}`;
+    const head = await headTosObject({ ...cfg, objectKey }).catch(() => ({ exists: false }));
+    if (!head.exists && mediaFileExists(storeKey)) {
+      try { await mirrorKeyToTos(storeKey); } catch { /* presign check below reports honestly */ }
+    }
+    if (head.exists || mediaFileExists(storeKey)) {
+      try { return { [`${kind}_url`]: presignTosObject({ ...cfg, objectKey }) }; } catch { /* fall through */ }
+    }
+    throw new Error(`${what}: media-store object ${storeKey} could not be presigned — check TOS credentials in .env.local, or re-check-in the asset.`);
+  }
+  if (/^https?:\/\//i.test(s)) return { [`${kind}_url`]: s };
+  throw new Error(`${what}: unsupported reference url.`);
+}
 
 export const config = {
   api: {
@@ -60,14 +88,14 @@ async function createAudio(res, { token, text, voice, imageData, audioRefs, form
   }
   const references = [];
   if (speaker) references.push({ speaker });
-  for (const clip of clips) {
+  try {
     // Reference order IS the prompt's @Audio1..N numbering — preserved as sent.
-    if (!/^data:audio\//.test(String(clip))) return res.status(400).json({ error: 'Reference clips must arrive as data:audio urls.' });
-    references.push({ audio_data: String(clip).replace(/^data:audio\/[a-z0-9.+-]+;base64,/i, '') });
-  }
-  if (imageData) {
-    if (!/^data:image\//.test(String(imageData))) return res.status(400).json({ error: 'The reference image must arrive as a data: url.' });
-    references.push({ image_data: String(imageData).replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '') });
+    for (let i = 0; i < clips.length; i += 1) {
+      references.push(await refToReference(clips[i], 'audio', `Reference clip @Audio${i + 1}`));
+    }
+    if (imageData) references.push(await refToReference(imageData, 'image', 'The reference image'));
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
   }
 
   const body = {
@@ -153,8 +181,8 @@ export default async function filmAudioHandler(req, res) {
     loudnessRate = 0,
     pitchRate = 0,
     instruction = '', // seedTts only: delivery direction (rides as context_texts)
-    imageData,        // seedAudio only: ONE reference image as a data: url (scene mood)
-    audioRefs,        // seedAudio only: ≤3 reference clips as data:audio urls (@Audio1..N, order = numbering)
+    imageData,        // seedAudio only: ONE reference image — data:, store or http url (scene mood)
+    audioRefs,        // seedAudio only: ≤3 reference clips — data:, store or http urls (@Audio1..N, order = numbering)
   } = req.body || {};
 
   const token = process.env.BYTEPLUSVOICE_API_KEY;

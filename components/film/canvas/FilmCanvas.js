@@ -215,17 +215,6 @@ const downscaleRef = async (url) => {
   try { return await makeThumbnail(url, 1024); } catch { return url; }
 };
 
-// Inline a same-origin media url (store url / localUrl) as a data: url — the voice
-// service can't fetch anything of ours, so its references must ride in the body.
-// Throws on unreadable/CORS-blocked urls; callers degrade per-reference.
-const inlineAsDataUrl = async (url) => {
-  const u = String(url || '');
-  if (u.startsWith('data:')) return u;
-  const r = await fetch(u);
-  if (!r.ok) throw new Error(`fetch failed (HTTP ${r.status})`);
-  return await readFileAsDataUrl(await r.blob());
-};
-
 // Resolve a storyboard shot's references for the Seedream request: its `figures` → the pool refs (in
 // order), and renumber the body's GLOBAL [Image N] → attach-order [Image N] (`@@N@@` sentinel avoids
 // clobbering real numbers). Shots with no figures (Breakdown) fall back to a single pool ref. Shared
@@ -1522,16 +1511,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // value must not sneak in as a `speaker` reference and collide with the mood image).
     if (model === 'seedAudio') voice = '';
     else if (!String(voice || '').trim()) { Message.warning('Seed TTS 2.0 needs a voice id — set it in the panel (or switch to Seed Audio 1.0).'); return; }
-    // The mood reference: ONE board image, inlined (then downscaled) to a data: url so
-    // the voice service never has to fetch anything (same rule as every other ref path).
+    // References ride as URLS (data:/store/remote) — the ROUTE resolves the bytes
+    // server-side, the only layer that can always read them (the browser can't fetch
+    // cross-origin signed urls; the voice host can't fetch anything of ours). Only
+    // an oversized dropped data: image is shrunk here, where a canvas exists.
     let imageData;
     if (model === 'seedAudio' && imageRef) {
       const refNode = nodesRef.current.find((x) => x.id === imageRef);
       const u = refNode && refUrl(refNode);
-      if (u) { try { imageData = await downscaleRef(await inlineAsDataUrl(absLocalMediaUrl(u))); } catch { /* mood ref is optional — proceed without it */ } }
-      if (!imageData) Message.warning('The picked reference image could not be read — generating without it.');
+      if (u) imageData = String(u).startsWith('data:') ? await downscaleRef(u) : absLocalMediaUrl(u);
+      else Message.warning('The picked reference image is gone from the board — generating without it.');
     }
-    // Voice/sound references: board clips, inlined in pick order — @Audio1..N in the prompt.
+    // Voice/sound references: board clips in pick order — @Audio1..N in the prompt.
     const audioRefData = [];
     if (model === 'seedAudio') {
       for (const rid of (audioRefs || []).slice(0, 3)) {
@@ -1539,8 +1530,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const u = clip && refUrl(clip);
         if (!u) { Message.warning('A picked reference clip is gone from the board — skipping it.'); continue; }
         if (Number(clip.data?.duration) > 30) Message.warning(`"${clip.data?.label || 'clip'}" runs ${Math.round(clip.data.duration)}s — Seed Audio reference clips cap at 30s, it may be rejected.`);
-        try { audioRefData.push(await inlineAsDataUrl(absLocalMediaUrl(u))); } // eslint-disable-line no-await-in-loop
-        catch { Message.warning(`Reference clip "${clip.data?.label || 'clip'}" could not be read — generating without it.`); }
+        audioRefData.push(absLocalMediaUrl(u));
       }
       if (audioRefData.length && imageData) {
         Message.warning('Audio references and a mood image cannot mix — using the audio references.');

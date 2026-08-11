@@ -265,7 +265,7 @@ const AssetNodeInner = ({ id, data, selected }) => {
       </div>
 
       {/* Body */}
-      <div style={{ position: 'relative', background: '#f2f3f5', minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'relative', background: '#f2f3f5', minHeight: kind === 'audio' ? 62 : 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {loading && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.6)', zIndex: 2 }}>
             <IconLoading style={{ fontSize: 24, color: '#165dff' }} />
@@ -336,7 +336,12 @@ const AssetNodeInner = ({ id, data, selected }) => {
           </div>
         )}
         {kind === 'audio' && (cacheUrl || url) && (
-          <audio src={cacheUrl || url} controls style={{ width: '100%', padding: 8 }} />
+          <audio className="nodrag" src={cacheUrl || url} controls style={{ width: '100%', padding: 8 }} />
+        )}
+        {kind === 'audio' && !cacheUrl && !url && !loading && (
+          <Text type="secondary" style={{ fontSize: 11, padding: 12, textAlign: 'center' }}>
+            No clip attached — re-run the Audio agent (or delete this node).
+          </Text>
         )}
         {kind === 'image' && !data.keyframe && !displaySrc && !loading && (
           <Text type="secondary" style={{ fontSize: 12 }}>empty</Text>

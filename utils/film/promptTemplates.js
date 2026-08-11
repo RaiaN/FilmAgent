@@ -72,16 +72,17 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: '{story}\n\n{depth}\n{preserve}',
   },
 
-  // ---- Split: a brief (or an oversized shot prompt) → sequential ≤15s SHOT segments --
+  // ---- Split: a brief (or an oversized shot prompt) → sequential SHOT segments, each ----
+  // capped at the default video model's max length (maxSec rides in from traits).
   // SEGMENTATION, not rewriting: the model splits the text into shootable pieces and
   // PRESERVES the wording, every detail and any timestamps — never summarizes, never
   // invents. Durations come from timestamp deltas when the text has them, else the
-  // model estimates one per segment (clamped 5–15s in code).
+  // model estimates one per segment (clamped 5s–model max in code).
   'split.system': {
     agent: 'Story',
     label: 'Split into shots (system)',
     vars: ['{maxShots}', '{countGoal}'],
-    text: 'You are a 1st assistant director preparing VIDEO-GENERATION segments. Split the brief below into the FEWEST possible sequential segments — each segment is ONE 5-15 second SCENE CHUNK that a video model shoots in a single pass. A segment normally CONTAINS several cuts, camera angles, actions and dialogue lines — NEVER split per camera setup, per action or per line of dialogue; start a new segment only when the running one would exceed 15 seconds (or at a hard scene change). If the brief contains timestamps, cut exactly at the timestamp boundaries and derive each duration from its time span; subdivide a timestamped span only when it exceeds 15 seconds, into as few 5-15s pieces as possible. PRESERVE the author\'s wording and every detail inside each segment — do not summarize, do not paraphrase, do not invent content; keep timestamps exactly as written and keep EVERY line of dialogue word-for-word, in quotes, in its original language (never translate or drop a line). If the brief has trailing GLOBAL sections that apply to the whole film (environment, camera flow, aesthetic, audio), do not turn them into segments — carry their relevant lines verbatim into EVERY segment, so each segment stands alone for shooting. {countGoal} At most {maxShots} segments. Return ONLY JSON: {"segments":[{"beat":"3-6 word shot title","text":"the segment content, wording preserved","durationSec":10}]}',
+    text: 'You are a 1st assistant director preparing VIDEO-GENERATION segments. Split the brief below into the FEWEST possible sequential segments — each segment is ONE 5-{maxSec} second SCENE CHUNK that a video model shoots in a single pass. A segment normally CONTAINS several cuts, camera angles, actions and dialogue lines — NEVER split per camera setup, per action or per line of dialogue; start a new segment only when the running one would exceed {maxSec} seconds (or at a hard scene change). If the brief contains timestamps, cut exactly at the timestamp boundaries and derive each duration from its time span; subdivide a timestamped span only when it exceeds {maxSec} seconds, into as few 5-{maxSec}s pieces as possible. PRESERVE the author\'s wording and every detail inside each segment — do not summarize, do not paraphrase, do not invent content; keep timestamps exactly as written and keep EVERY line of dialogue word-for-word, in quotes, in its original language (never translate or drop a line). If the brief has trailing GLOBAL sections that apply to the whole film (environment, camera flow, aesthetic, audio), do not turn them into segments — carry their relevant lines verbatim into EVERY segment, so each segment stands alone for shooting. {countGoal} At most {maxShots} segments. Return ONLY JSON: {"segments":[{"beat":"3-6 word shot title","text":"the segment content, wording preserved","durationSec":10}]}',
   },
   'split.user': {
     agent: 'Story',
@@ -300,7 +301,7 @@ For EACH shot return:
 • shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY:
 {templates}
 • figures — the reference numbers that APPEAR in this shot (≥1 when references exist; [] when none attached).
-• durationSec — 5–15.
+• durationSec — 5–{maxSec}.
 • intExt — "INT" or "EXT".
 • develops — true only per rule (d).
 • span — THIS SHOT'S PORTION OF THE SCRIPT, COPIED VERBATIM: the exact characters, dialogue word-for-word, nothing paraphrased, nothing summarized. The spans PARTITION the script IN ORDER — every story-relevant line lands in exactly ONE shot's span, no gaps, no overlaps. Trailing global sections (style / audio notes that apply to the whole film) belong to NO span.

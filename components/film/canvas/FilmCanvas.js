@@ -50,7 +50,7 @@ import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
 import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
-import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, imageModelKeyOf } from '../../../utils/film/suiteConfig';
+import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -1691,7 +1691,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: 'Agent · Frame edit (shot editor)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style: '', expression: shot.expression, refs: ordered, imageModel: 'seedreamPro', frameEdit, frameEditAnnotated: !!edits.annotatedFrame }, ctx);
+      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style: '', expression: shot.expression, refs: ordered, imageModel: defaultImageModelKey(), frameEdit, frameEditAnnotated: !!edits.annotatedFrame }, ctx);
       // The image CHANGED: stale display/registration state must not survive — the old
       // cacheUrl/localUrl would keep SHOWING the old frame, and the old assetId would
       // keep REFERENCING it in shoots (re-register on demand via the usual paths).
@@ -3164,7 +3164,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [setNodes]);
 
   // Split into Shots — the AD's shot breakdown: ONE LLM call (splitIntoShots) segments
-  // this Brief's VERBATIM text into sequential ≤15s pieces — wording, details and
+  // this Brief's VERBATIM text into sequential model-capped pieces — wording, details and
   // timestamps PRESERVED, never summarized — and each piece lands as a SHOT card tiled
   // right of the Brief, cut-numbered in order. From there the existing machinery takes
   // over: per-card 🎬, or Action shoots the cards continuity-chained. Explicit tap only.
@@ -3246,7 +3246,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // A card that already HAS a still keeps it; if its text changed it's marked
   // staleStill so the tile can say "text changed — re-render to match". Stills are
   // bought per card (Render still) or panel-wide (Render all) — never here.
-  const applyShotCards = useCallback((panelId, shots, prevShots, refs = [], { style = '', imageModel = 'seedreamPro' } = {}) => {
+  const applyShotCards = useCallback((panelId, shots, prevShots, refs = [], { style = '', imageModel = defaultImageModelKey() } = {}) => {
     const base = { x: GROUP_PAD, y: GROUP_HEADER + GROUP_PAD };
     // A shot's RENDER-RELEVANT fields changed → an existing still no longer matches.
     const changed = (i) => { const p = prevShots[i]; const s = shots[i]; return !(p && p.body === s.body && p.shotTemplate === s.shotTemplate && (p.expression || '') === (s.expression || '') && JSON.stringify(p.figures || []) === JSON.stringify(s.figures || [])); };
@@ -3593,7 +3593,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Lays the control node + empty panel INERT — nothing generates on add. The
   // division is an explicit tap on the element (its Divide button); runDivide reads
   // everything from node.data, so no seed is needed.
-  const spawnStoryboardChat = useCallback((script, count, refs = [], ethnicity = '', style = '', imageModel = 'seedreamPro', shotLength = 'auto') => {
+  const spawnStoryboardChat = useCallback((script, count, refs = [], ethnicity = '', style = '', imageModel = defaultImageModelKey(), shotLength = 'auto') => {
     const text = String(script || '').trim();
     if (!text) { Message.warning('The storyboard needs a script or description first — write it into a Brief node.'); return; }
     const stamp = Date.now().toString(36);
@@ -4035,7 +4035,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       }
       case 'split': {
         const sel = nodesRef.current.find((n) => n.type === 'story' && n.selected && String(n.data?.idea || '').trim());
-        if (!sel) return 'Select a Brief node with a script first — I\'ll break it into ≤15s SHOT cards ready to shoot.';
+        if (!sel) return `Select a Brief node with a script first — I'll break it into ≤${maxShotSeconds(defaultVideoModelKey())}s SHOT cards ready to shoot.`;
         splitBriefToShots(sel.id); // async fire-and-forget: the cards landing IS the feedback
         return '';
       }

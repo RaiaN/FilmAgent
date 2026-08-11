@@ -134,7 +134,7 @@ export const characterVariationsAgent = {
   // selection required to drop it; run() still guards the headless selection path.
   needsSelection: false,
   grouped: true,
-  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: 'seedreamPro', anchorId: '' },
+  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: '', anchorId: '' },
   describe: 'Plans distinct variations of a character, identity preserved — pick the source image below.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
@@ -159,7 +159,7 @@ export const locationVariationsAgent = {
   // Same as characterVariations: the card's picker is the source, not the selection.
   needsSelection: false,
   grouped: true,
-  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: 'seedreamPro', anchorId: '' },
+  defaultSettings: { count: 4, size: '2K', direction: '', imageModel: '', anchorId: '' },
   describe: 'Plans distinct coverage of a location, architecture preserved — pick the source image below.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
@@ -237,7 +237,7 @@ export const castAgent = {
   color: AGENT_COLORS.cast,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '', imageModel: 'seedreamPro', imageThinking: false, ethnicity: '' },
+  defaultSettings: { prompt: '', imageModel: '', imageThinking: false, ethnicity: '' },
   describe: 'Drafts the film\'s recurring assets — characters, creatures, locations and key props/vehicles — in one shared look, as bible candidates.',
   async run({ prompt, settings = {}, apiKey, ctx, onPlan, onEntry, onError }) {
     const entries = await castFromIdea(
@@ -291,7 +291,7 @@ export const storyboardAgent = {
   color: AGENT_COLORS.storyboard,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { script: '', genre: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: 'seedreamPro', mode: 'multiple' },
+  defaultSettings: { script: '', genre: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: '', mode: 'multiple' },
   describe: 'Brainstorm the shot division with a cinematographer — a chat bound to a grid of keyframe stills it refines as you talk.',
   async run() {
     throw new Error('The Storyboard agent lays a chat node + SHOT cards on the canvas — run it from the board.');

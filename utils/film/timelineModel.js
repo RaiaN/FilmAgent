@@ -18,9 +18,9 @@ export const BIBLE_REF_CAP = 4;
 // wins up to the model's actual limit — Seedream accepts up to 9 reference images.
 export const EXPLICIT_REF_CAP = 9;
 export const DEFAULT_EVENT_SECONDS = 5;
-// A fresh timeline targets 15s — a short clip / ad length — the common first cut.
-// It's just a budget marker; the spine grows past it (shown over-budget) freely.
-export const DEFAULT_TIMELINE_SECONDS = 15;
+// A fresh timeline targets 30s — a short-film opening budget — just a marker;
+// the spine grows past it (shown over-budget) freely.
+export const DEFAULT_TIMELINE_SECONDS = 30;
 
 // Status of an event as it moves through the funnel.
 export const EVENT_STATUS = ['empty', 'keyframe', 'rendering', 'shot', 'failed'];

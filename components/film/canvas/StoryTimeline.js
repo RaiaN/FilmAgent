@@ -209,7 +209,7 @@ const Inspector = ({ event, index, total, onSetDuration, onToggleLock, onMove, o
 // Consistency anchors live on the BOARD as role badges — not down here.
 // ============================================================================
 const StoryTimeline = ({
-  events = [], targetSeconds = 15, film = null,
+  events = [], targetSeconds = 30, film = null,
   collapsed, onToggle, selectedEventId, apiKeyPresent,
   onSelectEvent, onSetDuration, onToggleEventLock, onMoveEvent, onRegenerate, onRemoveEvent,
   onAddAsset, onAutoFill, onRenderMovie, onAddSelectedToTimeline,

@@ -7,7 +7,7 @@
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
-import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, videoTraits, imageTraits } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, defaultImageModelKey, videoTraits, imageTraits } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
 import { composeSeedancePrompt, composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
 import { parseJson } from './director';
@@ -51,16 +51,17 @@ export const writeFilmPrompt = async ({ idea, source = '', complexity = 'medium'
   return { mode: src ? 'preserve' : 'expand', prompt };
 };
 
-// ---- Split: a brief (or an oversized shot prompt) → sequential ≤15s SHOT segments ------
+// ---- Split: a brief (or an oversized shot prompt) → sequential SHOT segments capped ------
+// at the default video model's max shot length.
 // SEGMENTATION, not rewriting (one reason() call, no code parsing): wording, details and
 // timestamps are PRESERVED per segment; durations come from timestamp deltas when present,
-// else the model's estimate (clamped 5–15s here). Used by the Brief node's "Split into
+// else the model's estimate (clamped 5s–model max here). Used by the Brief node's "Split into
 // Shots", the SHOT card's ✂ and the director-chat `split` action.
 const MAX_SPLIT_SEGMENTS = 24;
 export const splitIntoShots = async ({ text, count, config } = {}, ctx) => {
   const brief = String(text || '').trim();
   if (!brief) throw new Error('The split needs a brief or a shot prompt first.');
-  // `count` is a GOAL, not a hard number: the 5–15s-per-segment physics always wins
+  // `count` is a GOAL, not a hard number: the per-segment duration physics always wins
   // (a 60s brief cannot fit 3 segments), so the model aims for it and the duration
   // rule breaks ties. Absent → fewest possible.
   const goal = Number.isFinite(Number(count)) && Number(count) >= 2 ? Math.min(MAX_SPLIT_SEGMENTS, Math.round(Number(count))) : null;
@@ -68,11 +69,13 @@ export const splitIntoShots = async ({ text, count, config } = {}, ctx) => {
   // whitespace collapse would mangle screenplay indentation / aligned timestamp columns,
   // and the split's whole contract is that the user's text survives byte-for-byte.
   const SLOT = '@@BRIEF@@';
+  const maxSec = maxShotSeconds(defaultVideoModelKey());
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('split.user', { brief: SLOT }).split(SLOT).join(brief.slice(0, 12000)),
     systemPrompt: renderTemplate('split.system', {
       maxShots: String(MAX_SPLIT_SEGMENTS),
-      countGoal: goal ? `The director asked for ${goal} segments — aim for exactly ${goal} when the 5-15 second rule allows it; the duration rule always wins, so otherwise get as close to ${goal} as possible.` : '',
+      maxSec: String(maxSec),
+      countGoal: goal ? `The director asked for ${goal} segments — aim for exactly ${goal} when the 5-${maxSec} second rule allows it; the duration rule always wins, so otherwise get as close to ${goal} as possible.` : '',
     }),
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -108,7 +111,7 @@ export const floorPlan = async ({ brief, config } = {}, ctx) => {
     prompt: planPrompt,
     referenceImages: [],
     size: '2048x2048',
-    model: getModel('seedreamPro', config),
+    model: getModel(defaultImageModelKey(), config),
     optimizePrompt: false,
   });
   if (!url) throw new Error('No floor-plan image URL in response');
@@ -154,8 +157,8 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
   const { url: out, cacheUrl } = await ctx.client.generateImage({
     prompt: renderTemplate('previz.mask', { targets: SLOT }).split(SLOT).join(targets),
     referenceImages: [src],
-    size: keyframeImageSize('seedreamPro'),
-    model: getModel('seedreamPro', config),
+    size: keyframeImageSize(defaultImageModelKey()),
+    model: getModel(defaultImageModelKey(), config),
   });
   if (!out) throw new Error('No masked plate URL in response');
   return { url: out, cacheUrl };
@@ -176,13 +179,14 @@ export const storyboardCarve = async ({ script = '', style = '', references = []
   const text = String(script || '').trim();
   if (!text) throw new Error('Carving needs the brief/script text first.');
   const pace = String(shotLength || 'auto');
+  const maxSec = maxShotSeconds(defaultVideoModelKey());
   const countGoal = pace === 'auto'
-    ? 'Carve into as many shots as the script NEEDS — every shot must earn its place; pacing picks each durationSec (5–15s). Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.'
-    : `Carve aiming each shot at roughly ${pace} seconds (durationSec ≈ ${pace}, clamped 5–15) — the script's length decides HOW MANY shots that makes. Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.`;
+    ? `Carve into as many shots as the script NEEDS — every shot must earn its place; pacing picks each durationSec (5–${maxSec}s). Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.`
+    : `Carve aiming each shot at roughly ${pace} seconds (durationSec ≈ ${pace}, clamped 5–${maxSec}) — the script's length decides HOW MANY shots that makes. Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.`;
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('storyboard.carve.user', { script: SPAN_SLOT, style: style || 'auto' }).split(SPAN_SLOT).join(text.slice(0, 12000)),
-    systemPrompt: renderTemplate('storyboard.carve.system', { templates: shotTemplateCatalog(), countGoal, refCount: String(refs.length) }),
+    systemPrompt: renderTemplate('storyboard.carve.system', { templates: shotTemplateCatalog(), countGoal, maxSec: String(maxSec), refCount: String(refs.length) }),
     images: refs,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -284,7 +288,7 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', shot
 // freshly-rendered START still — [Image 1] IS the start, the composed instruction
 // carries the advance (+ the camera-under-lock reframe when the shot's camera moves),
 // and the casting refs ride behind for identity. Fast path, like every locked edit.
-export const storyboardEndframe = async ({ exiting = '', startUrl = '', refs = [], imageModel = 'seedreamPro', shotTemplate = '', config } = {}, ctx) => {
+export const storyboardEndframe = async ({ exiting = '', startUrl = '', refs = [], imageModel = defaultImageModelKey(), shotTemplate = '', config } = {}, ctx) => {
   const line = String(exiting || '').trim().slice(0, 800);
   if (!line || !startUrl) throw new Error('endframe needs an exiting sentence and the START still');
   // LITERALLY the Edit-shot call: the END STATE sentence rides VERBATIM as the edit
@@ -307,7 +311,7 @@ export const storyboardEndframe = async ({ exiting = '', startUrl = '', refs = [
 // QUICK STORYBOARD, pre-division: ONE page rendered straight from the VERBATIM
 // script — the renderer picks the moments itself. No carve, no rows, no side
 // effects; after a division the page renders from the real shot list instead.
-export const storyboardQuickPage = async ({ script = '', panels = 6, style = '', references = [], imageModel = 'seedreamPro', config } = {}, ctx) => {
+export const storyboardQuickPage = async ({ script = '', panels = 6, style = '', references = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
   const text = String(script || '').trim();
   if (!text) throw new Error('Quick Storyboard needs the script.');
   const SLOT = '@@SCRIPT@@';
@@ -324,7 +328,7 @@ export const storyboardQuickPage = async ({ script = '', panels = 6, style = '',
   return { url, cacheUrl, prompt };
 };
 
-export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = 'seedreamPro', frameEdit = false, frameEditAnnotated = false, config } = {}, ctx) => {
+export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = defaultImageModelKey(), frameEdit = false, frameEditAnnotated = false, config } = {}, ctx) => {
   const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
   // frameEdit = the Edit-shot editor's structure lock: [Image 1] IS the current frame and
   // the body is the CHANGE (instruction or full prompt, verbatim via sentinel). The lean
@@ -350,7 +354,7 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
 // SINGLE-IMAGE mode: render the WHOLE storyboard as ONE sheet (a grid of numbered panels). Composed
 // from the division `shots` + the full reference pool (attached in [Image 1..N] order, so the panel
 // bodies' [Image N] map correctly and the cast stays consistent). One Seedream call → one image.
-export const storyboardSheet = async ({ shots = [], style = '', title = '', references = [], imageModel = 'seedreamPro', config } = {}, ctx) => {
+export const storyboardSheet = async ({ shots = [], style = '', title = '', references = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
   const images = (references || []).filter(Boolean).slice(0, imageRefCap(imageModel));
   const { url, cacheUrl } = await ctx.client.generateImage({
     prompt: composeStoryboardSheetPrompt({ shots, style, title }),
@@ -508,7 +512,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
 // light shaping, texture, atmosphere) + ONE structure-locked frameEdit applying it.
 // Composition/identity/blocking are hard-locked by both the instruction contract and
 // the frameEdit grammar. Returns the new frame + the instruction (surfaced, never silent).
-export const enhanceStill = async ({ imageUrl, context = '', imageModel = 'seedreamPro', onPhase, config } = {}, ctx) => {
+export const enhanceStill = async ({ imageUrl, context = '', imageModel = defaultImageModelKey(), onPhase, config } = {}, ctx) => {
   if (!imageUrl) throw new Error('Enhance needs the rendered still.');
   if (onPhase) onPhase('look'); // step 1 of 2 — the VLM studies the frame
   const SLOT = '@@CTX@@';
@@ -608,7 +612,7 @@ export const detectGenre = async ({ idea, config } = {}, ctx) => {
 // prompt) into bible PLATES. Used by castFromIdea (the Cast & World idea read). Each plate carries
 // its source asset id + a `primary` flag (the identity anchor: the FACE for a character, the single
 // plate otherwise). Streams onPlan/onEntry; the canvas tags/locks the plates.
-export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedreamPro', thinking = false, config } = {}, ctx, hooks = {}) => {
+export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaultImageModelKey(), thinking = false, config } = {}, ctx, hooks = {}) => {
   const onPlan = hooks.onPlan || (() => {});
   const onEntry = hooks.onEntry || (() => {});
   // The shared style rides on EVERY plate — consistency by construction.
@@ -703,7 +707,7 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = 'seedr
 
 // Idea → cast & world (the original entry): one read derives the asset list, then the shared
 // renderer draws the bible plates.
-export const castFromIdea = async ({ idea, genre = '', ethnicity = '', imageModel = 'seedreamPro', thinking = false, config } = {}, ctx, hooks = {}) => {
+export const castFromIdea = async ({ idea, genre = '', ethnicity = '', imageModel = defaultImageModelKey(), thinking = false, config } = {}, ctx, hooks = {}) => {
   const t = String(idea || '').trim();
   if (!t) throw new Error('The production draft needs the film idea.');
   const { content } = await ctx.client.reason({

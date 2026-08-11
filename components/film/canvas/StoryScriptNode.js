@@ -57,7 +57,7 @@ const StoryScriptNode = ({ id, data = {} }) => {
             <InputNumber className="nodrag" size="mini" min={2} max={24} placeholder="auto" value={splitCount ?? undefined} onChange={(v) => onSetSplitCount && onSetSplitCount(id, v)} style={{ width: 64 }} disabled={splitting || busy} />
           </span>
         </Tooltip>
-        <Button className="nodrag" size="mini" icon={splitting ? <IconLoading /> : <IconScissor />} disabled={!hasText || splitting || busy} onClick={() => onSplit && onSplit(id)} title="Split into Shots — break this brief into sequential ≤15s SHOT cards, ready to shoot. Your wording, details, timestamps and dialogue are preserved per card — never summarized.">Split</Button>
+        <Button className="nodrag" size="mini" icon={splitting ? <IconLoading /> : <IconScissor />} disabled={!hasText || splitting || busy} onClick={() => onSplit && onSplit(id)} title="Split into Shots — break this brief into sequential SHOT cards (each capped at the video model's max length), ready to shoot. Your wording, details, timestamps and dialogue are preserved per card — never summarized.">Split</Button>
         <Button className="nodrag" size="mini" type="primary" icon={shooting ? <IconLoading /> : <IconVideoCamera />} disabled={busy || shooting || (!hasText && !prompt)} style={{ background: GOLD, borderColor: GOLD }} onClick={() => onShoot && onShoot(id)} title="New Shot — drop an editable SHOT card carrying this brief VERBATIM (or your developed cinematic prompt, if you made one). Nothing is rewritten under the hood.">New Shot</Button>
       </div>
 

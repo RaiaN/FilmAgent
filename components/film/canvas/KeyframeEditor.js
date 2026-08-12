@@ -93,6 +93,9 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
     catch (e) { Message.error(e.message); }
   };
   const saveWords = (opts = {}) => {
+    // The universal plain-image editor has no words sink (onSaveText) — Render carries
+    // every render-relevant field in its own call, so there is nothing to save here.
+    if (!onSaveText) return;
     const edits = {};
     if (body.trim() !== String(shot.body || '')) edits.body = body.trim();
     if (shotTemplate !== (shot.shotTemplate || 'medium-shot')) edits.shotTemplate = shotTemplate;

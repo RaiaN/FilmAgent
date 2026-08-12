@@ -86,15 +86,26 @@ const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemov
 });
 TakeRow.displayName = 'TakeRow';
 
-const TakeLibrary = ({ groups, focusedCardId, timelineIds, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onNeedPoster, onFocusCard, onShowAll, onClose }) => {
+const TakeLibrary = ({ groups, focusedCardId, timelineIds, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onClearTakes, onNeedPoster, onFocusCard, onShowAll, onClose }) => {
   const focused = focusedCardId ? groups.find((g) => g.cardId === focusedCardId) : null;
   const shown = focused ? [focused] : groups.filter((g) => g.takes.length);
   const empty = !shown.length || (focused && !focused.takes.length);
+  const clearCount = shown.reduce((n, g) => n + g.takes.length, 0);
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 300, zIndex: 9, borderLeft: '1px solid #e5e6eb', boxShadow: '-4px 0 16px rgba(0,0,0,0.08)', background: '#fff', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f2f3f5' }}>
         <Text style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0 }}>🎞 Take Library</Text>
         {focused && <Button size="mini" onClick={onShowAll} title="Show every shot's takes">All shots</Button>}
+        {onClearTakes && clearCount > 0 && (
+          <Popconfirm
+            title={`Delete ${focused ? `all ${clearCount} take${clearCount > 1 ? 's' : ''} on this shot` : `ALL ${clearCount} takes in the library`}? Timeline clips go with them.`}
+            okText="Delete"
+            position="bl"
+            onOk={() => onClearTakes(focused ? focused.cardId : null)}
+          >
+            <Button size="mini" status="danger" title={focused ? 'Delete every take on this shot' : 'Delete every take in the library'}>Clear</Button>
+          </Popconfirm>
+        )}
         <Button size="mini" type="text" icon={<IconClose />} onClick={onClose} />
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 14 }}>

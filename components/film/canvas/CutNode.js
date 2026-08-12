@@ -16,61 +16,38 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onEnrichCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onEnrichCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null, onOpenRefDrawer: null,
 });
 
-// One visual-grounding anchor slot (START | END): shows its picked still, or a dashed
-// ＋ tile. Clicking opens a board-image picker — the anchor is a normal board still,
-// nothing is generated here. Setting an anchor flips the card's shoot onto the
-// composition-pinned Seedance grammar (probe-verified); clearing it flips back.
-const AnchorSlot = ({ label, value, images, onPick, onClear }) => {
-  const [open, setOpen] = useState(false);
-  const grid = (list) => list.map((im) => (
-    <img
-      key={im.nodeId || im.url}
-      src={im.url}
-      alt={im.label}
-      title={im.label}
-      loading="lazy"
-      decoding="async"
-      onClick={() => { onPick(im); setOpen(false); }}
-      style={{ width: 76, height: 43, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', border: im.onCard ? '1px solid #3491fa' : '1px solid #2a313a' }}
-    />
-  ));
-  const picker = (
-    <div className="nodrag nowheel" style={{ width: 252, maxHeight: 260, overflowY: 'auto', padding: 2 }}>
-      {(images || []).length > 0 && <Text style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#9fb4d0', margin: '2px 0 4px' }}>THIS CARD'S REFERENCES</Text>}
-      {(images || []).length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{grid(images)}</div>}
-    </div>
-  );
-  return (
-    <Popover trigger="click" position="bl" popupVisible={open} onVisibleChange={setOpen} content={picker} color="#161b22">
-      <div
-        className="nodrag"
-        title={value?.url ? `${label} keyframe: ${value.label || 'board still'} — click to swap` : `Add keyframe ${label} — the shot passes through the picked compositions in order`}
-        style={{
-          position: 'relative', width: 104, height: 58, borderRadius: 5, cursor: 'pointer', overflow: 'hidden',
-          border: value?.url ? '1px solid #3491fa' : '1px dashed #3c4553', background: '#101418',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}
-      >
-        {value?.url ? (
-          <>
-            <img src={value.url} alt={label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-            <span style={{ position: 'absolute', left: 3, top: 2, fontSize: 8, fontWeight: 700, color: '#fff', background: 'rgba(16,20,24,0.75)', borderRadius: 3, padding: '0 4px' }}>{label}</span>
-            <span
-              onClick={(e) => { e.stopPropagation(); onClear(); }}
-              title={`Clear the ${label} keyframe`}
-              style={{ position: 'absolute', right: 2, top: 1, fontSize: 10, color: '#fff', background: 'rgba(16,20,24,0.75)', borderRadius: 3, padding: '0 4px', cursor: 'pointer' }}
-            >✕</span>
-          </>
-        ) : (
-          <span style={{ fontSize: 10, color: '#7a8699', fontWeight: 700 }}>＋ {label}</span>
-        )}
-      </div>
-    </Popover>
-  );
-};
+// One keyframe slot tile: shows its picked still, or a dashed ＋ tile. Clicking opens
+// the shared reference drawer (single-pick over THIS card's enabled chips) — nothing
+// is generated here. A picked keyframe pins the shoot onto the keyframe grammar.
+const AnchorSlot = ({ label, value, onOpen, onClear }) => (
+  <div
+    className="nodrag"
+    onClick={onOpen}
+    title={value?.url ? `${label} keyframe: ${value.label || 'board still'} — click to swap (picks from this card's references)` : `Add keyframe ${label} — the shot passes through the picked compositions in order (picks from this card's references)`}
+    style={{
+      position: 'relative', width: 104, height: 58, borderRadius: 5, cursor: 'pointer', overflow: 'hidden',
+      border: value?.url ? '1px solid #3491fa' : '1px dashed #3c4553', background: '#101418',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}
+  >
+    {value?.url ? (
+      <>
+        <img src={value.url} alt={label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+        <span style={{ position: 'absolute', left: 3, top: 2, fontSize: 8, fontWeight: 700, color: '#fff', background: 'rgba(16,20,24,0.75)', borderRadius: 3, padding: '0 4px' }}>{label}</span>
+        <span
+          onClick={(e) => { e.stopPropagation(); onClear(); }}
+          title={`Clear the ${label} keyframe`}
+          style={{ position: 'absolute', right: 2, top: 1, fontSize: 10, color: '#fff', background: 'rgba(16,20,24,0.75)', borderRadius: 3, padding: '0 4px', cursor: 'pointer' }}
+        >✕</span>
+      </>
+    ) : (
+      <span style={{ fontSize: 10, color: '#7a8699', fontWeight: 700 }}>＋ {label}</span>
+    )}
+  </div>
+);
 
 const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
 
@@ -117,7 +94,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, mediaEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onEnrichCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onEnrichCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview, onOpenRefDrawer } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -157,6 +134,19 @@ const CutNodeInner = ({ id, data, selected }) => {
   const appendKf = (im) => setKfs([...kfs, kfPtr(im)]);
   const replaceKf = (i) => (im) => setKfs(kfs.map((k, j) => (j === i ? kfPtr(im) : k)));
   const removeKf = (i) => () => setKfs(kfs.filter((_, j) => j !== i));
+  // Keyframe picking rides the shared reference drawer (single-pick) — the pool stays
+  // STRICTLY this card's enabled chips (a keyframe is a pointer to a visible chip).
+  const openKfPick = (slotIndex) => onOpenRefDrawer && onOpenRefDrawer({
+    type: 'pick',
+    title: `${slotIndex == null ? `K${kfs.length + 1}` : `K${slotIndex + 1}`} · pick from this card's references`,
+    hint: 'Keyframes point at ENABLED chips only — add the image to REFERENCES first, then pick it here.',
+    items: kfImages.map((im, i) => ({ id: im.nodeId || im.url, url: im.url, label: `${i + 1} · ${im.label || 'untitled'}`, kind: 'image' })),
+    onPick: (item) => {
+      const im = kfImages.find((x) => (x.nodeId || x.url) === item.id);
+      if (!im) return;
+      if (slotIndex == null) appendKf(im); else replaceKf(slotIndex)(im);
+    },
+  });
   const kfIdxs = kfs.map(kfIndex);
   const anyKfBroken = kfs.length > 0 && kfIdxs.some((i) => !i);
   const startKfIdx = kfIdxs[0] || 0;
@@ -396,6 +386,14 @@ const CutNodeInner = ({ id, data, selected }) => {
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>KEYFRAMES · visual grounding</Text>
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'baseline' }}>
+              {kfImages.length >= 2 && (
+                <Text
+                  className="nodrag"
+                  onClick={() => setKfs(kfImages.slice(0, maxRefs).map(kfPtr))}
+                  title={`Set K1…K${Math.min(kfImages.length, maxRefs)} = every reference chip in its [Image N] order (replaces the current list). Attach chips in story order — e.g. kf_01…kf_15 — and this is one tap.`}
+                  style={{ color: '#3491fa', fontSize: 9, cursor: 'pointer' }}
+                >⛓ chain all refs</Text>
+              )}
               {startKfIdx > 0 && <Text style={{ color: '#3491fa', fontSize: 9 }}>shoots keyframe-pinned</Text>}
               <IconEye className="nodrag" onClick={openCompiled} title="Preview the EXACT compiled prompt 🎬 will send (no spend)" style={{ fontSize: 12, color: '#9fb4d0', cursor: 'pointer' }} />
             </span>
@@ -406,12 +404,11 @@ const CutNodeInner = ({ id, data, selected }) => {
                 key={`${k.url}-${i}`}
                 label={kfIdxs[i] ? `K${i + 1} · Image ${kfIdxs[i]}` : `K${i + 1} · ref off!`}
                 value={k}
-                images={kfImages}
-                onPick={replaceKf(i)}
+                onOpen={() => openKfPick(i)}
                 onClear={removeKf(i)}
               />
             ))}
-            <AnchorSlot label={`K${kfs.length + 1}`} value={null} images={kfImages} onPick={appendKf} onClear={() => {}} />
+            <AnchorSlot label={`K${kfs.length + 1}`} value={null} onOpen={() => openKfPick(null)} onClear={() => {}} />
           </div>
           {triggerRisk && (
             <Text style={{ color: '#f7ba1e', fontSize: 9 }}>
@@ -433,28 +430,30 @@ const CutNodeInner = ({ id, data, selected }) => {
 
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
-            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>REFERENCES → [Image1…N] · click to toggle</Text>
+            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>REFERENCES → [Image1…N] · enabled only</Text>
             {refTotal > maxRefs
               && <Text style={{ color: '#f53f3f', fontSize: 9 }}>first {maxRefs} feed the shot</Text>}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {(bibleEntries || []).map((b) => {
-              const onCut = refIds.includes(b.id);
-              const imgIdx = onCut ? bibleImageIndex(b.id) : null;
+            {/* ENABLED refs only — the whole library lives in the ＋ drawer (never a
+                hundred inline chips). Click a chip to remove it from the shot. */}
+            {sentBibleIds.map((rid) => {
+              const b = (bibleEntries || []).find((x) => x.id === rid);
+              if (!b) return null;
+              const imgIdx = bibleImageIndex(rid);
               const sent = imgIdx != null && imgIdx <= maxRefs;
               return (
                 <span
                   key={b.id}
                   className="nodrag"
                   onClick={() => toggleRef(b.id)}
-                  title={`${sent ? `Image${imgIdx} · ` : ''}${BIBLE_ROLE_META[b.role]?.label || b.role}: ${b.name || ''} — ${onCut ? 'click to remove' : 'click to add'}`}
+                  title={`${sent ? `Image${imgIdx} · ` : ''}${BIBLE_ROLE_META[b.role]?.label || b.role}: ${b.name || ''} — click to remove`}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
                     padding: '1px 6px', borderRadius: 10, fontSize: 10,
                     border: `1px solid ${ROLE_COLOR[b.role] || '#86909c'}`,
-                    background: onCut ? (ROLE_COLOR[b.role] || '#86909c') : 'transparent',
-                    color: onCut ? '#fff' : (ROLE_COLOR[b.role] || '#86909c'),
-                    opacity: onCut ? 1 : 0.55,
+                    background: ROLE_COLOR[b.role] || '#86909c',
+                    color: '#fff',
                   }}
                 >
                   {sent && <b style={REF_BADGE}>{imgIdx}</b>}
@@ -526,30 +525,21 @@ const CutNodeInner = ({ id, data, selected }) => {
                 <span onClick={() => removeVideoRef(v.url)} title="Detach" style={{ cursor: 'pointer' }}>✕</span>
               </span>
             ))}
-            {/* CANON media (★-tagged board audio/video) not yet on this shot — dim offer
-                chips, one tap to attach into the arrays above. */}
-            {(mediaEntries || [])
-              .filter((m) => (m.kind === 'audio' ? !audioRefs.some((a) => a.url === m.url) : !videoRefs.some((v) => v.url === m.url)))
-              .map((m) => (
-                <span
-                  key={`offer-${m.nodeId}`}
-                  className="nodrag"
-                  onClick={() => (m.kind === 'audio'
-                    ? patch({ audioRefs: [...audioRefs, { nodeId: m.nodeId, url: m.url, label: m.label, duration: m.duration }], audioRef: null })
-                    : patch({ videoRefs: [...videoRefs, { nodeId: m.nodeId, url: m.url, label: m.label }], videoRef: null }))}
-                  title={`${m.label} — ★-tagged board ${m.kind}; click to attach as this shot's reference ${m.kind}`}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                    padding: '1px 6px', borderRadius: 10, fontSize: 10, opacity: 0.55,
-                    border: `1px dashed ${m.kind === 'audio' ? 'rgba(120,22,255,0.7)' : '#165dff'}`,
-                    color: m.kind === 'audio' ? '#c0a1ff' : '#6ea0ff', background: 'transparent',
-                  }}
-                >
-                  {m.kind === 'audio' ? <IconSound style={{ fontSize: 11 }} /> : <IconVideoCamera style={{ fontSize: 11 }} />}
-                  {(m.label || m.kind).slice(0, 14)}{m.kind === 'audio' && Number(m.duration) ? ` · ${Math.round(m.duration)}s` : ''}
-                </span>
-              ))}
-            {(bibleEntries || []).length === 0 && assetRefs.length === 0 && (mediaEntries || []).length === 0 && <Text style={{ color: '#86909c', fontSize: 10 }}>no references yet — tag board assets (bible role / ★) or drop an image here</Text>}
+            {onOpenRefDrawer && (
+              <span
+                className="nodrag"
+                onClick={() => onOpenRefDrawer({ type: 'cut', id })}
+                title="Browse the reference library — search + role tabs; toggle cast/world plates, board images and ★-tagged clips onto this shot"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer',
+                  padding: '1px 8px', borderRadius: 10, fontSize: 10,
+                  border: '1px dashed #9fb4d0', color: '#9fb4d0', background: 'transparent',
+                }}
+              >
+                ＋ Add references
+              </span>
+            )}
+            {refTotal === 0 && audioRefs.length === 0 && videoRefs.length === 0 && <Text style={{ color: '#86909c', fontSize: 10 }}>none enabled — browse the library, or drop an image straight onto the card</Text>}
           </div>
         </div>
       </div>

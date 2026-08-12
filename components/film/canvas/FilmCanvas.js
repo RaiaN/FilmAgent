@@ -32,6 +32,7 @@ import StoryboardStripNode from './StoryboardStripNode';
 import NoteNode, { NoteContext } from './NoteNode';
 import TakeViewer from './TakeViewer';
 import TakeLibrary from './TakeLibrary';
+import RefDrawer from './RefDrawer';
 import ContinuityEdge from './ContinuityEdge';
 import SequenceNode, { SequenceContext } from './SequenceNode';
 import KeyframeEditor from './KeyframeEditor';
@@ -745,6 +746,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Takes never render as board nodes; this drawer is the one surface for renders.
   // Focus is selection-derived: a selected SHOT card filters the drawer to its takes.
   const [takeLibOpen, setTakeLibOpen] = useState(false);
+  // ---- REFERENCE BROWSER (right drawer) — the ONE library-picking surface -----------
+  // Sources: a SHOT card ({type:'cut',id}), the storyboard pool ({type:'sbpool',id}),
+  // a panel field ({type:'panel',field}) or a generic single-pick request
+  // ({type:'pick',title,items,onPick} — keyframe slots). Every surface shows only its
+  // ENABLED refs inline and opens this drawer to browse/toggle the rest.
+  const [refDrawer, setRefDrawer] = useState(null);
+  const openRefDrawer = useCallback((req) => { setTakeLibOpen(false); setRefDrawer(req); }, []);
+  const closeRefDrawer = useCallback(() => setRefDrawer(null), []);
   const focusedCutId = useMemo(() => (selectedNodes.find((n) => n.type === 'cut') || {}).id || null, [selectedNodes]);
   // Groups mirror the SHOT cards in cut order. A card's takes = its grid children plus
   // the docked Action take (deduped when both hold the same render).
@@ -788,6 +797,21 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       return rest;
     });
   }, [setNodes, updateTimeline]);
+  // Drawer CLEAR: delete every take in scope (one card's, or the whole library) —
+  // one cascade for all: timeline clips drop, emptied take grids clean up, cards
+  // keep their shot status (deleting takes never un-shoots).
+  const clearTakes = useCallback((cardId) => {
+    const ids = new Set();
+    takeGroups.forEach((g) => { if (!cardId || g.cardId === cardId) g.takes.forEach((t) => ids.add(t.id)); });
+    if (!ids.size) return;
+    updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => !ids.has(e.shotNodeId)) }));
+    setNodes((ns) => {
+      const rest = ns.filter((n) => !ids.has(n.id));
+      const liveGridIds = new Set(rest.filter((n) => n.parentId && String(n.parentId).startsWith('grid-')).map((n) => n.parentId));
+      return rest.filter((n) => !(String(n.id).startsWith('grid-') && !liveGridIds.has(n.id)));
+    });
+    Message.success(`${ids.size} take${ids.size > 1 ? 's' : ''} deleted.`);
+  }, [takeGroups, setNodes, updateTimeline]);
   // The card's 🎞 chip: open the drawer focused on that card — with ZERO board side
   // effects (no selection change, no pan; the user's viewport is sacred). Explicit
   // focus wins until the user selects a different card on the canvas.
@@ -2985,7 +3009,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     boardImages,
     prevTakeFrames,
     onCompilePreview: previewCutPrompt,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, enrichCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt]);
+    onOpenRefDrawer: openRefDrawer,
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, enrichCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt, openRefDrawer]);
 
   const filmMode = true; // Short-Film-only suite.
 
@@ -4372,14 +4397,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     }
     if (id === 'shot') { dropEmptyShotCard(at, d); closePanel(); return; }
     if (id === 'storyboard') {
-      // The scene to board, VERBATIM: the panel's typed text wins (standalone entry —
-      // it lands as a NEW Brief card first, so the words stay anchored as the source
-      // of truth the whole pipeline reads); empty → the SELECTED Brief's text.
+      // SELF-SUSTAINED: the storyboard element OWNS its script — typed text rides
+      // onto the control card VERBATIM (editable there in the SCRIPT section);
+      // empty lands an empty card to type into. No Brief card is created or read.
       const typed = (d.script || '').trim();
-      const selStory = !typed && nodesRef.current.find((n) => n.type === 'story' && n.selected && String(n.data?.idea || '').trim());
-      if (!typed && !selStory) { Message.warning('Type the scene to board — or select a Brief node and leave the field empty.'); return; }
-      if (typed) createStoryNode({ idea: typed });
-      const text = typed || String(selStory.data.idea).trim();
+      const text = typed;
       // Pool entries keep their IDENTITY ({entryId?, nodeId, url, label}) so the chat
       // node's REFS block shows named, numbered, toggleable chips; fat data: sources
       // are downscaled like every other ref path.
@@ -4995,7 +5017,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onToggleBibleRef: sbToggleBibleRef, onRemoveRef: sbRemoveRef, onAddBoardRef: sbAddBoardRef,
     onRenderAll: renderAllStills, onRenderSheet: renderSheetFromChat, onCastFromScript: castFromStoryboard,
     onPatchChat: (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))),
-  }), [runDivide, storyboardListAction, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills, castFromStoryboard]);
+    onOpenRefDrawer: openRefDrawer,
+  }), [runDivide, storyboardListAction, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills, castFromStoryboard, openRefDrawer]);
 
   // Handlers only — each Brief node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Brief element on the board.
@@ -5020,6 +5043,139 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onShoot: shootFilm,
     onClose: removeStoryNode,
   }), [editStoryIdea, editStoryPrompt, setStoryComplexity, developStory, draftCastFromStory, storyboardFromStory, floorPlanFromStory, splitBriefToShots, setStorySplitCount, shootFilm, removeStoryNode]);
+
+  // The drawer's content derives LIVE from the current board/panel state per source,
+  // so toggles update badges in place. Bible-tagged images carry their role; other
+  // board images land under the Board tab; ★-tagged clips under A/V.
+  const refDrawerProps = (() => {
+    if (!refDrawer) return null;
+    const roleOf = (a) => {
+      const b = bibleEntries.find((x) => (x.nodeId && x.nodeId === a.id) || x.url === a.url);
+      return b ? b.role : null;
+    };
+    if (refDrawer.type === 'pick') {
+      return {
+        title: refDrawer.title, hint: refDrawer.hint, single: true,
+        items: refDrawer.items, selection: new Map(),
+        onToggle: (item) => { refDrawer.onPick(item); closeRefDrawer(); },
+      };
+    }
+    if (refDrawer.type === 'cut') {
+      const node = nodes.find((n) => n.id === refDrawer.id && n.type === 'cut');
+      if (!node) return null;
+      const d = node.data;
+      const refIds = d.refIds || [];
+      const assetRefs = d.assetRefs || [];
+      const audioRefs = d.audioRefs || (d.audioRef ? [d.audioRef] : []);
+      const videoRefs = d.videoRefs || (d.videoRef ? [d.videoRef] : []);
+      const sentBibleIds = refIds.filter((rid) => bibleEntries.some((b) => b.id === rid && b.url));
+      const selection = new Map();
+      sentBibleIds.forEach((rid, i) => selection.set(`bible:${rid}`, String(i + 1)));
+      assetRefs.forEach((a, j) => {
+        const ia = imageAssets.find((x) => x.id === a.nodeId || x.url === a.url);
+        selection.set(`board:${ia ? ia.id : (a.nodeId || a.url)}`, String(sentBibleIds.length + j + 1));
+      });
+      audioRefs.forEach((a, i) => selection.set(`media:${a.nodeId || a.url}`, `A${i + 1}`));
+      videoRefs.forEach((v, i) => selection.set(`media:${v.nodeId || v.url}`, `V${i + 1}`));
+      const items = [
+        ...bibleEntries.filter((b) => b.url).map((b) => ({ id: `bible:${b.id}`, url: b.url, label: b.name || b.role, role: b.role, kind: 'image', src: b })),
+        ...imageAssets.filter((a) => !bibleEntries.some((b) => (b.nodeId && b.nodeId === a.id) || b.url === a.url))
+          .map((a) => ({ id: `board:${a.id}`, url: a.url, label: a.label, role: null, kind: 'image', src: a })),
+        ...mediaEntries.map((m) => ({ id: `media:${m.nodeId}`, url: m.url, label: m.label, role: null, kind: m.kind, duration: m.duration, src: m })),
+      ];
+      return {
+        title: `SHOT ${(Number(d.cut) || 0) + 1} · references`,
+        hint: 'Toggled images ride as [Image 1…N] in pick order; clips attach as reference audio/video.',
+        items, selection,
+        onToggle: (item) => {
+          if (String(item.id).startsWith('bible:')) {
+            const eid = item.src.id;
+            onPatchCut(refDrawer.id, { refIds: refIds.includes(eid) ? refIds.filter((r) => r !== eid) : [...refIds, eid] });
+          } else if (item.kind === 'image') {
+            const has = assetRefs.some((a) => a.nodeId === item.src.id || a.url === item.url);
+            onPatchCut(refDrawer.id, { assetRefs: has ? assetRefs.filter((a) => !(a.nodeId === item.src.id || a.url === item.url)) : [...assetRefs, { nodeId: item.src.id, url: item.url, label: item.label }] });
+          } else if (item.kind === 'audio') {
+            const has = audioRefs.some((a) => a.url === item.url);
+            onPatchCut(refDrawer.id, { audioRefs: has ? audioRefs.filter((a) => a.url !== item.url) : [...audioRefs, { nodeId: item.src.nodeId, url: item.url, label: item.label, duration: item.duration }], audioRef: null });
+          } else {
+            const has = videoRefs.some((v) => v.url === item.url);
+            onPatchCut(refDrawer.id, { videoRefs: has ? videoRefs.filter((v) => v.url !== item.url) : [...videoRefs, { nodeId: item.src.nodeId, url: item.url, label: item.label }], videoRef: null });
+          }
+        },
+      };
+    }
+    if (refDrawer.type === 'sbpool') {
+      const chat = nodes.find((n) => n.id === refDrawer.id);
+      if (!chat) return null;
+      const pool = (chat.data?.refs || []).map((r) => (typeof r === 'string' ? { url: r } : (r || {}))).filter((r) => r.url);
+      const selection = new Map();
+      pool.forEach((r, i) => {
+        const b = bibleEntries.find((x) => (r.entryId && x.id === r.entryId) || x.url === r.url);
+        if (b) { selection.set(`bible:${b.id}`, String(i + 1)); return; }
+        const ia = imageAssets.find((x) => x.id === r.nodeId || x.url === r.url);
+        selection.set(`board:${ia ? ia.id : (r.nodeId || r.url)}`, String(i + 1));
+      });
+      const items = [
+        ...bibleEntries.filter((b) => b.url).map((b) => ({ id: `bible:${b.id}`, url: b.url, label: b.name || b.role, role: b.role, kind: 'image', src: b })),
+        ...imageAssets.filter((a) => !bibleEntries.some((b) => (b.nodeId && b.nodeId === a.id) || b.url === a.url))
+          .map((a) => ({ id: `board:${a.id}`, url: a.url, label: a.label, role: null, kind: 'image', src: a })),
+      ];
+      return {
+        title: 'Storyboard · reference pool',
+        hint: 'Pool order IS the [Image N] numbering the division and keyframes use.',
+        items, selection,
+        onToggle: (item) => {
+          if (String(item.id).startsWith('bible:')) { sbToggleBibleRef(refDrawer.id, item.src); return; }
+          const inPool = pool.some((r) => r.url === item.url || (r.nodeId && r.nodeId === item.src.id));
+          if (inPool) sbRemoveRef(refDrawer.id, item.url); else sbAddBoardRef(refDrawer.id, item.src.id);
+        },
+      };
+    }
+    if (refDrawer.type === 'panel') {
+      const agentId = selectedAgentNode ? selectedAgentNode.data.agentId : panelAgentId;
+      if (!agentId) return null;
+      const values = selectedAgentNode
+        ? (selectedAgentNode.data.settings || {})
+        : { ...(AGENT_MAP[agentId]?.defaultSettings || {}), ...(layerSettings[agentId] || {}) };
+      const upd = selectedAgentNode
+        ? (patch) => patchAgentSettings(selectedAgentNode.id, patch)
+        : (patch) => setLayerSettings((prev) => ({ ...prev, [agentId]: { ...(prev[agentId] || {}), ...patch } }));
+      const f = refDrawer.field;
+      if (f === 'audioRefs') {
+        const picked = values.audioRefs || [];
+        return {
+          title: 'Voice / sound references', hint: 'Pick order = @Audio1…N in the prompt (up to 3); picking clears the mood image.',
+          items: audioAssets.map((a) => ({ id: a.id, url: '', label: a.label, kind: 'audio', duration: a.duration, src: a })),
+          selection: new Map(picked.map((rid, i) => [rid, `A${i + 1}`])),
+          onToggle: (item) => {
+            const on = picked.includes(item.id);
+            if (!on && picked.length >= 3) return;
+            upd({ audioRefs: on ? picked.filter((x) => x !== item.id) : [...picked, item.id], ...(on ? {} : { imageRef: '' }) });
+          },
+        };
+      }
+      const imgItems = imageAssets.map((a) => ({ id: a.id, url: a.url, label: a.label, role: roleOf(a), kind: 'image', src: a }));
+      if (f === 'refs') {
+        const picked = values.refs || [];
+        return {
+          title: 'Style references', hint: 'Picked board images seed the storyboard looks.',
+          items: imgItems, selection: new Map(picked.map((rid, i) => [rid, String(i + 1)])),
+          onToggle: (item) => { const on = picked.includes(item.id); upd({ refs: on ? picked.filter((x) => x !== item.id) : [...picked, item.id] }); },
+        };
+      }
+      // single-pick fields: variations source image / audio mood image
+      return {
+        title: f === 'anchorId' ? 'Source image' : 'Mood reference', single: true,
+        hint: f === 'imageRef' ? 'One board image sets the scene; picking clears the audio references.' : 'One board image is the variation anchor.',
+        items: imgItems, selection: new Map(values[f] ? [[values[f], '✓']] : []),
+        onToggle: (item) => {
+          upd({ [f]: values[f] === item.id ? '' : item.id, ...(f === 'imageRef' ? { audioRefs: [] } : {}) });
+          closeRefDrawer();
+        },
+      };
+    }
+    return null;
+  })();
 
   return (
     <AssetNodeContext.Provider value={tagCtx}>
@@ -5260,6 +5416,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         {/* Take Library — an OVERLAY pinned to the wrapper's right edge, deliberately
             NOT a flex sibling: opening it must not resize the canvas (a 300px layout
             shift reads as the camera jumping — the viewport is sacred). */}
+        {refDrawerProps && (
+          <RefDrawer
+            key={`${refDrawer.type}-${refDrawer.id || refDrawer.field || refDrawer.title || ''}`}
+            {...refDrawerProps}
+            onClose={closeRefDrawer}
+          />
+        )}
         {takeLibOpen && (
           <TakeLibrary
             groups={takeGroups}
@@ -5269,6 +5432,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             onAddToTimeline={addTakeToTimeline}
             onRemoveFromTimeline={removeTakeFromTimeline}
             onDeleteTake={deleteTakeById}
+            onClearTakes={clearTakes}
             onNeedPoster={ensurePoster}
             onFocusCard={selectAndCenter}
             onShowAll={() => { setTakeLibFocusId(null); setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n))); }}
@@ -5297,6 +5461,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             : (patch) => setLayerSettings((prev) => ({ ...prev, [panelAgentId]: { ...(prev[panelAgentId] || {}), ...patch } }))}
           imageAssets={imageAssets}
           audioAssets={audioAssets}
+          onOpenRefDrawer={(field) => openRefDrawer({ type: 'panel', field })}
           running={selectedAgentNode ? agentRunning.includes(selectedAgentNode.id) : false}
           draft={!selectedAgentNode}
           onPrimary={selectedAgentNode ? () => runAgentNode(selectedAgentNode.id) : panelPrimary}

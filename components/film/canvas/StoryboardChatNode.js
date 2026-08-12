@@ -8,13 +8,28 @@ const { Text } = Typography;
 // Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data) — same context pattern as CutContext / StoryScriptContext.
 export const StoryboardChatContext = createContext({
-  onDivide: null, onListAction: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPatchChat: null,
+  onDivide: null, onListAction: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPatchChat: null, onOpenRefDrawer: null,
 });
 
 // Same role palette as the SHOT card's reference chips — the two blocks must read as one system.
 const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
 const REF_BADGE = { fontSize: 9, background: 'rgba(0,0,0,0.28)', borderRadius: 8, padding: '0 4px' };
 const asRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
+
+// Blur-commit draft (the SHOT card's DraftText pattern): routing keystrokes through
+// the RF store echoes the value back a beat late and resets the caret to the end.
+const DraftArea = ({ value, onCommit, ...rest }) => {
+  const [draft, setDraft] = useState(null);
+  return (
+    <Input.TextArea
+      {...rest}
+      value={draft !== null ? draft : (value || '')}
+      onChange={(v) => setDraft(v)}
+      onFocus={() => setDraft(value || '')}
+      onBlur={() => { if (draft !== null && draft !== (value || '')) onCommit(draft); setDraft(null); }}
+    />
+  );
+};
 
 // A labeled GROUP on the control card — the visual separation between the card's
 // functional blocks.
@@ -35,9 +50,8 @@ const Section = ({ label, children, style }) => (
 // (click to remove), and "+ board image" to add any board image mid-conversation. The next
 // turn / render reads the live pool; finished stills keep their frames.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onDivide, onListAction, bibleEntries, imageAssets, onToggleBibleRef, onRemoveRef, onAddBoardRef, onRenderAll, onRenderSheet, onCastFromScript, onPatchChat } = useContext(StoryboardChatContext);
+  const { onDivide, onListAction, bibleEntries, onToggleBibleRef, onRemoveRef, onRenderAll, onRenderSheet, onCastFromScript, onPatchChat, onOpenRefDrawer } = useContext(StoryboardChatContext);
   const count = data.shotCount || 0;
-  const [addOpen, setAddOpen] = useState(false);
   // The constrained action bar's local draft (1 of M + structured args).
   const [act, setAct] = useState('note');
   const [actShot, setActShot] = useState(1);
@@ -48,9 +62,6 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
   const pool = useMemo(() => (data.refs || []).map(asRef).filter((r) => r.url), [data.refs]);
   const cap = imageRefCap(data.imageModel);
   const bible = bibleEntries || [];
-  // Pool refs with no bible identity (panel-picked loose images, "+ board image" adds).
-  const loose = pool.filter((r) => !bible.some((b) => (r.entryId && b.id === r.entryId) || b.url === r.url));
-  const addable = (imageAssets || []).filter((a) => !pool.some((r) => r.url === a.url || (r.nodeId && r.nodeId === a.id)));
   return (
     <div style={{ width: 460, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#4e5969' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(78,89,105,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
       <div style={{ height: 4, background: '#4e5969' }} />
@@ -59,90 +70,65 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
         <Text bold style={{ fontSize: 12, flex: 1 }} ellipsis>Storyboard · shot division</Text>
         {count > 0 && <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>{count} {count === 1 ? 'shot' : 'shots'}</Text>}
       </div>
+      {/* SCRIPT — the storyboard's OWN source text, editable right here (verbatim:
+          the division reads these words, never a Brief card). */}
+      <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0', flexShrink: 0 }}>
+        <Section label="SCRIPT — divided into shots, wording preserved">
+          <DraftArea
+            value={data.script}
+            onCommit={(v) => onPatchChat && onPatchChat(id, { script: v })}
+            placeholder="type or paste the scene / script here…"
+            autoSize={{ minRows: 2, maxRows: 8 }}
+            style={{ fontSize: 11 }}
+          />
+        </Section>
+      </div>
       <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '5px 8px', borderBottom: '1px solid #f2f3f5', maxHeight: refsOpen ? 216 : 22, overflowY: 'auto', flexShrink: 0 }}>
         <Text onClick={() => setRefsOpen((v) => !v)} title={refsOpen ? 'Collapse the reference pool' : 'Expand the reference pool'} style={{ color: '#86909c', fontSize: 9, fontWeight: 700, display: 'block', marginBottom: 3, cursor: 'pointer', userSelect: 'none' }}>
           {refsOpen ? '▾' : '▸'} REFERENCES → [Image1…{Math.min(pool.length, cap) || 'N'}] · {pool.length} in pool · click to toggle
         </Text>
         <div style={{ display: refsOpen ? 'flex' : 'none', flexWrap: 'wrap', gap: 4 }}>
-          {bible.map((b) => {
-            const i = pool.findIndex((r) => (r.entryId && r.entryId === b.id) || r.url === b.url);
-            const on = i >= 0;
-            const nIdx = i + 1;
-            const sent = on && nIdx <= cap;
-            const color = ROLE_COLOR[b.role] || '#86909c';
-            return (
-              <span
-                key={b.id}
-                onClick={() => onToggleBibleRef && onToggleBibleRef(id, b)}
-                title={`${b.name || b.role}${on ? ` — [Image ${nIdx}] in the pool; click to remove` : ' — click to add to the reference pool'}`}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                  padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                  border: `1px solid ${color}`,
-                  background: on ? color : 'transparent',
-                  color: on ? '#fff' : color,
-                  opacity: on ? 1 : 0.55,
-                }}
-              >
-                {sent && <b style={REF_BADGE}>{nIdx}</b>}
-                {b.url ? <img src={b.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
-                {(b.name || b.role).slice(0, 14)}
-              </span>
-            );
-          })}
-          {loose.map((r) => {
-            const i = pool.findIndex((p) => p.url === r.url);
+          {/* The POOL only, in pool order (= the [Image N] numbering) — bible plates
+              wear their role colour, loose board refs grey; click removes. Browsing
+              the whole library lives in the ＋ drawer. */}
+          {pool.map((r, i) => {
+            const b = bible.find((x) => (r.entryId && x.id === r.entryId) || x.url === r.url);
             const nIdx = i + 1;
             const sent = nIdx <= cap;
+            const color = b ? (ROLE_COLOR[b.role] || '#86909c') : '#e5e6eb';
             return (
               <span
                 key={r.url}
-                onClick={() => onRemoveRef && onRemoveRef(id, r.url)}
-                title={`${r.label || 'reference'} — [Image ${nIdx}] in the pool (board image); click to remove`}
+                onClick={() => (b ? onToggleBibleRef && onToggleBibleRef(id, b) : onRemoveRef && onRemoveRef(id, r.url))}
+                title={`${b ? (b.name || b.role) : (r.label || 'reference')} — [Image ${nIdx}] in the pool; click to remove`}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
                   padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                  border: '1px solid #e5e6eb', background: '#e5e6eb', color: '#1d2129',
+                  border: `1px solid ${b ? color : '#e5e6eb'}`,
+                  background: b ? color : '#e5e6eb',
+                  color: b ? '#fff' : '#1d2129',
                 }}
               >
                 {sent && <b style={REF_BADGE}>{nIdx}</b>}
-                <img src={r.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} />
-                {(r.label || 'ref').slice(0, 14)}
+                {(b?.url || r.url) ? <img src={b?.url || r.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
+                {(b ? (b.name || b.role) : (r.label || 'ref')).slice(0, 14)}
               </span>
             );
           })}
-          {onAddBoardRef && (
+          {onOpenRefDrawer && (
             <span
-              onClick={() => setAddOpen((v) => !v)}
-              title="Add any board image to the reference pool — it becomes [Image N+1]; the next division turn and renders can use it"
+              onClick={() => onOpenRefDrawer({ type: 'sbpool', id })}
+              title="Browse the reference library — search + role tabs; toggle cast/world plates and board images into the pool"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer',
-                padding: '1px 6px', borderRadius: 10, fontSize: 10,
+                padding: '1px 8px', borderRadius: 10, fontSize: 10,
                 border: '1px dashed #86909c', color: '#86909c',
               }}
             >
-              <IconPlus style={{ fontSize: 10 }} /> board image
+              <IconPlus style={{ fontSize: 10 }} /> Add references
             </span>
           )}
         </div>
-        {refsOpen && addOpen && (
-          <div style={{ marginTop: 4, padding: 6, border: '1px solid #e5e6eb', borderRadius: 6, maxHeight: 96, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {addable.length === 0 ? (
-              <Text type="secondary" style={{ fontSize: 10 }}>Every board image is already in the pool.</Text>
-            ) : (
-              addable.map((a) => (
-                <img
-                  key={a.id}
-                  src={a.url}
-                  alt={a.label}
-                  title={a.label}
-                  onClick={() => { onAddBoardRef(id, a.id); setAddOpen(false); }}
-                  style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4, cursor: 'pointer', border: '1px solid #e5e6eb' }}
-                />
-              ))
-            )}
-          </div>
-        )}
         {refsOpen && pool.length > cap && (
           <Text style={{ color: '#ff7d00', fontSize: 9, display: 'block', marginTop: 2 }}>
             first {cap} ride per render ({imageTraits(data.imageModel).shortLabel} reference cap)
@@ -177,9 +163,11 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           <div style={{ display: 'flex', gap: 6 }}>
             <Button
               size="small" type="primary" loading={!!data.busy}
+              disabled={!String(data.script || '').trim()}
               icon={<IconPlayArrow />}
               onClick={() => onDivide && onDivide(id)}
               style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1 }}
+              title={String(data.script || '').trim() ? 'Divide the script into shot rows — words only, stills are separate taps' : 'Type the script above first'}
             >
               {data.busy ? 'Dividing…' : 'Divide into shots'}
             </Button>

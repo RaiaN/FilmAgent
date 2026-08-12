@@ -1,5 +1,5 @@
 // The Film pipeline — the EXPLICIT, ordered production plan. One readable list
-// (like RECIPES / CAMERA_MOVES): each stage names the agents that serve it, the
+// (like RECIPES): each stage names the agents that serve it, the
 // human gate that closes it, and what it produces. This file IS the answer to
 // "what order do the agents run in?" — no flow logic buried in components.
 //

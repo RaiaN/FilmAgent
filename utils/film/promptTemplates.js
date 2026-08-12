@@ -31,7 +31,7 @@ Return ONLY a JSON object — no prose, no code fences:
     {
       "type": "creature",
       "name": "<2–3 word label>",
-      "presencePrompt": "<the figure IN-WORLD and only PARTIALLY revealed — rendered in its own light, atmosphere, surface and texture; obscured / silhouetted / half-swallowed by shadow or its element. NOT frontal, NOT a neutral background, NOT eyes-to-lens, NOT a clean ID photo. Cinematic and ominous. No on-image text.>"
+      "presencePrompt": "<the figure IN-WORLD and only PARTIALLY revealed — rendered in its own light, atmosphere, surface and texture; obscured / silhouetted / half-swallowed by shadow or its element. NOT frontal, NOT a neutral background, NOT eyes-to-lens, NOT a clean ID photo. Cinematic, in the FILM'S own tone — menacing, comic, wondrous, whatever the idea dictates. No on-image text.>"
     },
     {
       "type": "location",
@@ -125,7 +125,7 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     agent: 'Previz',
     label: 'Projection — map + moment → Seedance prompt (system)',
     vars: [],
-    text: 'You are a film director writing a Seedance 2.0 video-generation prompt for ONE shot.\n\nYou receive: the shot\'s ACTION text (verbatim — the moment this shot covers), an overhead blocking map as [Image 1] (schematic floor plan: colored circles = individuals, colored rectangles = groups, dashed line = the AXIS of action, labels name everyone), optionally a camera position, and optionally a list of photoreal reference images [Image 2], [Image 3], … (cast identity plates, location plates).\n\nPlan silently, in this order (do not output the plan):\n1. READ THE MAP — every marker, its position relative to the named features, and the AXIS.\n2. PLACE THE CAMERA — choose one position on ONE side of the AXIS (stay on that side), at a stated distance and height, covering the ACTION. If a camera position is given, use it.\n3. PROJECT — convert the map\'s positions into what THIS camera sees: who is foreground / mid-ground / background, who is frame-left / frame-right, which way each party faces, where eyelines point. Screen direction must be consistent with the map and the chosen side of the axis.\n4. ACTION — what happens during the clip, taken from the ACTION text\'s own wording. One continuous beat, nothing the text does not say.\n\nThen output ONLY the Seedance prompt, in exactly this structure, one paragraph per line:\n\n[Image 1] is the overhead blocking MAP of this scene — a schematic diagram. Read it only for positions, spacing and directions of the named parties. Nothing in the video may look like it: no diagrams, no lines, no labels, no white schematic style.\n{references} — one clause per remaining image: "[Image N] is <who/what> — exact identity/appearance." Omit this line if there are no other images.\n{scene} — one sentence: the place, time and light, photoreal, cinematic.\n{blocking} — the projected view: camera position and height first, then each party foreground to background with frame side, facing and eyeline, matching the map.\n{action} — the beat of this shot across the clip\'s duration, in the ACTION text\'s own words where possible; bodies and objects move, the event is witnessed, no one plays to camera.\n{camera} — the camera\'s path through the space during the shot, as movement (e.g. "the camera holds low and pushes slowly toward…"), never abstract film-grammar terms.\n\nRules: never mention the map after its first line. No character ever looks at the camera. No shot lists, no headings, no quotes, no code fences — output the prompt text only.',
+    text: 'You are a film director writing a Seedance 2.0 video-generation prompt for ONE shot.\n\nYou receive: the shot\'s ACTION text (verbatim — the moment this shot covers), an overhead blocking map as [Image 1] (schematic floor plan: colored circles = individuals, colored rectangles = groups, dashed line = the AXIS of action, labels name everyone), optionally a camera position, and optionally a list of photoreal reference images [Image 2], [Image 3], … (cast identity plates, location plates).\n\nPlan silently, in this order (do not output the plan):\n1. READ THE MAP — every marker, its position relative to the named features, and the AXIS.\n2. PLACE THE CAMERA — choose one position on ONE side of the AXIS (stay on that side), at a stated distance and height, covering the ACTION. If a camera position is given, use it.\n3. PROJECT — convert the map\'s positions into what THIS camera sees: who is foreground / mid-ground / background, who is frame-left / frame-right, which way each party faces, where eyelines point. Screen direction must be consistent with the map and the chosen side of the axis.\n4. ACTION — what happens during the clip, taken from the ACTION text\'s own wording. One continuous beat, nothing the text does not say.\n\nThen output ONLY the Seedance prompt, in exactly this structure, one paragraph per line:\n\n[Image 1] is the overhead blocking MAP of this scene — a schematic diagram. Read it only for positions, spacing and directions of the named parties. Nothing in the video may look like it: no diagrams, no lines, no labels, no white schematic style.\n{references} — one clause per remaining image: "[Image N] is <who/what> — exact identity/appearance." Omit this line if there are no other images.\n{scene} — one sentence: the place, time and light, photoreal, cinematic.\n{blocking} — the projected view: camera position and height first, then each party foreground to background with frame side, facing and eyeline, matching the map.\n{action} — the beat of this shot across the clip\'s duration, in the ACTION text\'s own words where possible; bodies and objects move, the event is witnessed, no one plays to camera.\n{camera} — the camera\'s path through the space during the shot, as movement, at whatever tempo the drama demands (e.g. "the camera holds low and pushes toward…" / "the camera whips right to follow…"), never abstract film-grammar terms.\n\nRules: never mention the map after its first line. No character ever looks at the camera. No shot lists, no headings, no quotes, no code fences — output the prompt text only.',
   },
   'previz.project.user': {
     agent: 'Previz',
@@ -178,7 +178,7 @@ Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only 
     vars: ['{kfCount}', '{modelLine}', '{craftRules}', '{durationSec}'],
     text: `You are a cinematographer reading a shot's APPROVED KEYFRAMES — {kfCount} stills attached IN ORDER: Keyframe 1 is the shot's opening composition, each next keyframe is a composition the shot passes through, the last is where it lands. These pictures are the shot's design; you see NOTHING else on purpose.
 
-STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), prefer slow continuous movement with natural inertia between keyframes, externalize emotion as visible physical detail. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), movement speed follows what the keyframe change implies — fast and crisp for action, slow for weight — always CONTINUOUS with natural inertia between keyframes, externalize emotion as visible physical detail. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. The shot runs ~{durationSec}s — pace the events to fill it, no more.
 
 {craftRules}
 
@@ -195,7 +195,7 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
   'cut.enrich.system': {
     agent: 'Shot',
     label: 'Enrich — densify the existing prompt (system)',
-    vars: ['{refCount}', '{kfLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}', '{targetWords}'],
+    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}', '{targetWords}'],
     text: `You are a cinematographer EXPANDING an existing video-shot prompt. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
@@ -208,6 +208,8 @@ THE CURRENT TEXT IS THE SKELETON — nothing it says may be lost or reordered: e
 • VFX where the events imply them, described physically
 • sound — weave <sfx> and （music） moments at the right beats; dialogue stays untouched
 Everything you add must be FILMABLE in this one take and must not contradict the keyframe path. If the skeleton lacks an opening summary, make the FIRST sentence a one-sentence summary — subject + location + event + style + camera.
+
+{jobLine}
 
 {cameraLine}
 
@@ -228,12 +230,14 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the enriched action t
   'cut.direct.system': {
     agent: 'Shot',
     label: 'Direct — a note on how the shot feels/reads (system)',
-    vars: ['{refCount}', '{kfLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
     text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — the shot's fixed cast, places and frames; they never change.
 
 {kfLine}
 
 THE CURRENT PROMPT IS THE SHOT: its events, their order, every [Image N] tag and every dialogue line word-for-word in curly braces all stay. You re-shape HOW it feels and reads per the note — tone, pacing, emphasis, atmosphere, wording. Where the note and the current text disagree, the note wins. Never add, drop or renumber an [Image N] tag.
+
+{jobLine}
 
 {cameraLine}
 
@@ -254,16 +258,18 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
   'cut.compose.system': {
     agent: 'Shot',
     label: 'Compose — keyframe-aware cinematic action (system)',
-    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
     text: `You are a cinematographer writing ONE video shot's ACTION text. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
 
 {authorityLine}
 
+{jobLine}
+
 {cameraLine}
 
-The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; prefer slow continuous movement with natural inertia and follow-through; externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in full-width parens （…）. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; movement speed FOLLOWS the action's nature — a strike or impact is fast and crisp, a hesitation or realization is slow — but ALL motion is CONTINUOUS with natural inertia and follow-through (nothing teleports, nothing loops); externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in full-width parens （…）. The shot runs ~{durationSec}s — pace the events to fill it, no more.
 
 {craftRules}
 
@@ -304,6 +310,7 @@ PLAN FIRST — think through, none of it in the output: (a) what TRANSFORMS acro
 
 For EACH shot return:
 • beat — a 2–4 word name.
+• job — ONE short line: this shot's single dramatic JOB, what it DOES to the audience (poses the question X / raises the stakes by Y / reverses Z / releases W / reveals V). A shot whose job you cannot state does not belong in the list.
 • shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY:
 {templates}
 • figures — the reference numbers that APPEAR in this shot (≥1 when references exist; [] when none attached).
@@ -313,7 +320,7 @@ For EACH shot return:
 • span — THIS SHOT'S PORTION OF THE SCRIPT, COPIED VERBATIM: the exact characters, dialogue word-for-word, nothing paraphrased, nothing summarized. The spans PARTITION the script IN ORDER — every story-relevant line lands in exactly ONE shot's span, no gaps, no overlaps. Trailing global sections (style / audio notes that apply to the whole film) belong to NO span.
 
 Return ONLY a JSON object — no prose, no code fences:
-{"shots":[{"beat":"…","shotTemplate":"…","figures":[…],"durationSec":10,"intExt":"EXT","develops":true,"span":"…"}],"reply":"<ONE short line to the director>"}`,
+{"shots":[{"beat":"…","job":"…","shotTemplate":"…","figures":[…],"durationSec":10,"intExt":"EXT","develops":true,"span":"…"}],"reply":"<ONE short line to the director>"}`,
   },
   'storyboard.carve.user': {
     agent: 'Storyboard',
@@ -327,6 +334,8 @@ Return ONLY a JSON object — no prose, no code fences:
     vars: ['{refCount}', '{craftRules}'],
     text: `You are a film director + cinematographer AUTHORING ONE SHOT of a larger scene. You receive the whole SCRIPT for context, but your shot covers ONLY its SPAN — the script's own words for this moment. The span is the source of truth: carry its wording; EVERY line of dialogue in the span rides word-for-word.
 
+THE SHOT HAS ONE JOB (stated in the instruction). Every sentence you write either advances that job or earns its place some other way — cut anything that serves neither. The job decides what the camera favors, what the performance emphasizes, and what the frame withholds.
+
 {craftRules}
 
 If the shot runs LONGER than 15 seconds, structure "motion" as continuous integer-second intervals ("0-3s: … 3-8s: …", no gaps, one event cluster per 2-4 seconds, each interval with its own camera, action, dialogue and sound).
@@ -336,7 +345,7 @@ If the shot runs LONGER than 15 seconds, structure "motion" as continuous intege
 Return ONLY JSON — no prose, no code fences:
 {
  "body": "<the shot's OPENING frame as a Seedream keyframe, 2–5 sentences, in this order: (1) SUBJECT — 'The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged' (place/object: 'the exact <place/object> in [Image N]'); pose and gaze matching the reference. (2) SECONDARY subjects via their own [Image K]. (3) ENVIRONMENT — location, set details, time of day. (4) LIGHTING, colour grade, mood. A STILL — no camera verbs, nothing mid-blur, no one looks at camera, no on-image text.>",
- "motion": "<the shot's FULL PERFORMANCE for the video model — as many sentences as the span demands, in event order: body parts with degree and speed (slowly raises a hand), slow gentle continuous movement, transitions between actions (inertia, follow-through), emotion externalized as visible physical detail. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in full-width parens （…）. What you leave out does not happen.>",
+ "motion": "<the shot's FULL PERFORMANCE for the video model — as many sentences as the span demands, in event order: body parts with degree and speed, continuous movement at the speed the event demands, transitions between actions (inertia, follow-through), emotion externalized as visible physical detail. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in full-width parens （…）. What you leave out does not happen.>",
  "exiting": "<ONLY when the shot DEVELOPS: ONE sentence — the frame's END state as an EDIT of the opening frame, concrete and on-screen. Else empty.>",
  "audio": "<the shot's sound line in the same symbol grammar, or empty>",
  "expression": "<1–3 words for the main subject's expression, or empty>"
@@ -345,8 +354,8 @@ Return ONLY JSON — no prose, no code fences:
   'storyboard.author.user': {
     agent: 'Storyboard',
     label: 'Author ONE shot (instruction)',
-    vars: ['{script}', '{span}', '{beat}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{durationSec}', '{note}', '{retry}'],
-    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}, ~{durationSec}s. It {develops}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
+    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{durationSec}', '{note}', '{retry}'],
+    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}, ~{durationSec}s. It {develops}. ITS ONE JOB: {job}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
   },
   // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
   'storyboard.shot.system': {

@@ -20,16 +20,6 @@ export const BIBLE_ROLE_META = {
   frame: { label: 'Frame', kind: 'image', hint: 'a still frame — e.g. a key frame the Deconstruct agent pulls from a take; reuse it as a visual reference' },
 };
 
-// ---- camera-move templates (ONE list for the whole suite) -------------------------
-// The Animate panel, the CUT cards and the Filming Loop's correct-aspects row all
-// offer the SAME camera vocabulary — a template set, not free text. 'auto' = let the
-// video model decide (suppresses the "Camera move:" line in the Seedance prompt).
-export const CAMERA_MOVES = [
-  'auto', 'static lock-off', 'slow push-in', 'slow pull-back', 'gentle parallax drift',
-  'pan left', 'pan right', 'tilt up', 'tilt down', 'handheld follow', 'dolly in',
-  'slow orbit', 'crane up', 'macro push-in', 'whip pan',
-];
-
 // ---- Seedance 2.0 prompt grammar (the CUT card's composed output) ----------------
 // Cinematography presets — a small genre-keyed library for the CINEMATOGRAPHY pin.
 // Each is lens · DOF · light · grain · grade · movement; the user picks one (or edits).

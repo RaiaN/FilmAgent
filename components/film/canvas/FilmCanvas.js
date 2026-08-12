@@ -50,13 +50,13 @@ import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
 import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
-import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf } from '../../../utils/film/suiteConfig';
+import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
 import { createTrace } from '../../../utils/film/core/trace';
 import { emptyTimeline, emptyBible } from '../../../utils/film/projectShape';
-import { bibleEntry, timelineEvent, orderedEvents, renumber, mirrorSessionEvents, EXPLICIT_REF_CAP } from '../../../utils/film/timelineModel';
+import { bibleEntry, timelineEvent, orderedEvents, renumber, mirrorSessionEvents } from '../../../utils/film/timelineModel';
 import { BIBLE_ROLES, SHORT_FILM_RECIPE, composeFilmShotPrompt, composePinnedShotPrompt, shotReferences, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import {
   createAssetNode,
@@ -4317,9 +4317,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         videoRefs.push({ nodeId: n.id, url: n.data.cacheUrl || n.data.url, label: n.data.label || 'take' });
       }
     });
-    if (refEntryIds.length + assetRefs.length > EXPLICIT_REF_CAP) {
-      Message.warning(`${refEntryIds.length + assetRefs.length} images selected — Seedance takes ${EXPLICIT_REF_CAP} references; the first ${EXPLICIT_REF_CAP} ride.`);
-      assetRefs.length = Math.max(0, EXPLICIT_REF_CAP - refEntryIds.length);
+    const refCap = videoTraits(defaultVideoModelKey()).refCap;
+    if (refEntryIds.length + assetRefs.length > refCap) {
+      Message.warning(`${refEntryIds.length + assetRefs.length} images selected — the video model takes ${refCap} references; the first ${refCap} ride.`);
+      assetRefs.length = Math.max(0, refCap - refEntryIds.length);
     }
     storyboardPanelRef.current({
       index: 0, cut, idPrefix: `film-${Date.now().toString(36)}`, title: 'Shot',

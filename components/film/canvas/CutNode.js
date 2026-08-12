@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Modal } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
-import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, videoModelKeyOf } from '../../../utils/film/suiteConfig';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, videoModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { ENRICH_LEVELS } from '../../../utils/film/core/storyboard';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
@@ -102,7 +102,6 @@ const CUT_STATUS = {
   shot: { color: '#00b42a', label: 'shot ✓' },
 };
 
-const MAX_CUT_REFS = 9; // Seedream's reference-image limit — first 9 feed the shot
 
 const promptArea = {
   fontSize: 11, lineHeight: '15px', color: '#cdd3dc', background: '#161b22',
@@ -194,6 +193,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   const maxDur = maxShotSeconds(videoModel);
   const durationSec = Math.min(maxDur, Math.max(5, Math.round(Number(data.durationSec) || 10)));
   const resOptions = RES_BY_MODEL[videoModel] || RES_BY_MODEL.seedance;
+  const maxRefs = videoTraits(videoModel).refCap; // the CARD's model decides how many image refs ride
   const resolution = resOptions.includes(data.resolution) ? data.resolution : resDefault(videoModel);
   // CINEMATOGRAPHY pin = pick one of the 50 shot templates (sets the whole line) OR
   // hand-type. Picking stores the template id (so the dropdown highlights it) + its
@@ -223,7 +223,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   // gesture; the editor never attaches. Built ONLY while the editor is open.
   const attachableRefs = editorOpen ? [
     ...(bibleEntries || []).filter((b) => b.url && bibleImageIndex(b.id) != null).map((b) => ({ id: b.id, name: b.name || BIBLE_ROLE_META[b.role]?.label || 'cast', url: b.url, index: bibleImageIndex(b.id) })),
-    ...assetRefs.map((a, j) => ({ id: `asset:${a.url}`, name: a.label || 'asset', url: a.url, index: assetImageIndex(j) })).filter((r) => r.index <= MAX_CUT_REFS),
+    ...assetRefs.map((a, j) => ({ id: `asset:${a.url}`, name: a.label || 'asset', url: a.url, index: assetImageIndex(j) })).filter((r) => r.index <= maxRefs),
   ] : [];
 
   // Drop a board asset / Library item straight onto the card to feed it to this shot.
@@ -434,16 +434,14 @@ const CutNodeInner = ({ id, data, selected }) => {
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>REFERENCES → [Image1…N] · click to toggle</Text>
-            {refTotal > MAX_CUT_REFS
-              ? <Text style={{ color: '#f53f3f', fontSize: 9 }}>first {MAX_CUT_REFS} feed the shot</Text>
-              : (refTotal > 5
-                && <Text style={{ color: '#f7ba1e', fontSize: 9 }} title="Seedance guide: 4-5 assets — more dilutes feature priority (keyframes are pointers, they add nothing)">&gt;5 refs — model may dilute</Text>)}
+            {refTotal > maxRefs
+              && <Text style={{ color: '#f53f3f', fontSize: 9 }}>first {maxRefs} feed the shot</Text>}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {(bibleEntries || []).map((b) => {
               const onCut = refIds.includes(b.id);
               const imgIdx = onCut ? bibleImageIndex(b.id) : null;
-              const sent = imgIdx != null && imgIdx <= MAX_CUT_REFS;
+              const sent = imgIdx != null && imgIdx <= maxRefs;
               return (
                 <span
                   key={b.id}
@@ -468,7 +466,7 @@ const CutNodeInner = ({ id, data, selected }) => {
             {/* Non-bible board assets attached to JUST this shot — per-shot refs, not canon. */}
             {assetRefs.map((a, j) => {
               const imgIdx = assetImageIndex(j);
-              const sent = imgIdx <= MAX_CUT_REFS;
+              const sent = imgIdx <= maxRefs;
               const isMap = !!(data.mapRef && data.mapRef.url === a.url);
               return (
                 <span

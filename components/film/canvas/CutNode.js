@@ -206,6 +206,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   const EDIT_TRIGGERS = /\b(edit (the )?video|replace|remove|delete|insert|change (it |him |her |them )?to|extend (forward|backward)|continue from|extend the story)\b/i;
   const triggerRisk = (audioRefs.length > 0 || videoRefs.length > 0) && EDIT_TRIGGERS.test(String(data.promptOverride || ''));
 
+  const jobLine = String(data.job || '').trim();
   const status = CUT_STATUS[data.status] || null;
   const borderColor = selected ? '#f7ba1e' : (status ? status.color : '#2a313a');
   const refTotal = refIds.length + assetRefs.length;
@@ -311,6 +312,9 @@ const CutNodeInner = ({ id, data, selected }) => {
           textStyle={{ color: '#f7ba1e', fontSize: 12, fontWeight: 700 }}
           inputStyle={{ fontSize: 12, fontWeight: 700, color: '#f7ba1e', background: '#161b22', borderColor: '#2a313a' }}
         />
+        {jobLine && (
+          <Text title="This shot's ONE JOB — carved with the shot list; Compose / Enrich / Direct all serve it" style={{ fontSize: 10, color: '#b08b3e', fontStyle: 'italic', marginTop: -4 }} ellipsis={{ rows: 1 }}>◎ {jobLine}</Text>
+        )}
 
         <div>
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

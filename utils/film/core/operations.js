@@ -3,7 +3,7 @@
 // The canvas and the headless SDK both call these; only the injected `client`
 // differs. Prompts/models resolve through suiteConfig (root ← client ← per-call).
 
-import { renderTemplate, getModel, getRuntime, clampSizeForModel, maxShotSeconds, videoModelKeyOf, defaultImageModelKey } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, clampSizeForModel, maxShotSeconds, videoModelKeyOf, videoTraits, defaultImageModelKey } from '../suiteConfig';
 import { withRetry } from './retry';
 
 // Variation "axes" and styles are no longer hardcoded pools — the agentic
@@ -179,14 +179,14 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // video (role 'first_frame' — Seedance's "consecutive videos" pattern), so the shot
   // picks up EXACTLY where the last ended. Sent first, before the subject references.
   if (firstFrameUrl) content.push({ type: 'image_url', image_url: { url: firstFrameUrl }, role: 'first_frame' });
-  // Seedance 2.0 accepts up to 9 reference images (plus reference video ≤15s —
-  // not wired yet) — slice, never fail. A ref WITH a portrait-library id
+  // Reference images cap at the model's refCap trait — slice, never fail. A ref
+  // WITH a portrait-library id
   // (refAssetIds, aligned by index) rides as image_asset_id (the TRUSTED asset://
   // path) so a photoreal person plate isn't screened as a raw url ("input image may
   // contain real person"); refs without an id (the clay frame, anything un-preserved)
   // stay image_url.
   if (refUrls.length) {
-    refUrls.slice(0, 9).forEach((u, i) => {
+    refUrls.slice(0, videoTraits(modelKey).refCap).forEach((u, i) => {
       const aid = refAssetIds[i];
       if (aid) content.push({ type: 'image_asset_id', asset_id: aid, role: 'reference_image' });
       else content.push({ type: 'image_url', image_url: { url: u }, role: 'reference_image' });

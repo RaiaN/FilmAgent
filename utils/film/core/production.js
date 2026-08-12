@@ -19,7 +19,7 @@
 import { inspiration, characterVariations, locationVariations, animate, isAudioPolicyError } from './operations';
 import { withRetry } from './retry';
 import { readySteps, runWithConcurrency, isTerminalStatus } from './parallel';
-import { getAgentDefaults, maxShotSeconds, defaultVideoModelKey } from '../suiteConfig';
+import { getAgentDefaults, maxShotSeconds, defaultVideoModelKey, videoModelKeyOf, videoTraits } from '../suiteConfig';
 import { resolveBibleUrls, BIBLE_REF_CAP, EXPLICIT_REF_CAP } from '../timelineModel';
 
 let _oid = 0;
@@ -54,10 +54,11 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
       // A direct (SHOT-card) shot may carry an EXPLICIT ordered ref list (cast +
       // storyboard frame, [Image1..N] matching the prompt); else fall back to the
       // bible-resolved inputs. Non-direct uses its keyframe dep as before.
-      const refs = (p.direct && Array.isArray(p.refUrls) && p.refUrls.length) ? p.refUrls.slice(0, 9) : inputUrls;
+      const shotRefCap = videoTraits(videoModelKeyOf(p.modelKey)).refCap;
+      const refs = (p.direct && Array.isArray(p.refUrls) && p.refUrls.length) ? p.refUrls.slice(0, shotRefCap) : inputUrls;
       // Parallel portrait-library ids (aligned with refs): a registered person/place
       // plate rides as image_asset_id (trusted) instead of a screened raw url.
-      const refAssetIds = (p.direct && Array.isArray(p.refAssetIds)) ? p.refAssetIds.slice(0, 9) : [];
+      const refAssetIds = (p.direct && Array.isArray(p.refAssetIds)) ? p.refAssetIds.slice(0, shotRefCap) : [];
       // A DIRECT shot may be TEXT-ONLY (the Story agent's continuous-shot film — its prompt
       // alone drives it, no reference images). Only skip a non-direct shot with no inputs.
       if (!refs.length && !p.direct) return [];
@@ -75,6 +76,7 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
           camera: p.camera, lens: p.lens, focalLength: p.focalLength, aperture: p.aperture,
           duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: genAudio,
           seed: p.seed ?? null,
+          modelKey: p.modelKey ?? null,  // the card's per-shot Seedance slot rides into animate
           config,
         }, ctx);
         const polled = await ctx.client.pollVideo({ taskId });

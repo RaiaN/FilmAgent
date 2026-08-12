@@ -196,6 +196,7 @@ const VIDEO_MODEL_TRAITS = {
     resDefault: '1080p',
     keyframeGrammar: 'composition',   // opens-exactly-on / passes / ends-exactly-on
     overallBlock: false,              // no closing Overall-requirements section
+    refCap: 30,                       // reference images per request
     promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
     enrichWords: { light: 180, rich: 280, max: 380 },
   },
@@ -205,6 +206,7 @@ const VIDEO_MODEL_TRAITS = {
     resDefault: '1080p',
     keyframeGrammar: 'composition',
     overallBlock: false,
+    refCap: 30,
     promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
     enrichWords: { light: 180, rich: 280, max: 380 },
   },
@@ -214,6 +216,7 @@ const VIDEO_MODEL_TRAITS = {
     resDefault: '720p',
     keyframeGrammar: 'composition',
     overallBlock: false,
+    refCap: 30,
     promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
     enrichWords: { light: 180, rich: 280, max: 380 },
   },
@@ -223,6 +226,7 @@ const VIDEO_MODEL_TRAITS = {
     resDefault: '720p',
     keyframeGrammar: 'keyframes',     // "Use Image a, Image b … in order as keyframes."
     overallBlock: true,               // closes with the Overall-requirements section
+    refCap: 30,
     promptTargetLine: 'Target: one continuous take of up to 30s. For a shot longer than ~12s, structure the action as CONTINUOUS integer-second intervals ("0-3s: … 3-8s: …" — no gaps), roughly ONE event cluster per 2-4 seconds; each interval carries its OWN camera, action, dialogue and sound; use time-POINTS for accents ("at the 5-second mark, …"). Never overpack an interval (causes phantom cuts) and never leave one thin (invites improvisation).',
     enrichWords: { light: 220, rich: 400, max: 600 },
   },

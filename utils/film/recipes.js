@@ -1,4 +1,4 @@
-import { videoTraits } from './suiteConfig';
+import { videoTraits, videoModelKeyOf } from './suiteConfig';
 
 // Recipes — the agentic answer to "what's the best recipe for use case XYZ?". A
 // recipe maps a use case → the bible roles it needs, the shot grammar (by duration),
@@ -159,7 +159,7 @@ export const shotReferences = (data = {}, bibleEntries = []) => {
     if (e && e.url) refs.push({ url: e.url, assetId: e.assetId || null, nodeId: e.nodeId || null, name: e.name || '', role: e.role || '', desc: [e.name, e.role].filter(Boolean).join(' — ') });
   });
   (data.assetRefs || []).forEach((a) => { if (a && a.url) refs.push({ url: a.url, assetId: a.assetId || null, nodeId: a.nodeId || null, name: a.label || '', role: a.role || '', desc: a.label || 'asset' }); });
-  return refs.slice(0, 9);
+  return refs.slice(0, videoTraits(videoModelKeyOf(data.videoModel)).refCap);
 };
 
 // ---- Seedance 2.0 doc-grammar compiler (composition-pinned shots) -----------------

@@ -15,7 +15,10 @@ const EXPR_OPTS = ['neutral', 'slight smile', 'smiling', 'laughing', 'surprised'
 export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], preview, loading, imageAssets = [], onClose, onSave, onRederive, onAddRef, onSaveText, promptUsed }) {
   const [body, setBody] = useState(String(shot.body || ''));
   const [figures, setFigures] = useState(Array.isArray(shot.figures) ? shot.figures : []);
-  const [shotTemplate, setShotTemplate] = useState(shot.shotTemplate || 'medium-shot');
+  // Words mode edits the row's camera; frame mode's camera is an OPTIONAL REFRAME —
+  // it seeds EMPTY (keep the frame's current framing) and ANY pick reframes to it,
+  // including back to the row's own camera (the old row-compare made that impossible).
+  const [shotTemplate, setShotTemplate] = useState(mode === 'frame' ? '' : (shot.shotTemplate || 'medium-shot'));
   const [expression, setExpression] = useState(shot.expression || '');
   // The take's WORD fields (storyboard rows are display-only — this editor is where
   // they change by hand; Save words is FREE, no render).
@@ -225,8 +228,13 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
           )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 14 }}>
             <div style={{ flex: 1 }}>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Camera</Text>
-              <Select size="small" showSearch value={shotTemplate} onChange={setShotTemplate} options={SHOT_OPTS} style={{ width: '100%' }} />
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>{mode === 'frame' ? 'Reframe (optional) — re-shoot this frame from another camera' : 'Camera'}</Text>
+              <Select
+                size="small" showSearch value={shotTemplate || undefined} onChange={(v) => setShotTemplate(v || '')} options={SHOT_OPTS} style={{ width: '100%' }}
+                allowClear={mode === 'frame'}
+                placeholder={mode === 'frame' ? 'keep current framing' : undefined}
+                title={mode === 'frame' ? 'Pick any setup to reframe — the same scene, subjects and moment from that camera; clear = framing untouched' : undefined}
+              />
             </div>
             {mode === 'shot' && (
               <div style={{ flex: 1 }}>

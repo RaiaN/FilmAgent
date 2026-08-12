@@ -3970,7 +3970,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const ticked = [1, ...((Array.isArray(figures) ? figures : []).filter((f) => f > 1))];
     const { ordered, body: renumbered } = resolveShotRefs({ figures: ticked, body: instruction }, editorPool);
     instruction = renumbered;
-    if (shotTemplate && shotTemplate !== node.data.shotTemplate) {
+    if (shotTemplate) {
       const t = SHOT_TEMPLATE_BY_ID[shotTemplate];
       if (t) instruction = `Reframe to a ${t.framing}, ${t.angle} — the same scene, subjects and moment. ${instruction}`;
     }
@@ -4005,7 +4005,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const ticked = [1, ...((Array.isArray(figures) ? figures : []).filter((f) => f > 1))];
     const { ordered, body: renumbered } = resolveShotRefs({ figures: ticked, body: instruction }, editorPool);
     instruction = renumbered;
-    if (shotTemplate && shotTemplate !== node.data.shotTemplate) {
+    if (shotTemplate) {
       const t = SHOT_TEMPLATE_BY_ID[shotTemplate];
       if (t) instruction = `Reframe to a ${t.framing}, ${t.angle} — the same scene, subjects and moment. ${instruction}`;
     }

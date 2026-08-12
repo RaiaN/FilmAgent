@@ -101,7 +101,7 @@ const PromptEditorModal = ({ open, value, references = [], media = [], onChange,
           style={dark}
         />
         {menu && (
-          <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 5, minWidth: 220, maxHeight: 240, overflowY: 'auto', background: '#161b22', border: '1px solid #2a313a', borderRadius: 8, boxShadow: '0 8px 28px rgba(0,0,0,0.5)', padding: 4 }}>
+          <div style={{ position: 'absolute', left: 12, bottom: 12, zIndex: 5, minWidth: 280, maxHeight: 340, overflowY: 'auto', background: '#161b22', border: '1px solid #2a313a', borderRadius: 8, boxShadow: '0 8px 28px rgba(0,0,0,0.5)', padding: 4 }}>
             {menu.items.map((r, i) => (
               <div
                 key={`${r.kind || 'img'}-${r.index}`}
@@ -112,7 +112,7 @@ const PromptEditorModal = ({ open, value, references = [], media = [], onChange,
                 <b style={{ fontSize: 10, color: '#fff', background: r.kind === 'audio' ? 'rgba(120,22,255,0.7)' : r.kind === 'video' ? '#165dff' : 'rgba(0,0,0,0.5)', borderRadius: 7, padding: '0 5px' }}>
                   {r.kind === 'audio' ? `Audio${r.index}` : r.kind === 'video' ? `Video${r.index}` : `Image${r.index}`}
                 </b>
-                {r.url && !r.kind ? <img src={r.url} alt="" style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'cover' }} /> : null}
+                {r.url && !r.kind ? <img src={r.url} alt="" style={{ width: 56, height: 56, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} /> : null}
                 <span style={{ fontSize: 12, color: '#e5e6eb' }}>{r.name}{r.role ? ` · ${r.role}` : ''}</span>
               </div>
             ))}

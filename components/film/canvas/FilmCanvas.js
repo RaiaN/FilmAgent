@@ -2205,6 +2205,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // the bond arcs from a card's right dot down to the next card's left dot.
             storyboardPanelRef.current({
         index: 0, cut, idPrefix, title: sShot.beat || kf.data.beat || `Shot ${(Number(kf.data.index) || 0) + 1}`,
+        job: sShot.job || kf.data.job || '',
         action: '', promptOverride: mappedMotion || mapped, framing: '',
         shotTemplate: sShot.shotTemplate || kf.data.shotTemplate || 'medium-shot',
         durationSec: Math.min(maxShotSeconds(defaultVideoModelKey()), Math.max(5, Math.round(Number(sShot.durationSec) || 10))), // model CEILING, never pace — carve already paced
@@ -2290,6 +2291,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // the take (shotUrl/status) or the user's own asset attachments; those survive.
     const derived = {
       beat: panel.title,
+      job: panel.job || '',
       cuts: [{ action: panel.framing ? `${panel.framing}. ${panel.action}` : panel.action, seconds: Math.min(6, sec) }],
       ...(panel.promptOverride != null ? { promptOverride: panel.promptOverride } : {}),
       cinematography: cine,
@@ -2871,6 +2873,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const out = await composeShotAction({
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey,
         camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
+        job: card.data?.job || '',
         durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot compose · ${out.action.length}-char action${out.derived ? ` (derived ${out.derived.length} chars from keyframes)` : ''}` });
@@ -2916,6 +2919,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         text, note, references: baseRefs.map((r) => r.url), roster, kfIndices,
         modelKey: videoModelKeyOf(card.data?.videoModel),
         camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
+        job: card.data?.job || '',
         durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       onPatchCut(id, {
@@ -2958,6 +2962,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const out = await enrichShotAction({
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey, level,
         camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
+        job: card.data?.job || '',
         durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot enrich · ${text.length} → ${out.action.length} chars` });
@@ -3295,7 +3300,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // The shot's fields as CARD DATA (shared by the layout reconciler AND row surgery —
   // one mapping, so a rebuilt row is indistinguishable from a laid one).
   const kfCardData = (s, i, refs, style, imageModel, panelId) => ({
-    label: s.beat, beat: s.beat, body: s.body, shotTemplate: s.shotTemplate, expression: s.expression || '',
+    label: s.beat, beat: s.beat, job: s.job || '', body: s.body, shotTemplate: s.shotTemplate, expression: s.expression || '',
     figures: s.figures || [], durationSec: s.durationSec || 10, intExt: s.intExt || '',
     figureLabels: (s.figures || []).map((f) => String(refs[f - 1]?.label || `Image ${f}`).slice(0, 16)),
     motion: s.motion || '', exiting: s.exiting || '', audio: s.audio || '',
@@ -3404,7 +3409,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         await runWithConcurrency(shots.map((s, i) => async () => {
           try {
             const a = await storyboardAuthor({
-              script, span: s.span, beat: s.beat, shotTemplate: s.shotTemplate, develops: s.develops,
+              script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate, develops: s.develops,
               prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: poolUrls,
               durationSec: s.durationSec,
             }, ctx);
@@ -3492,7 +3497,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
       const a = await storyboardAuthor({
-        script: chat.data.script || '', span: sh.span || sh.body || '', beat: sh.beat, shotTemplate: sh.shotTemplate,
+        script: chat.data.script || '', span: sh.span || sh.body || '', beat: sh.beat, job: sh.job || '', shotTemplate: sh.shotTemplate,
         develops: !!String(sh.exiting || '').trim() || !!sh.develops,
         prevBeat: shots[idx - 1]?.beat || '', nextBeat: shots[idx + 1]?.beat || '',
         references: freshPoolUrls(chat.data.refs || []), note, durationSec: sh.durationSec,
@@ -5656,8 +5661,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       })()}
       {/* LIGHTBOX — full-screen image view (dbl-click any image; Esc / click closes). */}
       {lightboxId && (() => {
-        const n = nodes.find((x) => x.id === lightboxId);
-        const src = n && (n.data?.cacheUrl || n.data?.localUrl || n.data?.url);
+        // Accepts a node id, or { id, end: true } — the END still lives NESTED on its
+        // row (data.endStill), not as a node of its own; both frames view the same way.
+        const req = typeof lightboxId === 'string' ? { id: lightboxId } : lightboxId;
+        const n = nodes.find((x) => x.id === req.id);
+        const src = n && (req.end
+          ? (n.data?.endStill?.cacheUrl || n.data?.endStill?.url)
+          : (n.data?.cacheUrl || n.data?.localUrl || n.data?.url));
         if (!src) return null;
         return (
           <div
@@ -5666,7 +5676,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           >
             <img src={src} alt={n.data?.label || 'image'} style={{ maxWidth: '96vw', maxHeight: '92vh', objectFit: 'contain', boxShadow: '0 12px 48px rgba(0,0,0,0.6)' }} />
             <div style={{ position: 'fixed', bottom: 14, left: '50%', transform: 'translateX(-50%)', color: '#fff', fontSize: 12, opacity: 0.65, whiteSpace: 'nowrap' }}>
-              {String(n.data?.label || '')} — click anywhere or Esc to close
+              {String(n.data?.label || '')}{req.end ? ' — END frame' : ''} — click anywhere or Esc to close
             </div>
           </div>
         );

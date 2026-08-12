@@ -4704,6 +4704,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     createNoteNode({ at });
   }, [createNoteNode]);
 
+  // BULK TAG — the whole selection into the bible with one role (import → marquee →
+  // one click). Same per-node path as the chip select (preserve + downscale included);
+  // names default to each node's label, renameable inline afterwards.
+  const handleContextBulkTag = useCallback((role) => {
+    setCtxMenu(null);
+    const picked = nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && refUrl(n));
+    picked.forEach((n) => tagNode(n.id, role));
+    Message.success(picked.length
+      ? `${picked.length} image${picked.length > 1 ? 's' : ''} tagged as ${role} — names come from their labels, rename on the chips.`
+      : 'No images in the selection to tag.');
+  }, [tagNode]);
+
   const selectionCount = selectedNodes.length;
   // One Lock TOGGLE for the whole selection: if everything selected is already locked the
   // button unlocks, otherwise it locks (icon/label reflect the action it will take).
@@ -5383,6 +5395,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             selection={selectedNodes}
             onPick={handleContextPick}
             onAddNote={handleContextAddNote}
+            onBulkTag={handleContextBulkTag}
             onClose={() => setCtxMenu(null)}
           />
         )}

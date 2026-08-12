@@ -1,13 +1,17 @@
 import { Typography } from '@arco-design/web-react';
 import { IconFile } from '@arco-design/web-react/icon';
 import { AGENTS } from '../../../utils/film/agents';
+import { BIBLE_ROLES, BIBLE_ROLE_META } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
 const { Text } = Typography;
 
+const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
+
 // Right-click context menu: the agent layers (each opens its configuration panel)
 // plus the plain board elements — a Text note lands directly at the click point.
-const CanvasContextMenu = ({ x, y, maxHeight, selection, onPick, onAddNote, onClose }) => {
+// With images selected, a Tag-as row bulk-tags the whole selection into the bible.
+const CanvasContextMenu = ({ x, y, maxHeight, selection, onPick, onAddNote, onBulkTag, onClose }) => {
   const withUrl = (selection || []).filter((n) => n.data?.url);
   const imageCount = withUrl.filter((n) => n.data?.kind === 'image').length;
   const countFor = (layer) => withUrl.filter((n) => (layer.consumes || []).includes(n.data?.kind)).length;
@@ -43,6 +47,28 @@ const CanvasContextMenu = ({ x, y, maxHeight, selection, onPick, onAddNote, onCl
             {withUrl.length > 0 ? `${withUrl.length} selected` : 'Nothing selected'} · run an agent
           </Text>
         </div>
+        {onBulkTag && imageCount > 0 && (
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid #f2f3f5' }}>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+              Tag {imageCount} image{imageCount > 1 ? 's' : ''} into the bible as
+            </Text>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {BIBLE_ROLES.map((r) => (
+                <span
+                  key={r}
+                  onClick={() => onBulkTag(r)}
+                  title={`Tag every selected image as ${BIBLE_ROLE_META[r]?.label || r} — names come from their labels`}
+                  style={{
+                    cursor: 'pointer', fontSize: 11, padding: '2px 9px', borderRadius: 10,
+                    border: `1px solid ${ROLE_COLOR[r] || '#86909c'}`, color: ROLE_COLOR[r] || '#86909c',
+                  }}
+                >
+                  {BIBLE_ROLE_META[r]?.label || r}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {onAddNote && (
           <div
             onClick={onAddNote}

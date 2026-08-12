@@ -195,7 +195,7 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
   'cut.enrich.system': {
     agent: 'Shot',
     label: 'Enrich — densify the existing prompt (system)',
-    vars: ['{refCount}', '{kfLine}', '{modelLine}', '{craftRules}', '{durationSec}', '{targetWords}'],
+    vars: ['{refCount}', '{kfLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}', '{targetWords}'],
     text: `You are a cinematographer EXPANDING an existing video-shot prompt. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
@@ -208,6 +208,8 @@ THE CURRENT TEXT IS THE SKELETON — nothing it says may be lost or reordered: e
 • VFX where the events imply them, described physically
 • sound — weave <sfx> and （music） moments at the right beats; dialogue stays untouched
 Everything you add must be FILMABLE in this one take and must not contradict the keyframe path. If the skeleton lacks an opening summary, make the FIRST sentence a one-sentence summary — subject + location + event + style + camera.
+
+{cameraLine}
 
 {craftRules}
 
@@ -226,12 +228,14 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the enriched action t
   'cut.direct.system': {
     agent: 'Shot',
     label: 'Direct — a note on how the shot feels/reads (system)',
-    vars: ['{refCount}', '{kfLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
     text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — the shot's fixed cast, places and frames; they never change.
 
 {kfLine}
 
 THE CURRENT PROMPT IS THE SHOT: its events, their order, every [Image N] tag and every dialogue line word-for-word in curly braces all stay. You re-shape HOW it feels and reads per the note — tone, pacing, emphasis, atmosphere, wording. Where the note and the current text disagree, the note wins. Never add, drop or renumber an [Image N] tag.
+
+{cameraLine}
 
 {craftRules}
 
@@ -250,12 +254,14 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
   'cut.compose.system': {
     agent: 'Shot',
     label: 'Compose — keyframe-aware cinematic action (system)',
-    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{cameraLine}', '{modelLine}', '{craftRules}', '{durationSec}'],
     text: `You are a cinematographer writing ONE video shot's ACTION text. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
 
 {authorityLine}
+
+{cameraLine}
 
 The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; prefer slow continuous movement with natural inertia and follow-through; externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in full-width parens （…）. The shot runs ~{durationSec}s — pace the events to fill it, no more.
 

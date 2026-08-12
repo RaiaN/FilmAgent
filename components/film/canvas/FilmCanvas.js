@@ -21,7 +21,7 @@ import {
   IconStorage,
   IconHistory,
   IconArchive,
-  IconVideoCamera,
+  IconVideoCamera, IconCamera,
 } from '@arco-design/web-react/icon';
 import AssetNode, { AssetNodeContext } from './AssetNode';
 import CutNode, { CutContext } from './CutNode';
@@ -32,6 +32,7 @@ import StoryboardStripNode from './StoryboardStripNode';
 import NoteNode, { NoteContext } from './NoteNode';
 import TakeViewer from './TakeViewer';
 import TakeLibrary from './TakeLibrary';
+import ShotBrowser from './ShotBrowser';
 import RefDrawer from './RefDrawer';
 import ContinuityEdge from './ContinuityEdge';
 import SequenceNode, { SequenceContext } from './SequenceNode';
@@ -752,7 +753,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // ({type:'pick',title,items,onPick} — keyframe slots). Every surface shows only its
   // ENABLED refs inline and opens this drawer to browse/toggle the rest.
   const [refDrawer, setRefDrawer] = useState(null);
-  const openRefDrawer = useCallback((req) => { setTakeLibOpen(false); setRefDrawer(req); }, []);
+  const [shotBrowserOpen, setShotBrowserOpen] = useState(false);
+  const openRefDrawer = useCallback((req) => { setTakeLibOpen(false); setShotBrowserOpen(false); setRefDrawer(req); }, []);
   const closeRefDrawer = useCallback(() => setRefDrawer(null), []);
   const focusedCutId = useMemo(() => (selectedNodes.find((n) => n.type === 'cut') || {}).id || null, [selectedNodes]);
   // Groups mirror the SHOT cards in cut order. A card's takes = its grid children plus
@@ -782,6 +784,34 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       };
     });
   }, [nodes]);
+  // ---- SHOT BROWSER (right drawer) — WHERE is the card I need on a big board -------
+  // Every SHOT card in cut order, searchable; a click flies the viewport to the card
+  // (absolute position — parented sequence cards included) and selects it.
+  const shotIndex = useMemo(() => {
+    const takesBy = new Map(takeGroups.map((g) => [g.cardId, g.takes.length]));
+    return nodes.filter((n) => n.type === 'cut')
+      .sort((a, b) => (a.data?.cut ?? 0) - (b.data?.cut ?? 0))
+      .map((c) => ({
+        id: c.id,
+        cut: c.data?.cut ?? 0,
+        beat: c.data?.beat || 'Shot',
+        status: c.data?.status || '',
+        durationSec: Number(c.data?.durationSec) || null,
+        takeCount: takesBy.get(c.id) || 0,
+        thumb: (Array.isArray(c.data?.keyframes) && c.data.keyframes[0]?.url) || c.data?.startAnchor?.url || c.data?.lastFrameUrl || '',
+        promptText: String(c.data?.promptOverride || ''),
+      }));
+  }, [nodes, takeGroups]);
+  const focusShotCard = useCallback((cardId) => {
+    const node = nodesRef.current.find((n) => n.id === cardId);
+    if (!node || !rfInstance) return;
+    const abs = rfInstance.getInternalNode?.(cardId)?.internals?.positionAbsolute || node.position;
+    const w = node.measured?.width || CUT_COL_W;
+    const h = node.measured?.height || CUT_ROW_H;
+    rfInstance.setCenter(abs.x + w / 2, abs.y + h / 2, { zoom: Math.max(rfInstance.getZoom(), 0.55), duration: 350 });
+    setNodes((ns) => ns.map((n) => (n.selected !== (n.id === cardId) ? { ...n, selected: n.id === cardId } : n)));
+  }, [rfInstance, setNodes]);
+
   // Drawer delete: same cascade as keyboard delete (the take's timeline clip drops),
   // plus a now-empty take grid is cleaned up. The card keeps its shot status — deleting
   // a take never un-shoots the card (parity with board delete).
@@ -2837,13 +2867,16 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       : `Agent · Shot compose (${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 1 call)` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
+      const tpl = SHOT_TEMPLATE_BY_ID[card.data?.shotTemplate];
       const out = await composeShotAction({
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey,
+        camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
         durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot compose · ${out.action.length}-char action${out.derived ? ` (derived ${out.derived.length} chars from keyframes)` : ''}` });
       onPatchCut(id, {
         promptOverride: out.action,
+        cameraStale: undefined,
         developSource: card.data?.developSource || text, // the original words survive, stashed once
         composeDropped: out.dropped || [], // text events the keyframes overrode — reported, never silent
         ...(out.audio && !String(card.data?.audio || '').trim() ? { audio: out.audio } : {}),
@@ -2878,13 +2911,16 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: 'Agent · Shot direct (note · 1 call)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
+      const tpl = SHOT_TEMPLATE_BY_ID[card.data?.shotTemplate];
       const out = await directShotAction({
         text, note, references: baseRefs.map((r) => r.url), roster, kfIndices,
         modelKey: videoModelKeyOf(card.data?.videoModel),
+        camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
         durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       onPatchCut(id, {
         promptOverride: out.action,
+        cameraStale: undefined,
         developSource: card.data?.developSource || text,
         ...(out.audio ? { audio: out.audio } : {}),
       });
@@ -2918,13 +2954,16 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: `Agent · Shot enrich (${level} · ${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 1 call)` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
+      const tpl = SHOT_TEMPLATE_BY_ID[card.data?.shotTemplate];
       const out = await enrichShotAction({
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey, level,
+        camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
         durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot enrich · ${text.length} → ${out.action.length} chars` });
       onPatchCut(id, {
         promptOverride: out.action,
+        cameraStale: undefined,
         developSource: card.data?.developSource || text,
         ...(out.audio && !String(card.data?.audio || '').trim() ? { audio: out.audio } : {}),
       });
@@ -5380,8 +5419,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             <ControlButton onClick={() => setHistoryOpen((v) => !v)} title="History" style={historyOpen ? { color: '#165dff' } : undefined}>
               <IconHistory style={{ fontSize: 14 }} />
             </ControlButton>
-            <ControlButton onClick={() => setTakeLibOpen((v) => !v)} title="Take Library — every card's renders" style={takeLibOpen ? { color: '#165dff' } : undefined}>
+            <ControlButton onClick={() => { setShotBrowserOpen(false); setTakeLibOpen((v) => !v); }} title="Take Library — every card's renders" style={takeLibOpen ? { color: '#165dff' } : undefined}>
               <IconVideoCamera style={{ fontSize: 14 }} />
+            </ControlButton>
+            <ControlButton onClick={() => { setTakeLibOpen(false); setRefDrawer(null); setShotBrowserOpen((v) => !v); }} title="SHOT browser — find any card on the board and fly to it" style={shotBrowserOpen ? { color: '#165dff' } : undefined}>
+              <IconCamera style={{ fontSize: 14 }} />
             </ControlButton>
           </Controls>
           {mapNeeded && <MiniMap position="top-right" pannable zoomable nodeColor={(n) => (n.data?.layerId ? (AGENT_MAP[n.data.layerId]?.color || '#c9cdd4') : '#c9cdd4')} />}
@@ -5434,6 +5476,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             {...refDrawerProps}
             onClose={closeRefDrawer}
           />
+        )}
+        {shotBrowserOpen && (
+          <ShotBrowser shots={shotIndex} onFocus={focusShotCard} onClose={() => setShotBrowserOpen(false)} />
         )}
         {takeLibOpen && (
           <TakeLibrary

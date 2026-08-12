@@ -103,8 +103,6 @@ segment).
 |---|---|---|---|---|---|
 | Shallow-Focus Isolation | close-up | eye-level | slow push-in | 135mm, razor-shallow DOF, soft key, creamy bokeh, slow push-in | Extreme background blur isolating the subject. |
 | Rack Focus | medium shot | eye-level | rack focus | 85mm, shallow DOF, soft light, fine grain, rack focus between planes | Focus shifts between foreground and background; redirects attention. |
-| Silhouette / Backlit | medium shot | eye-level | slow push-in | 50mm, moderate DOF, hard backlight, haze, fine grain, slow push-in | Subject as a dark shape against bright light; mystery, drama. |
-| Golden-Hour Wide | wide shot | eye-level | slow pull-back | 35mm, deep focus, low golden-hour backlight, warm grade, fine grain, slow pull-back | Warm low-sun wide; romance, nostalgia, the magic hour. |
 | Macro Texture | extreme close-up | top-down | macro push-in | 100mm macro, razor-shallow DOF, raking light, fine grain, slow macro push-in | Tactile surface detail; texture as story. |
 | Slow-Motion Detail | close-up | eye-level | slow push-in | 85mm, shallow DOF, crisp directional light, fine grain, high-speed slow motion | A fleeting action stretched in slow motion; weight, beauty. |
 | POV / Subjective | POV shot | first-person eye-level | handheld | 28mm, moderate DOF, available light, fine grain, subjective handheld | First-person point of view; we see what the subject sees. |

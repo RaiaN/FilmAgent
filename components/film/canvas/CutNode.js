@@ -188,7 +188,17 @@ const CutNodeInner = ({ id, data, selected }) => {
   // CINEMATOGRAPHY pin = pick one of the 50 shot templates (sets the whole line) OR
   // hand-type. Picking stores the template id (so the dropdown highlights it) + its
   // name (cinePreset, for display) + the cinematography line.
-  const pickTemplate = (id) => { const t = SHOT_TEMPLATE_BY_ID[id]; if (t) patch({ shotTemplate: t.id, cinePreset: t.name, cinematography: t.cinematography }); };
+  // Switching the preset under a WRITTEN prompt leaves camera wording in the text that
+  // contradicts the new pick — flag it; any prompt verb (Compose/Enrich/Direct) restages
+  // the action for the locked camera and clears the flag.
+  const pickTemplate = (tid) => {
+    const t = SHOT_TEMPLATE_BY_ID[tid];
+    if (!t) return;
+    patch({
+      shotTemplate: t.id, cinePreset: t.name, cinematography: t.cinematography,
+      ...(String(data.promptOverride || '').trim() && t.id !== data.shotTemplate ? { cameraStale: true } : {}),
+    });
+  };
 
   // Edit/extend TRIGGER phrases + attached media refs silently flip the request into
   // an EDIT/EXTEND task (ratio + duration lock). Advisory only — intentional edits are
@@ -420,6 +430,9 @@ const CutNodeInner = ({ id, data, selected }) => {
               ⚠ keyframes overrode: {(data.composeDropped || []).join(' · ')} — original text stashed
             </Text>
           )}
+          {data.cameraStale && (
+            <Text style={{ color: '#f7ba1e', fontSize: 9 }}>camera preset changed after this prompt was written — Compose / Enrich / Direct restages the action for the new camera</Text>
+          )}
           {anyKfBroken && (
             <Text style={{ color: '#f53f3f', fontSize: 9 }}>a keyframe points to a removed/disabled ref — toggle its chip back on or re-pick</Text>
           )}
@@ -551,7 +564,7 @@ const CutNodeInner = ({ id, data, selected }) => {
       {data.cineOpen && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 10px 8px', borderTop: '1px solid #2a313a', display: 'flex', flexDirection: 'column', gap: 4 }}>
           {[['lens', 'Lens & depth', '35mm, shallow focus, compressed background'],
-            ['light', 'Light', 'low hard sun from frame left, dust haze'],
+            ['light', 'Light', 'low golden-hour backlight, warm haze · or: hard backlight, silhouette'],
             ['grade', 'Grade', 'warm amber, crushed blacks, fine grain'],
             ['move', 'Movement', 'slow push in, slight handheld sway']].map(([k, label, ph]) => (
               <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

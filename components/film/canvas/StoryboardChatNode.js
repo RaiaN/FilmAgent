@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useMemo, useState } from 'react';
 import { Button, Typography, Select, Popconfirm, Input } from '@arco-design/web-react';
 import { IconMessage, IconPlus, IconPlayArrow, IconLoading } from '@arco-design/web-react/icon';
-import { imageRefCap, imageTraits, maxShotSeconds, defaultVideoModelKey } from '../../../utils/film/suiteConfig';
+import { imageRefCap, imageTraits, maxShotSeconds, defaultVideoModelKey, IMAGE_MODEL_OPTIONS, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 
 const { Text } = Typography;
 
@@ -191,6 +191,17 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
       {(onRenderAll || onRenderSheet) && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <Section label="STILLS">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <Text style={{ fontSize: 10, color: '#86909c', flexShrink: 0 }}>Image model</Text>
+            <Select
+              size="mini"
+              value={imageModelKeyOf(data.imageModel)}
+              onChange={(v) => onPatchChat && onPatchChat(id, { imageModel: v })}
+              style={{ flex: 1 }}
+              title="The engine every still on this strip renders with (rows, END chains, Enhance, Quick Storyboard). Switching never re-renders anything by itself."
+              options={IMAGE_MODEL_OPTIONS.map((m) => ({ label: m.label, value: m.key }))}
+            />
+          </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
             {(data.shots || []).length > 0 && onRenderAll && (
               <Button

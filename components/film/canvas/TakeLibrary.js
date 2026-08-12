@@ -1,4 +1,4 @@
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Button, Empty, Popconfirm, Spin, Tag, Typography } from '@arco-design/web-react';
 import { IconClose, IconPlayArrow, IconPlus, IconCheck, IconDelete, IconDownload } from '@arco-design/web-react/icon';
 import { downloadMedia } from '../../../utils/film/mediaDownload';
@@ -91,6 +91,14 @@ const TakeLibrary = ({ groups, focusedCardId, timelineIds, onOpenViewer, onAddTo
   const shown = focused ? [focused] : groups.filter((g) => g.takes.length);
   const empty = !shown.length || (focused && !focused.takes.length);
   const clearCount = shown.reduce((n, g) => n + g.takes.length, 0);
+  // Per-SHOT collapse (library mode) — drawer-local, resets on close; the focused view
+  // is a single group and always shows its takes.
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const toggleGroup = (cardId) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    if (next.has(cardId)) next.delete(cardId); else next.add(cardId);
+    return next;
+  });
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 300, zIndex: 9, borderLeft: '1px solid #e5e6eb', boxShadow: '-4px 0 16px rgba(0,0,0,0.08)', background: '#fff', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f2f3f5' }}>
@@ -116,11 +124,21 @@ const TakeLibrary = ({ groups, focusedCardId, timelineIds, onOpenViewer, onAddTo
               title={focused ? undefined : 'Focus this shot (selects the card on the board)'}
               style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, cursor: focused ? 'default' : 'pointer' }}
             >
+              {!focused && (
+                <span
+                  onClick={(e) => { e.stopPropagation(); toggleGroup(g.cardId); }}
+                  title={collapsed.has(g.cardId) ? "Expand this shot's takes" : "Collapse this shot's takes"}
+                  style={{ flexShrink: 0, width: 14, textAlign: 'center', cursor: 'pointer', color: '#86909c', fontSize: 10, userSelect: 'none' }}
+                >
+                  {collapsed.has(g.cardId) ? '▸' : '▾'}
+                </span>
+              )}
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLOR[g.status] || '#c9cdd4', flexShrink: 0 }} />
               <Tag size="small" style={{ background: '#101418', color: '#f7ba1e', border: 'none', fontWeight: 700, flexShrink: 0 }}>SHOT {g.cut + 1}</Tag>
               <Text style={{ fontSize: 11, flex: 1, minWidth: 0 }} ellipsis={{ rows: 1 }}>{g.beat}</Text>
               <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>{g.takes.length}</Text>
             </div>
+            {(focused || !collapsed.has(g.cardId)) && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {g.takes.map((t) => (
                 <TakeRow
@@ -135,6 +153,7 @@ const TakeLibrary = ({ groups, focusedCardId, timelineIds, onOpenViewer, onAddTo
                 />
               ))}
             </div>
+            )}
           </div>
         ))}
         {empty && (

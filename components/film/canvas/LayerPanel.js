@@ -177,9 +177,10 @@ const StoryboardFields = ({ s, up, imageAssets, onOpenRefDrawer }) => (
         options={ETHNICITY_OPTIONS.map((x) => ({ label: x, value: x }))} />
     </div>
     <div>
-      <Text style={FIELD_LABEL}>References (optional) — tick board images to anchor characters &amp; props</Text>
+      <Text style={FIELD_LABEL}>References (optional) — board images that anchor characters &amp; props</Text>
       <BoardImagePicker imageAssets={imageAssets} value={s.refs || []} onPick={(refs) => up({ refs })} multi
-        emptyHint="Drop character / prop images on the board to use them as references." />
+        onBrowse={onOpenRefDrawer ? () => onOpenRefDrawer('refs') : undefined}
+        emptyHint="None picked — browse the library below, or drop images on the board first." />
     </div>
   </>
 );

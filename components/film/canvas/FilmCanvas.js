@@ -3311,31 +3311,30 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
   // THE division (bound to THIS control node): carve the script into verbatim spans,
   // lay the rows instantly, author each shot in parallel. Runs ONCE; a re-divide comes
-  // through the action bar (which clears the list first and passes fresh). `seed`
-  // carries { panelId, script } for a just-spawned node not yet in nodesRef.
-  const runDivide = useCallback(async (nodeId, seed, { fresh = false } = {}) => {
+  // through the action bar (which clears the list first and passes fresh).
+  const runDivide = useCallback(async (nodeId, { fresh = false } = {}) => {
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
-    if (!node && !seed) return;
-    const panelId = node?.data?.panelId || seed?.panelId;
-    const script = node?.data?.script || seed?.script || '';
-    const prevShots = fresh ? [] : (node?.data?.shots || []);
+    if (!node) return;
+    const panelId = node.data?.panelId;
+    const script = node.data?.script || '';
+    const prevShots = fresh ? [] : (node.data?.shots || []);
     if (prevShots.length) { Message.info('Already divided — edit the rows directly, or Re-divide from the action bar.'); return; }
-    const shotLength = node?.data?.shotLength || seed?.shotLength || 'auto'; // per-shot pace — count is an OUTPUT of script ÷ pace
-    let refs = node?.data?.refs || seed?.refs || []; // optional reference assets (picked on Run)
-    const ethnicity = node?.data?.ethnicity || seed?.ethnicity || ''; // consistency lever (whole storyboard)
-    const style = node?.data?.style || seed?.style || ''; // aesthetic (Auto → the division decides)
-    const imageModel = imageModelKeyOf(node?.data?.imageModel || seed?.imageModel); // Seedream Lite | Pro
+    const shotLength = node.data?.shotLength || 'auto'; // per-shot pace — count is an OUTPUT of script ÷ pace
+    let refs = node.data?.refs || []; // optional reference assets (picked on Run)
+    const ethnicity = node.data?.ethnicity || ''; // consistency lever (whole storyboard)
+    const style = node.data?.style || ''; // aesthetic (Auto → the division decides)
+    const imageModel = imageModelKeyOf(node.data?.imageModel); // Seedream Lite | Pro
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true, stripHidden: false } } : n)));
     traceRef.current.startRun({ note: 'Agent · Storyboard (shot division)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      // A divide with NO picked references: reuse the bible's characters
-      // as the anchor if any exist — the reference-aware division must SEE the references to
-      // assign figures per shot. NO fallback generation: Cast & World never launches under
-      // the hood (unanchored entry points ASK before spawning); with no anchor at all the
-      // division simply runs reference-free.
-      if (!refs.length) {
+      // A FIRST divide with NO picked references and an UNTOUCHED pool: reuse the
+      // bible's characters as the anchor if any exist — the reference-aware division
+      // must SEE the references to assign figures per shot. A pool the USER shaped
+      // (refsTouched — toggled, emptied, added to) is never refilled, and a re-divide
+      // never re-seeds: an empty pool then means a deliberate reference-free run.
+      if (!refs.length && !fresh && !node?.data?.refsTouched) {
         const bibleChars = (bibleRef.current || []).filter((e) => e.role === 'character' && e.url)
           .map((e) => ({ entryId: e.id, nodeId: e.nodeId || null, url: e.url, label: e.name || 'character' }));
         if (bibleChars.length) {
@@ -3518,7 +3517,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         let next = ns.filter((n) => !(String(n.id).startsWith(`${panelId}-`) && /^\d+$/.test(String(n.id).slice(panelId.length + 1))));
         return next.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, shots: [], shotCount: 0 } } : n));
       });
-      await runDivide(chatId, null, { fresh: true });
+      await runDivide(chatId, { fresh: true });
     }
   }, [reAuthorShot, captureRowStash, rewritePanelRows, panelRowsBusy, runDivide, setNodes]);
 
@@ -4005,7 +4004,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       if (n.id === chatId) {
         const refs = [...(n.data.refs || []).map(poolRef), { entryId: ent?.id || null, nodeId: bn?.id || null, url: u, label: bn?.data?.label || ent?.name || 'reference' }];
         newIndex = refs.length;
-        return { ...n, data: { ...n.data, refs } };
+        return { ...n, data: { ...n.data, refs, refsTouched: true } };
       }
       return n;
     }));
@@ -4970,7 +4969,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         if (n.id === chatId) {
           const shots = removedIndex == null ? n.data.shots : (n.data.shots || []).map((sh) => (
             shotChanged(sh) ? { ...sh, figures: remapFigs(sh.figures), body: remapBody(sh.body) } : sh));
-          return { ...n, data: { ...n.data, refs, shots } };
+          return { ...n, data: { ...n.data, refs, shots, refsTouched: true } };
         }
         if (removedIndex != null && panelId && n.parentId === panelId && n.data?.keyframe) {
           if (!shotChanged(n.data)) return n;

@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useMemo, useState } from 'react';
 import { Button, Typography, Select, Popconfirm, Input } from '@arco-design/web-react';
 import { IconMessage, IconPlus, IconPlayArrow, IconLoading } from '@arco-design/web-react/icon';
-import { imageRefCap, imageTraits } from '../../../utils/film/suiteConfig';
+import { imageRefCap, imageTraits, maxShotSeconds, defaultVideoModelKey } from '../../../utils/film/suiteConfig';
 
 const { Text } = Typography;
 
@@ -179,10 +179,8 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
               title="Per-shot pace — the script's length decides how many shots that makes"
               options={[
                 { label: 'Auto pace', value: 'auto' },
-                { label: '~5s shots', value: '5' },
-                { label: '~8s shots', value: '8' },
-                { label: '~10s shots', value: '10' },
-                { label: '~15s shots', value: '15' },
+                ...[5, 8, 10, 15, 20, 30].filter((v) => v <= maxShotSeconds(defaultVideoModelKey()))
+                  .map((v) => ({ label: `~${v}s shots`, value: String(v) })),
               ]}
             />
           </div>

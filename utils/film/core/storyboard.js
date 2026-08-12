@@ -425,7 +425,7 @@ export const ENRICH_LEVELS = (modelKey) => {
 // texture/atmosphere/VFX/sound precision around it, grounded in the attached chips.
 // Keyframes and references are inputs, never outputs — the card's pointers and chip
 // list stay exactly as they are.
-export const enrichShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = 'seedance', durationSec = 10, level = 'rich', config } = {}, ctx) => {
+export const enrichShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, level = 'rich', config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material) throw new Error('Enrich needs the shot prompt — write it or Compose first.');
   const lv = ENRICH_LEVELS(modelKey).find((l) => l.key === level) || ENRICH_LEVELS(modelKey)[1];
@@ -447,7 +447,7 @@ export const enrichShotAction = async ({ text = '', references = [], roster = []
 // shot FEELS and READS (tone, pacing, emphasis, atmosphere, wording); events, order,
 // [Image N] tags, dialogue, references and keyframes all stay. The note wins over the
 // old text where they disagree.
-export const directShotAction = async ({ text = '', note = '', references = [], roster = [], kfIndices = [], modelKey = 'seedance', durationSec = 10, config } = {}, ctx) => {
+export const directShotAction = async ({ text = '', note = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, config } = {}, ctx) => {
   const material = String(text || '').trim();
   const theNote = String(note || '').trim();
   if (!material) throw new Error('Direct needs the shot prompt — write it or Compose first.');
@@ -468,7 +468,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   return { action, audio: String(raw.audio || '').trim() };
 };
 
-export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = 'seedance', durationSec = 10, config } = {}, ctx) => {
+export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
   const modelLine = modelLineOf(modelKey);

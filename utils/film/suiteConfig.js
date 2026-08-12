@@ -156,16 +156,16 @@ export const IMAGE_MODEL_OPTIONS = [
 ];
 // Per-slot IMAGE capability table — same contract as VIDEO_MODEL_TRAITS: behavior
 // keys off traits, never off slot-name comparisons.
+// keyframeSize: the storyboard-still render size — Pro caps the image AREA at
+// 4,194,304 px (2048²), so its largest 16:9 is 2560×1440; Lite allows the full 2K 16:9.
 const IMAGE_MODEL_TRAITS = {
-  seedream: { refCap: 6, shortLabel: 'Lite', thinkingToggle: false },
-  seedreamPro: { refCap: 10, shortLabel: 'Pro', thinkingToggle: true },
+  seedream: { refCap: 6, shortLabel: 'Lite', thinkingToggle: false, keyframeSize: '2848x1600' },
+  seedreamPro: { refCap: 10, shortLabel: 'Pro', thinkingToggle: true, keyframeSize: '2560x1440' },
 };
 export const imageTraits = (key) => IMAGE_MODEL_TRAITS[key] || IMAGE_MODEL_TRAITS[imageModelKeyOf(key)] || IMAGE_MODEL_TRAITS.seedream;
 export const IMAGE_REF_CAP = Object.fromEntries(Object.entries(IMAGE_MODEL_TRAITS).map(([k, t]) => [k, t.refCap]));
 export const imageRefCap = (key) => imageTraits(key).refCap;
-// Seedream 5.0 Pro caps the image AREA at 4,194,304 px (2048²) — the 2K 16:9 (2848×1600 = 4.56MP)
-// exceeds it, so Pro renders at the largest 16:9 under the cap (2560×1440 = 3.69MP). Lite allows 2K.
-export const keyframeImageSize = (key) => (key === 'seedreamPro' ? '2560x1440' : '2848x1600');
+export const keyframeImageSize = (key) => imageTraits(key).keyframeSize;
 // Clamp ANY size for the chosen image model: Lite passes through; for Pro an explicit
 // 'WxH' over the area cap scales down to fit (aspect kept, snapped to multiples of 16),
 // and a bare tier name ('2K'/'4K' — the model would pick its own, possibly over-cap,

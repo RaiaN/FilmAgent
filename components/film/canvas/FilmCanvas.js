@@ -56,7 +56,7 @@ import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
 import { createTrace } from '../../../utils/film/core/trace';
 import { emptyTimeline, emptyBible } from '../../../utils/film/projectShape';
-import { bibleEntry, timelineEvent, orderedEvents, renumber, mirrorSessionEvents } from '../../../utils/film/timelineModel';
+import { bibleEntry, timelineEvent, orderedEvents, renumber, mirrorSessionEvents, EXPLICIT_REF_CAP } from '../../../utils/film/timelineModel';
 import { BIBLE_ROLES, SHORT_FILM_RECIPE, composeFilmShotPrompt, composePinnedShotPrompt, shotReferences, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import {
   createAssetNode,
@@ -2266,7 +2266,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         type: 'cut',
         position,
         ...(panel.parentId ? { parentId: panel.parentId } : {}),
-        data: { cut: panel.cut ?? panel.index, ...derived, assetRefs: [] },
+        // Asset/media attachments are CREATE-only (selection pre-population) — a
+        // re-derive refreshes `derived` but never touches what the user attached.
+        data: { cut: panel.cut ?? panel.index, ...derived, assetRefs: panel.assetRefs || [], audioRefs: panel.audioRefs || [], videoRefs: panel.videoRefs || [] },
       };
       return [...ns, card];
     });
@@ -4292,19 +4294,43 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [agentRunning, apiKey, dispatchFilmAction, runFloorPlan, runAudioClip, runAgent, freeOrigin]);
 
   // Drop a fresh SHOT card carrying the draft panel's preset (prompt verbatim, camera,
-  // duration) — everything stays editable ON the card afterwards.
+  // duration) — everything stays editable ON the card afterwards. The live board
+  // SELECTION pre-populates the card's references: bible-tagged images arrive as
+  // their identity chips (refIds), untagged images as per-shot assets, audio/video
+  // clips as media reference chips — so select → SHOT lands a ready-wired card.
   const dropEmptyShotCard = useCallback((at = null, preset = {}) => {
     if (!storyboardPanelRef.current) return;
     const pref = at || (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 220 }) : { x: 220, y: 220 });
     const base = freeOrigin({ w: CUT_COL_W, h: CUT_ROW_H, preferred: pref });
     const cut = nodesRef.current.filter((n) => n.type === 'cut' && String(n.id).startsWith('film-')).length;
     const text = (preset.prompt || '').trim();
+    const refEntryIds = []; const assetRefs = []; const audioRefs = []; const videoRefs = [];
+    nodesRef.current.filter((n) => n.selected && refUrl(n)).forEach((n) => {
+      const u = refUrl(n);
+      if (n.data?.kind === 'image') {
+        const be = bibleRef.current.find((b) => b.nodeId === n.id) || bibleRef.current.find((b) => b.url && b.url === u);
+        if (be) { if (!refEntryIds.includes(be.id)) refEntryIds.push(be.id); }
+        else if (!assetRefs.some((a) => a.url === u)) assetRefs.push({ nodeId: n.id, url: u, label: n.data.label || 'asset' });
+      } else if (n.data?.kind === 'audio') {
+        audioRefs.push({ nodeId: n.id, url: n.data.cacheUrl || n.data.url, label: n.data.label || 'audio clip', duration: Number(n.data.duration) || null });
+      } else if (n.data?.kind === 'video') {
+        videoRefs.push({ nodeId: n.id, url: n.data.cacheUrl || n.data.url, label: n.data.label || 'take' });
+      }
+    });
+    if (refEntryIds.length + assetRefs.length > EXPLICIT_REF_CAP) {
+      Message.warning(`${refEntryIds.length + assetRefs.length} images selected — Seedance takes ${EXPLICIT_REF_CAP} references; the first ${EXPLICIT_REF_CAP} ride.`);
+      assetRefs.length = Math.max(0, EXPLICIT_REF_CAP - refEntryIds.length);
+    }
     storyboardPanelRef.current({
       index: 0, cut, idPrefix: `film-${Date.now().toString(36)}`, title: 'Shot',
       action: text, promptOverride: text, framing: '', shotTemplate: preset.shotTemplate || 'medium-shot',
-      durationSec: preset.durationSec || 15, refEntryIds: [], audio: '',
+      durationSec: preset.durationSec || maxShotSeconds(defaultVideoModelKey()), refEntryIds, audio: '',
+      assetRefs, audioRefs, videoRefs,
     }, base);
-    Message.success('SHOT card on the board — edit it, attach refs, then 🎬 to shoot.');
+    const attached = refEntryIds.length + assetRefs.length + audioRefs.length + videoRefs.length;
+    Message.success(attached
+      ? `SHOT card on the board — ${attached} selected reference${attached > 1 ? 's' : ''} attached.`
+      : 'SHOT card on the board — edit it, attach refs, then 🎬 to shoot.');
   }, [rfInstance, freeOrigin]);
 
   // The rail / context-menu tap OPENS THE CONFIGURATION PANEL — nothing lands on the

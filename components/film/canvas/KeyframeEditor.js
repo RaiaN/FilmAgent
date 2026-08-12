@@ -5,6 +5,7 @@ import { SHOT_TEMPLATES } from '../../../utils/film/recipes';
 
 const { Text } = Typography;
 const SHOT_OPTS = SHOT_TEMPLATES.map((t) => ({ label: t.name, value: t.id }));
+const STILL_OPTS = SHOT_TEMPLATES.filter((t) => t.category !== 'Movement').map((t) => ({ label: t.name, value: t.id }));
 const EXPR_OPTS = ['neutral', 'slight smile', 'smiling', 'laughing', 'surprised', 'shocked', 'angry', 'sad', 'crying', 'fearful', 'worried', 'determined', 'thoughtful'].map((e) => ({ label: e, value: e }));
 
 // The Expand editor: see + edit ONE keyframe's whole shot — the [Image N] body, its references
@@ -230,7 +231,7 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
             <div style={{ flex: 1 }}>
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>{mode === 'frame' ? 'Reframe (optional) — re-shoot this frame from another camera' : 'Camera'}</Text>
               <Select
-                size="small" showSearch value={shotTemplate || undefined} onChange={(v) => setShotTemplate(v || '')} options={SHOT_OPTS} style={{ width: '100%' }}
+                size="small" showSearch value={shotTemplate || undefined} onChange={(v) => setShotTemplate(v || '')} options={mode === 'frame' ? STILL_OPTS : SHOT_OPTS} style={{ width: '100%' }}
                 allowClear={mode === 'frame'}
                 placeholder={mode === 'frame' ? 'keep current framing' : undefined}
                 title={mode === 'frame' ? 'Pick any setup to reframe — the same scene, subjects and moment from that camera; clear = framing untouched' : undefined}

@@ -3972,7 +3972,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     instruction = renumbered;
     if (shotTemplate) {
       const t = SHOT_TEMPLATE_BY_ID[shotTemplate];
-      if (t) instruction = `Reframe to a ${t.framing}, ${t.angle} — the same scene, subjects and moment. ${instruction}`;
+      if (t) instruction = `Reframe to a ${[t.framing, t.angle].filter(Boolean).join(', ')} — the same scene, subjects and moment. ${instruction}`;
     }
     const refsToSend = [annotatedFrame || ordered[0] || src, ...ordered.slice(1)];
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true, error: undefined } } : n)));
@@ -4007,7 +4007,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     instruction = renumbered;
     if (shotTemplate) {
       const t = SHOT_TEMPLATE_BY_ID[shotTemplate];
-      if (t) instruction = `Reframe to a ${t.framing}, ${t.angle} — the same scene, subjects and moment. ${instruction}`;
+      if (t) instruction = `Reframe to a ${[t.framing, t.angle].filter(Boolean).join(', ')} — the same scene, subjects and moment. ${instruction}`;
     }
     const refsToSend = [annotatedFrame || ordered[0] || src, ...ordered.slice(1)];
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));

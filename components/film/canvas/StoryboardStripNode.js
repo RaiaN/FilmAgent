@@ -95,7 +95,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                 <Text style={{ fontSize: 10, fontWeight: 700, color: '#4e5969' }}>
                   {`#${String(i + 1).padStart(2, '0')} · ${row.beat || s.beat || 'Shot'} · ${row.durationSec || s.durationSec || 10}s${row.intExt ? ` · ${row.intExt}` : ''}`}
                 </Text>
-                {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{tpl.framing} · {tpl.angle} · {tpl.move}{develops ? ' · DEVELOPS' : ''}</Text>}
+                {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{[tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(' · ') || tpl.name}{develops ? ' · DEVELOPS' : ''}</Text>}
                 {String(row.job || '').trim() && (
                   <Text title="This shot's ONE JOB — carved with the shot list; the author and every prompt verb serve it" style={{ fontSize: 9, color: '#b06f10', fontStyle: 'italic' }} ellipsis={{ rows: 1 }}>◎ {row.job}</Text>
                 )}

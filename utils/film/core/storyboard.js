@@ -249,7 +249,7 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
   const run = async (retryNote) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('storyboard.author.user', {
-        script: SPAN_SLOT, span: '@@SPAN@@', beat, job: String(job || '').trim() || 'unstated — infer the single job from the span and serve it', framing: `${tpl.framing}, ${tpl.angle}, ${tpl.move}`,
+        script: SPAN_SLOT, span: '@@SPAN@@', beat, job: String(job || '').trim() || 'unstated — infer the single job from the span and serve it', framing: [tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(', ') || 'director\'s choice',
         develops: develops ? 'DEVELOPS — write the exiting state' : 'HOLDS — exiting stays empty',
         prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
         durationSec: String(Math.max(4, Math.round(Number(durationSec) || 10))),

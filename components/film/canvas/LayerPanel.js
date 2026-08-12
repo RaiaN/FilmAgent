@@ -1,7 +1,7 @@
 import { Button, Checkbox, Input, InputNumber, Select, Typography } from '@arco-design/web-react';
 import { IconPlayArrow, IconPlus, IconClose } from '@arco-design/web-react/icon';
 import { AGENT_MAP, IMAGE_RESOLUTIONS } from '../../../utils/film/agents';
-import { IMAGE_MODEL_OPTIONS, imageModelKeyOf, imageTraits } from '../../../utils/film/suiteConfig';
+import { IMAGE_MODEL_OPTIONS, imageModelKeyOf, imageTraits, maxShotSeconds, defaultVideoModelKey } from '../../../utils/film/suiteConfig';
 import { SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
@@ -132,7 +132,7 @@ const ShotFields = ({ s, up }) => (
     </div>
     <div>
       <Text style={FIELD_LABEL}>Duration</Text>
-      <InputNumber size="small" min={5} max={15} value={s.durationSec} onChange={(v) => up({ durationSec: v })} style={{ width: 90 }} suffix="s" />
+      <InputNumber size="small" min={5} max={maxShotSeconds(defaultVideoModelKey())} value={s.durationSec} onChange={(v) => up({ durationSec: v })} style={{ width: 90 }} suffix="s" />
     </div>
   </>
 );
@@ -189,7 +189,7 @@ const PrevizFields = ({ s, up }) => (
       />
     </div>
     <Text type="secondary" style={{ fontSize: 12 }}>
-      Run renders the scene&rsquo;s FLOOR PLAN — a schematic overhead blocking map (parties, moves, the AXIS). Edit it like any image; attach it to a SHOT card to project blocking into the prompt.
+      Run renders the scene&rsquo;s SCHEMATIC — an overhead blocking map (parties, moves, the AXIS). Edit it like any image; attach it to a SHOT card to project blocking into the prompt.
     </Text>
   </>
 );

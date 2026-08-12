@@ -1570,20 +1570,20 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const pref = near || (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 240 }) : { x: 220, y: 220 });
     const position = freeOrigin({ w: 360, h: 380, preferred: pref });
-    const node = createAssetNode({ kind: 'image', url: '', label: 'Floor plan', position, layerId: 'previz' });
+    const node = createAssetNode({ kind: 'image', url: '', label: 'Schematic', position, layerId: 'previz' });
     node.data.loading = true;
     node.data.floorPlan = true;
     node.data.floorPlanBrief = text;
     setNodes((ns) => ns.concat(node));
-    traceRef.current.startRun({ note: 'Agent · Previz · floor plan' });
+    traceRef.current.startRun({ note: 'Agent · Previz · schematic' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
       const { url, cacheUrl, planPrompt } = await floorPlan({ brief: text }, ctx);
-      traceRef.current.log({ level: 'run', kind: 'decision', note: 'Previz · floor plan rendered' });
+      traceRef.current.log({ level: 'run', kind: 'decision', note: 'Previz · schematic rendered' });
       setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, planPrompt, loading: false } } : n)));
-      Message.success('Floor plan on the board — edit it like any image, then attach it to a SHOT card to project the blocking.');
+      Message.success('Schematic on the board — edit it like any image, then attach it to a SHOT card to project the blocking.');
     } catch (e) {
-      Message.error(`Floor plan failed: ${e.message}`);
+      Message.error(`Schematic failed: ${e.message}`);
       setNodes((ns) => ns.filter((n) => n.id !== node.id));
     }
   }, [apiKey, rfInstance, freeOrigin, setNodes]);
@@ -2183,7 +2183,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const promoteMapToCard = useCallback(async (mapId) => {
     const map = nodesRef.current.find((n) => n.id === mapId);
     const mapUrl = map && (map.data?.cacheUrl || map.data?.url);
-    if (!mapUrl) { Message.warning('The floor plan is still rendering — promote it once it lands.'); return; }
+    if (!mapUrl) { Message.warning('The schematic is still rendering — promote it once it lands.'); return; }
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     if (!storyboardPanelRef.current) return;
     const moment = String(map.data?.floorPlanBrief || '').trim();
@@ -2212,11 +2212,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         refEntryIds: [], audio: '',
       }, base);
       onPatchCut(`${idPrefix}-0`, {
-        ...(MAP_AS_SEEDANCE_REF ? { assetRefs: [{ nodeId: mapId, url: mapUrl, label: 'Floor plan' }] } : {}),
+        ...(MAP_AS_SEEDANCE_REF ? { assetRefs: [{ nodeId: mapId, url: mapUrl, label: 'Schematic' }] } : {}),
         mapRef: { nodeId: mapId, url: mapUrl, ...(MAP_AS_SEEDANCE_REF ? {} : { textOnly: true }) },
         projectSource: moment,
       });
-      Message.success(`SHOT ${cut + 1} laid from the floor plan — the projected blocking is its prompt (yours to edit); 🎬 shoots exactly what you see.`);
+      Message.success(`SHOT ${cut + 1} laid from the schematic — the projected blocking is its prompt (yours to edit); 🎬 shoots exactly what you see.`);
     } catch (e) {
       Message.error(`Projection failed: ${e.message}`);
     } finally {

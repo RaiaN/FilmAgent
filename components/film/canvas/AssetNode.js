@@ -370,10 +370,10 @@ const AssetNodeInner = ({ id, data, selected }) => {
       {data.floorPlan && url && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4, padding: '6px 8px', borderTop: '1px solid #f2f3f5' }}>
           {onPromoteMap && (
-            <Button size="mini" type="primary" className="nodrag" style={{ flex: '1.3 1 120px' }} loading={!!data.projecting} disabled={!!data.projecting} icon={data.projecting ? <IconLoading /> : <IconPlus />} onClick={(e) => { e.stopPropagation(); onPromoteMap(id); }} title="Promote — lay a NEW SHOT card beside this plan: the projection reads the map + its scene text and writes camera-relative blocking as the card's prompt (visible, editable); the map rides as [Image 1].">{data.projecting ? 'Projecting…' : 'Promote to SHOT card'}</Button>
+            <Button size="mini" type="primary" className="nodrag" style={{ flex: '1.3 1 120px' }} loading={!!data.projecting} disabled={!!data.projecting} icon={data.projecting ? <IconLoading /> : <IconPlus />} onClick={(e) => { e.stopPropagation(); onPromoteMap(id); }} title="Promote — lay a NEW SHOT card beside this schematic: the projection reads it + its scene text and writes camera-relative blocking as the card's prompt (visible, editable); the schematic rides as [Image 1].">{data.projecting ? 'Projecting…' : 'Promote to SHOT card'}</Button>
           )}
           {onEditImage && (
-            <Button size="mini" className="nodrag" style={{ flex: '1 1 70px' }} icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditImage(id); }} title="Edit — move markers, add characters, redraw the axis: describe one change; a new plan lands beside this one.">Edit</Button>
+            <Button size="mini" className="nodrag" style={{ flex: '1 1 70px' }} icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditImage(id); }} title="Edit — move markers, add characters, redraw the axis: describe one change; a new schematic lands beside this one.">Edit</Button>
           )}
         </div>
       )}

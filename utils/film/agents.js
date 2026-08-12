@@ -312,7 +312,7 @@ export const previzAgent = {
   consumes: [],
   needsSelection: false,
   defaultSettings: { brief: '' },
-  describe: 'Brief → the scene\'s FLOOR PLAN: a schematic overhead blocking map (parties, moves, the AXIS). Edit it like any image; attach it to a SHOT card to project camera-relative blocking into the prompt.',
+  describe: 'Brief → the scene\'s SCHEMATIC: an overhead blocking map (parties, moves, the AXIS). Edit it like any image; attach it to a SHOT card to project camera-relative blocking into the prompt.',
   async run() {
     throw new Error('The Previz agent lays image nodes on the canvas — run it from the board.');
   },

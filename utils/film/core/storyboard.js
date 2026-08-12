@@ -199,6 +199,7 @@ export const storyboardCarve = async ({ script = '', style = '', references = []
     if (!figures.length && refs.length) figures = [1];
     return {
       beat: String(s?.beat || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
+      job: String(s?.job || '').replace(/\s+/g, ' ').trim().slice(0, 160),
       shotTemplate: tpl.id,
       figures,
       // Planning space allows the 2.5 range (4-30s); the CARD clamps per-model at
@@ -241,14 +242,14 @@ const normText = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')
 // AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
 // motion dropped; still missing → returned in `missingDialogue` (the card flags it,
 // never silently).
-export const storyboardAuthor = async ({ script = '', span = '', beat = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', durationSec = 10, config } = {}, ctx) => {
+export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', durationSec = 10, config } = {}, ctx) => {
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
   const wanted = spanDialogueLines(span);
   const run = async (retryNote) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('storyboard.author.user', {
-        script: SPAN_SLOT, span: '@@SPAN@@', beat, framing: `${tpl.framing}, ${tpl.angle}, ${tpl.move}`,
+        script: SPAN_SLOT, span: '@@SPAN@@', beat, job: String(job || '').trim() || 'unstated — infer the single job from the span and serve it', framing: `${tpl.framing}, ${tpl.angle}, ${tpl.move}`,
         develops: develops ? 'DEVELOPS — write the exiting state' : 'HOLDS — exiting stays empty',
         prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
         durationSec: String(Math.max(4, Math.round(Number(durationSec) || 10))),
@@ -407,11 +408,17 @@ const modelLineOf = (modelKey) => videoTraits(modelKey).promptTargetLine;
 // The card's LOCKED camera preset as a hard contract for the prompt verbs: prose
 // film-grammar alone is weak, so the camera must live IN the action text — staged,
 // not tagged. No preset → the verb commits to one camera of its own choosing.
+// The shot's ONE JOB (carved upstream) as an intent contract: every sentence the
+// verb writes serves it. Absent → an empty line; the verb owes the shot a job of its own.
+const jobLineOf = (job) => (String(job || '').trim()
+  ? `THE SHOT'S ONE JOB (from the shot list — every sentence serves it): ${String(job).trim()}`
+  : '');
+
 const cameraLineOf = (camera) => (camera && (camera.framing || camera.move)
   ? `CAMERA (director-locked, non-negotiable): ${[camera.framing, camera.angle, camera.move].filter(Boolean).join(' · ')}. Stage every event FOR this exact camera, carry it in the action text (summary sentence included), and never contradict it.`
   : 'No camera preset is locked — choose the single camera that serves the action best and commit to it in the text.');
 
-const CRAFT_RULES = `CRAFT RULES: camera is NAMED grammar — professional terms used raw (shot size, angle, movement, techniques like long take / dolly zoom / speed ramp), ONE camera treatment per segment, niche terms as [term + plain description]. Motion lives at TWO altitudes — general verbs carry the flow ("the two engage in close combat"); degree-and-speed micro-detail is spent on only one or two story-bearing beats per shot; NEVER repeat an action phrase (repetition loops the motion); adverbs set speed. Expressions are descriptive sentences, never idioms. Phrase everything positively — say what happens, not what doesn't. A transition names its trigger AND method ("at 5s, a quick left wipe with a natural dissolve") and never dangles.`;
+const CRAFT_RULES = `CRAFT RULES: camera is NAMED grammar — professional terms used raw (shot size, angle, movement, techniques like long take / dolly zoom / speed ramp), ONE camera treatment per segment, niche terms as [term + plain description]. Motion lives at TWO altitudes — general verbs carry the flow ("the two engage in close combat"); degree-and-speed micro-detail is spent on only one or two story-bearing beats per shot; NEVER repeat an action phrase (repetition loops the motion); adverbs set speed. Expressions are descriptive sentences, never idioms. Phrase everything positively — say what happens, not what doesn't. A transition names its trigger AND method ("at 5s, a quick left wipe with a natural dissolve") and never dangles. TIME IS REAL: every action runs at real-world speed — a strike lands in under a second, a fall takes about one; NEVER slow an action down or stretch it to fill its time span. If the events cannot honestly fill the shot's duration, ADD beats — feints, footwork, reactions, resets, environmental consequence — density fills time, speed never drops. In action, one interval holds a full EXCHANGE (attack → reaction → counter); a FAST beat is pinned to a time-POINT ("at 7s the jab snaps out"), never given a whole interval — intervals belong to PHASES (approach / exchange / aftermath). When the action is fast, the SUMMARY sentence states the TEMPO as an authority ("at real fight speed throughout") — heavy or mechanical subjects especially need it, or their weight reads as slow motion. A multi-panel storyboard reference dictates ORDER and POSES only, never tempo — the beats between its panels run at real speed.`;
 const kfLineOf = (kfIndices) => (kfIndices.length
   ? `KEYFRAME PATH — the shot's visual spine, IN ORDER: it opens on the composition of [Image ${kfIndices[0]}]${kfIndices.slice(1, -1).map((k) => `, passes through [Image ${k}]`).join('')}${kfIndices.length > 1 ? ` and lands on [Image ${kfIndices[kfIndices.length - 1]}]` : ''}.`
   : 'No keyframes are set — ground the action against the reference images and the text alone.');
@@ -432,14 +439,14 @@ export const ENRICH_LEVELS = (modelKey) => {
 // texture/atmosphere/VFX/sound precision around it, grounded in the attached chips.
 // Keyframes and references are inputs, never outputs — the card's pointers and chip
 // list stay exactly as they are.
-export const enrichShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, level = 'rich', camera = null, config } = {}, ctx) => {
+export const enrichShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, level = 'rich', camera = null, job = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material) throw new Error('Enrich needs the shot prompt — write it or Compose first.');
   const lv = ENRICH_LEVELS(modelKey).find((l) => l.key === level) || ENRICH_LEVELS(modelKey)[1];
   const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.enrich.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)),
-    systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), cameraLine: cameraLineOf(camera), modelLine: modelLineOf(modelKey), craftRules: CRAFT_RULES, durationSec: String(durationSec), targetWords: String(lv.words) }),
+    systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), modelLine: modelLineOf(modelKey), craftRules: CRAFT_RULES, durationSec: String(durationSec), targetWords: String(lv.words) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -454,7 +461,7 @@ export const enrichShotAction = async ({ text = '', references = [], roster = []
 // shot FEELS and READS (tone, pacing, emphasis, atmosphere, wording); events, order,
 // [Image N] tags, dialogue, references and keyframes all stay. The note wins over the
 // old text where they disagree.
-export const directShotAction = async ({ text = '', note = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, camera = null, config } = {}, ctx) => {
+export const directShotAction = async ({ text = '', note = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, camera = null, job = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   const theNote = String(note || '').trim();
   if (!material) throw new Error('Direct needs the shot prompt — write it or Compose first.');
@@ -464,7 +471,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
       .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)),
-    systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), cameraLine: cameraLineOf(camera), modelLine: modelLineOf(modelKey), craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
+    systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), modelLine: modelLineOf(modelKey), craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -475,7 +482,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   return { action, audio: String(raw.audio || '').trim() };
 };
 
-export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, camera = null, config } = {}, ctx) => {
+export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, camera = null, job = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
   const modelLine = modelLineOf(modelKey);
@@ -502,7 +509,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)'),
-    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, cameraLine: cameraLineOf(camera), modelLine, craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
+    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), modelLine, craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,

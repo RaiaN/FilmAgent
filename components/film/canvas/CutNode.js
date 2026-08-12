@@ -217,17 +217,14 @@ const CutNodeInner = ({ id, data, selected }) => {
   const assetImageIndex = (j) => sentBibleIds.length + j + 1;
 
   const [editorOpen, setEditorOpen] = useState(false);
-  // Every reference the editor's @-picker can offer: ALL bible plates (with a url) + the
-  // per-shot assets. `index` = its current Image number when already enabled/sent on this
-  // shot, else null — picking a not-yet-enabled plate in the editor ATTACHES it (adds it to
-  // refIds, giving it the next index) AND inserts its tag. So @ always lists the cast/world,
-  // even on a fresh card whose references aren't toggled on yet. Built ONLY while the editor
-  // is open (it's an O(bible) pass) — closed cards skip it entirely.
+  // The editor's @-picker offers ONLY the references SENT with this shot — enabled bible
+  // chips (refIds order) + per-shot assets — each with its real Image number, so a tag
+  // always points at a plate the take receives. Toggling a chip on the card is the attach
+  // gesture; the editor never attaches. Built ONLY while the editor is open.
   const attachableRefs = editorOpen ? [
-    ...(bibleEntries || []).filter((b) => b.url).map((b) => ({ id: b.id, name: b.name || BIBLE_ROLE_META[b.role]?.label || 'cast', url: b.url, index: bibleImageIndex(b.id) })),
+    ...(bibleEntries || []).filter((b) => b.url && bibleImageIndex(b.id) != null).map((b) => ({ id: b.id, name: b.name || BIBLE_ROLE_META[b.role]?.label || 'cast', url: b.url, index: bibleImageIndex(b.id) })),
     ...assetRefs.map((a, j) => ({ id: `asset:${a.url}`, name: a.label || 'asset', url: a.url, index: assetImageIndex(j) })).filter((r) => r.index <= MAX_CUT_REFS),
   ] : [];
-  const attachRef = (refId) => { if (refId && !String(refId).startsWith('asset:') && !refIds.includes(refId)) patch({ refIds: [...refIds, refId] }); };
 
   // Drop a board asset / Library item straight onto the card to feed it to this shot.
   const carries = (e) => e.dataTransfer.types.includes(BOARD_NODE_DRAG_TYPE) || e.dataTransfer.types.includes(ASSET_DRAG_TYPE);
@@ -598,8 +595,6 @@ const CutNodeInner = ({ id, data, selected }) => {
             ...audioRefs.map((a, i) => ({ kind: 'audio', index: i + 1, name: a.label || 'audio clip', role: a.role || '' })),
             ...videoRefs.map((v, i) => ({ kind: 'video', index: i + 1, name: v.label || 'video', role: v.role || '' })),
           ]}
-          onAttach={attachRef}
-          maxRefs={MAX_CUT_REFS}
           onChange={(v) => patch({ promptOverride: v })}
           onClose={() => setEditorOpen(false)}
         />

@@ -4,10 +4,10 @@ import { Modal, Button, Typography } from '@arco-design/web-react';
 const { Text } = Typography;
 
 // Large, focused editor for a SHOT card's cinematic prompt, with @-mention reference
-// attachment. Type "@" to pop a picker of THIS card's reference images (each shown with its
-// Image index); choosing one inserts a literal "[Image N]" tag at the cursor — plain prompt
-// text the video model reads, so a subject can be tied to a specific plate. A native
-// <textarea> is used for precise caret control (selectionStart / setSelectionRange).
+// tagging. Type "@" to pop a picker of THIS card's SENT references — only chips toggled
+// on (each shown with its Image index); choosing one inserts a literal "[Image N]" tag at
+// the cursor — plain prompt text the video model reads, so a subject can be tied to a
+// specific plate. A native <textarea> is used for precise caret control.
 // `references` = [{ index, name, url }] in send order (only the ENABLED, sent refs).
 
 const dark = {
@@ -18,7 +18,7 @@ const dark = {
 
 const NAV_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Enter', 'Escape']);
 
-const PromptEditorModal = ({ open, value, references = [], media = [], onAttach, maxRefs = 9, onChange, onClose }) => {
+const PromptEditorModal = ({ open, value, references = [], media = [], onChange, onClose }) => {
   const [text, setText] = useState(value || '');
   const [menu, setMenu] = useState(null); // { items: [{index,name,url}], hi } while an @-query is active
   const taRef = useRef(null);
@@ -54,34 +54,15 @@ const PromptEditorModal = ({ open, value, references = [], media = [], onAttach,
 
   const apply = (v) => { setText(v); onChange?.(v); };
 
-  // Replace the active "@<query>" (from the @ up to the caret) with the ref's "[Image N] " tag.
-  // If the chosen plate isn't a reference on this shot yet, ATTACH it (give it the next index)
-  // so the tag actually points at a sent image. Respects the reference cap.
+  // Replace the active "@<query>" (from the @ up to the caret) with the ref's tag —
+  // "[Image N] " for a sent plate, "Audio N " / "Video N " for a media chip.
   const insertRef = (r) => {
-    if (r.kind === 'audio' || r.kind === 'video') {
-      const el = taRef.current;
-      const caret = el ? el.selectionStart : text.length;
-      const val = el ? el.value : text;
-      const at = val.slice(0, caret).lastIndexOf('@');
-      const start = at >= 0 ? at : caret;
-      const token = `${r.kind === 'audio' ? 'Audio' : 'Video'} ${r.index} `;
-      apply(val.slice(0, start) + token + val.slice(caret));
-      reposRef.current = start + token.length;
-      setMenu(null);
-      return;
-    }
-    let idx = r.index;
-    if (idx == null) {
-      idx = references.filter((x) => x.index != null).length + 1;
-      if (idx > maxRefs) { setMenu(null); return; }
-      onAttach?.(r.id);
-    }
     const el = taRef.current;
     const caret = el ? el.selectionStart : text.length;
     const val = el ? el.value : text;
     const at = val.slice(0, caret).lastIndexOf('@');
     const start = at >= 0 ? at : caret;
-    const token = `[Image${idx}] `;
+    const token = r.kind === 'audio' ? `Audio ${r.index} ` : r.kind === 'video' ? `Video ${r.index} ` : `[Image${r.index}] `;
     apply(val.slice(0, start) + token + val.slice(caret));
     reposRef.current = start + token.length;
     setMenu(null);
@@ -128,8 +109,8 @@ const PromptEditorModal = ({ open, value, references = [], media = [], onAttach,
                 onMouseEnter={() => setMenu((mn) => mn && { ...mn, hi: i })}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, cursor: 'pointer', background: i === menu.hi ? '#2a313a' : 'transparent' }}
               >
-                <b style={{ fontSize: 10, color: '#fff', background: r.kind === 'audio' ? 'rgba(120,22,255,0.7)' : r.kind === 'video' ? '#165dff' : r.index != null ? 'rgba(0,0,0,0.5)' : '#165dff', borderRadius: 7, padding: '0 5px' }}>
-                  {r.kind === 'audio' ? `Audio${r.index}` : r.kind === 'video' ? `Video${r.index}` : r.index != null ? `Image${r.index}` : '+ add'}
+                <b style={{ fontSize: 10, color: '#fff', background: r.kind === 'audio' ? 'rgba(120,22,255,0.7)' : r.kind === 'video' ? '#165dff' : 'rgba(0,0,0,0.5)', borderRadius: 7, padding: '0 5px' }}>
+                  {r.kind === 'audio' ? `Audio${r.index}` : r.kind === 'video' ? `Video${r.index}` : `Image${r.index}`}
                 </b>
                 {r.url && !r.kind ? <img src={r.url} alt="" style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'cover' }} /> : null}
                 <span style={{ fontSize: 12, color: '#e5e6eb' }}>{r.name}{r.role ? ` · ${r.role}` : ''}</span>
@@ -140,10 +121,8 @@ const PromptEditorModal = ({ open, value, references = [], media = [], onAttach,
       </div>
       <div style={{ marginTop: 8, fontSize: 11, color: '#86909c' }}>
         {references.length === 0
-          ? <span>No references available — draft Cast &amp; World (or attach an image to this shot) first.</span>
-          : references.some((r) => r.index != null)
-            ? <span>Attached: {references.filter((r) => r.index != null).map((r) => `Image${r.index} = ${r.name}`).join('  ·  ')}</span>
-            : <span>Type <b>@</b> to attach a cast/world plate as this shot&apos;s reference.</span>}
+          ? <span>No references enabled on this card — toggle chips in the REFERENCES block first; only enabled refs are offered here.</span>
+          : <span>Sent: {references.map((r) => `Image${r.index} = ${r.name}`).join('  ·  ')}</span>}
       </div>
     </Modal>
   );

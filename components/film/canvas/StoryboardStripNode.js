@@ -96,6 +96,9 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                   {`#${String(i + 1).padStart(2, '0')} · ${row.beat || s.beat || 'Shot'} · ${row.durationSec || s.durationSec || 10}s${row.intExt ? ` · ${row.intExt}` : ''}`}
                 </Text>
                 {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{tpl.framing} · {tpl.angle} · {tpl.move}{develops ? ' · DEVELOPS' : ''}</Text>}
+                {String(row.job || '').trim() && (
+                  <Text title="This shot's ONE JOB — carved with the shot list; the author and every prompt verb serve it" style={{ fontSize: 9, color: '#b06f10', fontStyle: 'italic' }} ellipsis={{ rows: 1 }}>◎ {row.job}</Text>
+                )}
                 <Text title={row.body || ''} style={{ fontSize: 11, lineHeight: '15px' }} ellipsis={{ rows: 4 }}>{row.body || '—'}</Text>
                 {String(row.motion || '').trim() && (
                   <Text title={`ACTION — what the take performs:\n${row.motion}`} style={{ fontSize: 10, lineHeight: '14px', color: '#6b7785' }} ellipsis={{ rows: 2 }}>▸ {row.motion}</Text>
@@ -209,7 +212,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                 )}
                 {develops ? (
                   row.endStill?.url ? (
-                    <CellImg srcs={[row.endStill.cacheUrl, row.endStill.url]} alt="END" title="END frame — renders with the still" />
+                    <CellImg srcs={[row.endStill.cacheUrl, row.endStill.url]} alt="END" title="END frame — double-click to view full screen" onDoubleClick={() => onViewImage && onViewImage({ id: nodeId, end: true })} />
                   ) : row.endLoading ? (
                     <span style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
                       <IconLoading style={{ fontSize: 18, color: '#165dff' }} />

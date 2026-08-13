@@ -45,13 +45,13 @@ Return ONLY a JSON object — no prose, no code fences:
     }
   ]
 }
-Up to 8 assets total. Include EVERY recurring subject the film needs — never drop one that matters. Keep the [SECTION] tags in every character facePrompt EXACTLY as shown; they apply to "character" faces ONLY — creatures, locations and props are NOT frontal neutral portraits. For ANIMAL characters, adapt [SKIN_REFLECTANCE] to fur / hide / feather texture and [HAIR] accordingly. Make every asset specific, distinctive and faithful to the idea. NEVER put text, captions or watermarks in any image.`,
+Up to 8 assets total. Include EVERY recurring subject the film needs — never drop one that matters. If reference images are attached (storyboards, sketches, concept art, photos), DERIVE the assets from what they SHOW — identities, wardrobe, creatures, sets, props — translated faithfully into the film's declared style; for each asset that a specific attached image depicts, add "fromImage": <that image's 1-based index> (omit the field otherwise). Keep the [SECTION] tags in every character facePrompt EXACTLY as shown; they apply to "character" faces ONLY — creatures, locations and props are NOT frontal neutral portraits. For ANIMAL characters, adapt [SKIN_REFLECTANCE] to fur / hide / feather texture and [HAIR] accordingly. Make every asset specific, distinctive and faithful to the idea. NEVER put text, captions or watermarks in any image.`,
   },
   'storyboard.cast.user': {
     agent: 'Cast & World',
     label: 'Draft the production (instruction)',
-    vars: ['{idea}', '{genre}', '{ethnicity}'],
-    text: 'Film idea: {idea}\nGenre & tone: {genre}\nCharacter ethnicity (apply to every HUMAN character\'s facePrompt/bodyPrompt unless the idea itself dictates otherwise): {ethnicity}\n\nThe shared visual style MUST embody that genre & tone, and every asset must fit it. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
+    vars: ['{idea}', '{ethnicity}', '{refNote}'],
+    text: 'Film idea: {idea}\nCharacter ethnicity (apply to every HUMAN character\'s facePrompt/bodyPrompt unless the idea itself dictates otherwise): {ethnicity}\n{refNote}\nDerive the shared visual style FROM the idea (and the reference art, when attached) — never impose a genre or mood the material itself does not state. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
   },
 
   // ---- Story agent: an idea/script → ONE long cinematic prompt (Seed 2.0 Pro rewrite) -

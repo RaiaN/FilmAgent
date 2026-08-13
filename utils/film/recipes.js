@@ -21,30 +21,6 @@ export const BIBLE_ROLE_META = {
 };
 
 // ---- Seedance 2.0 prompt grammar (the CUT card's composed output) ----------------
-// Cinematography presets — a small genre-keyed library for the CINEMATOGRAPHY pin.
-// Each is lens · DOF · light · grain · grade · movement; the user picks one (or edits).
-export const CINEMATOGRAPHY_PRESETS = {
-  Naturalistic: '50mm, moderate DOF, soft motivated daylight, fine grain, neutral true-to-life grade, steady handheld',
-  Western: '40mm anamorphic, deep focus, hard golden-hour side light, heavy 16mm grain, desaturated dust grade, slow deliberate moves',
-  Horror: '35mm, shallow focus, low-key underlight, fine grain, cold desaturated grade, uneasy handheld',
-  Noir: '32mm, deep focus, hard low-key chiaroscuro, fine grain, high-contrast monochrome-leaning grade, slow creeping dolly',
-  Thriller: '50mm, shallow DOF, tense low-key key light, minimal grain, cool steely grade, tight push-ins',
-  Epic: '28mm, deep focus, sweeping natural light, clean grain, rich saturated grade, slow majestic crane moves',
-  Documentary: '35mm, deep focus, available light, light grain, flat neutral grade, reactive handheld',
-  Dreamlike: '85mm, very shallow DOF, diffuse bloomed light, soft grain, pastel lifted grade, slow drifting float',
-};
-export const CINEMATOGRAPHY_PRESET_NAMES = Object.keys(CINEMATOGRAPHY_PRESETS);
-
-// Best-fit preset for a detected genre line (free text) — keyword match, else Naturalistic.
-export const cinematographyForGenre = (genre = '') => {
-  const g = String(genre).toLowerCase();
-  const hit = CINEMATOGRAPHY_PRESET_NAMES.find((name) => g.includes(name.toLowerCase()))
-    || (/(western)/.test(g) ? 'Western' : /(horror|slasher|creature)/.test(g) ? 'Horror'
-      : /(noir|detective|crime)/.test(g) ? 'Noir' : /(thriller|suspense)/.test(g) ? 'Thriller'
-      : /(epic|fantasy|myth|saga)/.test(g) ? 'Epic' : /(doc|vérité|verite|realis|natural)/.test(g) ? 'Documentary'
-      : /(dream|surreal|ethereal)/.test(g) ? 'Dreamlike' : 'Naturalistic');
-  return CINEMATOGRAPHY_PRESETS[hit];
-};
 
 // ---- the camera library (the Shot agent's vocabulary) — 19 DISTINCT setups --------
 // Radically curated (was ~50 near-synonym combos): every entry earns its place by
@@ -82,13 +58,13 @@ export const SHOT_TEMPLATE_BY_ID = SHOT_TEMPLATES.reduce((m, t) => { m[t.id] = t
 export const SHOT_TEMPLATES_BY_CATEGORY = SHOT_TEMPLATE_CATEGORIES.map((category) => ({ category, templates: SHOT_TEMPLATES.filter((t) => t.category === category) }));
 // The catalog the Shot agent reads to choose: `id — name (category): desc`, one per line.
 export const shotTemplateCatalog = () => SHOT_TEMPLATES.map((t) => `${t.id} — ${t.name} (${t.category}): ${t.desc}`).join('\n');
-// The cinematography line for a chosen template id; falls back to the genre preset
-// when the id is missing/invalid (headless default, or an un-gated project).
-export const shotTemplateCinematography = (id, genre = '') => (SHOT_TEMPLATE_BY_ID[id] && SHOT_TEMPLATE_BY_ID[id].cinematography) || cinematographyForGenre(genre);
+// The cinematography line for a chosen template id — empty when the id is unknown
+// (the LOOK line simply doesn't ride; no fallback taste is ever injected).
+export const shotTemplateCinematography = (id) => (SHOT_TEMPLATE_BY_ID[id] && SHOT_TEMPLATE_BY_ID[id].cinematography) || '';
 
 // ---- the story-arc library (the Story agent's structural vocabulary) -------------
 // The structural analogue of SHOT_TEMPLATES: a curated set of narrative shapes the
-// Storyboard (Story) agent SELECTS from per FILM — it auto-maps the premise/genre/tone
+// Storyboard (Story) agent SELECTS from per FILM — it auto-maps the premise/tone
 // onto the best-fit arc, then breaks the shots across that arc's stages. This replaces
 // the old hardcoded Freytag prompt so a mood/observational/tragic premise isn't
 // forced into a conflict climax it doesn't have. `fit` = the selection cue the model

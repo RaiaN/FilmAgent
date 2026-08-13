@@ -19,11 +19,6 @@ export const emptyProject = ({ id, title, language, targetMinutes }) => ({
   title: title || randomFilmTitle(),
   language: language || 'en',
   targetMinutes: targetMinutes || 4,
-  // The confirmed genre LINE — set when the Cast & World flow locks genre; drives the
-  // cast style and the storyboard's shot grammar. Shape: { line } (a "genre · tone"
-  // string) or null. Only `line` is stored/read — the detection's label/tone aren't kept.
-  genre: null,
-
   // The SEQUENCE seed — one seed for every shot in the film. { value, locked }:
   // locked reuses `value` across re-shoots (a prompt tweak becomes the only changed
   // variable — the iteration lever); unlocked re-rolls each shoot. value null = random.

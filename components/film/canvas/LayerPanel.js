@@ -201,7 +201,7 @@ const PrevizFields = ({ s, up }) => (
   </>
 );
 
-const CastFields = ({ s, up }) => (
+const CastFields = ({ s, up, imageAssets, onOpenRefDrawer }) => (
   <>
     <div>
       <Text style={FIELD_LABEL}>Film idea — empty = the selected Brief</Text>
@@ -210,6 +210,12 @@ const CastFields = ({ s, up }) => (
         placeholder="one sentence: what is this film about… e.g. 'a lighthouse keeper befriends the sea monster wrecking the ships'"
         autoSize={{ minRows: 3, maxRows: 6 }}
       />
+    </div>
+    <div>
+      <Text style={FIELD_LABEL}>References (optional) — storyboards, sketches or photos the cast derives from</Text>
+      <BoardImagePicker imageAssets={imageAssets} value={s.refs || []} onPick={(refs) => up({ refs })} multi
+        onBrowse={onOpenRefDrawer ? () => onOpenRefDrawer('refs') : undefined}
+        emptyHint="None picked — the cast comes from the idea text alone." />
     </div>
     <div>
       <Text style={FIELD_LABEL}>Ethnicity (optional) — every human character, unless the idea says otherwise</Text>

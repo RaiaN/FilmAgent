@@ -225,9 +225,9 @@ export const animateAgent = {
 };
 
 // Pre-production casting — a first-class rail agent (sibling of Inspiration). Drafts
-// the whole production from the idea in the chosen genre; the canvas injects
+// the whole production from the idea; the canvas injects
 // onPlan/onEntry to stream candidate plates onto the board, headless callers run it
-// bare for anchors. Lives in the rail AND on the pipeline strip / genre gate — same
+// bare for anchors. Lives in the rail AND on the pipeline strip — same
 // agent, three triggers. (Its run() uses the onPlan/onEntry plate-streaming contract,
 // not the rail's onAsset; the canvas routes the rail Run through the castDraft path.)
 export const castAgent = {
@@ -237,11 +237,11 @@ export const castAgent = {
   color: AGENT_COLORS.cast,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '', imageModel: '', imageThinking: false, ethnicity: '' },
+  defaultSettings: { prompt: '', imageModel: '', imageThinking: false, ethnicity: '', refs: [] },
   describe: 'Drafts the film\'s recurring assets — characters, creatures, locations and key props/vehicles — in one shared look, as bible candidates.',
   async run({ prompt, settings = {}, apiKey, ctx, onPlan, onEntry, onError }) {
     const entries = await castFromIdea(
-      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), genre: settings.genre || '', ethnicity: settings.ethnicity || '', imageModel: imageModelKeyOf(settings.imageModel), thinking: !!settings.imageThinking },
+      { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), ethnicity: settings.ethnicity || '', imageModel: imageModelKeyOf(settings.imageModel), thinking: !!settings.imageThinking, references: settings.references || [] },
       ctx || browserCtx(apiKey),
       { onPlan, onEntry, onError: (msg) => { if (onError) onError([msg]); } },
     );
@@ -291,7 +291,7 @@ export const storyboardAgent = {
   color: AGENT_COLORS.storyboard,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { script: '', genre: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: '', mode: 'multiple' },
+  defaultSettings: { script: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: '', mode: 'multiple' },
   describe: 'Brainstorm the shot division with a cinematographer — a chat bound to a grid of keyframe stills it refines as you talk.',
   async run() {
     throw new Error('The Storyboard agent lays a chat node + SHOT cards on the canvas — run it from the board.');

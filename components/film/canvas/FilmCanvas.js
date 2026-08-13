@@ -50,7 +50,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { detectGenre, writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
+import { writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -1270,7 +1270,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
   // Cast & World streams plates via onPlan/onEntry (not onAsset), so every trigger —
   // agent card, strip, chat — routes through the same castDraft path. The handler is
-  // defined far below (it needs genre detection + plate laying); this ref bridges the
+  // defined far below (it needs the cast read + plate laying); this ref bridges the
   // ordering for the earlier-declared callers.
   const castRunRef = useRef(null);
   // Same bridge for the Brief rail agent (createStoryNode lives far below).
@@ -2286,7 +2286,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // collide with — or get pruned alongside — the Story's cut-N (default prefix 'cut').
     const id = `${panel.idPrefix || 'cut'}-${panel.index}`;
     const sec = Math.min(maxShotSeconds(defaultVideoModelKey()), Math.max(5, panel.durationSec || 10));
-    const cine = shotTemplateCinematography(panel.shotTemplate, projectRef.current?.genre?.line || '');
+    const cine = shotTemplateCinematography(panel.shotTemplate);
     // The content a (re)derive writes from the panel — the prompt/camera/action/refs. NOT
     // the take (shotUrl/status) or the user's own asset attachments; those survive.
     const derived = {
@@ -3112,7 +3112,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // The pipeline state rides in the routing context, so even free-form answers
     // are grounded in where the project ACTUALLY stands.
     const pipe = livePipeline().map((s) => `${s.label}: ${s.status === 'done' ? 'done' : s.note}`).join(' · ');
-    const context = `pipeline — ${pipe} · idea: ${nodesRef.current.some((n) => n.type === 'story' && n.data?.idea) ? 'set' : 'NOT set'} · genre: ${projectRef.current?.genre?.line ? `locked (${projectRef.current.genre.line})` : 'NOT set'} · bible: ${roles || '(empty)'} · board selection: ${nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image').length} image(s)`;
+    const context = `pipeline — ${pipe} · idea: ${nodesRef.current.some((n) => n.type === 'story' && n.data?.idea) ? 'set' : 'NOT set'} · bible: ${roles || '(empty)'} · board selection: ${nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image').length} image(s)`;
     // Every chat message is a small workflow of its own, so the route read (and an
     // answer-mode reply) never orphan into "Other actions" in the History export.
     traceRef.current.startRun({ note: `Chat · “${message.replace(/\s+/g, ' ').trim().slice(0, 60)}”` });
@@ -4109,29 +4109,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         splitBriefToShots(sel.id); // async fire-and-forget: the cards landing IS the feedback
         return '';
       }
-      case 'detectGenre': {
-        // The genre detector: read genre & tone from the premise FIRST, surface it
-        // as one-tap chips. Picking a chip locks the genre and runs castDraft — so
-        // the highest-leverage creative call is made (and steerable) before any spend.
-        const idea = (params.prompt || selStoryIdea()).trim();
-        if (!idea) return 'Give me the film idea (or select a Brief node) first — one sentence is enough.';
-        traceRef.current.startRun({ note: 'Agent · Read genre' });
-        const gctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-        const g = await detectGenre({ idea }, gctx);
-        const primary = [g.genre, g.tone].filter(Boolean).join(' · ');
-        const mkChoice = (label) => ({ label, action: 'castDraft', params: { prompt: idea, genre: label } });
-        return {
-          say: `I read this as “${primary}”${g.treatment ? ` — ${g.treatment}` : ''}. Tap to lock the genre and draft the production, or pick another take:`,
-          choices: [mkChoice(primary), ...g.alternatives.map(mkChoice)],
-        };
-      }
       case 'castDraft': {
         const idea = (params.prompt || selStoryIdea()).trim();
         if (!idea) return 'Give me the film idea (or select a Brief node) first — one sentence is enough.';
         traceRef.current.startRun({ note: `Agent · ${castAgent.label}` });
         const castCtx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-        // Lay the "Cast & World" PANEL the moment the run starts — BEFORE the genre and
-        // cast reads — so the tap answers instantly (the storyboard panel behaves the same
+        // Lay the "Cast & World" PANEL the moment the run starts — BEFORE the
+        // cast read — so the tap answers instantly (the storyboard panel behaves the same
         // way). It opens as a slim frame with a status line; when the read returns, onPlan
         // resizes it in place into the plate grid, one LOADING cell per planned plate.
         // Unique id per draft → a re-draft makes a fresh panel in open space.
@@ -4151,14 +4135,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           return ns.concat({ ...grid, id: PANEL_ID });
         });
         try {
-          // Genre = the picked chip, else the project's, else a quick read (strip path).
-          let genre = (params.genre || '').trim() || (projectRef.current?.genre?.line || '');
-          if (!genre) { const g = await detectGenre({ idea }, castCtx); genre = [g.genre, g.tone].filter(Boolean).join(' · '); }
-          onUpdateProject((prev) => (prev && prev.id === loadedIdRef.current ? { ...prev, genre: { line: genre } } : prev));
-          pushFilmNote(`Drafting as ${genre} — characters, places and a look render into the Cast & World panel below.`);
-          setPanelPhase(`Drafting as ${genre} — deciding the characters, places and look…`);
+          // NO genre steering — the cast derives from the brief and the picked
+          // reference art alone.
+          pushFilmNote('Drafting the production — characters, places and a look render into the Cast & World panel below.');
+          setPanelPhase('Drafting — deciding the characters, places and look from the brief…');
           const { created: entries } = await castAgent.run({
-            prompt: idea, settings: { genre, imageModel: imageModelKeyOf(params.imageModel), imageThinking: !!params.imageThinking, ethnicity: params.ethnicity || '' }, ctx: castCtx,
+            prompt: idea, settings: { imageModel: imageModelKeyOf(params.imageModel), imageThinking: !!params.imageThinking, ethnicity: params.ethnicity || '', references: params.refs || [] }, ctx: castCtx,
             // onPlan: swap the status line for a LOADING cell per planned plate the instant
             // the read returns, so the whole pending block shows at once. AUTO-TAG: stamp
             // bibleRole + locked NOW — the draft IS the bible (children are still picked
@@ -4265,7 +4247,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const renderMovieRef = useRef(null);
 
   // The Cast & World rail agent's Run reuses the castDraft dispatch (declared just
-  // above) — same genre gate, plate streaming and auto look board as the strip/chat,
+  // above) — same plate streaming and auto look board as the strip/chat,
   // so the rail trigger behaves identically. Bridged via the ref declared up top.
   // The Brief node's Cast button carries no settings surface — it honors the cast
   // panel's saved draft defaults (model / thinking / ethnicity).
@@ -4334,7 +4316,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const selStory = !typed && nodesRef.current.find((n) => n.type === 'story' && n.selected && String(n.data?.idea || '').trim());
         if (!typed && !selStory) { Message.warning('Type the film idea — or select a Brief node and leave the field empty.'); return; }
         const idea = typed || String(selStory.data.idea).trim();
-        await dispatchFilmAction('castDraft', { prompt: idea, imageModel: s.imageModel, imageThinking: !!s.imageThinking, ethnicity: s.ethnicity || '', near: beside });
+        const castRefs = (s.refs || []).map((rid) => { const n = nodesRef.current.find((x) => x.id === rid); const u = n && refUrl(n); return u ? absLocalMediaUrl(u) : null; }).filter(Boolean);
+        await dispatchFilmAction('castDraft', { prompt: idea, imageModel: s.imageModel, imageThinking: !!s.imageThinking, ethnicity: s.ethnicity || '', refs: castRefs, near: beside });
         Message.success('Cast & World drafted and auto-tagged into the bible');
       } else if (agentId === 'previz') {
         const typed = (s.brief || '').trim();
@@ -4885,7 +4868,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onUpdateProject((prev) => (prev && prev.id === loadedIdRef.current ? {
       ...prev,
       recipe: null, // back to the launcher — "What are we making?"
-      genre: null,
       bible: emptyBible(),
       timeline: emptyTimeline(),
       auto: null,
@@ -5213,7 +5195,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       if (f === 'refs') {
         const picked = values.refs || [];
         return {
-          title: 'Style references', hint: 'Picked board images seed the storyboard looks.',
+          title: 'References', hint: 'Picked images ride into the agent\'s read, in pick order.',
           items: imgItems, selection: new Map(picked.map((rid, i) => [rid, String(i + 1)])),
           onToggle: (item) => { const on = picked.includes(item.id); upd({ refs: on ? picked.filter((x) => x !== item.id) : [...picked, item.id] }); },
         };

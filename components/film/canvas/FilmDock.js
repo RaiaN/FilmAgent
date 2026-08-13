@@ -16,7 +16,6 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
   const [routing, setRouting] = useState(false);
   const [working, setWorking] = useState(false);
   const [pending, setPending] = useState(null);   // { action, params, say } awaiting Do it
-  const [choices, setChoices] = useState([]); // one-tap choices (e.g. genre picks) → { label, action, params }
   const [collapsed, setCollapsed] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const dragRef = useRef(null);
@@ -24,7 +23,7 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
   const midRef = useRef(0);
   const say = (from, text) => setMessages((m) => [...m, { id: (midRef.current += 1), from, text }]);
 
-  useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages, pending, choices]);
+  useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages, pending]);
 
   const started = useRef(false);
   useEffect(() => {
@@ -47,15 +46,10 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
 
   const dispatch = async (action, params) => {
     setPending(null);
-    setChoices([]);
     setWorking(true);
     try {
       const out = await onDispatch(action, params);
-      if (out && typeof out === 'object' && Array.isArray(out.choices)) {
-        // One-tap choices (genre detector): say the read, then the picks as chips.
-        say('agent', out.say || 'Pick one:');
-        setChoices(out.choices);
-      } else if (out && typeof out === 'object' && out.say) {
+      if (out && typeof out === 'object' && out.say) {
         // Guided next step: the dispatch explains AND offers the follow-up action
         // as the pending one-tap (e.g. storyboard with nothing cast → draft a cast).
         say('agent', out.say);
@@ -86,9 +80,6 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
       }
       // A question → the router answered it directly; no tool, no confirmation.
       if (routed.action === 'answer') { say('agent', routed.say || "I don't have a good answer for that — try asking differently."); return; }
-      // A fresh premise → read the genre right away and present the picks (the gate)
-      // — no intermediate "Do it" before the choice that matters.
-      if (routed.action === 'detectGenre') { await dispatch('detectGenre', routed); return; }
       // Everything else: propose in plain words, act on one tap.
       setPending(routed);
       say('agent', routed.say || `I'll run ${routed.action}. Go?`);
@@ -99,12 +90,6 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
     }
   };
 
-  // A one-tap choice (e.g. a genre pick) → echo it and run its action immediately.
-  const pickChoice = (c) => {
-    setChoices([]);
-    say('user', c.label);
-    dispatch(c.action, c.params);
-  };
 
   // ---- drag (bail on buttons so × works) ----
   const onDragStart = (e) => {
@@ -135,13 +120,6 @@ const FilmDock = ({ onReset, onRoute, onDispatch, progress }) => {
                 <div style={{ maxWidth: '85%', fontSize: 13, lineHeight: 1.45, padding: '7px 10px', borderRadius: 12, background: m.from === 'user' ? '#b06f10' : '#f2f3f5', color: m.from === 'user' ? '#fff' : '#1d2129', borderTopRightRadius: m.from === 'user' ? 3 : 12, borderTopLeftRadius: m.from === 'user' ? 12 : 3, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.text}</div>
               </div>
             ))}
-            {choices.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                {choices.map((c, i) => (
-                  <Button key={c.label} size="small" type={i === 0 ? 'primary' : 'outline'} disabled={working} style={{ borderRadius: 14, ...(i === 0 ? { background: '#b06f10', borderColor: '#b06f10' } : { borderColor: '#b06f10', color: '#b06f10' }) }} onClick={() => pickChoice(c)}>{c.label}</Button>
-                ))}
-              </div>
-            )}
             {pending && (
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                 <Button size="small" type="primary" loading={working} icon={<IconVideoCamera />} style={{ background: '#b06f10', borderColor: '#b06f10' }} onClick={() => dispatch(pending.action, pending)}>Do it</Button>

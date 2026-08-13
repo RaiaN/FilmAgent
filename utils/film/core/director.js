@@ -69,8 +69,7 @@ export const ACTION_DESCRIBE = {
   story: 'lay the BRIEF — pick this for ANY film premise, idea, concept or script the user gives. THE BRIEF IS THE FIRST THING WE MAKE FROM AN IDEA, before casting — so a fresh opening premise like "cowboys vs a grizzly" goes HERE. Drops a Brief card holding their words VERBATIM; Cast & World, Storyboard and New Shot run from the card',
   storyboard: 'break the script into a SHOT LIST and brainstorm the shot division — a chat lands on the board bound to a grid of keyframe STILLS (visual exploration, images only, nothing shootable). Pick when they say storyboard / shot list / cover this scene (needs a Brief node with a script selected). NOT for making shootable cards — that is `split`.',
   split: 'the PRODUCTION split: break the brief into sequential SHOOTABLE ≤15s SHOT cards, wording and timestamps preserved per card. Pick when they say split / break into shots for filming / make this shootable / it is too long for one take (needs a Brief node selected). NOT the visual storyboard — no images are generated.',
-  detectGenre: 'read the film\'s genre & tone — pick ONLY when the user explicitly asks about genre/tone, or as the first move of Cast & World. NOT for an opening premise (that is `story`).',
-  castDraft: 'generate the cast & location plates from the idea — Cast & World (now AFTER the story). Detects the genre first if none is set.',
+  castDraft: 'generate the cast & location plates — Cast & World, derived from the brief and any picked reference art alone.',
   nextStep: 'they ask to continue or what to do next ("continue", "next", "what now", "go on") — advance the pipeline to its next concrete step',
   stitch: 'assemble the rendered shots into the final cut — pick when they say stitch / render / assemble the film',
   classify: 'sort the board\'s untagged images into roles — pick when they ask to tag / sort / organize what they have',
@@ -79,7 +78,7 @@ export const ACTION_DESCRIBE = {
   unknown: 'none of the above fit and it is not answerable',
 };
 
-export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'storyboard', 'split', 'detectGenre', 'castDraft', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
+export const FILM_ACTIONS = ['inspiration', 'characterVariations', 'locationVariations', 'story', 'storyboard', 'split', 'castDraft', 'nextStep', 'action', 'stitch', 'classify', 'answer', 'unknown'];
 
 export const routeStudioAction = async ({ message = '', context = '', actions = FILM_ACTIONS, config } = {}, ctx) => {
   if (!String(message).trim()) return null;

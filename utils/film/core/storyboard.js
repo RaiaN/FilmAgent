@@ -3,7 +3,7 @@
 // turn with the director; storyboardKeyframe/storyboardEndframe render each shot's
 // START still and (for developing shots) its chained END frame. Also home to the Story
 // agent (writeFilmPrompt → idea/script → one long cinematic prompt) and the
-// pre-production draft (detectGenre / castFromIdea).
+// pre-production draft (castFromIdea).
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
@@ -566,31 +566,6 @@ export const describeFrame = async ({ imageUrl, config } = {}, ctx) => {
 // (storyboardPanelRef) + shotFromCard compose, so the headless smoke test and the
 // canvas exercise ONE shot-composition format. Headless has no sketches/audio, so
 // the references are just the panel's REAL cast/location anchors.
-export const panelToShot = (panel, anchors = [], genre = '') => {
-  const sec = clampDuration(panel.durationSec);
-  // ONE cut = framing + action (≤6s); the canvas lets the user split it further.
-  const cuts = [{ action: panel.framing ? `${panel.framing}. ${panel.action}` : panel.action, seconds: Math.min(6, sec) }];
-  // refEntryIds → ordered [{ url, desc }]; the desc shape matches recipes.shotReferences
-  // so [Image1..N] reads identically to a canvas card. refUrls ride in the SAME order.
-  const references = (panel.refEntryIds || [])
-    .map((id) => (anchors || []).find((e) => e.id === id))
-    .filter((e) => e && e.url)
-    .map((e) => ({ url: e.url, desc: [e.name, e.role].filter(Boolean).join(' — ') }))
-    .slice(0, 9);
-  // The chosen shot template's cinematography line (genre-keyed fallback), exactly
-  // as the card seeds it — the template's move is already in the line, so no append.
-  const cinematography = shotTemplateCinematography(panel.shotTemplate, genre);
-  return {
-    beat: panel.title,
-    direct: true,
-    motion: composeSeedancePrompt({ references, cuts, cinematography, audio: '', shotTemplate: panel.shotTemplate }),
-    camera: 'auto',
-    durationSec: sec,
-    refEntryIds: panel.refEntryIds || [],
-    refUrls: references.map((r) => r.url),
-  };
-};
-
 // ---- the pre-production draft: cast + places, from the idea ----------------------
 // ONE read derives everything the film needs to anchor every shot — 1–2 characters
 // and 1–2 locations — under a single shared visual style, so the whole draft is
@@ -601,32 +576,11 @@ export const panelToShot = (panel, anchors = [], genre = '') => {
 // runs (no human) adopt them directly.
 const CAST_ROLE = { character: 'character', creature: 'character', location: 'location', prop: 'prop' };
 
-// Read the film's GENRE & TONE from the premise — the upstream creative knob that
-// drives look, casting and shot grammar. One cheap call; surfaced to the user to
-// confirm/override before any (paid) generation, then fed into the cast + storyboard.
-export const detectGenre = async ({ idea, config } = {}, ctx) => {
-  const t = String(idea || '').trim();
-  if (!t) throw new Error('Need the premise to read the genre.');
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('genre.detect.user', { idea: t }),
-    systemPrompt: renderTemplate('genre.detect.system'),
-    modelId: getModel('reasoner', config),
-    reasoningEffort: 'low',
-  });
-  const raw = parseJson(content) || {};
-  return {
-    genre: String(raw.genre || '').trim() || 'Drama',
-    tone: String(raw.tone || '').trim(),
-    treatment: String(raw.treatment || '').trim(),
-    alternatives: (Array.isArray(raw.alternatives) ? raw.alternatives : []).map((s) => String(s).trim()).filter(Boolean).slice(0, 3),
-  };
-};
-
 // Render a parsed asset array (the cast schema — type + facePrompt/bodyPrompt/presencePrompt/
 // prompt) into bible PLATES. Used by castFromIdea (the Cast & World idea read). Each plate carries
 // its source asset id + a `primary` flag (the identity anchor: the FACE for a character, the single
 // plate otherwise). Streams onPlan/onEntry; the canvas tags/locks the plates.
-export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaultImageModelKey(), thinking = false, config } = {}, ctx, hooks = {}) => {
+export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaultImageModelKey(), thinking = false, references = [], config } = {}, ctx, hooks = {}) => {
   const onPlan = hooks.onPlan || (() => {});
   const onEntry = hooks.onEntry || (() => {});
   // The shared style rides on EVERY plate — consistency by construction.
@@ -663,14 +617,19 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
     const body = String(c?.bodyPrompt || '').trim();
     const presence = String(c?.presencePrompt || '').trim();
     const single = String(c?.prompt || '').trim();
+    // An asset citing an attached reference image renders WITH it: the source design
+    // (a storyboard panel, a sketch, a photo) rides as [Image 1] and the prompt pins
+    // the identity to it — sketch-to-photoreal stays the SAME character, not a cousin.
+    const extRef = references[(Number(c?.fromImage) || 0) - 1] || null;
+    const pinned = (p) => (extRef ? `The subject shown in [Image 1] is this exact ${type || 'asset'} — preserve its design, identity and distinguishing features faithfully, translated into the film's style. ${p}` : p);
     if (type === 'character' && face) {
       const faceKey = `cast-${ci}-face`;
-      plates.push({ key: faceKey, role: 'character', name: `${name} · face`, prompt: `${withStyle(face)}. ${PORTRAIT_SPEC}`, size: FACE_SIZE, assetId: aid, primary: true });
+      plates.push({ key: faceKey, role: 'character', name: `${name} · face`, prompt: `${pinned(withStyle(face))}. ${PORTRAIT_SPEC}`, extRef, size: FACE_SIZE, assetId: aid, primary: true });
       if (body) plates.push({ key: `cast-${ci}-body`, role: 'character', name: `${name} · body`, prompt: withStyle(body), refFrom: faceKey, size: BODY_SIZE, assetId: aid, primary: false });
     } else if (type === 'creature' && (presence || single || face)) {
-      plates.push({ key: `cast-${ci}`, role: 'character', name, prompt: withStyle(presence || single || face), size: CREATURE_SIZE, assetId: aid, primary: true });
+      plates.push({ key: `cast-${ci}`, role: 'character', name, prompt: pinned(withStyle(presence || single || face)), extRef, size: CREATURE_SIZE, assetId: aid, primary: true });
     } else if (single || face || presence) {
-      plates.push({ key: `cast-${ci}`, role, name, prompt: withStyle(single || face || presence), size: role === 'prop' ? PROP_SIZE : PLACE_SIZE, assetId: aid, primary: true });
+      plates.push({ key: `cast-${ci}`, role, name, prompt: pinned(withStyle(single || face || presence)), extRef, size: role === 'prop' ? PROP_SIZE : PLACE_SIZE, assetId: aid, primary: true });
     }
   });
   if (!plates.length) throw new Error('The production draft returned no usable assets — rephrase the idea.');
@@ -701,7 +660,7 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
   const renderPlate = (p, idx) => async () => {
     try {
       // A body plate waits on its face's URL so the sheet inherits the exact face.
-      const out = await genImage(p.prompt, p.refFrom ? urlByKey[p.refFrom] : null, p.size);
+      const out = await genImage(p.prompt, p.refFrom ? urlByKey[p.refFrom] : (p.extRef || null), p.size);
       urlByKey[p.key] = out.url;
       const entry = { id: p.key, role: p.role, name: p.name, url: out.url, cacheUrl: out.cacheUrl || null, locked: true, assetId: p.assetId, primary: p.primary };
       entries.push(entry);
@@ -721,14 +680,19 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
 
 // Idea → cast & world (the original entry): one read derives the asset list, then the shared
 // renderer draws the bible plates.
-export const castFromIdea = async ({ idea, genre = '', ethnicity = '', imageModel = defaultImageModelKey(), thinking = false, config } = {}, ctx, hooks = {}) => {
+export const castFromIdea = async ({ idea, ethnicity = '', imageModel = defaultImageModelKey(), thinking = false, references = [], config } = {}, ctx, hooks = {}) => {
   const t = String(idea || '').trim();
   if (!t) throw new Error('The production draft needs the film idea.');
   const { content } = await ctx.client.reason({
     // Ethnicity steers the PLANNER (which writes every character description), so all
     // plates inherit it consistently — same race-drift lever as the storyboard's.
-    prompt: renderTemplate('storyboard.cast.user', { idea: t, genre: genre || 'unspecified', ethnicity: String(ethnicity || '').trim() || 'unspecified — pick what fits the story' }),
+    prompt: renderTemplate('storyboard.cast.user', {
+      idea: t,
+      ethnicity: String(ethnicity || '').trim() || 'unspecified — pick what fits the story',
+      refNote: references.length ? `The ${references.length} attached image${references.length > 1 ? 's are' : ' is'} this film's reference art (storyboards / sketches / photos) — derive the cast, places, props and look FROM them, and cite each asset's source via "fromImage".` : '',
+    }),
     systemPrompt: renderTemplate('storyboard.cast.system'),
+    images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
@@ -736,5 +700,5 @@ export const castFromIdea = async ({ idea, genre = '', ethnicity = '', imageMode
   const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.assets) ? raw.assets : null);
   if (!arr || !arr.length) throw new Error('The production draft returned nothing — provide bible images or rephrase the idea.');
   const style = (raw && !Array.isArray(raw) && String(raw.style || '').trim()) || '';
-  return castDraftFromParsed({ arr, style, imageModel, thinking, config }, ctx, hooks);
+  return castDraftFromParsed({ arr, style, imageModel, thinking, references, config }, ctx, hooks);
 };

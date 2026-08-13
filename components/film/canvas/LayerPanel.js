@@ -204,7 +204,7 @@ const PrevizFields = ({ s, up }) => (
 const CastFields = ({ s, up, imageAssets, onOpenRefDrawer }) => (
   <>
     <div>
-      <Text style={FIELD_LABEL}>Film idea — empty = the selected Brief</Text>
+      <Text style={FIELD_LABEL}>Film idea — empty = the selected Brief, or references alone</Text>
       <Input.TextArea
         value={s.prompt || ''} onChange={(v) => up({ prompt: v })}
         placeholder="one sentence: what is this film about… e.g. 'a lighthouse keeper befriends the sea monster wrecking the ships'"

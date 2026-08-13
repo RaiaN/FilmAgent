@@ -621,7 +621,7 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
     // (a storyboard panel, a sketch, a photo) rides as [Image 1] and the prompt pins
     // the identity to it — sketch-to-photoreal stays the SAME character, not a cousin.
     const extRef = references[(Number(c?.fromImage) || 0) - 1] || null;
-    const pinned = (p) => (extRef ? `The subject shown in [Image 1] is this exact ${type || 'asset'} — preserve its design, identity and distinguishing features faithfully, translated into the film's style. ${p}` : p);
+    const pinned = (p) => (extRef ? `[Image 1] depicts ${name} (it may show several subjects or panels — find this one) — preserve that exact design, identity and distinguishing features faithfully, translated into the film's style. ${p}` : p);
     if (type === 'character' && face) {
       const faceKey = `cast-${ci}-face`;
       plates.push({ key: faceKey, role: 'character', name: `${name} · face`, prompt: `${pinned(withStyle(face))}. ${PORTRAIT_SPEC}`, extRef, size: FACE_SIZE, assetId: aid, primary: true });
@@ -682,12 +682,12 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
 // renderer draws the bible plates.
 export const castFromIdea = async ({ idea, ethnicity = '', imageModel = defaultImageModelKey(), thinking = false, references = [], config } = {}, ctx, hooks = {}) => {
   const t = String(idea || '').trim();
-  if (!t) throw new Error('The production draft needs the film idea.');
+  if (!t && !references.length) throw new Error('The production draft needs the film idea, or reference art to derive it from.');
   const { content } = await ctx.client.reason({
     // Ethnicity steers the PLANNER (which writes every character description), so all
     // plates inherit it consistently — same race-drift lever as the storyboard's.
     prompt: renderTemplate('storyboard.cast.user', {
-      idea: t,
+      idea: t || '(none given — derive the film, its subjects and its style ENTIRELY from the attached reference art)',
       ethnicity: String(ethnicity || '').trim() || 'unspecified — pick what fits the story',
       refNote: references.length ? `The ${references.length} attached image${references.length > 1 ? 's are' : ' is'} this film's reference art (storyboards / sketches / photos) — derive the cast, places, props and look FROM them, and cite each asset's source via "fromImage".` : '',
     }),

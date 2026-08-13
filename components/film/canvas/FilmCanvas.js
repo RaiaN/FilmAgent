@@ -4111,7 +4111,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       }
       case 'castDraft': {
         const idea = (params.prompt || selStoryIdea()).trim();
-        if (!idea) return 'Give me the film idea (or select a Brief node) first — one sentence is enough.';
+        if (!idea && !(params.refs || []).length) return 'Give me the film idea (or select a Brief node) — or pick reference art on the Cast & World panel; a storyboard alone is enough.';
         traceRef.current.startRun({ note: `Agent · ${castAgent.label}` });
         const castCtx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
         // Lay the "Cast & World" PANEL the moment the run starts — BEFORE the
@@ -4314,9 +4314,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         // SELECTED Brief's verbatim text; neither → one warning.
         const typed = (s.prompt || '').trim();
         const selStory = !typed && nodesRef.current.find((n) => n.type === 'story' && n.selected && String(n.data?.idea || '').trim());
-        if (!typed && !selStory) { Message.warning('Type the film idea — or select a Brief node and leave the field empty.'); return; }
-        const idea = typed || String(selStory.data.idea).trim();
         const castRefs = (s.refs || []).map((rid) => { const n = nodesRef.current.find((x) => x.id === rid); const u = n && refUrl(n); return u ? absLocalMediaUrl(u) : null; }).filter(Boolean);
+        if (!typed && !selStory && !castRefs.length) { Message.warning('Type the film idea, select a Brief node — or pick reference art (a storyboard is enough) and leave the text empty.'); return; }
+        const idea = typed || (selStory ? String(selStory.data.idea).trim() : '');
         await dispatchFilmAction('castDraft', { prompt: idea, imageModel: s.imageModel, imageThinking: !!s.imageThinking, ethnicity: s.ethnicity || '', refs: castRefs, near: beside });
         Message.success('Cast & World drafted and auto-tagged into the bible');
       } else if (agentId === 'previz') {

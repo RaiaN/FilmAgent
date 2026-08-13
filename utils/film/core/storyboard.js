@@ -256,7 +256,7 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
         note: String(note || '').trim() ? "DIRECTOR'S NOTE — apply it to THIS shot (where it conflicts with the span, the note wins):\n@@NOTE@@\n" : '',
         retry: retryNote || '',
       }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)).split('@@NOTE@@').join(String(note).slice(0, 1000)),
-      systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length), craftRules: CRAFT_RULES }),
+      systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length) }),
       images: refs,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -402,9 +402,6 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // reported in dropped[], originals stashed by the caller). No keyframes → single
 // enrich call, text as the material. Binding lines / definitions / tails stay the
 // deterministic compiler's job either way.
-const modelLineOf = (modelKey) => videoTraits(modelKey).promptTargetLine;
-
-// The guide's craft doctrine, shared by every text-writing template.
 // The card's LOCKED camera preset as a hard contract for the prompt verbs: prose
 // film-grammar alone is weak, so the camera must live IN the action text — staged,
 // not tagged. No preset → the verb commits to one camera of its own choosing.
@@ -418,7 +415,6 @@ const cameraLineOf = (camera) => (camera && (camera.framing || camera.move)
   ? `CAMERA (director-locked, non-negotiable): ${[camera.framing, camera.angle, camera.move].filter(Boolean).join(' · ')}. Stage every event FOR this exact camera, carry it in the action text (summary sentence included), and never contradict it.`
   : 'No camera preset is locked — choose the single camera that serves the action best and commit to it in the text.');
 
-const CRAFT_RULES = `CRAFT RULES: camera is NAMED grammar — professional terms used raw (shot size, angle, movement, techniques like long take / dolly zoom / speed ramp), ONE camera treatment per segment, niche terms as [term + plain description]. Motion lives at TWO altitudes — general verbs carry the flow ("the two engage in close combat"); degree-and-speed micro-detail is spent on only one or two story-bearing beats per shot; NEVER repeat an action phrase (repetition loops the motion); adverbs set speed. Expressions are descriptive sentences, never idioms. Phrase everything positively — say what happens, not what doesn't. A transition names its trigger AND method ("at 5s, a quick left wipe with a natural dissolve") and never dangles. TIME IS REAL: every action runs at real-world speed — a strike lands in under a second, a fall takes about one; NEVER slow an action down or stretch it to fill its time span. If the events cannot honestly fill the shot's duration, ADD beats — feints, footwork, reactions, resets, environmental consequence — density fills time, speed never drops. In action, one interval holds a full EXCHANGE (attack → reaction → counter); a FAST beat is pinned to a time-POINT ("at 7s the jab snaps out"), never given a whole interval — intervals belong to PHASES (approach / exchange / aftermath). When the action is fast, the SUMMARY sentence states the TEMPO as an authority ("at real fight speed throughout") — heavy or mechanical subjects especially need it, or their weight reads as slow motion. A multi-panel storyboard reference dictates ORDER and POSES only, never tempo — the beats between its panels run at real speed.`;
 const kfLineOf = (kfIndices) => (kfIndices.length
   ? `KEYFRAME PATH — the shot's visual spine, IN ORDER: it opens on the composition of [Image ${kfIndices[0]}]${kfIndices.slice(1, -1).map((k) => `, passes through [Image ${k}]`).join('')}${kfIndices.length > 1 ? ` and lands on [Image ${kfIndices[kfIndices.length - 1]}]` : ''}.`
   : 'No keyframes are set — ground the action against the reference images and the text alone.');
@@ -446,7 +442,7 @@ export const enrichShotAction = async ({ text = '', references = [], roster = []
   const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.enrich.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)),
-    systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), modelLine: modelLineOf(modelKey), craftRules: CRAFT_RULES, durationSec: String(durationSec), targetWords: String(lv.words) }),
+    systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), durationSec: String(durationSec), targetWords: String(lv.words) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -471,7 +467,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
       .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)),
-    systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), modelLine: modelLineOf(modelKey), craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
+    systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), durationSec: String(durationSec) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -485,7 +481,6 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
 export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, camera = null, job = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
-  const modelLine = modelLineOf(modelKey);
   // ---- STEP 1 · DERIVE (keyframes only — deliberately blind to text and refs, so the
   // events come from the approved pictures with no old prompt to anchor on) ----
   let derived = '';
@@ -493,7 +488,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
     const kfUrls = kfIndices.map((k) => references[k - 1]).filter(Boolean);
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.derive.user', { kfCount: String(kfUrls.length) }),
-      systemPrompt: renderTemplate('cut.derive.system', { kfCount: String(kfUrls.length), modelLine, craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
+      systemPrompt: renderTemplate('cut.derive.system', { kfCount: String(kfUrls.length), durationSec: String(durationSec) }),
       images: kfUrls,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -509,7 +504,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)'),
-    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), modelLine, craftRules: CRAFT_RULES, durationSec: String(durationSec) }),
+    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), durationSec: String(durationSec) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,

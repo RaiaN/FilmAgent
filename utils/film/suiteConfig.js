@@ -186,8 +186,8 @@ export const clampSizeForModel = (modelKey, size) => {
 };
 
 // PER-SLOT CAPABILITY TABLE — the ONE place a video slot's behavior is declared.
-// Everything downstream (compiler grammar, prompt targets, duration/resolution caps,
-// enrich density) keys off these TRAITS, never off slot-name comparisons — a new slot
+// Everything downstream (compiler grammar, duration/resolution caps, enrich
+// density) keys off these TRAITS, never off slot-name comparisons — a new slot
 // is one entry here, zero call-site edits.
 const VIDEO_MODEL_TRAITS = {
   seedance: {
@@ -197,7 +197,6 @@ const VIDEO_MODEL_TRAITS = {
     keyframeGrammar: 'composition',   // opens-exactly-on / passes / ends-exactly-on
     overallBlock: false,              // no closing Overall-requirements section
     refCap: 30,                       // reference images per request
-    promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
     enrichWords: { light: 180, rich: 280, max: 380 },
   },
   seedanceFast: {
@@ -207,7 +206,6 @@ const VIDEO_MODEL_TRAITS = {
     keyframeGrammar: 'composition',
     overallBlock: false,
     refCap: 30,
-    promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
     enrichWords: { light: 180, rich: 280, max: 380 },
   },
   seedanceMini: {
@@ -217,7 +215,6 @@ const VIDEO_MODEL_TRAITS = {
     keyframeGrammar: 'composition',
     overallBlock: false,
     refCap: 30,
-    promptTargetLine: 'Target: one continuous take of at most 15s; a tight, unbroken event chain in plain event order. NO timestamps (this model ignores them).',
     enrichWords: { light: 180, rich: 280, max: 380 },
   },
   seedance25: {
@@ -227,7 +224,6 @@ const VIDEO_MODEL_TRAITS = {
     keyframeGrammar: 'keyframes',     // "Use Image a, Image b … in order as keyframes."
     overallBlock: true,               // closes with the Overall-requirements section
     refCap: 30,
-    promptTargetLine: 'Target: one continuous take of up to 30s. For a shot longer than ~12s, structure the action as CONTINUOUS integer-second intervals ("0-3s: … 3-8s: …" — no gaps), each interval carrying its OWN camera, action, dialogue and sound. Never overpack an interval — it causes phantom cuts.',
     enrichWords: { light: 220, rich: 400, max: 600 },
   },
 };

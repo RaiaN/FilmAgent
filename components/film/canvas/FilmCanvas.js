@@ -3520,9 +3520,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!node) return;
     const panelId = node.data?.panelId;
     // The division carves the APPROVED EVENT LIST — Normalize is the mandatory front-end.
+    // The RAW brief survives as the AUTHOR's grounding document: structure comes from
+    // the events, texture (atmosphere, world, tone) from the user's own prose.
     const evts = (node.data?.events || []).filter((e) => typeof e === 'string' && e.trim());
     if (!evts.length) { Message.warning('Normalize first — Divide carves the approved event list.'); return; }
     const script = eventScriptOf(evts);
+    const rawScript = String(node.data?.script || '');
     if (!fresh && (node.data?.shots || []).length) { Message.info('Already divided — edit the rows, or Create shot list again from EVENTS.'); return; }
     if (fresh && panelId) {
       // Re-division replaces the old list: rows and shots go before the carve.
@@ -3558,7 +3561,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         await runWithConcurrency(shots.map((s, i) => async () => {
           try {
             const a = await storyboardAuthor({
-              script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate, develops: s.develops,
+              script: rawScript || script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate, develops: s.develops,
               prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: poolUrls,
               durationSec: s.durationSec,
             }, ctx);

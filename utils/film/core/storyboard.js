@@ -18,9 +18,6 @@ import { runWithConcurrency } from './parallel';
 // A shot's durationSec always lands inside the default video model's window,
 // defaulting to 10s.
 const clampDuration = (v) => Math.max(5, Math.min(maxShotSeconds(defaultVideoModelKey()), Math.round(Number(v) || 10)));
-// The camera setup a divided shot falls back to when the planner names an unknown id.
-const DEFAULT_SHOT_TEMPLATE = 'medium-shot';
-
 // ---- Develop (the Brief node's OPT-IN rewrite): idea or script → ONE cinematic prompt --
 // A direct rewrite (no JSON, no key events, no appearances): the brief becomes a single
 // continuous cinematic narrative with clear subjects + a clear story arc, split by explicit
@@ -217,13 +214,12 @@ export const storyboardCarve = async ({ script = '', style = '', references = []
   const raw = parseJson(content) || {};
   const arr = Array.isArray(raw.shots) ? raw.shots : [];
   const shots = arr.map((s, i) => {
-    const tpl = SHOT_TEMPLATE_BY_ID[s?.shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
-    let figures = Array.isArray(s?.figures) ? [...new Set(s.figures.map((x) => Number(x)).filter((x) => x >= 1 && x <= refs.length))] : [];
-    if (!figures.length && refs.length) figures = [1];
+    const figures = Array.isArray(s?.figures) ? [...new Set(s.figures.map((x) => Number(x)).filter((x) => x >= 1 && x <= refs.length))] : [];
     return {
       beat: String(s?.beat || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
       job: String(s?.job || '').replace(/\s+/g, ' ').trim().slice(0, 160),
-      shotTemplate: tpl.id,
+      // An id outside the library stays EMPTY — no camera is ever substituted.
+      shotTemplate: SHOT_TEMPLATE_BY_ID[s?.shotTemplate] ? s.shotTemplate : '',
       figures,
       // Planning space allows the 2.5 range (4-30s); the CARD clamps per-model at
       // print time, so a wide-paced plan degrades loudly there, never silently here.
@@ -267,7 +263,7 @@ const normText = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')
 // never silently).
 export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', durationSec = 10, config } = {}, ctx) => {
   const refs = (references || []).filter(Boolean).slice(0, 10);
-  const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || SHOT_TEMPLATE_BY_ID[DEFAULT_SHOT_TEMPLATE];
+  const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || {}; // no id → framing falls to "director's choice", never a substituted camera
   const wanted = spanDialogueLines(span);
   const run = async (retryNote) => {
     const { content } = await ctx.client.reason({

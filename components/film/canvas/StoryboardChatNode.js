@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useMemo, useState } from 'react';
 import { Button, Typography, Select, Popconfirm, Input } from '@arco-design/web-react';
 import { IconMessage, IconPlus, IconPlayArrow, IconLoading } from '@arco-design/web-react/icon';
-import { imageRefCap, imageTraits, maxShotSeconds, defaultVideoModelKey, IMAGE_MODEL_OPTIONS, imageModelKeyOf } from '../../../utils/film/suiteConfig';
+import { imageRefCap, imageTraits, IMAGE_MODEL_OPTIONS, imageModelKeyOf } from '../../../utils/film/suiteConfig';
 
 const { Text } = Typography;
 
@@ -109,32 +109,19 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
                     <Button size="mini" status="warning" loading={!!data.busy} style={{ flex: 1 }}>Re-normalize</Button>
                   </Popconfirm>
                 </div>
-                {/* THE division button — carves these approved events into the strip. */}
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {count > 0 ? (
-                    <Popconfirm title={`Throw away the current ${count}-shot list (and its authored text) and re-carve from these ${events.length} events?`} okText="Create" onOk={() => onDivide && onDivide(id, { fresh: true })}>
-                      <Button size="small" type="primary" icon={<IconPlayArrow />} loading={!!data.busy} style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1 }} title="Re-carve the strip from the approved event list — 1 + N reasoner calls">
-                        {data.busy ? 'Creating…' : `Create shot list — ${events.length} events`}
-                      </Button>
-                    </Popconfirm>
-                  ) : (
-                    <Button size="small" type="primary" icon={<IconPlayArrow />} loading={!!data.busy} onClick={() => onDivide && onDivide(id, { fresh: true })} style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1 }} title="Carve the approved event list into shot rows — words only, stills are separate taps. 1 + N reasoner calls.">
+                {/* THE division button — carves these approved events into the strip.
+                    No pace knob: granularity is the event list, timing is per-row. */}
+                {count > 0 ? (
+                  <Popconfirm title={`Throw away the current ${count}-shot list (and its authored text) and re-carve from these ${events.length} events?`} okText="Create" onOk={() => onDivide && onDivide(id, { fresh: true })}>
+                    <Button size="small" long type="primary" icon={<IconPlayArrow />} loading={!!data.busy} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="Re-carve the strip from the approved event list — 1 + N reasoner calls">
                       {data.busy ? 'Creating…' : `Create shot list — ${events.length} events`}
                     </Button>
-                  )}
-                  <Select
-                    size="small"
-                    value={data.shotLength || 'auto'}
-                    onChange={(v) => onPatchChat && onPatchChat(id, { shotLength: v })}
-                    style={{ width: 108, flexShrink: 0 }}
-                    title="Per-shot pace — the events decide how many shots that makes"
-                    options={[
-                      { label: 'Auto pace', value: 'auto' },
-                      ...[5, 8, 10, 15, 20, 30].filter((v) => v <= maxShotSeconds(defaultVideoModelKey()))
-                        .map((v) => ({ label: `~${v}s shots`, value: String(v) })),
-                    ]}
-                  />
-                </div>
+                  </Popconfirm>
+                ) : (
+                  <Button size="small" long type="primary" icon={<IconPlayArrow />} loading={!!data.busy} onClick={() => onDivide && onDivide(id, { fresh: true })} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="Carve the approved event list into shot rows — words only, stills are separate taps. 1 + N reasoner calls.">
+                    {data.busy ? 'Creating…' : `Create shot list — ${events.length} events`}
+                  </Button>
+                )}
               </div>
             )}
           </Section>

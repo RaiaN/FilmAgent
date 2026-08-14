@@ -195,14 +195,11 @@ export const normalizeBrief = async ({ script = '', config } = {}, ctx) => {
 // word-for-word, which makes fidelity STRUCTURAL: the author pass gets its span as the
 // source, and the dialogue gate can verify every span line survived — per shot.
 const SPAN_SLOT = '@@BRIEF@@';
-export const storyboardCarve = async ({ script = '', style = '', references = [], shotLength = 'auto', config } = {}, ctx) => {
+export const storyboardCarve = async ({ script = '', style = '', references = [], config } = {}, ctx) => {
   const text = String(script || '').trim();
   if (!text) throw new Error('Carving needs the brief/script text first.');
-  const pace = String(shotLength || 'auto');
   const maxSec = maxShotSeconds(defaultVideoModelKey());
-  const countGoal = pace === 'auto'
-    ? `Carve into as many shots as the script NEEDS — every shot must earn its place; pacing picks each durationSec (5–${maxSec}s). Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.`
-    : `Carve aiming each shot at roughly ${pace} seconds (durationSec ≈ ${pace}, clamped 5–${maxSec}) — the script's length decides HOW MANY shots that makes. Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.`;
+  const countGoal = `Carve into as many shots as the script NEEDS — every shot must earn its place; pacing picks each durationSec (5–${maxSec}s). Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.`;
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('storyboard.carve.user', { script: SPAN_SLOT, style: style || 'auto' }).split(SPAN_SLOT).join(text.slice(0, 12000)),

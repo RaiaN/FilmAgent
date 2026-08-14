@@ -153,11 +153,6 @@ const StoryboardFields = ({ s, up, imageAssets, onOpenRefDrawer }) => (
         autoSize={{ minRows: 3, maxRows: 8 }}
       />
     </div>
-    <div>
-      <Text style={FIELD_LABEL}>Shot length — pace decides the count</Text>
-      <Select size="small" style={{ width: '100%' }} value={s.shotLength || 'auto'} onChange={(v) => up({ shotLength: v })}
-        options={[{ label: 'Auto pace', value: 'auto' }, { label: '~5s shots', value: '5' }, { label: '~8s shots', value: '8' }, { label: '~10s shots', value: '10' }, { label: '~15s shots', value: '15' }, { label: '~20s shots (Seedance 2.5)', value: '20' }, { label: '~30s shots (Seedance 2.5)', value: '30' }]} />
-    </div>
     <div style={{ display: 'flex', gap: 10 }}>
       <div style={{ flex: 1 }}>
         <Text style={FIELD_LABEL}>Style</Text>

@@ -3542,7 +3542,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         .filter((n) => !(String(n.id).startsWith(`${panelId}-`) && /^\d+$/.test(String(n.id).slice(String(panelId).length + 1))))
         .map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, shots: [], shotCount: 0 } } : n)));
     }
-    const shotLength = node.data?.shotLength || 'auto'; // per-shot pace — count is an OUTPUT of events ÷ pace
     const refs = node.data?.refs || [];
     const style = node.data?.style || '';
     const imageModel = imageModelKeyOf(node.data?.imageModel);
@@ -3554,7 +3553,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // instantly showing their span, author calls fill them as they return.
       {
         const poolUrls = freshPoolUrls(refs);
-        const carve = await storyboardCarve({ script, style, references: poolUrls, shotLength }, ctx);
+        const carve = await storyboardCarve({ script, style, references: poolUrls }, ctx);
         const shots = carve.shots.map((s) => ({
           beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures, durationSec: s.durationSec,
           intExt: s.intExt, develops: s.develops, span: s.span,
@@ -3772,7 +3771,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Lays the control node + empty panel INERT — nothing generates on add. The
   // division is an explicit tap on the element (its Divide button); runDivide reads
   // everything from node.data, so no seed is needed.
-  const spawnStoryboardChat = useCallback((script, count, refs = [], ethnicity = '', style = '', imageModel = defaultImageModelKey(), shotLength = 'auto') => {
+  const spawnStoryboardChat = useCallback((script, count, refs = [], ethnicity = '', style = '', imageModel = defaultImageModelKey()) => {
     const text = String(script || '').trim();
     if (!text) { Message.warning('The storyboard needs a script or description first — write it into a Brief node.'); return; }
     const stamp = Date.now().toString(36);
@@ -3781,7 +3780,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 200, y: 200 }) : { x: 160, y: 160 };
     const pos = freeOrigin({ w: 800, h: SB_PANEL_H, preferred: pref });
     setNodes((ns) => ns.concat(
-      { id: nodeId, type: 'sbchat', position: pos, data: { shots: [], panelId, script: text, refs, ethnicity, style, imageModel, shotLength, busy: false, shotCount: 0 } },
+      { id: nodeId, type: 'sbchat', position: pos, data: { shots: [], panelId, script: text, refs, ethnicity, style, imageModel, busy: false, shotCount: 0 } },
     ));
     Message.success('Storyboard on the board — Divide lays the shot list as editable text cards (no renders); stills are rendered per card, or all at once.');
   }, [rfInstance, freeOrigin, setNodes]);
@@ -4547,7 +4546,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const ent = bibleRef.current.find((b) => b.nodeId === n.id) || bibleRef.current.find((b) => b.url === u);
         return { entryId: ent?.id || null, nodeId: n.id, url, label: n.data?.label || ent?.name || 'reference' };
       }))).filter(Boolean);
-      spawnStoryboardChat(text, d.count, refs, d.ethnicity || '', d.style || '', imageModelKeyOf(d.imageModel), d.shotLength || 'auto');
+      spawnStoryboardChat(text, d.count, refs, d.ethnicity || '', d.style || '', imageModelKeyOf(d.imageModel));
       // The scene field is ONE-SHOT: it became a Brief card — a stale copy must not
       // silently re-board old text on the next panel open.
       if (typed) setLayerSettings((prev) => ({ ...prev, storyboard: { ...(prev.storyboard || {}), script: '' } }));

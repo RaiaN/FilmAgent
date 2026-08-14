@@ -235,11 +235,8 @@ const resolveShotRefs = (s, refs = []) => {
 const poolRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
 const poolUrls = (refs) => (refs || []).map((r) => poolRef(r).url).filter(Boolean);
 
-// One event's TEXT — events are plain strings; legacy object rows (an earlier shape)
-// fold their split-out dialogue back inline.
-const evTextOf = (e) => (typeof e === 'string' ? e : [e?.text, e?.dialogue].map((s) => String(s || '').trim()).filter(Boolean).join(' '));
-// Serialize an APPROVED event list into the clean numbered script the division carves.
-const eventScriptOf = (evts) => (evts || []).map((e, i) => `${i + 1}. ${evTextOf(e)}`).join('\n');
+// Serialize the APPROVED event list (plain strings) into the numbered script the division carves.
+const eventScriptOf = (evts) => (evts || []).map((e, i) => `${i + 1}. ${e}`).join('\n');
 
 // 'Film' packing: strip rows → the FEWEST consecutive chunks whose durations sum
 // under the video model's cap. Order is the film — never reordered, never split
@@ -3522,38 +3519,27 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node) return;
     const panelId = node.data?.panelId;
-    // An APPROVED event list is the division's true source — carve reads the story's
-    // atoms (entity-tagged, ordered, dialogue verbatim), never the prose around them.
-    const script = (node.data?.events || []).length ? eventScriptOf(node.data.events) : (node.data?.script || '');
-    const prevShots = fresh ? [] : (node.data?.shots || []);
-    if (prevShots.length) { Message.info('Already divided — edit the rows directly, or Re-divide from the action bar.'); return; }
-    const shotLength = node.data?.shotLength || 'auto'; // per-shot pace — count is an OUTPUT of script ÷ pace
-    let refs = node.data?.refs || []; // optional reference assets (picked on Run)
-    const ethnicity = node.data?.ethnicity || ''; // consistency lever (whole storyboard)
-    const style = node.data?.style || ''; // aesthetic (Auto → the division decides)
-    const imageModel = imageModelKeyOf(node.data?.imageModel); // Seedream Lite | Pro
+    // The division carves the APPROVED EVENT LIST — Normalize is the mandatory front-end.
+    const evts = (node.data?.events || []).filter((e) => typeof e === 'string' && e.trim());
+    if (!evts.length) { Message.warning('Normalize first — Divide carves the approved event list.'); return; }
+    const script = eventScriptOf(evts);
+    if (!fresh && (node.data?.shots || []).length) { Message.info('Already divided — edit the rows, or Create shot list again from EVENTS.'); return; }
+    if (fresh && panelId) {
+      // Re-division replaces the old list: rows and shots go before the carve.
+      setNodes((ns) => ns
+        .filter((n) => !(String(n.id).startsWith(`${panelId}-`) && /^\d+$/.test(String(n.id).slice(String(panelId).length + 1))))
+        .map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, shots: [], shotCount: 0 } } : n)));
+    }
+    const shotLength = node.data?.shotLength || 'auto'; // per-shot pace — count is an OUTPUT of events ÷ pace
+    const refs = node.data?.refs || [];
+    const style = node.data?.style || '';
+    const imageModel = imageModelKeyOf(node.data?.imageModel);
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true, stripHidden: false } } : n)));
     traceRef.current.startRun({ note: 'Agent · Storyboard (shot division)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      // A FIRST divide with NO picked references and an UNTOUCHED pool: reuse the
-      // bible's characters as the anchor if any exist — the reference-aware division
-      // must SEE the references to assign figures per shot. A pool the USER shaped
-      // (refsTouched — toggled, emptied, added to) is never refilled, and a re-divide
-      // never re-seeds: an empty pool then means a deliberate reference-free run.
-      if (!refs.length && !fresh && !node?.data?.refsTouched) {
-        const bibleChars = (bibleRef.current || []).filter((e) => e.role === 'character' && e.url)
-          .map((e) => ({ entryId: e.id, nodeId: e.nodeId || null, url: e.url, label: e.name || 'character' }));
-        if (bibleChars.length) {
-          refs = bibleChars;
-          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, refs } } : n)));
-        }
-      }
-      // ---- 2-STEP FIRST DIVISION: CARVE structure + verbatim spans, then AUTHOR each
-      // shot in parallel (one focused call per shot — kills late-list attention
-      // collapse). Cards land instantly from the carve SHOWING their script span;
-      // author calls fill body/motion/exiting/audio as they land. One tap, 1 + N
-      // reasoner calls, labeled on the button. Revisions are per-row (re-author/edit).
+      // CARVE structure + verbatim spans, then AUTHOR each shot in parallel; rows land
+      // instantly showing their span, author calls fill them as they return.
       {
         const poolUrls = freshPoolUrls(refs);
         const carve = await storyboardCarve({ script, style, references: poolUrls, shotLength }, ctx);
@@ -3646,52 +3632,20 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     });
   }, [setNodes]);
 
-  // Re-run the AUTHOR on ONE shot — its verbatim span + the director's note → ONE
-  // focused call; the dialogue gate re-runs; neighbors are untouched by construction.
-  const reAuthorShot = useCallback(async (chatId, idx, note = '') => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
-    const chat = nodesRef.current.find((n) => n.id === chatId);
-    const shots = chat?.data?.shots || [];
-    const sh = shots[idx];
-    if (!sh) return;
-    const log = (text) => Message.info(text);
-    patchShotAt(chatId, idx, { authorPending: true, authorError: '' });
-    traceRef.current.startRun({ note: 'Agent · Storyboard (re-author one shot)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-    try {
-      const a = await storyboardAuthor({
-        script: chat.data.script || '', span: sh.span || sh.body || '', beat: sh.beat, job: sh.job || '', shotTemplate: sh.shotTemplate,
-        develops: !!String(sh.exiting || '').trim() || !!sh.develops,
-        prevBeat: shots[idx - 1]?.beat || '', nextBeat: shots[idx + 1]?.beat || '',
-        references: freshPoolUrls(chat.data.refs || []), note, durationSec: sh.durationSec,
-      }, ctx);
-      patchShotAt(chatId, idx, { body: a.body, motion: a.motion, exiting: a.exiting, audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [], authorError: '' }, { markStale: true });
-      log(a.missingDialogue?.length
-        ? `Re-authored shot ${idx + 1} — ⚠ dropped dialogue: ${a.missingDialogue.join(' · ')}`
-        : `Re-authored shot ${idx + 1} from its span${note ? ' + your note' : ''} — dialogue verified.`);
-    } catch (e) {
-      patchShotAt(chatId, idx, { authorPending: false, authorError: e.message });
-      Message.error(`Re-author of shot ${idx + 1} failed: ${e.message}`);
-    }
-  }, [apiKey, patchShotAt, setNodes]);
-
-  // THE CONSTRAINED ACTION BAR dispatcher — 1 of M, structured args, zero routing LLM.
-  // Surgery (cut/add placement) is pure code; only note/add AUTHORING spends a call.
-  const storyboardListAction = useCallback(async (chatId, { action, shot = 0, to = 0, note = '' } = {}) => {
+  // Strip-row surgery dispatcher — pure code, no LLM: move / cut.
+  const storyboardListAction = useCallback(async (chatId, { action, shot = 0, to = 0 } = {}) => {
     const chat = nodesRef.current.find((n) => n.id === chatId);
     if (!chat) return;
     const panelId = chat.data.panelId;
     const shots = [...(chat.data.shots || [])];
-    const log = (text) => Message.info(text);
-    if (action === 'note') { await reAuthorShot(chatId, shot, note); return; }
-    if (panelRowsBusy(panelId, shots.length)) { Message.warning('A still or author call is mid-flight — let it land before cutting, adding or re-dividing.'); return; }
+    if (panelRowsBusy(panelId, shots.length)) { Message.warning('A still or author call is mid-flight — let it land before cutting or moving rows.'); return; }
     if (action === 'cut') {
       if (!shots[shot]) return;
       const beat = shots[shot].beat;
       const stash = captureRowStash(panelId, shots.length);
       shots.splice(shot, 1); stash.splice(shot, 1);
       rewritePanelRows(chatId, shots, stash);
-      log(`Cut shot ${shot + 1} — "${beat}". ${shots.length} left, renumbered.`);
+      Message.info(`Cut shot ${shot + 1} — "${beat}". ${shots.length} left, renumbered.`);
       return;
     }
     if (action === 'move') {
@@ -3701,32 +3655,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const [ms] = shots.splice(shot, 1); shots.splice(dest, 0, ms);
       const [mt] = stash.splice(shot, 1); stash.splice(dest, 0, mt);
       rewritePanelRows(chatId, shots, stash);
-      log(`Moved shot ${shot + 1} → ${dest + 1}.`);
-      return;
+      Message.info(`Moved shot ${shot + 1} → ${dest + 1}.`);
     }
-    if (action === 'add') {
-      const text = String(note || '').trim();
-      const at = Math.min(shots.length, shot + 1);
-      const fresh = {
-        beat: 'New shot', shotTemplate: 'medium-shot', figures: (chat.data.refs || []).length ? [1] : [],
-        body: text, motion: '', exiting: '', audio: '', expression: '', durationSec: 10, intExt: '',
-        span: text, authorPending: !!text,
-      };
-      const stash = captureRowStash(panelId, shots.length);
-      shots.splice(at, 0, fresh); stash.splice(at, 0, {});
-      rewritePanelRows(chatId, shots, stash);
-      log(`Added shot ${at + 1}${text ? ' — authoring from your note (verbatim as its span)…' : ' — blank; write it on the row, or give it a note.'}`);
-      if (text) await reAuthorShot(chatId, at, '');
-      return;
-    }
-    if (action === 'redivide') {
-      setNodes((ns) => {
-        let next = ns.filter((n) => !(String(n.id).startsWith(`${panelId}-`) && /^\d+$/.test(String(n.id).slice(panelId.length + 1))));
-        return next.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, shots: [], shotCount: 0 } } : n));
-      });
-      await runDivide(chatId, { fresh: true });
-    }
-  }, [reAuthorShot, captureRowStash, rewritePanelRows, panelRowsBusy, runDivide, setNodes]);
+  }, [captureRowStash, rewritePanelRows, panelRowsBusy]);
 
   // MIGRATION: every divided storyboard gets its STRIP node — old GROUP-era panels
   // convert in place, single-element-era saves (no panel node) get one laid below the
@@ -5213,12 +5144,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, []);
 
   const sbChatCtx = useMemo(() => ({
-    onDivide: runDivide, onNormalize: normalizeChatBrief, onListAction: storyboardListAction, bibleEntries, imageAssets,
-    onToggleBibleRef: sbToggleBibleRef, onRemoveRef: sbRemoveRef, onAddBoardRef: sbAddBoardRef,
+    onDivide: runDivide, onNormalize: normalizeChatBrief, onListAction: storyboardListAction, bibleEntries,
+    onToggleBibleRef: sbToggleBibleRef, onRemoveRef: sbRemoveRef,
     onRenderAll: renderAllStills, onRenderSheet: renderSheetFromChat, onCastFromScript: castFromStoryboard,
     onPatchChat: (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))),
     onOpenRefDrawer: openRefDrawer,
-  }), [runDivide, normalizeChatBrief, storyboardListAction, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills, castFromStoryboard, openRefDrawer]);
+  }), [runDivide, normalizeChatBrief, storyboardListAction, bibleEntries, sbToggleBibleRef, sbRemoveRef, renderAllStills, castFromStoryboard, openRefDrawer]);
 
   // Handlers only — each Brief node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Brief element on the board.

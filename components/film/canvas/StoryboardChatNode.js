@@ -8,7 +8,7 @@ const { Text } = Typography;
 // Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data) — same context pattern as CutContext / StoryScriptContext.
 export const StoryboardChatContext = createContext({
-  onDivide: null, onListAction: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPatchChat: null, onOpenRefDrawer: null,
+  onDivide: null, onNormalize: null, onListAction: null, bibleEntries: [], imageAssets: [], onToggleBibleRef: null, onRemoveRef: null, onAddBoardRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPatchChat: null, onOpenRefDrawer: null,
 });
 
 // Same role palette as the SHOT card's reference chips — the two blocks must read as one system.
@@ -41,25 +41,23 @@ const Section = ({ label, children, style }) => (
 );
 
 // The Storyboard agent's CONTROL CARD, bound to its strip element (1 row = 1 shot).
-// There is deliberately NO free-text chat: the strip rows are the display surface and
-// this card holds the pool, the batch buttons, and a CONSTRAINED action bar — 1 of M
-// structured actions (Note→re-author / Add / Cut / Re-divide), no routing LLM.
+// There is deliberately NO free-text chat and NO action dropdown: the pipeline is
+// SCRIPT → Normalize (event list, the story-level HITL gate) → Divide; list surgery
+// lives ON the surfaces themselves (event rows here, shot rows on the strip), and
+// Re-divide is the event list's own continuation — it exists only after Normalize.
 // Between the header and the log sits the REFERENCE POOL — the SHOT card's REFERENCES block,
 // adapted: bible entries as toggle chips (ON = filled + its [Image N] badge in POOL ORDER —
 // exactly the numbering the division and the keyframes use), loose board refs as grey chips
 // (click to remove), and "+ board image" to add any board image mid-conversation. The next
 // turn / render reads the live pool; finished stills keep their frames.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onDivide, onListAction, bibleEntries, onToggleBibleRef, onRemoveRef, onRenderAll, onRenderSheet, onCastFromScript, onPatchChat, onOpenRefDrawer } = useContext(StoryboardChatContext);
+  const { onDivide, onNormalize, bibleEntries, onToggleBibleRef, onRemoveRef, onRenderAll, onRenderSheet, onCastFromScript, onPatchChat, onOpenRefDrawer } = useContext(StoryboardChatContext);
   const count = data.shotCount || 0;
-  // The constrained action bar's local draft (1 of M + structured args).
-  const [act, setAct] = useState('note');
-  const [actShot, setActShot] = useState(1);
-  const [actNote, setActNote] = useState('');
   // The reference pool can be a whole cast (face + body plate per character) — give it
   // real room, and let the header collapse it to one line when the chat needs the space.
   const [refsOpen, setRefsOpen] = useState(true);
   const pool = useMemo(() => (data.refs || []).map(asRef).filter((r) => r.url), [data.refs]);
+  const events = useMemo(() => (Array.isArray(data.events) ? data.events : []), [data.events]);
   const cap = imageRefCap(data.imageModel);
   const bible = bibleEntries || [];
   return (
@@ -83,6 +81,59 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           />
         </Section>
       </div>
+      {/* EVENTS — the story's atoms (global event sequence, extracted by Normalize):
+          the FIRST HITL gate. Confirm / edit-in-place / reorder / cut / add here;
+          when the list exists, Divide carves THESE events, not the raw prose. */}
+      {onNormalize && (
+        <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0', flexShrink: 0 }}>
+          <Section label={`EVENTS${events.length ? ` · ${events.length}` : ''}`}>
+            {events.length === 0 ? (
+              <Button
+                size="small" long loading={!!data.busy}
+                disabled={!String(data.script || '').trim()}
+                onClick={() => onNormalize(id)}
+                title={String(data.script || '').trim()
+                  ? 'Extract the global event sequence from the script — entities + ordered observable events, wording carried, dialogue verbatim, gaps left UNSTATED. 1 reasoner call; the list lands here for review before any carving.'
+                  : 'Type the script above first'}
+              >
+                Normalize — extract the event list (1 reasoner call)
+              </Button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {events.map((ev, i) => (
+                    <div key={`ev-${i}`} style={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
+                      <Text style={{ fontSize: 9, fontWeight: 700, color: '#86909c', flexShrink: 0, lineHeight: '24px' }}>#{i + 1}</Text>
+                      <DraftArea
+                        value={typeof ev === 'string' ? ev : [ev?.text, ev?.dialogue].map((s) => String(s || '').trim()).filter(Boolean).join(' ')}
+                        onCommit={(v) => onPatchChat(id, { events: events.map((e2, j) => (j === i ? v : e2)) })}
+                        autoSize={{ minRows: 1, maxRows: 3 }}
+                        style={{ fontSize: 11, flex: 1 }}
+                      />
+                      <Button size="mini" type="text" disabled={i === 0} onClick={() => { const next = [...events]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onPatchChat(id, { events: next }); }} title="Move up" style={{ height: 20, padding: '0 3px', fontSize: 10, flexShrink: 0 }}>↑</Button>
+                      <Button size="mini" type="text" disabled={i === events.length - 1} onClick={() => { const next = [...events]; [next[i + 1], next[i]] = [next[i], next[i + 1]]; onPatchChat(id, { events: next }); }} title="Move down" style={{ height: 20, padding: '0 3px', fontSize: 10, flexShrink: 0 }}>↓</Button>
+                      <Button size="mini" type="text" status="danger" onClick={() => onPatchChat(id, { events: events.filter((_, j) => j !== i) })} title="Delete this event (free)" style={{ height: 20, padding: '0 3px', fontSize: 10, flexShrink: 0 }}>✕</Button>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <Button size="mini" style={{ flex: 1 }} onClick={() => onPatchChat(id, { events: [...events, ''] })} title="Add a blank event at the end — write it in place, your words ride verbatim (free)">＋ Add event</Button>
+                  <Popconfirm title="Throw away this event list (and your edits) and re-normalize the script from scratch?" okText="Re-normalize" onOk={() => onNormalize(id)}>
+                    <Button size="mini" status="warning" loading={!!data.busy} style={{ flex: 1 }}>Re-normalize</Button>
+                  </Popconfirm>
+                  {/* Re-divide is the event list's CONTINUATION — it only exists once
+                      Normalize has run, and it re-carves THESE approved events. */}
+                  {count > 0 && (
+                    <Popconfirm title={`Throw away the current ${count}-shot list (and its authored text) and re-carve from these ${events.length} events?`} okText="Re-divide" onOk={() => onDivide && onDivide(id, { fresh: true })}>
+                      <Button size="mini" status="warning" loading={!!data.busy} style={{ flex: 1 }} title="Re-carve the strip from the approved event list — 1 + N reasoner calls">Create Shot List</Button>
+                    </Popconfirm>
+                  )}
+                </div>
+              </div>
+            )}
+          </Section>
+        </div>
+      )}
       <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '5px 8px', borderBottom: '1px solid #f2f3f5', maxHeight: refsOpen ? 216 : 22, overflowY: 'auto', flexShrink: 0 }}>
         <Text onClick={() => setRefsOpen((v) => !v)} title={refsOpen ? 'Collapse the reference pool' : 'Expand the reference pool'} style={{ color: '#86909c', fontSize: 9, fontWeight: 700, display: 'block', marginBottom: 3, cursor: 'pointer', userSelect: 'none' }}>
           {refsOpen ? '▾' : '▸'} REFERENCES → [Image1…{Math.min(pool.length, cap) || 'N'}] · {pool.length} in pool · click to toggle
@@ -167,9 +218,9 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
               icon={<IconPlayArrow />}
               onClick={() => onDivide && onDivide(id)}
               style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1 }}
-              title={String(data.script || '').trim() ? 'Divide the script into shot rows — words only, stills are separate taps' : 'Type the script above first'}
+              title={String(data.script || '').trim() ? (events.length ? `Divide the APPROVED EVENT LIST (${events.length} events) into shot rows — words only, stills are separate taps` : 'Divide the script into shot rows — words only, stills are separate taps. Tip: Normalize first to review the event list before carving.') : 'Type the script above first'}
             >
-              {data.busy ? 'Dividing…' : 'Divide into shots'}
+              {data.busy ? 'Dividing…' : events.length ? `Divide ${events.length} events into shots` : 'Divide into shots'}
             </Button>
             <Select
               size="small"
@@ -190,7 +241,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           page straight from the verbatim script); Render all needs rows. */}
       {(onRenderAll || onRenderSheet) && (
         <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <Section label="STILLS">
+          <Section label="STORYBOARDING">
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <Text style={{ fontSize: 10, color: '#86909c', flexShrink: 0 }}>Image model</Text>
             <Select
@@ -237,65 +288,6 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
                 />
               </>
             )}
-          </div>
-          </Section>
-        </div>
-      )}
-      {/* CONSTRAINED ACTION BAR — 1 of M structured actions on the shot list. No free
-          text routing: the action is explicit, the args are explicit, surgery is code,
-          only Note/Add spend ONE author call (labeled). Frames stay the main surface —
-          this bar is the discoverable front door for list-level moves. */}
-      {count > 0 && onListAction && (
-        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', borderBottom: '1px solid #f2f3f5', flexShrink: 0 }}>
-          <Section label="ACTIONS">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <Select
-              size="mini" value={act} onChange={(v) => setAct(v)} style={{ flex: 1 }}
-              options={[
-                { label: 'Note → re-author shot', value: 'note' },
-                { label: 'Add shot after', value: 'add' },
-                { label: 'Cut shot', value: 'cut' },
-                { label: 'Re-divide script', value: 'redivide' },
-              ]}
-            />
-            {act !== 'redivide' && (
-              <Select
-                size="mini" value={Math.min(actShot, count)} onChange={(v) => setActShot(v)} style={{ width: 62, flexShrink: 0 }}
-                options={Array.from({ length: count }, (_, i) => ({ label: `#${i + 1}`, value: i + 1 }))}
-              />
-            )}
-          </div>
-          {(act === 'note' || act === 'add') && (
-            <Input.TextArea
-              value={actNote}
-              onChange={(v) => setActNote(v)}
-              rows={2}
-              placeholder={act === 'note'
-                ? 'Director\u2019s note — ONE author call re-writes just this shot from its verbatim span + this note'
-                : 'What the new shot covers — your words ride verbatim as its span; empty = a blank row to hand-write'}
-              style={{ fontSize: 11 }}
-            />
-          )}
-          {act === 'redivide' ? (
-            <Popconfirm
-              title="Throw away this shot list (and its authored text) and re-divide the script from scratch?"
-              okText="Re-divide"
-              onOk={() => onListAction(id, { action: 'redivide' })}
-            >
-              <Button size="mini" long status="warning" loading={!!data.busy}>
-                Re-divide — 1 + N reasoner calls (pace: {data.shotLength || 'auto'})
-              </Button>
-            </Popconfirm>
-          ) : (
-            <Button
-              size="mini" long type="primary" style={{ background: '#b06f10', borderColor: '#b06f10' }}
-              disabled={act === 'note' && !actNote.trim()}
-              onClick={() => { onListAction(id, { action: act, shot: Math.min(actShot, count) - 1, note: actNote }); setActNote(''); }}
-            >
-              {act === 'note' ? 'Re-author — 1 reasoner call' : act === 'add' ? (actNote.trim() ? 'Add + author — 1 reasoner call' : 'Add blank row — free') : 'Cut — free'}
-            </Button>
-          )}
           </div>
           </Section>
         </div>

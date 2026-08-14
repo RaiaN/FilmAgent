@@ -170,6 +170,29 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
 // updated shot list + a one-line reply. The canvas reconciles the list into a column of SHOT
 // cards (each a real CutNode = a Seedance prompt). No frames are rendered here — the shot list
 // IS the storyboard; the picture is shooting a card. Camera = a shotTemplate id from the library.
+// ---- NORMALIZE: the division's FRONT-END — any brief → the global EVENT SEQUENCE.
+// One call projects the input onto ONE ordered list of observable events (plain lines:
+// wording carried, dialogue inline verbatim). EXTRACTIVE by contract — nothing the
+// text didn't state is added. The list is the HITL surface (confirm/edit/reorder/cut
+// on the control card) and, once present, what Divide carves instead of the raw prose.
+export const normalizeBrief = async ({ script = '', config } = {}, ctx) => {
+  const text = String(script || '').trim();
+  if (!text) throw new Error('Normalize needs the script — type or paste it first.');
+  const NSLOT = '@@BRIEF@@';
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('storyboard.normalize.user', { script: NSLOT }).split(NSLOT).join(text.slice(0, 12000)),
+    systemPrompt: renderTemplate('storyboard.normalize.system', {}),
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const events = (Array.isArray(raw.events) ? raw.events : [])
+    .map((ev) => String(typeof ev === 'string' ? ev : (ev?.text || '')).trim().slice(0, 1200))
+    .filter(Boolean);
+  if (!events.length) throw new Error('Normalize found no events — does the brief describe any action?');
+  return { events };
+};
+
 // ---- 2-STEP first division: CARVE (structure + verbatim spans) → AUTHOR (per shot) ----
 // Carve gives the whole call's attention to structure; each span partitions the script
 // word-for-word, which makes fidelity STRUCTURAL: the author pass gets its span as the

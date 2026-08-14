@@ -50,7 +50,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { writeFilmPrompt, describeFrame, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
+import { writeFilmPrompt, describeFrame, normalizeBrief, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -234,6 +234,12 @@ const resolveShotRefs = (s, refs = []) => {
 // url strings; normalize wherever the pool is read.
 const poolRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
 const poolUrls = (refs) => (refs || []).map((r) => poolRef(r).url).filter(Boolean);
+
+// One event's TEXT — events are plain strings; legacy object rows (an earlier shape)
+// fold their split-out dialogue back inline.
+const evTextOf = (e) => (typeof e === 'string' ? e : [e?.text, e?.dialogue].map((s) => String(s || '').trim()).filter(Boolean).join(' '));
+// Serialize an APPROVED event list into the clean numbered script the division carves.
+const eventScriptOf = (evts) => (evts || []).map((e, i) => `${i + 1}. ${evTextOf(e)}`).join('\n');
 
 // 'Film' packing: strip rows → the FEWEST consecutive chunks whose durations sum
 // under the video model's cap. Order is the film — never reordered, never split
@@ -1244,12 +1250,15 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const onBeforeDelete = useCallback(async (payload) => (beforeDeleteRef.current ? beforeDeleteRef.current(payload) : true), []);
   const onNodesDeleted = useCallback((deleted) => {
     if (rowsDeletedRef.current) rowsDeletedRef.current(deleted);
-    // Deleting the STRIP element is a dismissal, remembered on the control node —
-    // nothing recreates the strip except a fresh Divide/Re-divide.
+    // Deleting the STRIP element DELETES THE DIVISION — the shot list, its hidden row
+    // nodes and the count all go with it (no ghost list lingering on the control card);
+    // the script and the event list survive, so Divide starts fresh from them.
     (deleted || []).forEach((n) => {
       if (String(n.id).startsWith('sbpanel-') && !/-\d+$/.test(String(n.id))) {
         const cid = String(n.id).replace('sbpanel', 'sbchat');
-        setNodes((ns) => ns.map((x) => (x.id === cid ? { ...x, data: { ...x.data, stripHidden: true } } : x)));
+        setNodes((ns) => ns
+          .filter((x) => !(String(x.id).startsWith(`${n.id}-`) && x.data?.keyframe))
+          .map((x) => (x.id === cid ? { ...x, data: { ...x.data, shots: [], shotCount: 0, stripHidden: true } } : x)));
       }
     });
     const ids = new Set((deleted || []).map((n) => n.id));
@@ -3485,12 +3494,37 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // THE division (bound to THIS control node): carve the script into verbatim spans,
   // lay the rows instantly, author each shot in parallel. Runs ONCE; a re-divide comes
   // through the action bar (which clears the list first and passes fresh).
+  // NORMALIZE — the division's front-end (explicit tap, 1 reasoner call): brief → the
+  // global event sequence (entities + ordered entity-tagged events, wording carried,
+  // dialogue verbatim, gaps UNSTATED). The list lands on the control card as the HITL
+  // gate — edit/reorder/cut there; Divide then carves the approved events.
+  const normalizeChatBrief = useCallback(async (chatId) => {
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    const chat = nodesRef.current.find((n) => n.id === chatId);
+    const script = String(chat?.data?.script || '').trim();
+    if (!script) { Message.warning('Type the script first — Normalize reads it.'); return; }
+    if (chat?.data?.busy) return;
+    const patch = (p) => setNodes((ns) => ns.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, ...p } } : n)));
+    patch({ busy: true });
+    traceRef.current.startRun({ note: 'Agent · Storyboard normalize (event sequence)' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const { events } = await normalizeBrief({ script }, ctx);
+      traceRef.current.log({ level: 'run', kind: 'decision', note: `Normalize · ${events.length} events` });
+      patch({ events });
+      Message.success(`${events.length} events extracted — review the list, then Divide carves the approved events.`);
+    } catch (e) { Message.error(`Normalize failed: ${e.message}`); }
+    finally { patch({ busy: false }); }
+  }, [apiKey, setNodes]);
+
   const runDivide = useCallback(async (nodeId, { fresh = false } = {}) => {
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node) return;
     const panelId = node.data?.panelId;
-    const script = node.data?.script || '';
+    // An APPROVED event list is the division's true source — carve reads the story's
+    // atoms (entity-tagged, ordered, dialogue verbatim), never the prose around them.
+    const script = (node.data?.events || []).length ? eventScriptOf(node.data.events) : (node.data?.script || '');
     const prevShots = fresh ? [] : (node.data?.shots || []);
     if (prevShots.length) { Message.info('Already divided — edit the rows directly, or Re-divide from the action bar.'); return; }
     const shotLength = node.data?.shotLength || 'auto'; // per-shot pace — count is an OUTPUT of script ÷ pace
@@ -5179,12 +5213,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, []);
 
   const sbChatCtx = useMemo(() => ({
-    onDivide: runDivide, onListAction: storyboardListAction, bibleEntries, imageAssets,
+    onDivide: runDivide, onNormalize: normalizeChatBrief, onListAction: storyboardListAction, bibleEntries, imageAssets,
     onToggleBibleRef: sbToggleBibleRef, onRemoveRef: sbRemoveRef, onAddBoardRef: sbAddBoardRef,
     onRenderAll: renderAllStills, onRenderSheet: renderSheetFromChat, onCastFromScript: castFromStoryboard,
     onPatchChat: (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))),
     onOpenRefDrawer: openRefDrawer,
-  }), [runDivide, storyboardListAction, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills, castFromStoryboard, openRefDrawer]);
+  }), [runDivide, normalizeChatBrief, storyboardListAction, bibleEntries, imageAssets, sbToggleBibleRef, sbRemoveRef, sbAddBoardRef, renderAllStills, castFromStoryboard, openRefDrawer]);
 
   // Handlers only — each Brief node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Brief element on the board.

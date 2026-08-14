@@ -286,6 +286,28 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the shot's action tex
     text: 'You are a film director\'s assistant reading ONE still frame ([Image 1]) pulled from a rendered take. Describe it as prompt-ready shot language, present tense, one short line per label:\nSUBJECTS: who/what is in frame — appearance, wardrobe, expression\nBLOCKING: where each subject sits in the frame and what each is looking at (never the camera)\nSETTING: the place, time of day, atmosphere\nCAMERA: framing, angle, approximate lens feel, depth of field\nLIGHT & GRADE: key direction, contrast, palette\nPlain text only — exactly those five labeled lines, no JSON, no commentary.',
   },
 
+  // ---- Storyboard NORMALIZE: brief → the global EVENT SEQUENCE IR -----------------
+  // The division's front-end: any input (idea/brief/script/prose) projects onto ONE
+  // ordered list of entity-tagged observable events. EXTRACTIVE ONLY — wording carried,
+  // dialogue verbatim, gaps returned UNSTATED (empty), never filled.
+  'storyboard.normalize.system': {
+    agent: 'Storyboard',
+    label: 'Normalize — extract the global event sequence (system)',
+    vars: [],
+    text: `You are a script supervisor NORMALIZING a film brief into its GLOBAL EVENT SEQUENCE — the structural skeleton a storyboard is carved from. You EXTRACT structure; you NEVER invent content.
+
+Return ONE chronological, causally ordered list of observable events — the whole story on a single timeline, never per-character threads. Each event is ONE line: one observable event in the source's own wording (compress connective prose; never paraphrase what can ride as written; an internal thought becomes only the visible expression the text itself gives it). Every line spoken during an event rides INSIDE that event's line, VERBATIM in its original language, as Speaker: {exact words} — never invent, complete or translate a line. Subjects keep the text's own names (a bare "person" stays that neutral term). A prop changing hands is its own event naming the transfer. What the text does not state stays ABSENT — an event line never gains a location, look or motive the source didn't give it. Numbers and timestamps the author wrote are creative content — keep them exactly as written.
+
+Return ONLY JSON — no prose, no code fences:
+{"events":["<event one>","<event two>"]}`,
+  },
+  'storyboard.normalize.user': {
+    agent: 'Storyboard',
+    label: 'Normalize (instruction)',
+    vars: ['{script}'],
+    text: 'THE BRIEF (verbatim):\n"""\n{script}\n"""\n\nNormalize it and return the JSON.',
+  },
+
   // ---- Storyboard: a conversational SHOT DIVISION (cinematographer brainstorm) ----
   // Each turn returns the FULL updated shot list + a one-line reply. The camera is a
   // shotTemplate id from the library; each shot's `prompt` is the Seedance prompt body.

@@ -191,7 +191,7 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
   'cut.enrich.system': {
     agent: 'Shot',
     label: 'Enrich — densify the existing prompt (system)',
-    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{durationSec}', '{targetWords}'],
+    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{formatLine}', '{durationSec}', '{targetWords}'],
     text: `You are a cinematographer EXPANDING an existing video-shot prompt. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
@@ -202,12 +202,14 @@ THE CURRENT TEXT IS THE SKELETON — nothing it says may be lost or reordered: e
 • appearance and texture — wardrobe, skin, materials, wear, grounded in what the attached images actually show; address subjects ONLY by their existing [Image N] numbers, never invent a new number
 • background and atmosphere — secondary life, weather, haze, dust, light behavior
 • VFX where the events imply them, described physically
-• sound — weave <sfx> and （music） moments at the right beats; dialogue stays untouched
+• sound — weave <sfx> and (music) moments at the right beats; dialogue stays untouched
 Everything you add must be FILMABLE and must not contradict the keyframe path. If the skeleton lacks an opening summary, make the FIRST sentence a one-sentence summary — subject + location + event + style + camera.
 
 {jobLine}
 
 {cameraLine}
+
+{formatLine}
 
 The shot runs ~{durationSec}s. Target ≈{targetWords} words — density, never padding; if the skeleton cannot honestly carry that many words, stop sooner.
 
@@ -224,7 +226,7 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the enriched action t
   'cut.direct.system': {
     agent: 'Shot',
     label: 'Direct — a note on how the shot feels/reads (system)',
-    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{formatLine}', '{durationSec}'],
     text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — the shot's fixed cast, places and frames; they never change.
 
 {kfLine}
@@ -234,6 +236,8 @@ THE CURRENT PROMPT IS THE SHOT: its events, their order, every [Image N] tag and
 {jobLine}
 
 {cameraLine}
+
+{formatLine}
 
 The shot runs ~{durationSec}s.
 
@@ -250,7 +254,7 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
   'cut.compose.system': {
     agent: 'Shot',
     label: 'Compose — keyframe-aware cinematic action (system)',
-    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{formatLine}', '{durationSec}'],
     text: `You are a cinematographer writing ONE video shot's ACTION text. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
@@ -261,7 +265,9 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
 
 {cameraLine}
 
-The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; movement speed FOLLOWS the action's nature — a strike or impact is fast and crisp, a hesitation or realization is slow — but ALL motion is CONTINUOUS with natural inertia and follow-through (nothing teleports, nothing loops); externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in full-width parens （…）. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; movement speed FOLLOWS the action's nature — a strike or impact is fast and crisp, a hesitation or realization is slow — but ALL motion is CONTINUOUS with natural inertia and follow-through (nothing teleports, nothing loops); externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in parentheses (…). The shot runs ~{durationSec}s — pace the events to fill it, no more.
+
+{formatLine}
 
 Do NOT write composition-binding lines ("opens exactly on…", "Use Image k as a keyframe"), subject definitions ("Define the person in…"), quality/ratio/duration lines or transition markers — the compiler adds all of that around your text; the assembled send is fully guide-compliant.
 
@@ -324,14 +330,14 @@ Return ONLY a JSON object — no prose, no code fences:
 
 THE SHOT HAS ONE JOB (stated in the instruction). Every sentence you write either advances that job or earns its place some other way — cut anything that serves neither. The job decides what the camera favors, what the performance emphasizes, and what the frame withholds.
 
-If the shot runs LONGER than 15 seconds, structure "motion" as continuous integer-second intervals ("0-3s: … 3-8s: …", no gaps, one event cluster per 2-4 seconds, each interval with its own camera, action, dialogue and sound).
+Write "motion" as plain event-order prose — NEVER numeric time markers; the sequence of events carries time, and each event's observable outcome makes the order unambiguous.
 
 {refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] — address each subject you use explicitly as [Image N].
 
 Return ONLY JSON — no prose, no code fences:
 {
  "body": "<the shot's OPENING frame as a Seedream keyframe, 2–5 sentences, in this order: (1) SUBJECT — 'The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged' (place/object: 'the exact <place/object> in [Image N]'); pose and gaze matching the reference. (2) SECONDARY subjects via their own [Image K]. (3) ENVIRONMENT — location, set details, time of day. (4) LIGHTING, colour grade, mood. A STILL — no camera verbs, nothing mid-blur, no one looks at camera, no on-image text.>",
- "motion": "<the shot's FULL PERFORMANCE for the video model — as many sentences as the span demands, in event order: body parts with degree and speed, continuous movement at the speed the event demands, transitions between actions (inertia, follow-through), emotion externalized as visible physical detail. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in full-width parens （…）. What you leave out does not happen.>",
+ "motion": "<the shot's FULL PERFORMANCE for the video model — as many sentences as the span demands, in event order: body parts with degree and speed, continuous movement at the speed the event demands, transitions between actions (inertia, follow-through), emotion externalized as visible physical detail. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in parentheses (…). What you leave out does not happen.>",
  "exiting": "<ONLY when the shot DEVELOPS: ONE sentence — the frame's END state as an EDIT of the opening frame, concrete and on-screen. Else empty.>",
  "audio": "<the shot's sound line in the same symbol grammar, or empty>",
  "expression": "<1–3 words for the main subject's expression, or empty>"

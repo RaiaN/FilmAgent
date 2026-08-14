@@ -54,7 +54,7 @@ const CellImg = ({ srcs, alt, title, onDoubleClick, onDead }) => {
 };
 
 const StoryboardStripInner = ({ id, data, selected }) => {
-  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onViewImage, onImgError, onRenderEnd, onEnhanceStill, onTagFrame, onEditEndFrame, onEditStartFrame } = useContext(AssetNodeContext);
+  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onFilmStrip, onViewImage, onImgError, onRenderEnd, onEnhanceStill, onTagFrame, onEditEndFrame, onEditStartFrame } = useContext(AssetNodeContext);
   const { onListAction } = useContext(StoryboardChatContext);
   const chatId = data.chatId || String(id).replace('sbpanel', 'sbchat');
   const chatArr = useNodesData([chatId]);
@@ -67,9 +67,20 @@ const StoryboardStripInner = ({ id, data, selected }) => {
     <div style={{ width: 780, background: '#fff', borderRadius: 10, overflow: 'hidden', border: `2px solid ${selected ? '#165dff' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(22,93,255,0.12)' : '0 1px 4px rgba(0,0,0,0.08)' }}>
       <div style={{ height: 4, background: '#4e5969' }} />
       {/* title bar = the drag handle; everything below is nodrag */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '7px 12px', borderBottom: '1px solid #e5e6eb' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: '1px solid #e5e6eb' }}>
         <Text bold style={{ fontSize: 12 }}>Storyboard strip</Text>
         <Text type="secondary" style={{ fontSize: 10 }}>{shots.length} shot{shots.length === 1 ? '' : 's'} · {totalSec}s</Text>
+        {shots.length > 0 && onFilmStrip && (
+          <Button
+            className="nodrag"
+            size="mini"
+            type="primary"
+            style={{ background: '#b06f10', borderColor: '#b06f10', height: 20 }}
+            icon={<IconVideoCamera />}
+            onClick={(e) => { e.stopPropagation(); onFilmStrip(id); }}
+            title="Film — pack the whole strip into the fewest SHOT cards the video model can take: stills pinned as the keyframe chain, rows' text verbatim, cards chained in order. No LLM, no generation — 🎬 each card when ready."
+          >Film</Button>
+        )}
         <Text type="secondary" style={{ fontSize: 9, marginLeft: 'auto' }}>1 row = 1 shot</Text>
       </div>
       {shots.length === 0 && (

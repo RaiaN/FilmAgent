@@ -73,7 +73,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
       {/* SCRIPT — the storyboard's OWN source text, editable right here (verbatim:
           the division reads these words, never a Brief card). */}
       <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0', flexShrink: 0 }}>
-        <Section label="SCRIPT — divided into shots, wording preserved">
+        <Section label="SCRIPT">
           <DraftArea
             value={data.script}
             onCommit={(v) => onPatchChat && onPatchChat(id, { script: v })}

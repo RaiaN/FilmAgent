@@ -235,6 +235,23 @@ const resolveShotRefs = (s, refs = []) => {
 const poolRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
 const poolUrls = (refs) => (refs || []).map((r) => poolRef(r).url).filter(Boolean);
 
+// 'Film' packing: strip rows → the FEWEST consecutive chunks whose durations sum
+// under the video model's cap. Order is the film — never reordered, never split
+// mid-row. Pure; each returned row carries its clamped duration.
+const packStripChunks = (rows, maxSec) => {
+  const chunks = [];
+  let cur = [];
+  let sum = 0;
+  rows.forEach((r) => {
+    const sec = Math.min(maxSec, Math.max(5, Math.round(Number(r.durationSec) || 10)));
+    if (cur.length && sum + sec > maxSec) { chunks.push(cur); cur = []; sum = 0; }
+    cur.push({ ...r, durationSec: sec });
+    sum += sec;
+  });
+  if (cur.length) chunks.push(cur);
+  return chunks;
+};
+
 const buildInitialLayerState = (project) => {
   const settings = {};
   const visibility = {};
@@ -2417,6 +2434,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           .filter((sj) => sj.name && !kfIndices.includes(sj.index)),
         shots: [{
           kfIndices,
+          kfDescs: kfPairs.map((x) => x.ptr?.desc || ''), // per-keyframe states — the 2.5 dialect names each mid keyframe's content
           startDesc: kfPairs[0]?.ptr?.desc || '',
           endDesc: kfIndices.length > 1 ? (kfPairs[kfPairs.length - 1]?.ptr?.desc || '') : '',
           action: c.data.promptOverride || '',
@@ -3003,6 +3021,117 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const hasEnd = !!kf.data.endStill?.url;
     Message.success(`SHOT ${cut + 1} laid from “${String(kf.data.beat || 'keyframe').slice(0, 24)}” — refs attached, K1${hasEnd ? ' + K2' : ''} pinned; 🎬 when ready.`);
   }, [freeOrigin, layAnchoredCard]);
+
+  // 'FILM' — the strip's one-tap road to takes: pack consecutive rows into the FEWEST
+  // SHOT cards under the video model's duration cap; each card carries the chunk's
+  // stills pinned as its keyframe chain and the rows' text VERBATIM as `Shot N:`
+  // blocks (the official storyboard grammar — no invented timestamps). Deterministic —
+  // no LLM between the approved strip and the cards. The whole REFS pool rides FIRST on every card, in pool order,
+  // so the rows' global [Image N] tags stay valid with zero rewriting; the stills
+  // append after as the keyframe chips. Cards land pre-chained (bonds = order; the
+  // card's own keyframes remain the only continuity mechanism).
+  const filmStrip = useCallback((panelId) => {
+    const chatId = String(panelId).replace('sbpanel', 'sbchat');
+    const chat = nodesRef.current.find((n) => n.id === chatId);
+    const shots = chat?.data?.shots || [];
+    if (!shots.length) { Message.warning('Empty strip — Divide into shots first.'); return; }
+    const rows = shots.map((s, i) => {
+      const node = nodesRef.current.find((n) => n.id === `${panelId}-${i}`);
+      const d = node?.data || {};
+      const val = (k) => String(d[k] ?? s[k] ?? '').trim();
+      return {
+        i, beat: val('beat') || `Shot ${i + 1}`, motion: val('motion'), body: val('body'),
+        audio: val('audio'), exiting: val('exiting'),
+        shotTemplate: d.shotTemplate || s.shotTemplate || '',
+        durationSec: Number(d.durationSec ?? s.durationSec) || 10,
+        nodeId: node?.id || null,
+        startUrl: d.cacheUrl || d.localUrl || d.url || '',
+        endUrl: (d.endStill && (d.endStill.cacheUrl || d.endStill.url)) || '',
+        busy: !!(d.loading || d.endLoading || d.authorPending),
+      };
+    });
+    if (rows.some((r) => r.busy)) { Message.warning('A still or author call is mid-flight — let it land before filming the strip.'); return; }
+    // Stills are PER-ROW opt-in, never a gate: an unrendered row is a deliberate
+    // choice — its interval rides text-only (the model stages it from the words);
+    // a rendered row is pinned. Reported, not refused.
+    const textOnly = rows.filter((r) => !r.startUrl && !r.endUrl).map((r) => r.i + 1);
+    const noText = rows.filter((r) => !r.motion && !r.body).map((r) => r.i + 1);
+    if (noText.length) { Message.warning(`Shot${noText.length === 1 ? '' : 's'} ${noText.join(', ')} ${noText.length === 1 ? 'has' : 'have'} no text — author or write the row${noText.length === 1 ? '' : 's'} first.`); return; }
+    const missingEnd = rows.filter((r) => r.startUrl && r.exiting && !r.endUrl).map((r) => r.i + 1);
+    const modelKey = defaultVideoModelKey();
+    const maxSec = maxShotSeconds(modelKey);
+    const refCap = videoTraits(modelKey).refCap;
+    const stamped = videoTraits(modelKey).keyframeGrammar === 'keyframes'; // interval grammar rides with the keyframe-chain dialect
+    const chunks = packStripChunks(rows, maxSec);
+    // The whole pool, in pool order — the [Image N] numbering the rows' text uses.
+    const pool = (chat?.data?.refs || chat?.data?.pool || []).map(poolRef).filter((p) => p.url);
+    const poolChips = pool.map((p) => {
+      const be = bibleRef.current.find((b) => b.url && (b.id === p.entryId || (p.nodeId && b.nodeId === p.nodeId) || b.url === p.url));
+      return { nodeId: p.nodeId || be?.nodeId || null, url: p.url, label: p.label || be?.name || 'ref', ...(be ? { assetId: be.assetId || null, role: be.role || '' } : {}) };
+    });
+    const panel = nodesRef.current.find((n) => n.id === panelId);
+    const anchor = panel || chat;
+    const pref = anchor
+      ? { x: (anchor.position?.x || 0) + (Number(anchor.style?.width) || 780) + 60, y: anchor.position?.y || 0 }
+      : { x: 220, y: 220 };
+    const base = freeOrigin({ w: CUT_COL_W, h: chunks.length * CUT_ROW_H, preferred: pref });
+    const cutBase = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
+    const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
+    let overCap = 0;
+    // NO invented timestamps (official sd25-pe rule: numeric segments only when the
+    // material already carries them) — a multi-row card uses the spec's storyboard
+    // grammar, plain `Shot N:` labels; the keyframe chain carries the cut structure.
+    // LEGACY rows whose authored text still carries local `X-Ys:` stamps get a pure
+    // arithmetic rebase onto the card's clock (wording untouched, one clock, never
+    // nested) — current authoring writes event-order prose with no markers.
+    const innerStamps = (txt) => /\b\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?s\s*:/.test(txt);
+    const rebase = (txt, off) => txt
+      .replace(/\b(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)s\s*:/g, (m, a, b) => `${Number(a) + off}-${Number(b) + off}s:`)
+      .replace(/\bat\s+(\d+(?:\.\d+)?)s\b/g, (m, a) => `at ${Number(a) + off}s`);
+    chunks.forEach((chunk, ci) => {
+      let t = 0;
+      const text = chunk.map((r, ri) => {
+        const tpl = SHOT_TEMPLATE_BY_ID[r.shotTemplate];
+        const cam = tpl ? [tpl.framing, tpl.angle, tpl.move, tpl.cinematography].filter(Boolean).join(', ') : '';
+        const body = r.motion || r.body;
+        const inner = stamped && innerStamps(body);
+        const seg = [cam ? `${cam[0].toUpperCase()}${cam.slice(1)}.` : '', inner ? rebase(body, t) : body, r.audio].filter(Boolean).join(' ');
+        const line = chunk.length > 1 && !inner ? `Shot ${ri + 1}: ${seg}` : seg;
+        t += r.durationSec;
+        return line;
+      }).join('\n\n');
+      storyboardPanelRef.current({
+        index: ci, cut: cutBase + ci, idPrefix, cols: 1,
+        title: chunk.length === 1 ? chunk[0].beat : `${chunk[0].beat} → ${chunk[chunk.length - 1].beat}`,
+        action: '', promptOverride: text, framing: '',
+        shotTemplate: '', durationSec: t,
+        refEntryIds: [], audio: '',
+      }, base);
+      const stillChips = [];
+      const kfPtrs = [];
+      chunk.forEach((r) => {
+        if (r.startUrl) {
+          stillChips.push({ nodeId: r.nodeId, url: r.startUrl, label: r.beat });
+          kfPtrs.push({ nodeId: r.nodeId, url: r.startUrl, label: r.beat, desc: r.body, pickedAt: Date.now() });
+        }
+        if (r.endUrl) {
+          stillChips.push({ nodeId: null, url: r.endUrl, label: `${r.beat} · end` });
+          kfPtrs.push({ nodeId: null, url: r.endUrl, label: `${r.beat} · end`, desc: r.exiting, pickedAt: Date.now() });
+        }
+      });
+      if (poolChips.length + stillChips.length > refCap) overCap += 1;
+      onPatchCut(`${idPrefix}-${ci}`, { assetRefs: [...poolChips, ...stillChips], keyframes: kfPtrs });
+    });
+    // Pre-chain the chunks — the bond carries ORDER (and the START picker's explicit
+    // last-frame offer); it never auto-threads.
+    if (chunks.length > 1) {
+      applyEdges((es) => es.concat(chunks.slice(1).map((_, i) => ({
+        id: `cont-${idPrefix}-${i}-${idPrefix}-${i + 1}`, source: `${idPrefix}-${i}`, target: `${idPrefix}-${i + 1}`, type: 'continuity',
+      })).filter((e) => !es.some((x) => x.id === e.id))));
+    }
+    if (overCap) Message.warning(`${overCap} card${overCap === 1 ? '' : 's'} exceed${overCap === 1 ? 's' : ''} the model's ${refCap}-reference cap — later chips are trimmed at shoot time; slim the REFS pool or shorten the strip's shots.`);
+    Message.success(`Filmed the strip into ${chunks.length} SHOT card${chunks.length === 1 ? '' : 's'} (${chunks.map((c) => c.reduce((a, r) => a + r.durationSec, 0)).join('s + ')}s)${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''}${missingEnd.length ? ` — shot${missingEnd.length === 1 ? '' : 's'} ${missingEnd.join(', ')} pin${missingEnd.length === 1 ? 's' : ''} START only (END not rendered)` : ''} — 🎬 each card in order.`);
+  }, [freeOrigin, onPatchCut, applyEdges]);
 
   // CANON media references — audio/video nodes the user tagged (★ Reference): every SHOT
   // card offers them as one-tap attach chips in its REFERENCES row (the media analog of
@@ -4967,11 +5096,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally { setViewerBusy(null); }
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
-  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster, onPromoteMap: promoteMapToCard,
+  const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onFilmStrip: filmStrip, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster, onPromoteMap: promoteMapToCard,
     onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onRenderEnd: renderEndOnly, onEnhanceStill: enhanceRowStill, onTagFrame: tagStripStill, onEditEndFrame: setEndEditId, onEditStartFrame: setStartEditId,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
-    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, renderEndOnly, enhanceRowStill, tagStripStill, duplicateNode, ensurePoster, promoteMapToCard, lodCoarse, demoOverlay]);
+    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, filmStrip, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, renderEndOnly, enhanceRowStill, tagStripStill, duplicateNode, ensurePoster, promoteMapToCard, lodCoarse, demoOverlay]);
 
   // The Storyboard chat node runs one brainstorm turn per message, scoped to its own cards.
   // Pool mutations for the chat node's REFS block (SHOT-card-style chips): toggle a bible

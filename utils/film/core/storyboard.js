@@ -402,6 +402,14 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // reported in dropped[], originals stashed by the caller). No keyframes → single
 // enrich call, text as the material. Binding lines / definitions / tails stay the
 // deterministic compiler's job either way.
+// The video model's TEXT-FORMAT contract, keyed off the same trait the compiler's
+// keyframe grammar uses. The 2.5 branch is distilled from the OFFICIAL sd25-pe skill
+// (.agents/skills/sd25-pe/SKILL.md — the vendor's prompt spec, not house doctrine);
+// the 2.0 family ignores timestamps entirely.
+const formatLineOf = (modelKey) => (videoTraits(modelKey).keyframeGrammar === 'keyframes'
+  ? `FORMAT (official Seedance 2.5 guide): structure the action as STAGES in event order — each stage carries ONE main event and names its observable END state (positions, prop ownership, visible result). Write numeric time segments ONLY when the material already carries them — then keep them as ONE continuous, non-overlapping clock starting at 0 ("0-3s: … 3-8s: …", never nested); NEVER invent time segments to fill a target duration. Emotion is OBSERVABLE performance: triggering event → immediate reaction → a few clear cues (eyes, breath, hands) → the target emotion; never inner states, and show the trigger before the reaction. A camera instruction names the move + its target subject + where it starts and where it arrives; expand niche terms into their visible result. Anchor spatial relationships to stable objects (the door, the counter, the vehicle), never screen-left/right. Dialogue: language + delivery + speaker + {dialogue} in curly braces, labeled per speaker; non-speakers keep their mouths naturally closed. Sound symbols: music in (), sound effects in <>, subtitles in 【】 — never put a subject's name in angle brackets. Do not add quality packs, watermark/subtitle bans, aspect-ratio or duration lines, or any generic constraint the material did not ask for.`
+  : 'FORMAT: this video model IGNORES timestamps. Write the action as plain event-order prose with no time markers.');
+
 // The card's LOCKED camera preset as a hard contract for the prompt verbs: prose
 // film-grammar alone is weak, so the camera must live IN the action text — staged,
 // not tagged. No preset → the verb commits to one camera of its own choosing.
@@ -442,7 +450,7 @@ export const enrichShotAction = async ({ text = '', references = [], roster = []
   const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.enrich.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)),
-    systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), durationSec: String(durationSec), targetWords: String(lv.words) }),
+    systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec), targetWords: String(lv.words) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -467,7 +475,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
       .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)),
-    systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), durationSec: String(durationSec) }),
+    systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -504,7 +512,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   const SLOT = '@@PROMPT@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)'),
-    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), durationSec: String(durationSec) }),
+    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec) }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,

@@ -93,13 +93,14 @@ export const shotReferences = (data = {}, bibleEntries = []) => {
   return refs.slice(0, videoTraits(videoModelKeyOf(data.videoModel)).refCap);
 };
 
-// ---- Seedance 2.0 doc-grammar compiler (composition-pinned shots) -----------------
-// Emits the manual's advanced-formula sections in order: subject definitions →
-// Shot-N body with composition-binding lines → look/quality → constraint tail.
-// The binding phrases are PROBE-VERIFIED — the model honored
-// "opens exactly on the composition of Image N" / "cuts to exactly …" /
-// "ends exactly on the composition of Image N" — treat them as load-bearing.
-// Pure function — the card's action text rides VERBATIM, nothing is rewritten.
+// ---- Seedance doc-grammar compiler (composition-pinned shots), TWO dialects -------
+// 2.0 family: the manual's advanced formula — subject definitions → Shot-N body with
+// composition-binding lines → look/quality → constraint tail. The binding phrases are
+// PROBE-VERIFIED ("opens exactly on the composition of Image N" / "cuts to exactly …" /
+// "ends exactly on …") — treat them as load-bearing.
+// 2.5 family: the official sd25-pe dialect (see composePinnedShotPrompt).
+// Pure function — the card's action text rides VERBATIM, nothing is rewritten
+// (the 2.5 wire translation only re-spells [Image N] → @ImageN).
 export const SEEDANCE_QUALITY_LINE = 'HD, cinematic texture, natural colors.';
 export const SEEDANCE_CONSTRAINT_TAIL = 'Keep it subtitle-free, avoid generating any text or subtitles. Do not generate watermarks or logos. Do not generate duplicate characters or twins of any defined subject — keep a single instance of each subject in frame.';
 
@@ -123,6 +124,14 @@ const stripTrailingTransition = (t) => String(t || '').trim()
   .replace(/(?:\s|\n)*(?:CUT TO:?|CUT:|SMASH CUT(?: TO)?:?|FADE (?:OUT|TO BLACK|IN):?|DISSOLVE(?: TO)?:?|MATCH CUT(?: TO)?:?)\s*$/i, '').trim();
 
 export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0, audioRoles = [], videoRoles = [], modelKey = 'seedance' } = {}) => {
+  // The 2.5 family speaks the OFFICIAL sd25-pe dialect (.agents/skills/sd25-pe/SKILL.md):
+  // @ImageN wire notation, "maps to … use only …" subject scopes, verbatim first/last-frame
+  // sentences, and NO generic quality/constraint tails. The 2.0 family keeps the
+  // probe-verified 2.0-manual grammar below. Internal notation stays [Image N] everywhere;
+  // the translation happens HERE, at the wire.
+  const g25 = videoTraits(modelKey).keyframeGrammar === 'keyframes';
+  const tag = (kind, n) => (g25 ? `@${kind}${n}` : `${kind} ${n}`);
+  const wire = (t) => (g25 ? String(t || '').replace(/\[Image\s+(\d+)\]/gi, '@Image$1') : String(t || ''));
   // Plate names carry a "· face"/"· body" suffix — an artifact of the bible, not a
   // subject name. Same-name plates collapse into ONE definition listing both images
   // (the manual's headshot + full-body pattern).
@@ -135,25 +144,36 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     if (byName.has(key)) byName.get(key).indices.push(s.index);
     else byName.set(key, { role: s.role, indices: [s.index] });
   });
+  // Adopted-scope clauses per role (official subject-mapping pattern): each asset
+  // contributes exactly its intended features, nothing else bleeds through.
+  const SCOPE_25 = {
+    character: 'use only the facial features, hairstyle, and clothing',
+    location: 'use only the spatial layout, architecture, and lighting; do not use any people in the image',
+    prop: 'use only the structure, material, and color',
+  };
   const defs = [...byName.entries()].map(([name, s]) => {
-    const imgs = s.indices.map((i) => `Image ${i}`).join(' and ');
-    return `Define the ${SUBJECT_NOUN[s.role] || 'subject'} in ${imgs} as ${name}.`;
+    const imgs = s.indices.map((i) => tag('Image', i)).join(' and ');
+    return g25
+      ? `${name} maps to ${imgs}; ${SCOPE_25[s.role] || 'use only its directly observable features'}.`
+      : `Define the ${SUBJECT_NOUN[s.role] || 'subject'} in ${imgs} as ${name}.`;
   });
   // Media binding lines are ROLE-scoped (the guide's partial-reference pattern) —
   // each asset contributes exactly its intended feature; unset role = the generic line.
   for (let i = 0; i < audioRefCount; i += 1) {
     const role = (audioRoles || [])[i];
-    defs.push(role === 'music' ? `Use Audio ${i + 1} as the music reference.`
-      : role === 'ambience' ? `Use Audio ${i + 1} as the ambience and sound-design reference.`
-        : role === 'voice' ? `Use the voice timbre of Audio ${i + 1}.`
-          : `Use the sound and timbre of Audio ${i + 1} as reference.`);
+    const a = tag('Audio', i + 1);
+    defs.push(role === 'music' ? `Use ${a} as the music reference.`
+      : role === 'ambience' ? `Use ${a} as the ambience and sound-design reference.`
+        : role === 'voice' ? `Use the voice timbre of ${a}.`
+          : `Use the sound and timbre of ${a} as reference.`);
   }
   for (let i = 0; i < videoRefCount; i += 1) {
     const role = (videoRoles || [])[i];
-    defs.push(role === 'camera' ? `Refer to the camera movement in Video ${i + 1}.`
-      : role === 'style' ? `Refer to the visual style of Video ${i + 1}.`
-        : role === 'motion' ? `Refer to the motion in Video ${i + 1}.`
-          : `Refer to the camera movement and motion in Video ${i + 1}.`);
+    const v = tag('Video', i + 1);
+    defs.push(role === 'camera' ? `Refer to the camera movement in ${v}.`
+      : role === 'style' ? `Refer to the visual style of ${v}.`
+        : role === 'motion' ? `Refer to the motion in ${v}.`
+          : `Refer to the camera movement and motion in ${v}.`);
   }
   const shotLines = shots.map((sh, i) => {
     const parts = [];
@@ -170,13 +190,21 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     const kFirst = kfs[0] || 0;
     const kLast = kfs.length > 1 ? kfs[kfs.length - 1] : 0;
     const kMids = kfs.slice(1, -1);
-    if (kFirst && videoTraits(modelKey).keyframeGrammar === 'keyframes') {
-      // Seedance 2.5 keyframe grammar (strict alignment, UNLOCKED task — ratio and
-      // duration stay ours). 2.0 keeps the probe-verified phrasing below.
-      parts.push(kfs.length > 1
-        ? `Use ${kfs.map((k) => `Image ${k}`).join(', ')} in order as keyframes.`
-        : `Use Image ${kFirst} as the opening keyframe.`);
-      if (sDesc) parts.push(`Image ${kFirst} is the opening frame — ${sDesc}.`);
+    if (kFirst && g25) {
+      // Official sd25-pe keyframe grammar: role sentences VERBATIM ("Use @ImageN as the
+      // first frame." — never weakened to "opening keyframe"), each keyframe's state
+      // described in its own sentence, all role statements BEFORE the action.
+      if (kfs.length > 1) parts.push(`Use ${kfs.map((k) => tag('Image', k)).join(', ')} as keyframes in that order.`);
+      parts.push(`Use ${tag('Image', kFirst)} as the first frame.`);
+      if (sDesc) parts.push(`This first frame defines ${wire(sDesc)}.`);
+      kMids.forEach((k, mi) => {
+        const d = String((sh.kfDescs || [])[mi + 1] || '').trim().replace(/\.$/, '');
+        parts.push(`${tag('Image', k)} defines the next keyframe${d ? `: ${wire(d)}` : ''}.`);
+      });
+      if (kLast) {
+        parts.push(`Use ${tag('Image', kLast)} as the last frame.`);
+        if (eDesc) parts.push(`This last frame defines ${wire(eDesc)}.`);
+      }
     } else if (kFirst) {
       const open = i === 0
         ? `The shot opens exactly on the composition of Image ${kFirst}`
@@ -187,28 +215,27 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     const move = String(sh.move || '').trim();
     if (move) parts.push(move.endsWith('.') ? move : `${move}.`);
     const action = stripTrailingTransition(sh.action);
-    if (action) parts.push(action);
+    if (action) parts.push(wire(action));
     const aud = String(sh.audio || '').trim();
-    if (aud) parts.push(aud);
-    if (kLast) {
-      parts.push(videoTraits(modelKey).keyframeGrammar === 'keyframes'
-        ? `Image ${kLast} is the closing frame${eDesc ? `: ${eDesc}` : ''}.`
-        : `The shot ends exactly on the composition of Image ${kLast}${eDesc ? `: ${eDesc}` : ''}.`);
+    if (aud) parts.push(wire(aud));
+    if (kLast && !g25) {
+      parts.push(`The shot ends exactly on the composition of Image ${kLast}${eDesc ? `: ${eDesc}` : ''}.`);
     }
-    return `Shot ${i + 1}: ${parts.join(' ')}`;
+    return g25 && shots.length === 1 ? parts.join(' ') : `Shot ${i + 1}: ${parts.join(' ')}`;
   });
   const look = [String(style || '').trim(), String(cinematography || '').trim()].filter(Boolean).join(' · ');
-  if (videoTraits(modelKey).overallBlock) {
-    // Closes with the guide's recurring-elements block: the look, then an identity
-    // clause naming the actual character chips, then quality + constraints.
+  if (g25) {
+    // Official closing block: consistency stated over the ACTUAL subjects — and per the
+    // spec's "no unrequested generic constraints" principle, NO quality pack, NO
+    // watermark/subtitle/twin boilerplate.
     const chars = [...byName.entries()].filter(([, sub]) => sub.role === 'character');
     const consistency = chars.length
-      ? `The appearances of ${chars.map(([name, sub]) => `${name} (${sub.indices.map((i) => `Image ${i}`).join(' and ')})`).join(', ')} remain strictly consistent throughout — no face changes.`
-      : 'Subject appearances remain strictly consistent throughout.';
+      ? `Keep the identity, count, and clothing of ${chars.map(([name, sub]) => `${name} (${sub.indices.map((i) => tag('Image', i)).join(' and ')})`).join(', ')} stable throughout.`
+      : 'Keep subject identities and counts stable throughout.';
     return [
       defs.join('\n'),
       shotLines.join('\n'),
-      `Overall requirements: ${[look, consistency, SEEDANCE_QUALITY_LINE, SEEDANCE_CONSTRAINT_TAIL].filter(Boolean).join(' ')}`,
+      `【Maintain Consistency】 ${[consistency, look ? `The visuals present ${look}.` : ''].filter(Boolean).join(' ')}`,
     ].filter(Boolean).join('\n\n');
   }
   return [

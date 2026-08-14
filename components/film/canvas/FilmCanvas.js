@@ -238,6 +238,15 @@ const poolUrls = (refs) => (refs || []).map((r) => poolRef(r).url).filter(Boolea
 // Serialize the APPROVED event list (plain strings) into the numbered script the division carves.
 const eventScriptOf = (evts) => (evts || []).map((e, i) => `${i + 1}. ${e}`).join('\n');
 
+// The author writes against ONLY its shot's figure refs (structural activation — it
+// cannot cite an image it never saw), numbering them locally [Image 1..k]; the stored
+// text speaks GLOBAL pool numbers, so remap local → pool via sentinel swap.
+const localToPoolTags = (text, figures) => {
+  let t = String(text || '');
+  (figures || []).forEach((g, i) => { t = t.split(`[Image ${i + 1}]`).join(`@@P${g}@@`); });
+  return t.replace(/@@P(\d+)@@/g, '[Image $1]');
+};
+
 // 'Film' packing: strip rows → the FEWEST consecutive chunks whose durations sum
 // under the video model's cap. Order is the film — never reordered, never split
 // mid-row. Pure; each returned row carries its clamped duration.
@@ -3560,12 +3569,15 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         let flagged = 0;
         await runWithConcurrency(shots.map((s, i) => async () => {
           try {
+            // ONLY the shot's carved figures attach — the author cannot activate a
+            // ref the shot doesn't contain; its local numbering remaps to pool numbers.
+            const figs = (Array.isArray(s.figures) ? s.figures : []).filter((g) => poolUrls[g - 1]);
             const a = await storyboardAuthor({
               script: rawScript || script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate, develops: s.develops,
-              prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: poolUrls,
+              prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: figs.map((g) => poolUrls[g - 1]),
               durationSec: s.durationSec,
             }, ctx);
-            shots[i] = { ...shots[i], body: a.body, motion: a.motion, exiting: a.exiting, audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
+            shots[i] = { ...shots[i], body: localToPoolTags(a.body, figs), motion: localToPoolTags(a.motion, figs), exiting: localToPoolTags(a.exiting, figs), audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
             if (a.missingDialogue?.length) flagged += 1;
           } catch (e) {
             shots[i] = { ...shots[i], authorPending: false, authorError: e.message };

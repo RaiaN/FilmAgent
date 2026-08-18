@@ -8,7 +8,7 @@
 //   reason({ prompt, systemPrompt, images, video, modelId }) -> { content }
 //   startVideo({ content, model, resolution, ratio, duration, generateAudio }) -> { taskId }
 //   pollVideo({ taskId, intervalMs, timeoutMs }) -> { videoUrl }
-//   generateSpeech({ text, voice, model, instruction, imageData, format, sampleRate }) -> { url, bytes, duration }
+//   generateSpeech({ text, imageData, audioRefs, format, sampleRate }) -> { url, bytes, duration }
 
 // Pull a human-readable string out of an API error body (may nest under
 // .error.message or .details). Never returns "[object Object]".

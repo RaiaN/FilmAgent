@@ -1582,14 +1582,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // exist; see runDivide's reference fold-in).
 
 
-  // The AUDIO agent: the typed prompt goes out VERBATIM (word for word, original
-  // language) and comes back as a playable clip node — one explicit tap, one call,
-  // mixed into nothing. Seed Audio 1.0 (default) follows the prompt — voice id
-  // optional; references = up to 3 ticked board clips (@Audio1..N — a voice or
-  // sound to imitate) OR one board image for scene mood; Seed TTS 2.0 reads
-  // word-for-word and needs the voice id. The clip lands loading-first (instant
-  // feedback), fills in when the voice API returns, and the media store checks
-  // its data: url into a real file seconds later.
+  // The AUDIO agent (Seed Audio 1.0): the typed prompt goes out VERBATIM and comes
+  // back as a playable clip node — one explicit tap, one call, mixed into nothing.
+  // References = up to 3 ticked board clips (@Audio1..N — a voice or sound to
+  // imitate) OR one board image for scene mood. The clip lands loading-first,
+  // fills in when the voice API returns, and the media store checks its data: url
+  // into a real file seconds later.
   const runAudioClip = useCallback(async ({ text, imageRef = '', audioRefs = [], near = null } = {}) => {
     const line = String(text || '').trim() ? String(text) : '';
     if (!line) { Message.warning('Type the audio prompt first — it goes to the model word for word.'); return; }

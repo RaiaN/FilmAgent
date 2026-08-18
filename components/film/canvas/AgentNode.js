@@ -28,7 +28,7 @@ const summarize = (agentId, s, imageAssets) => {
     case 'previz':
       return (s.brief || '').trim() || 'No scene text — Run reads the selected Brief.';
     case 'audio':
-      return `${(s.model || 'seedAudio') === 'seedAudio' ? 'Seed Audio 1.0' : 'Seed TTS 2.0'}${prompt ? ` · ${prompt}` : ' · no prompt yet'}`;
+      return `Seed Audio 1.0${prompt ? ` · ${prompt}` : ' · no prompt yet'}`;
     case 'characterVariations':
     case 'locationVariations': {
       const anchor = s.anchorId ? (label(s.anchorId) || 'source picked') : 'no source image yet';

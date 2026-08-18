@@ -212,13 +212,10 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   return { taskId, prompt };
 };
 
-// The AUDIO agent's one operation. The user's text goes out VERBATIM (the consistency
-// rule applies to speech too — no rewriting, no translation): with Seed Audio 1.0
-// (default) it IS the prompt the model follows (ambience / drama / SFX / speech; voice
-// id optional; references = up to 3 audio clips as data: urls — @Audio1..N in the
-// prompt — OR one reference image for scene mood), with Seed TTS 2.0 it is spoken
-// word-for-word by a required voice id, `instruction` being an explicit user-typed
-// delivery direction. Returns the clip as a data: url; the caller decides where it lands.
+// The AUDIO agent's one operation (Seed Audio 1.0). The user's text goes out VERBATIM
+// (no rewriting, no translation) — it IS the prompt the model follows (ambience /
+// drama / SFX / speech); references = up to 3 audio clips (@Audio1..N in the prompt)
+// OR one reference image for scene mood. Returns the clip url; the caller lands it.
 export const generateFilmAudio = async ({ text, imageData, audioRefs } = {}, ctx) => {
   if (!String(text || '').trim()) throw new Error('The Audio agent needs the prompt first.');
   if (typeof ctx?.client?.generateSpeech !== 'function') throw new Error('This transport has no audio support yet (canvas/browser client only for now).');

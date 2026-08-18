@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layout, Button, Drawer, Input, Message, Card, Typography } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconSound, IconApps } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
@@ -12,7 +12,6 @@ import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
 import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
 import AssetUploadPlayground from '../components/AssetUploadPlayground';
-import SpeechPlayground from '../components/SpeechPlayground';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
@@ -34,7 +33,7 @@ const buildInitialResultState = () =>
   }, {});
 
 // Raw model playgrounds grouped under the "Tools" meta tab.
-const TOOL_TABS = ['seedream', 'seedance', 'asset-upload', 'llm', 'speech'];
+const TOOL_TABS = ['seedream', 'seedance', 'asset-upload', 'llm'];
 
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
@@ -290,7 +289,7 @@ export default function Home() {
 
   const handleSeedreamSubmit = async (event) => {
     event.preventDefault();
-    if (activeModelId !== 'asset-upload' && activeModelId !== 'speech' && !canRun) {
+    if (activeModelId !== 'asset-upload' && !canRun) {
       setSeedreamResult({ error: 'Please add your API key first.' });
       setIsSettingsOpen(true);
       return;
@@ -329,22 +328,11 @@ export default function Home() {
             2. If the user asks for generation advice, recommend prompts compatible with 'Seedream' (Image Gen) or 'Seedance' (Video Gen).
             3. Do NOT recommend complex workflows, external tools, or features not available in a standard text-to-media generation interface (e.g. do not suggest manual masking, 3D modeling, or post-processing software).`
           };
-      } else if (activeModelId === 'speech') {
-          endpoint = '/api/speech';
-          requestBody = {
-            speaker: formValues.speaker || '',
-            text: formValues.text || '',
-            format: formValues.format || 'mp3',
-            sampleRate: formValues.sampleRate || 24000,
-            speechRate: formValues.speechRate ?? 0,
-            loudnessRate: formValues.loudnessRate ?? 0,
-            contextText: formValues.contextText || '',
-          };
       } else {
           requestBody = constructWorkflowSeedreamPayload(formValues);
       }
 
-      const requestPayload = (activeModelId === 'asset-upload' || activeModelId === 'speech')
+      const requestPayload = (activeModelId === 'asset-upload')
         ? requestBody
         : { ...requestBody, apiKey: apiKey.trim() };
 
@@ -483,10 +471,6 @@ export default function Home() {
                                                 <IconRobot style={{ marginRight: 8 }} />
                                                 AI Analysis
                                             </Button>
-                                            <Button type={activeModelId === 'speech' ? 'primary' : 'secondary'} onClick={() => selectTool('speech')}>
-                                                <IconSound style={{ marginRight: 8 }} />
-                                                Speech (Seed TTS)
-                                            </Button>
                                         </Button.Group>
                                     </div>
                                 )}
@@ -556,18 +540,8 @@ export default function Home() {
                         capabilities={modelCapabilities[formValues.model]}
                     />
                 </div>
-                <div style={{ display: activeModelId === 'speech' ? 'block' : 'none' }}>
-                    <SpeechPlayground
-                        formValues={formValues}
-                        setFormValues={setFormValues}
-                        onSubmit={handleSeedreamSubmit}
-                        loading={seedreamLoading}
-                        result={seedreamResult}
-                    />
-                </div>
-
                 <div style={{ marginTop: 24 }}>
-                     {activeModelId !== 'llm' && activeModelId !== 'speech' && activeModelId !== 'film-agent' && (
+                     {activeModelId !== 'llm' && activeModelId !== 'film-agent' && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}

@@ -1590,19 +1590,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // word-for-word and needs the voice id. The clip lands loading-first (instant
   // feedback), fills in when the voice API returns, and the media store checks
   // its data: url into a real file seconds later.
-  const runAudioClip = useCallback(async ({ text, voice = '', instruction = '', model = 'seedAudio', imageRef = '', audioRefs = [], near = null } = {}) => {
+  const runAudioClip = useCallback(async ({ text, imageRef = '', audioRefs = [], near = null } = {}) => {
     const line = String(text || '').trim() ? String(text) : '';
-    if (!line) { Message.warning(model === 'seedAudio' ? 'Type the audio prompt first — it goes to the model word for word.' : 'Type the line to speak first — it is spoken word for word.'); return; }
-    // Seed Audio casts voices FROM THE PROMPT — no voice id in that mode (a stale panel
-    // value must not sneak in as a `speaker` reference and collide with the mood image).
-    if (model === 'seedAudio') voice = '';
-    else if (!String(voice || '').trim()) { Message.warning('Seed TTS 2.0 needs a voice id — set it in the panel (or switch to Seed Audio 1.0).'); return; }
+    if (!line) { Message.warning('Type the audio prompt first — it goes to the model word for word.'); return; }
     // References ride as URLS (data:/store/remote) — the ROUTE resolves the bytes
-    // server-side, the only layer that can always read them (the browser can't fetch
-    // cross-origin signed urls; the voice host can't fetch anything of ours). Only
-    // an oversized dropped data: image is shrunk here, where a canvas exists.
+    // server-side, the only layer that can always read them. Only an oversized
+    // dropped data: image is shrunk here, where a canvas exists.
     let imageData;
-    if (model === 'seedAudio' && imageRef) {
+    if (imageRef) {
       const refNode = nodesRef.current.find((x) => x.id === imageRef);
       const u = refNode && refUrl(refNode);
       if (u) imageData = String(u).startsWith('data:') ? await downscaleRef(u) : absLocalMediaUrl(u);
@@ -1610,30 +1605,27 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     }
     // Voice/sound references: board clips in pick order — @Audio1..N in the prompt.
     const audioRefData = [];
-    if (model === 'seedAudio') {
-      for (const rid of (audioRefs || []).slice(0, 3)) {
-        const clip = nodesRef.current.find((x) => x.id === rid);
-        const u = clip && refUrl(clip);
-        if (!u) { Message.warning('A picked reference clip is gone from the board — skipping it.'); continue; }
-        if (Number(clip.data?.duration) > 30) Message.warning(`"${clip.data?.label || 'clip'}" runs ${Math.round(clip.data.duration)}s — Seed Audio reference clips cap at 30s, it may be rejected.`);
-        audioRefData.push(absLocalMediaUrl(u));
-      }
-      if (audioRefData.length && imageData) {
-        Message.warning('Audio references and a mood image cannot mix — using the audio references.');
-        imageData = undefined;
-      }
+    for (const rid of (audioRefs || []).slice(0, 3)) {
+      const clip = nodesRef.current.find((x) => x.id === rid);
+      const u = clip && refUrl(clip);
+      if (!u) { Message.warning('A picked reference clip is gone from the board — skipping it.'); continue; }
+      if (Number(clip.data?.duration) > 30) Message.warning(`"${clip.data?.label || 'clip'}" runs ${Math.round(clip.data.duration)}s — Seed Audio reference clips cap at 30s, it may be rejected.`);
+      audioRefData.push(absLocalMediaUrl(u));
+    }
+    if (audioRefData.length && imageData) {
+      Message.warning('Audio references and a mood image cannot mix — using the audio references.');
+      imageData = undefined;
     }
     const pref = near || (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 260 }) : { x: 220, y: 240 });
     const position = freeOrigin({ w: 280, h: 150, preferred: pref });
     const node = createAssetNode({ kind: 'audio', url: '', label: line.trim().slice(0, 40), position, layerId: 'audio' });
     node.data.loading = true;
     node.data.audioText = line;
-    if (voice) node.data.voice = voice;
     setNodes((ns) => ns.concat(node));
-    traceRef.current.startRun({ note: `Agent · Audio (${model === 'seedAudio' ? 'Seed Audio 1.0' : 'Seed TTS 2.0'})` });
+    traceRef.current.startRun({ note: 'Agent · Audio (Seed Audio 1.0)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const { url, duration } = await generateFilmAudio({ text: line, voice, model, instruction, imageData, audioRefs: audioRefData }, ctx);
+      const { url, duration } = await generateFilmAudio({ text: line, imageData, audioRefs: audioRefData }, ctx);
       // duration persists on the clip — the SHOT-card attach path shows it and warns
       // when it exceeds Seedance's 15s reference-audio cap.
       setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, url, duration: Number(duration) || null, loading: false } } : n)));
@@ -3559,6 +3551,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           intExt: s.intExt, develops: s.develops, span: s.span,
           body: s.span, motion: '', exiting: '', audio: '', expression: '', authorPending: true,
         }));
+        // A figure-less shot authors with ZERO reference anchors (no [Image N] at all) —
+        // legal, but never silent: the carve owed every shot its figures.
+        const noFig = poolUrls.length ? shots.map((s, i) => (!(s.figures || []).length ? i + 1 : 0)).filter(Boolean) : [];
+        if (noFig.length) Message.warning(`Carve assigned NO figures to shot${noFig.length === 1 ? '' : 's'} ${noFig.join(', ')} — ${noFig.length === 1 ? 'it' : 'they'} will author without reference anchors. Check the rows' figure chips; re-create the list if that's wrong.`);
         const syncChat = () => setNodes((ns) => ns.map((n) => (n.id === nodeId
           ? { ...n, data: { ...n.data, busy: false, shots: [...shots], refs, shotCount: shots.length } }
           : n)));
@@ -4433,7 +4429,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         if (!typed && !selStory) { Message.warning('Type the scene text — or select a Brief node and leave the field empty.'); return; }
         await runFloorPlan({ brief: typed || String(selStory.data.idea).trim(), near: beside });
       } else if (agentId === 'audio') {
-        await runAudioClip({ text: s.prompt, voice: s.voice, instruction: s.instruction, model: s.model || 'seedAudio', imageRef: s.imageRef || '', audioRefs: s.audioRefs || [], near: beside });
+        await runAudioClip({ text: s.prompt, imageRef: s.imageRef || '', audioRefs: s.audioRefs || [], near: beside });
       } else if (agentId === 'characterVariations' || agentId === 'locationVariations') {
         const anchor = nodesRef.current.find((n) => n.id === s.anchorId && n.data?.kind === 'image' && n.data?.url);
         if (!anchor) { Message.warning('Pick the source image on the card first.'); return; }

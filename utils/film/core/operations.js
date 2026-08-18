@@ -219,16 +219,15 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
 // prompt — OR one reference image for scene mood), with Seed TTS 2.0 it is spoken
 // word-for-word by a required voice id, `instruction` being an explicit user-typed
 // delivery direction. Returns the clip as a data: url; the caller decides where it lands.
-export const generateFilmAudio = async ({ text, voice, model = 'seedAudio', instruction = '', imageData, audioRefs } = {}, ctx) => {
-  if (!String(text || '').trim()) throw new Error('The Audio agent needs the prompt / line first.');
-  if (model !== 'seedAudio' && !String(voice || '').trim()) throw new Error('Seed TTS 2.0 needs a voice id (Seed Audio 1.0 does not).');
-  if (typeof ctx?.client?.generateSpeech !== 'function') throw new Error('This transport has no speech support yet (canvas/browser client only for now).');
+export const generateFilmAudio = async ({ text, imageData, audioRefs } = {}, ctx) => {
+  if (!String(text || '').trim()) throw new Error('The Audio agent needs the prompt first.');
+  if (typeof ctx?.client?.generateSpeech !== 'function') throw new Error('This transport has no audio support yet (canvas/browser client only for now).');
   const out = await withRetry(
-    () => ctx.client.generateSpeech({ text: String(text), voice, model, instruction, imageData, audioRefs }),
+    () => ctx.client.generateSpeech({ text: String(text), imageData, audioRefs }),
     { tries: 2, baseMs: 2000 },
   );
   if (!out?.url) throw new Error('The audio engine returned no clip.');
-  return out; // { url, bytes, duration, format, voice?, model }
+  return out; // { url, bytes, duration, format, model }
 };
 
 

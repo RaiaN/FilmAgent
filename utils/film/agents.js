@@ -335,14 +335,10 @@ export const shotAgent = {
   },
 };
 
-// The AUDIO agent: the typed prompt goes out VERBATIM (word for word, original language —
-// the consistency rule applies to speech) and comes back as a playable clip node on the
-// board — for auditioning narration, line reads, ambience and SFX cheaply before spending
-// on takes. One explicit tap = one call; nothing is mixed into any film. Standalone by
-// design (no SHOT-card or chat hooks yet). Engines: Seed Audio 1.0 (default — its own
-// tts/create endpoint; prompt-driven, voice optional, or ONE reference image for scene
-// mood) and Seed TTS 2.0 (verbatim reader, voice id required). The rail Run is
-// the agent card's Run calls runAudioClip; this run() is the headless/SDK entry.
+// The AUDIO agent — Seed Audio 1.0: the typed prompt goes out VERBATIM (the consistency
+// rule applies to sound) and comes back as a playable clip node — line reads, narration,
+// ambience, SFX; references = up to 3 board clips (@Audio1..N) OR one mood image.
+// One explicit tap = one call; nothing is mixed into any film.
 export const audioAgent = {
   id: 'audio',
   label: 'Audio',
@@ -350,14 +346,11 @@ export const audioAgent = {
   color: AGENT_COLORS.audio,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '', model: 'seedAudio', voice: '', instruction: '', imageRef: '', audioRefs: [] },
+  defaultSettings: { prompt: '', imageRef: '', audioRefs: [] },
   describe: 'Your words, word for word → a playable clip: line reads, narration, ambience, SFX — optionally board clips as @Audio1..N voice/sound references, or one board image for scene mood. Nothing is mixed into the film.',
   async run({ prompt, settings = {}, apiKey, ctx }) {
-    const model = settings.model || 'seedAudio';
     const out = await ops.generateFilmAudio(
-      // Seed Audio casts voices from the prompt — `voice` (a speaker id) is a seedTts input.
-      // settings.imageData / settings.audioRefs arrive as data: urls (this entry has no board).
-      { text: (prompt && String(prompt)) || settings.prompt || '', voice: model === 'seedAudio' ? '' : (settings.voice || ''), model, instruction: settings.instruction || '', imageData: settings.imageData, audioRefs: settings.audioRefs },
+      { text: (prompt && String(prompt)) || settings.prompt || '', imageData: settings.imageData, audioRefs: settings.audioRefs },
       ctx || browserCtx(apiKey),
     );
     return { created: [{ kind: 'audio', url: out.url, label: String(prompt || settings.prompt || 'Audio').slice(0, 40) }], errors: [] };

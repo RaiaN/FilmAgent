@@ -163,7 +163,7 @@ export const constructAssetUploadPayload = (formValues) => {
 
 export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) => {
     // Only the Seedream (image) and Seedance (video) tabs tailor their fields by model.
-    // Other tabs (film-agent, speech, asset-upload, llm) carry no `model`, so there is
+    // Other tabs (film-agent, asset-upload, llm) carry no `model`, so there is
     // nothing to tailor — return early instead of warning about an empty model.
     if (activeModelId !== 'seedream' && activeModelId !== 'seedance') {
         return prevSchema;

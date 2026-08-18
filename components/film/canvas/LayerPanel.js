@@ -301,55 +301,25 @@ const VariationsFields = ({ agentId, s, up, imageAssets, onOpenRefDrawer }) => (
 
 
 const AudioFields = ({ s, up, imageAssets, audioAssets, onOpenRefDrawer }) => {
-  const engine = s.model || 'seedAudio';
-  const seedAudio = engine === 'seedAudio';
   const nRefs = (s.audioRefs || []).length;
   return (
     <>
       <div>
-        <Text style={FIELD_LABEL}>Engine</Text>
-        <Select
-          size="small" value={engine} onChange={(v) => up({ model: v })} style={{ width: '100%' }}
-          options={[
-            { label: 'Seed Audio 1.0 — prompt-driven: speech, ambience, SFX, whole scenes', value: 'seedAudio' },
-            { label: 'Seed TTS 2.0 — reads your text verbatim in a fixed voice', value: 'seedTts' },
-          ]}
-        />
-      </div>
-      <div>
-        <Text style={FIELD_LABEL}>
-          {seedAudio ? 'Audio prompt — sent word for word; describe the voices, delivery and sounds you want (≤2048 chars, ≤120s of audio)' : 'Line to speak — spoken word for word, original language'}
-        </Text>
+        <Text style={FIELD_LABEL}>Audio prompt — sent word for word; describe the voices, delivery and sounds you want (≤2048 chars, ≤120s of audio)</Text>
         <Input.TextArea
           value={s.prompt || ''} onChange={(v) => up({ prompt: v })}
-          placeholder={seedAudio ? 'a line to speak, an ambience, a sound effect, a whole radio scene…' : 'narration, a line read, a dialogue draft…'}
+          placeholder="a line to speak, an ambience, a sound effect, a whole radio scene…"
           autoSize={{ minRows: 3, maxRows: 8 }}
         />
       </div>
-      {!seedAudio && (
-        <div>
-          <Text style={FIELD_LABEL}>Voice id</Text>
-          <Input size="small" value={s.voice || ''} onChange={(v) => up({ voice: v })} placeholder="a BytePlus voice id, e.g. en_female_stokie_uranus_bigtts" />
-        </div>
-      )}
-      {!seedAudio && (
-        <div>
-          <Text style={FIELD_LABEL}>Delivery direction (optional)</Text>
-          <Input size="small" value={s.instruction || ''} onChange={(v) => up({ instruction: v })} placeholder="tone / emotion, e.g. 'a hushed, urgent whisper'" />
-        </div>
-      )}
-      {seedAudio && (
-        <div>
-          <Text style={FIELD_LABEL}>Voice / sound references (optional, up to 3) — pick board clips, then call them @Audio1{nRefs > 1 ? `…@Audio${nRefs}` : ''} in the prompt (pick order = number)</Text>
-          <BoardAudioPicker audioAssets={audioAssets} value={s.audioRefs || []} onPick={(audioRefs) => up({ audioRefs, ...(audioRefs.length ? { imageRef: '' } : {}) })} onBrowse={onOpenRefDrawer ? () => onOpenRefDrawer('audioRefs') : undefined} />
-        </div>
-      )}
-      {seedAudio && (
-        <div>
-          <Text style={FIELD_LABEL}>Mood reference (optional) — one board image sets the scene; cannot mix with audio references</Text>
-          <BoardImagePicker imageAssets={imageAssets} value={s.imageRef || ''} onPick={(imageRef) => up({ imageRef, ...(imageRef ? { audioRefs: [] } : {}) })} onBrowse={onOpenRefDrawer ? () => onOpenRefDrawer('imageRef') : undefined} />
-        </div>
-      )}
+      <div>
+        <Text style={FIELD_LABEL}>Voice / sound references (optional, up to 3) — pick board clips, then call them @Audio1{nRefs > 1 ? `…@Audio${nRefs}` : ''} in the prompt (pick order = number)</Text>
+        <BoardAudioPicker audioAssets={audioAssets} value={s.audioRefs || []} onPick={(audioRefs) => up({ audioRefs, ...(audioRefs.length ? { imageRef: '' } : {}) })} onBrowse={onOpenRefDrawer ? () => onOpenRefDrawer('audioRefs') : undefined} />
+      </div>
+      <div>
+        <Text style={FIELD_LABEL}>Mood reference (optional) — one board image sets the scene; cannot mix with audio references</Text>
+        <BoardImagePicker imageAssets={imageAssets} value={s.imageRef || ''} onPick={(imageRef) => up({ imageRef, ...(imageRef ? { audioRefs: [] } : {}) })} onBrowse={onOpenRefDrawer ? () => onOpenRefDrawer('imageRef') : undefined} />
+      </div>
     </>
   );
 };

@@ -247,18 +247,26 @@ const localToPoolTags = (text, figures) => {
   return t.replace(/@@P(\d+)@@/g, '[Image $1]');
 };
 
-// 'Film' packing: strip rows → the FEWEST consecutive chunks whose durations sum
-// under the video model's cap. Order is the film — never reordered, never split
-// mid-row. Pure; each returned row carries its clamped duration.
-const packStripChunks = (rows, maxSec) => {
+// 'Film' packing: strip rows → EXACTLY the requested number of consecutive chunks
+// (default 1 = the whole strip in one SHOT card), balanced by duration. Order is the
+// film — never reordered, never split mid-row. Pure.
+const packStripChunks = (rows, cardCount = 1) => {
+  const n = Math.max(1, Math.min(rows.length, Math.round(Number(cardCount) || 1)));
+  const total = rows.reduce((a, r) => a + r.durationSec, 0);
   const chunks = [];
   let cur = [];
   let sum = 0;
-  rows.forEach((r) => {
-    const sec = Math.min(maxSec, Math.max(5, Math.round(Number(r.durationSec) || 10)));
-    if (cur.length && sum + sec > maxSec) { chunks.push(cur); cur = []; sum = 0; }
-    cur.push({ ...r, durationSec: sec });
-    sum += sec;
+  let remaining = total;
+  let left = n;
+  rows.forEach((r, i) => {
+    cur.push(r);
+    sum += r.durationSec;
+    const rowsAfter = rows.length - i - 1;
+    if (left > 1 && ((sum >= remaining / left && rowsAfter >= left - 1) || rowsAfter === left - 1)) {
+      chunks.push(cur);
+      remaining -= sum;
+      cur = []; sum = 0; left -= 1;
+    }
   });
   if (cur.length) chunks.push(cur);
   return chunks;
@@ -3027,15 +3035,15 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     Message.success(`SHOT ${cut + 1} laid from “${String(kf.data.beat || 'keyframe').slice(0, 24)}” — refs attached, K1${hasEnd ? ' + K2' : ''} pinned; 🎬 when ready.`);
   }, [freeOrigin, layAnchoredCard]);
 
-  // 'FILM' — the strip's one-tap road to takes: pack consecutive rows into the FEWEST
-  // SHOT cards under the video model's duration cap; each card carries the chunk's
-  // stills pinned as its keyframe chain and the rows' text VERBATIM as `Shot N:`
-  // blocks (the official storyboard grammar — no invented timestamps). Deterministic —
-  // no LLM between the approved strip and the cards. The whole REFS pool rides FIRST on every card, in pool order,
+  // 'FILM' — the strip's one-tap road to takes: pack the rows into the REQUESTED
+  // number of SHOT cards (default 1 — the whole strip rides one card); each card
+  // carries its chunk's stills pinned as the keyframe chain and the rows' text
+  // VERBATIM as `Shot N:` blocks (the official storyboard grammar — no invented
+  // timestamps). Deterministic — no LLM between the approved strip and the cards. The whole REFS pool rides FIRST on every card, in pool order,
   // so the rows' global [Image N] tags stay valid with zero rewriting; the stills
   // append after as the keyframe chips. Cards land pre-chained (bonds = order; the
   // card's own keyframes remain the only continuity mechanism).
-  const filmStrip = useCallback((panelId) => {
+  const filmStrip = useCallback((panelId, cardCount = 1) => {
     const chatId = String(panelId).replace('sbpanel', 'sbchat');
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const shots = chat?.data?.shots || [];
@@ -3067,7 +3075,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const maxSec = maxShotSeconds(modelKey);
     const refCap = videoTraits(modelKey).refCap;
     const stamped = videoTraits(modelKey).keyframeGrammar === 'keyframes'; // interval grammar rides with the keyframe-chain dialect
-    const chunks = packStripChunks(rows, maxSec);
+    const chunks = packStripChunks(rows, cardCount);
     // The whole pool, in pool order — the [Image N] numbering the rows' text uses.
     const pool = (chat?.data?.refs || chat?.data?.pool || []).map(poolRef).filter((p) => p.url);
     const poolChips = pool.map((p) => {
@@ -3134,8 +3142,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         id: `cont-${idPrefix}-${i}-${idPrefix}-${i + 1}`, source: `${idPrefix}-${i}`, target: `${idPrefix}-${i + 1}`, type: 'continuity',
       })).filter((e) => !es.some((x) => x.id === e.id))));
     }
-    if (overCap) Message.warning(`${overCap} card${overCap === 1 ? '' : 's'} exceed${overCap === 1 ? 's' : ''} the model's ${refCap}-reference cap — later chips are trimmed at shoot time; slim the REFS pool or shorten the strip's shots.`);
-    Message.success(`Filmed the strip into ${chunks.length} SHOT card${chunks.length === 1 ? '' : 's'} (${chunks.map((c) => c.reduce((a, r) => a + r.durationSec, 0)).join('s + ')}s)${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''}${missingEnd.length ? ` — shot${missingEnd.length === 1 ? '' : 's'} ${missingEnd.join(', ')} pin${missingEnd.length === 1 ? 's' : ''} START only (END not rendered)` : ''} — 🎬 each card in order.`);
+    if (overCap) Message.warning(`${overCap} card${overCap === 1 ? '' : 's'} exceed${overCap === 1 ? 's' : ''} the model's ${refCap}-reference cap — later chips are trimmed at shoot time; slim the REFS pool or split into more cards.`);
+    // A chunk whose rows sum past the model's duration cap gets CLAMPED at the card —
+    // the take compresses (an animatic, not the full-length film). Reported, never silent.
+    const overLong = chunks.map((c, i) => ({ i: i + 1, sec: c.reduce((a, r) => a + r.durationSec, 0) })).filter((x) => x.sec > maxSec);
+    if (overLong.length) Message.info(`Card${overLong.length === 1 ? '' : 's'} ${overLong.map((x) => `${x.i} (${x.sec}s)`).join(', ')} exceed${overLong.length === 1 ? 's' : ''} the model's ${maxSec}s cap — the take clamps to ${maxSec}s and the action compresses; raise the card count for full length.`);
+    Message.success(`Filmed the strip into ${chunks.length} SHOT card${chunks.length === 1 ? '' : 's'} (${chunks.map((c) => c.reduce((a, r) => a + r.durationSec, 0)).join('s + ')}s)${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''}${missingEnd.length ? ` — shot${missingEnd.length === 1 ? '' : 's'} ${missingEnd.join(', ')} pin${missingEnd.length === 1 ? 's' : ''} START only (END not rendered)` : ''}${chunks.length > 1 ? ' — 🎬 each card in order.' : ' — 🎬 when ready.'}`);
   }, [freeOrigin, onPatchCut, applyEdges]);
 
   // CANON media references — audio/video nodes the user tagged (★ Reference): every SHOT

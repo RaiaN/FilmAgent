@@ -1,6 +1,6 @@
 import { memo, useContext, useEffect, useMemo, useState } from 'react';
 import { useNodesData } from '@xyflow/react';
-import { Button, Typography } from '@arco-design/web-react';
+import { Button, InputNumber, Typography } from '@arco-design/web-react';
 import { IconRefresh, IconPlayCircle, IconLoading, IconVideoCamera, IconArrowUp, IconArrowDown, IconClose, IconExpand, IconBrush, IconTag, IconEdit } from '@arco-design/web-react/icon';
 import { AssetNodeContext } from './AssetNode';
 import { StoryboardChatContext } from './StoryboardChatNode';
@@ -62,6 +62,8 @@ const StoryboardStripInner = ({ id, data, selected }) => {
   const rowIds = useMemo(() => shots.map((_, i) => `${id}-${i}`), [id, shots.length]);
   const rows = useNodesData(rowIds);
   const totalSec = shots.reduce((a, s) => a + (Number(s.durationSec) || 0), 0);
+  // How many SHOT cards Film packs into — 1 (default) = the whole strip in one card.
+  const [filmCards, setFilmCards] = useState(1);
 
   return (
     <div style={{ width: 780, background: '#fff', borderRadius: 10, overflow: 'hidden', border: `2px solid ${selected ? '#165dff' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(22,93,255,0.12)' : '0 1px 4px rgba(0,0,0,0.08)' }}>
@@ -71,15 +73,26 @@ const StoryboardStripInner = ({ id, data, selected }) => {
         <Text bold style={{ fontSize: 12 }}>Storyboard strip</Text>
         <Text type="secondary" style={{ fontSize: 10 }}>{shots.length} shot{shots.length === 1 ? '' : 's'} · {totalSec}s</Text>
         {shots.length > 0 && onFilmStrip && (
-          <Button
-            className="nodrag"
-            size="mini"
-            type="primary"
-            style={{ background: '#b06f10', borderColor: '#b06f10', height: 20 }}
-            icon={<IconVideoCamera />}
-            onClick={(e) => { e.stopPropagation(); onFilmStrip(id); }}
-            title="Film — pack the whole strip into the fewest SHOT cards the video model can take: stills pinned as the keyframe chain, rows' text verbatim, cards chained in order. No LLM, no generation — 🎬 each card when ready."
-          >Film</Button>
+          <span className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+            <Button
+              size="mini"
+              type="primary"
+              style={{ background: '#b06f10', borderColor: '#b06f10', height: 20 }}
+              icon={<IconVideoCamera />}
+              onClick={() => onFilmStrip(id, filmCards)}
+              title={`Film — pack the strip into ${filmCards === 1 ? 'ONE SHOT card (all stills ride as its keyframe chain)' : `${filmCards} chained SHOT cards (rows split evenly by duration)`}: rows' text verbatim, stills pinned. No LLM, no generation — 🎬 when ready.`}
+            >Film</Button>
+            <InputNumber
+              size="mini"
+              min={1}
+              max={shots.length}
+              step={1}
+              value={filmCards}
+              onChange={(v) => setFilmCards(Math.max(1, Math.min(shots.length, Math.round(Number(v) || 1))))}
+              style={{ width: 52, height: 20 }}
+              title="How many SHOT cards Film packs the strip into — 1 (default) = the whole strip in one card"
+            />
+          </span>
         )}
         <Text type="secondary" style={{ fontSize: 9, marginLeft: 'auto' }}>1 row = 1 shot</Text>
       </div>

@@ -59,11 +59,10 @@ const SLOT_CAPABILITIES = {
         supports_last_frame: false,
         supports_first_frame: false,
     },
-    // Seedance 2.0 Mini — cheaper/faster; resolution caps at 720p.
-    // Seedance 2.5 — 30s single takes, 480p/720p only, 30 image + 10 video + 10
+    // Seedance 2.5 — 30s single takes, up to 1080p, 30 image + 10 video + 10
     // audio refs, native first_frame/last_frame tasks (ratio must be adaptive there).
     seedance25: {
-        resolutions: ['480p', '720p'],
+        resolutions: ['480p', '720p', '1080p'],
         ratios: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
         durations: ['auto', 5, 10, 15, 20, 30],
         supports_audio: true,
@@ -72,6 +71,7 @@ const SLOT_CAPABILITIES = {
         supports_ref_videos: true,
         supports_ref_audios: true,
     },
+    // Seedance 2.0 Mini — cheaper/faster; resolution caps at 720p.
     seedanceMini: {
         resolutions: ['480p', '720p'],
         ratios: ['16:9', '9:16', '1:1', '21:9'],

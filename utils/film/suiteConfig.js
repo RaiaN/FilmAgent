@@ -219,7 +219,7 @@ const VIDEO_MODEL_TRAITS = {
   },
   seedance25: {
     maxSeconds: 30,
-    res: ['480p', '720p'],
+    res: ['480p', '720p', '1080p'],
     resDefault: '720p',
     keyframeGrammar: 'keyframes',     // "Use Image a, Image b … in order as keyframes."
     overallBlock: true,               // closes with the Overall-requirements section

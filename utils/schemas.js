@@ -134,7 +134,7 @@ export const baseSchemas = {
         type: 'enum',
         get options() { return seedanceEndpointsLive(); },
         get defaultValue() { return defaultSeedanceModel(); },
-        description: 'Seedance endpoint used for video generation. 2.5 does 30s takes and richer references (caps at 720p); Fast trades a little fidelity for speed; Mini is the cheapest.',
+        description: 'Seedance endpoint used for video generation. 2.5 does 30s takes and richer references (up to 1080p); Fast trades a little fidelity for speed; Mini is the cheapest.',
       },
       {
         key: 'prompt',
@@ -167,7 +167,7 @@ export const baseSchemas = {
         type: 'enum',
         options: ['480p', '720p', '1080p', '4k'],
         defaultValue: '720p',
-        description: 'Resolution of the output video. Seedance 2.5 supports 480p/720p only.',
+        description: 'Resolution of the output video. Seedance 2.5 caps at 1080p; 4K is the 2.0 default endpoint only.',
       },
       {
         key: 'ratio',

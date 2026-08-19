@@ -2,6 +2,7 @@ import { createContext, memo, useContext, useMemo, useState } from 'react';
 import { Button, Typography, Select, Popconfirm, Input } from '@arco-design/web-react';
 import { IconMessage, IconPlus, IconPlayArrow, IconLoading } from '@arco-design/web-react/icon';
 import { imageRefCap, imageTraits, IMAGE_MODEL_OPTIONS, imageModelKeyOf } from '../../../utils/film/suiteConfig';
+import { parseScenes } from '../../../utils/film/core/storyboard';
 
 const { Text } = Typography;
 
@@ -39,15 +40,15 @@ const Section = ({ label, children, style }) => (
 );
 
 // The Storyboard agent's CONTROL CARD, bound to its strip (1 row = 1 shot). ONE
-// pipeline, no dropdowns: SCRIPT → Normalize (event list = the story-level HITL
-// gate) → Create shot list (carves the approved events). Surgery lives ON the
-// surfaces: event rows here, shot rows on the strip.
+// pipeline, no dropdowns: SCRIPT → Normalize (screenplay = film's canonical IR,
+// the story-level HITL gate, edited as text) → Create shot list (scene-aware carve).
+// Surgery lives ON the surfaces: the screenplay text here, shot rows on the strip.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
   const { onDivide, onNormalize, bibleEntries, onToggleBibleRef, onRemoveRef, onRenderAll, onRenderSheet, onCastFromScript, onPatchChat, onOpenRefDrawer } = useContext(StoryboardChatContext);
   const count = (data.shots || []).length;
   const [refsOpen, setRefsOpen] = useState(true);
   const pool = useMemo(() => (data.refs || []).map(asRef).filter((r) => r.url), [data.refs]);
-  const events = useMemo(() => (Array.isArray(data.events) ? data.events.filter((e) => typeof e === 'string') : []), [data.events]);
+  const scenes = useMemo(() => parseScenes(data.screenplay).length, [data.screenplay]);
   const cap = imageRefCap(data.imageModel);
   const bible = bibleEntries || [];
   return (
@@ -70,56 +71,43 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           />
         </Section>
       </div>
-      {/* EVENTS — the story's atoms, the HITL gate; the shot list is carved from these. */}
+      {/* SCREENPLAY — film's canonical IR, the HITL gate; edited as text, carved scene-aware. */}
       {onNormalize && (
         <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0', flexShrink: 0 }}>
-          <Section label={`EVENTS${events.length ? ` · ${events.length}` : ''}`}>
-            {events.length === 0 ? (
+          <Section label={`SCREENPLAY${scenes ? ` · ${scenes} scene${scenes === 1 ? '' : 's'}` : ''}`}>
+            {!String(data.screenplay || '').trim() ? (
               <Button
                 size="small" long loading={!!data.busy}
                 disabled={!String(data.script || '').trim()}
                 onClick={() => onNormalize(id)}
                 title={String(data.script || '').trim()
-                  ? 'Extract the ordered event list from the script — wording carried, dialogue verbatim, nothing invented. 1 reasoner call; review it here before creating shots.'
+                  ? 'Convert the script to screenplay format — sluglines, action lines, dialogue verbatim, nothing invented (unstated slug fields say UNSTATED). 1 reasoner call; a pasted screenplay carries verbatim for free.'
                   : 'Type the script above first'}
               >
-                Normalize — extract the event list (1 reasoner call)
+                Normalize — draft the screenplay (1 call · free if already one)
               </Button>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {events.map((ev, i) => (
-                    <div key={`ev-${i}`} style={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
-                      <Text style={{ fontSize: 9, fontWeight: 700, color: '#86909c', flexShrink: 0, lineHeight: '24px' }}>#{i + 1}</Text>
-                      <DraftArea
-                        value={ev}
-                        onCommit={(v) => onPatchChat(id, { events: events.map((e2, j) => (j === i ? v : e2)) })}
-                        autoSize={{ minRows: 1, maxRows: 3 }}
-                        style={{ fontSize: 11, flex: 1 }}
-                      />
-                      <Button size="mini" type="text" disabled={i === 0} onClick={() => { const next = [...events]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onPatchChat(id, { events: next }); }} title="Move up" style={{ height: 20, padding: '0 3px', fontSize: 10, flexShrink: 0 }}>↑</Button>
-                      <Button size="mini" type="text" disabled={i === events.length - 1} onClick={() => { const next = [...events]; [next[i + 1], next[i]] = [next[i], next[i + 1]]; onPatchChat(id, { events: next }); }} title="Move down" style={{ height: 20, padding: '0 3px', fontSize: 10, flexShrink: 0 }}>↓</Button>
-                      <Button size="mini" type="text" status="danger" onClick={() => onPatchChat(id, { events: events.filter((_, j) => j !== i) })} title="Delete this event (free)" style={{ height: 20, padding: '0 3px', fontSize: 10, flexShrink: 0 }}>✕</Button>
-                    </div>
-                  ))}
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <DraftArea
+                  value={data.screenplay}
+                  onCommit={(v) => onPatchChat(id, { screenplay: v })}
+                  autoSize={{ minRows: 4, maxRows: 16 }}
+                  style={{ fontSize: 10.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+                />
                 <div style={{ display: 'flex', gap: 4 }}>
-                  <Button size="mini" style={{ flex: 1 }} onClick={() => onPatchChat(id, { events: [...events, ''] })} title="Add a blank event at the end — write it in place, your words ride verbatim (free)">＋ Add event</Button>
-                  <Popconfirm title="Throw away this event list (and your edits) and re-normalize the script from scratch?" okText="Re-normalize" onOk={() => onNormalize(id)}>
+                  <Popconfirm title="Throw away this screenplay (and your edits) and re-normalize the script from scratch?" okText="Re-normalize" onOk={() => onNormalize(id)}>
                     <Button size="mini" status="warning" loading={!!data.busy} style={{ flex: 1 }}>Re-normalize</Button>
                   </Popconfirm>
                 </div>
-                {/* THE division button — carves these approved events into the strip.
-                    No pace knob: granularity is the event list, timing is per-row. */}
                 {count > 0 ? (
-                  <Popconfirm title={`Throw away the current ${count}-shot list (and its authored text) and re-carve from these ${events.length} events?`} okText="Create" onOk={() => onDivide && onDivide(id, { fresh: true })}>
-                    <Button size="small" long type="primary" icon={<IconPlayArrow />} loading={!!data.busy} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="Re-carve the strip from the approved event list — 1 + N reasoner calls">
-                      {data.busy ? 'Creating…' : `Create shot list — ${events.length} events`}
+                  <Popconfirm title={`Throw away the current ${count}-shot list (and its authored text) and re-carve from this screenplay?`} okText="Create" onOk={() => onDivide && onDivide(id, { fresh: true })}>
+                    <Button size="small" long type="primary" icon={<IconPlayArrow />} loading={!!data.busy} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="Re-carve the strip from the approved screenplay — 1 + N reasoner calls">
+                      {data.busy ? 'Creating…' : `Create shot list — ${scenes} scene${scenes === 1 ? '' : 's'}`}
                     </Button>
                   </Popconfirm>
                 ) : (
-                  <Button size="small" long type="primary" icon={<IconPlayArrow />} loading={!!data.busy} onClick={() => onDivide && onDivide(id, { fresh: true })} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="Carve the approved event list into shot rows — words only, stills are separate taps. 1 + N reasoner calls.">
-                    {data.busy ? 'Creating…' : `Create shot list — ${events.length} events`}
+                  <Button size="small" long type="primary" icon={<IconPlayArrow />} loading={!!data.busy} onClick={() => onDivide && onDivide(id, { fresh: true })} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="Carve the approved screenplay into shot rows (a shot never spans scenes) — words only, stills are separate taps. 1 + N reasoner calls.">
+                    {data.busy ? 'Creating…' : `Create shot list — ${scenes} scene${scenes === 1 ? '' : 's'}`}
                   </Button>
                 )}
               </div>

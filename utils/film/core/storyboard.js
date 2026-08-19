@@ -167,14 +167,29 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
 // updated shot list + a one-line reply. The canvas reconciles the list into a column of SHOT
 // cards (each a real CutNode = a Seedance prompt). No frames are rendered here — the shot list
 // IS the storyboard; the picture is shooting a card. Camera = a shotTemplate id from the library.
-// ---- NORMALIZE: the division's FRONT-END — any brief → the global EVENT SEQUENCE.
-// One call projects the input onto ONE ordered list of observable events (plain lines:
-// wording carried, dialogue inline verbatim). EXTRACTIVE by contract — nothing the
-// text didn't state is added. The list is the HITL surface (confirm/edit/reorder/cut
-// on the control card) and, once present, what Divide carves instead of the raw prose.
+// ---- NORMALIZE: the division's FRONT-END — any brief → SCREENPLAY format ----------
+// Film's canonical IR: sluglines = scene structure, action lines = the event sequence,
+// CAPS-on-introduction = the entity breakdown, dialogue verbatim. EXTRACTIVE by
+// contract — unstated slug fields say UNSTATED, nothing the source didn't state is
+// added. The screenplay is the HITL surface (edited as text on the control card) and
+// what Divide carves. Input that already parses as a screenplay passes through
+// VERBATIM — zero calls.
+// A slugline: optional scene number, then INT/EXT (+ separator). "INTO…" never matches.
+export const SLUG_RE = /^\s*(?:\d+[A-Za-z-]*[\s.:]+)?(?:INT\.?\/EXT|EXT\.?\/INT|INT|EXT|I\/E)\b[./\s-]/i;
+export const parseScenes = (screenplay) => {
+  const scenes = [];
+  let cur = null;
+  String(screenplay || '').split('\n').forEach((line) => {
+    if (SLUG_RE.test(line)) { cur = { n: scenes.length + 1, slug: line.trim(), body: [] }; scenes.push(cur); }
+    else if (cur) cur.body.push(line);
+  });
+  return scenes.map((s) => ({ n: s.n, slug: s.slug, body: s.body.join('\n').trim() }));
+};
+
 export const normalizeBrief = async ({ script = '', config } = {}, ctx) => {
   const text = String(script || '').trim();
   if (!text) throw new Error('Normalize needs the script — type or paste it first.');
+  if (parseScenes(text).length) return { screenplay: text, passthrough: true };
   const NSLOT = '@@BRIEF@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('storyboard.normalize.user', { script: NSLOT }).split(NSLOT).join(text.slice(0, 12000)),
@@ -182,12 +197,9 @@ export const normalizeBrief = async ({ script = '', config } = {}, ctx) => {
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
-  const raw = parseJson(content) || {};
-  const events = (Array.isArray(raw.events) ? raw.events : [])
-    .map((ev) => String(typeof ev === 'string' ? ev : (ev?.text || '')).trim().slice(0, 1200))
-    .filter(Boolean);
-  if (!events.length) throw new Error('Normalize found no events — does the brief describe any action?');
-  return { events };
+  const screenplay = String(content || '').replace(/^```[a-z]*\n?/i, '').replace(/\n?```\s*$/, '').trim();
+  if (!parseScenes(screenplay).length) throw new Error('Normalize came back without scene headings — try again.');
+  return { screenplay, passthrough: false };
 };
 
 // ---- 2-STEP first division: CARVE (structure + verbatim spans) → AUTHOR (per shot) ----
@@ -223,6 +235,7 @@ export const storyboardCarve = async ({ script = '', style = '', references = []
       durationSec: Math.max(4, Math.min(30, Math.round(Number(s?.durationSec) || 10))),
       intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
       develops: !!s?.develops,
+      scene: Math.max(1, Math.round(Number(s?.scene) || 1)),
       // The span keeps its line breaks — it IS the script slice, not prose.
       span: String(s?.span || '').trim().slice(0, 4000),
     };

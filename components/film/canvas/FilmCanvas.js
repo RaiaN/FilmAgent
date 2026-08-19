@@ -50,7 +50,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { writeFilmPrompt, describeFrame, normalizeBrief, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
+import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame, floorPlan, projectShot } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -235,8 +235,6 @@ const resolveShotRefs = (s, refs = []) => {
 const poolRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
 const poolUrls = (refs) => (refs || []).map((r) => poolRef(r).url).filter(Boolean);
 
-// Serialize the APPROVED event list (plain strings) into the numbered script the division carves.
-const eventScriptOf = (evts) => (evts || []).map((e, i) => `${i + 1}. ${e}`).join('\n');
 
 // The author writes against ONLY its shot's figure refs (structural activation — it
 // cannot cite an image it never saw), numbering them locally [Image 1..k]; the stored
@@ -3502,25 +3500,31 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // THE division (bound to THIS control node): carve the script into verbatim spans,
   // lay the rows instantly, author each shot in parallel. Runs ONCE; a re-divide comes
   // through the action bar (which clears the list first and passes fresh).
-  // NORMALIZE — the division's front-end (explicit tap, 1 reasoner call): brief → the
-  // global event sequence (entities + ordered entity-tagged events, wording carried,
-  // dialogue verbatim, gaps UNSTATED). The list lands on the control card as the HITL
-  // gate — edit/reorder/cut there; Divide then carves the approved events.
+  // NORMALIZE — the division's front-end (explicit tap): brief → SCREENPLAY (sluglines,
+  // action lines, verbatim dialogue; unstated slug fields say UNSTATED). Lands on the
+  // control card as editable text — the HITL gate; Divide carves it scene-aware. Input
+  // that already parses as a screenplay carries verbatim for free.
   const normalizeChatBrief = useCallback(async (chatId) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const script = String(chat?.data?.script || '').trim();
     if (!script) { Message.warning('Type the script first — Normalize reads it.'); return; }
     if (chat?.data?.busy) return;
     const patch = (p) => setNodes((ns) => ns.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, ...p } } : n)));
+    if (parseScenes(script).length) {
+      patch({ screenplay: script });
+      Message.success(`The brief is already a screenplay — carried verbatim, ${parseScenes(script).length} scene${parseScenes(script).length === 1 ? '' : 's'}, no calls spent.`);
+      return;
+    }
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     patch({ busy: true });
-    traceRef.current.startRun({ note: 'Agent · Storyboard normalize (event sequence)' });
+    traceRef.current.startRun({ note: 'Agent · Storyboard normalize (screenplay)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const { events } = await normalizeBrief({ script }, ctx);
-      traceRef.current.log({ level: 'run', kind: 'decision', note: `Normalize · ${events.length} events` });
-      patch({ events });
-      Message.success(`${events.length} events extracted — review the list, then Divide carves the approved events.`);
+      const { screenplay } = await normalizeBrief({ script }, ctx);
+      const nScenes = parseScenes(screenplay).length;
+      traceRef.current.log({ level: 'run', kind: 'decision', note: `Normalize · screenplay, ${nScenes} scene${nScenes === 1 ? '' : 's'}` });
+      patch({ screenplay });
+      Message.success(`Screenplay drafted — ${nScenes} scene${nScenes === 1 ? '' : 's'}. Review and edit it, then Create shot list.`);
     } catch (e) { Message.error(`Normalize failed: ${e.message}`); }
     finally { patch({ busy: false }); }
   }, [apiKey, setNodes]);
@@ -3530,12 +3534,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node) return;
     const panelId = node.data?.panelId;
-    // The division carves the APPROVED EVENT LIST — Normalize is the mandatory front-end.
-    // The RAW brief survives as the AUTHOR's grounding document: structure comes from
-    // the events, texture (atmosphere, world, tone) from the user's own prose.
-    const evts = (node.data?.events || []).filter((e) => typeof e === 'string' && e.trim());
-    if (!evts.length) { Message.warning('Normalize first — Divide carves the approved event list.'); return; }
-    const script = eventScriptOf(evts);
+    // The division carves the APPROVED SCREENPLAY — Normalize is the mandatory
+    // front-end. The RAW brief survives as the AUTHOR's grounding document: structure
+    // comes from the screenplay, texture (atmosphere, tone) from the user's own prose.
+    const script = String(node.data?.screenplay || '').trim();
+    if (!script) { Message.warning('Normalize first — Divide carves the approved screenplay.'); return; }
     const rawScript = String(node.data?.script || '');
     if (!fresh && (node.data?.shots || []).length) { Message.info('Already divided — edit the rows, or Create shot list again from EVENTS.'); return; }
     if (fresh && panelId) {
@@ -3558,7 +3561,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const carve = await storyboardCarve({ script, style, references: poolUrls }, ctx);
         const shots = carve.shots.map((s) => ({
           beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures, durationSec: s.durationSec,
-          intExt: s.intExt, develops: s.develops, span: s.span,
+          intExt: s.intExt, develops: s.develops, scene: s.scene, span: s.span,
           body: s.span, motion: '', exiting: '', audio: '', expression: '', authorPending: true,
         }));
         // A figure-less shot authors with ZERO reference anchors (no [Image N] at all) —

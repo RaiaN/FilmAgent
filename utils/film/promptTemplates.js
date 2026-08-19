@@ -286,26 +286,32 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the shot's action tex
     text: 'You are a film director\'s assistant reading ONE still frame ([Image 1]) pulled from a rendered take. Describe it as prompt-ready shot language, present tense, one short line per label:\nSUBJECTS: who/what is in frame — appearance, wardrobe, expression\nBLOCKING: where each subject sits in the frame and what each is looking at (never the camera)\nSETTING: the place, time of day, atmosphere\nCAMERA: framing, angle, approximate lens feel, depth of field\nLIGHT & GRADE: key direction, contrast, palette\nPlain text only — exactly those five labeled lines, no JSON, no commentary.',
   },
 
-  // ---- Storyboard NORMALIZE: brief → the global EVENT SEQUENCE IR -----------------
-  // The division's front-end: any input (idea/brief/script/prose) projects onto ONE
-  // ordered list of entity-tagged observable events. EXTRACTIVE ONLY — wording carried,
-  // dialogue verbatim, gaps returned UNSTATED (empty), never filled.
+  // ---- Storyboard NORMALIZE: brief → SCREENPLAY (film's canonical IR) -------------
+  // The division's front-end: any input (idea/brief/prose/drama text) converts to
+  // screenplay format — sluglines carry scene structure, action lines carry the event
+  // sequence, CAPS-on-introduction carries the entity breakdown, dialogue rides
+  // verbatim. EXTRACTIVE ONLY: unstated slug fields say UNSTATED, never a default.
+  // Input that already parses as a screenplay passes through verbatim (zero calls).
   'storyboard.normalize.system': {
     agent: 'Storyboard',
-    label: 'Normalize — extract the global event sequence (system)',
+    label: 'Normalize — brief → screenplay (system)',
     vars: [],
-    text: `You are a script supervisor NORMALIZING a film brief into its GLOBAL EVENT SEQUENCE — the structural skeleton a storyboard is carved from. You EXTRACT structure; you NEVER invent content.
+    text: `You are a script supervisor converting a film brief into SCREENPLAY FORMAT — the storyboard pipeline's canonical form. You TRANSCRIBE and STRUCTURE the source; you NEVER invent content.
 
-Return ONE chronological, causally ordered list of observable events — the whole story on a single timeline, never per-character threads. Each event is ONE line: one observable event in the source's own wording (compress connective prose; never paraphrase what can ride as written; an internal thought becomes only the visible expression the text itself gives it). Every line spoken during an event rides INSIDE that event's line, VERBATIM in its original language, as Speaker: {exact words} — never invent, complete or translate a line. Subjects keep the text's own names (a bare "person" stays that neutral term). A prop changing hands is its own event naming the transfer. What the text does not state stays ABSENT — an event line never gains a location, look or motive the source didn't give it. Numbers and timestamps the author wrote are creative content — keep them exactly as written.
+FORMAT:
+• SCENE HEADINGS — one per scene, numbered: "1. EXT. LOCATION - TIME" (INT., EXT., or INT./EXT.). A field the source does not state is written UNSTATED — never guessed, never defaulted (e.g. "2. EXT. UNSTATED - UNSTATED"). Scene boundaries follow the source's own location and time changes; placing them is your only licensed judgment.
+• ACTION LINES — present tense, the source's wording carried (compress connective prose; never paraphrase what can ride as written; an internal thought becomes only the visible expression the text itself gives it). One observable event per paragraph. CAPITALIZE a character's name, a key prop, and a distinct sound the FIRST time each appears. A prop changing hands is its own action line naming the transfer.
+• DIALOGUE — the speaker's NAME on its own line, the spoken words below it VERBATIM in the original language; a parenthetical only when the source states the delivery. Never invent, complete or translate a line.
 
-Return ONLY JSON — no prose, no code fences:
-{"events":["<event one>","<event two>"]}`,
+Subjects keep the source's own names (a bare "person" stays that neutral term). Numbers and timestamps the author wrote stay exactly as written. A thin brief yields a THIN script — one sparse scene is an honest result; never pad, never expand.
+
+Return ONLY the screenplay text — no preamble, no commentary, no code fences, no JSON.`,
   },
   'storyboard.normalize.user': {
     agent: 'Storyboard',
     label: 'Normalize (instruction)',
     vars: ['{script}'],
-    text: 'THE BRIEF (verbatim):\n"""\n{script}\n"""\n\nNormalize it and return the JSON.',
+    text: 'THE BRIEF (verbatim):\n"""\n{script}\n"""\n\nConvert it to screenplay format and return only the screenplay.',
   },
 
   // ---- Storyboard: a conversational SHOT DIVISION (cinematographer brainstorm) ----
@@ -320,6 +326,8 @@ Return ONLY JSON — no prose, no code fences:
 
 PLAN FIRST — think through, none of it in the output: (a) what TRANSFORMS across the scene; give every shot ONE job, cut any without one. (b) attention rhythm (poses a new question / raises stakes / withholds / reverses / releases) — never the same operation three times running; place a breath after a reversal. (c) geography — hold one axis, sizes progress with intensity, re-establish wide after an axis or location change. (d) DEVELOP vs HOLD — a shot develops only when its FINAL moment looks different ON SCREEN from its first (externalized, walkable within its duration). (e) at most 4 named subjects per shot.
 
+The script's SCENE HEADINGS (numbered INT./EXT. sluglines) are HARD boundaries: a shot NEVER spans two scenes; the geography rules apply WITHIN a scene and every new scene re-establishes; each slug's location and time ground the shot, and an UNSTATED slug field stays undecided — never invent it.
+
 {countGoal}
 
 {refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] ({refCount} may be 0).
@@ -333,10 +341,11 @@ For EACH shot return:
 • durationSec — 5–{maxSec}.
 • intExt — "INT" or "EXT".
 • develops — true only per rule (d).
-• span — THIS SHOT'S PORTION OF THE SCRIPT, COPIED VERBATIM: the exact characters, dialogue word-for-word, nothing paraphrased, nothing summarized. The spans PARTITION the script IN ORDER — every story-relevant line lands in exactly ONE shot's span, no gaps, no overlaps. Trailing global sections (style / audio notes that apply to the whole film) belong to NO span.
+• scene — the 1-based number of the SCENE HEADING this shot falls under (1 when the script has no headings).
+• span — THIS SHOT'S PORTION OF THE SCRIPT, COPIED VERBATIM: the exact characters, dialogue word-for-word, nothing paraphrased, nothing summarized. The spans PARTITION the script IN ORDER — every story-relevant line lands in exactly ONE shot's span, no gaps, no overlaps. Scene headings and trailing global sections (style / audio notes that apply to the whole film) belong to NO span.
 
 Return ONLY a JSON object — no prose, no code fences:
-{"shots":[{"beat":"…","job":"…","shotTemplate":"…","figures":[…],"durationSec":10,"intExt":"EXT","develops":true,"span":"…"}],"reply":"<ONE short line to the director>"}`,
+{"shots":[{"beat":"…","job":"…","shotTemplate":"…","figures":[…],"durationSec":10,"intExt":"EXT","develops":true,"scene":1,"span":"…"}],"reply":"<ONE short line to the director>"}`,
   },
   'storyboard.carve.user': {
     agent: 'Storyboard',

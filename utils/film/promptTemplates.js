@@ -103,35 +103,56 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting and composition — but replace {targets} with FLAT solid-color silhouettes, one per subject: hard edges, completely filled with one color, no facial features, no clothing detail, no shading. Assign the colors left to right: blue, then green, then yellow, then red, then purple (repeat the sequence if there are more figures). Each silhouette keeps its subject\'s exact position, scale and pose. Everything NOT replaced stays photorealistic and identical to [Image 1]. No text or watermarks.',
   },
 
-  // ---- Previz v2: the blocking agent — floor plan (AD planner) + per-shot projection ---
-  // The planner does the director-CoT silently (space → parties → positions → moves →
-  // AXIS) and emits the frozen Seedream diagram prompt with only the {slots} filled —
-  // it may NOT reword the fixed lines (the style contract is what keeps renders
-  // schematic). The projection reads the RENDERED MAP (VLM) — hand-edited maps flow
-  // through — and converts top-down positions into camera-relative blocking.
+  // ---- Previz: blockout still -> 480p previz take -> 1080p beauty pass (editing) -----
+  // The PLAN call runs once, at step 1: it fixes the colour->subject mapping and the
+  // target look so steps 2 and 3 need no further inference. The clay spec inside
+  // previz.blockout is a FROZEN pipeline convention, not taste — the beauty pass reads
+  // those exact colours back out.
   'previz.plan.system': {
     agent: 'Previz',
-    label: 'Floor plan — AD planner (system)',
+    label: 'Previz plan — blockout prompt + colour map (system)',
     vars: [],
-    text: 'You are a film director\'s assistant. From a scene brief you plan the scene\'s OVERHEAD BLOCKING and write ONE image-generation prompt that renders a schematic floor-plan diagram of it.\n\nPlan silently, in this order (do not output the plan):\n1. THE SPACE — the single primary place where this scene plays, and its 2-4 load-bearing features (entrances, barriers, goals). Ignore other locations in the brief.\n2. WHO — the parties present. Individuals stay individual; a crowd or unit ("guards", "the family") collapses into ONE group marker. At most 6 markers total.\n3. WHERE — every marker\'s position, always BOUND to a named feature of the space ("at the door", "behind the barricade") — never floating.\n4. MOVES — at most 4 movements that matter to the drama.\n5. AXIS — the axis of action: one straight line between the two opposing sides of the scene\'s central confrontation.\n\nThen output ONLY the finished image prompt: copy the TEMPLATE below EXACTLY, replacing only the {slots}. Never add, remove, or reword any fixed line. No code fences, no commentary, no headings of your own.\n\nTEMPLATE:\nA schematic 2D FLOOR PLAN — strict top-down orthographic technical diagram, flat vector style. Pure white background, thin black line work, simple flat shapes only. NO perspective, NO 3D, NO shading, NO textures, NO photorealism, NO scenery — an architect\'s blocking diagram, not a picture.\n\nThe image contains EXACTLY: {census}. Nothing else. NEVER draw the same marker twice.\n\nTHE SPACE (overhead layout): {space}\n\nCHARACTERS — one solid filled circle per individual, short uppercase label beside it: {characters}\n\nGROUPS AND OBJECTS — one solid filled rectangle per group or large object, short uppercase label beside it: {groups}\n\nMOVEMENT — one thin curved arrow per move: {moves}\n\nAXIS — the single dashed line, bold and straight, labeled AXIS, drawn {axis}.\n\nLabels: very few, short, uppercase, clean sans-serif. No title, no border, no legend box, no compass rose, no watermark.\n\nSlot rules:\n- {census}: the exact count of every element you drew, e.g. "2 filled circles, 2 filled rectangles, 1 dashed line, 3 curved arrows, thin-line walls, 5 short labels".\n- {space}: load-bearing features get strong drawing instructions ("draw the CORRIDOR as two bold parallel walls running left to right"); context gets thin lines. Give every feature a position (left/right/top/bottom).\n- {characters}: assign the fill colors in this exact order: blue, green, yellow, red, purple. Every character bound to a named feature.\n- {groups}: same color sequence continues; a group is ONE rectangle. If there are none, write: none.\n- {moves}: each arrow from a named marker to a named feature.\n- {axis}: "between X and Y" — the two opposing sides.\n- All labels UPPERCASE, 12 characters or fewer.\n- The prompt must be fully self-contained: the image model never sees the brief.',
+    text: `You are a film director's assistant preparing a PREVIZ shot. From a scene description you plan a clay BLOCKOUT of it — a colour-coded maquette that fixes staging, then gets re-rendered photoreal later.
+
+Plan silently (do not output the plan): the single place this shot happens; every figure present (individuals stay individual, a crowd collapses to one group); where each figure is, always bound to a named feature of the space; the camera's position and height.
+
+Assign each figure a colour from this fixed sequence, in the order they appear in the description: RED, BLUE, GREEN, YELLOW, PURPLE, ORANGE. At most 6 figures.
+
+Return ONLY JSON — no prose, no code fences:
+{"scene":"<the clay staging, 2-4 sentences: the grey clay set and its features, then each coloured clay figure's position and pose, then the camera position and height. Describe FORM only — positions, poses, camera. Never mention clothing, faces, materials, weather or time of day.>","subjects":[{"color":"RED","description":"<who this figure is in the finished shot, from the description's own words — appearance and clothing only>"}],"look":"<one sentence: the photoreal look of the finished shot — place, time of day, light, atmosphere, from the description's own words>","motion":"<what happens during the shot and how the camera moves, in the description's own words, present tense>"}`,
   },
   'previz.plan.user': {
     agent: 'Previz',
-    label: 'Floor plan — planner instruction',
-    vars: ['{brief}'],
-    text: 'BRIEF (verbatim):\n"""\n{brief}\n"""\nWrite the floor-plan image prompt for this scene.',
+    label: 'Previz plan — instruction',
+    vars: ['{brief}', '{camera}'],
+    text: 'SCENE DESCRIPTION (verbatim):\n"""\n{brief}\n"""\nCAMERA: {camera}\n\nPlan the blockout and return the JSON.',
   },
-  'previz.project.system': {
+
+  // The frozen clay convention. Identity-free by construction: no faces, no clothing,
+  // no textures — so nothing can drift while the staging is re-rolled.
+  'previz.blockout': {
     agent: 'Previz',
-    label: 'Projection — map + moment → Seedance prompt (system)',
-    vars: [],
-    text: 'You are a film director writing a Seedance 2.0 video-generation prompt for ONE shot.\n\nYou receive: the shot\'s ACTION text (verbatim — the moment this shot covers), an overhead blocking map as [Image 1] (schematic floor plan: colored circles = individuals, colored rectangles = groups, dashed line = the AXIS of action, labels name everyone), optionally a camera position, and optionally a list of photoreal reference images [Image 2], [Image 3], … (cast identity plates, location plates).\n\nPlan silently, in this order (do not output the plan):\n1. READ THE MAP — every marker, its position relative to the named features, and the AXIS.\n2. PLACE THE CAMERA — choose one position on ONE side of the AXIS (stay on that side), at a stated distance and height, covering the ACTION. If a camera position is given, use it.\n3. PROJECT — convert the map\'s positions into what THIS camera sees: who is foreground / mid-ground / background, who is frame-left / frame-right, which way each party faces, where eyelines point. Screen direction must be consistent with the map and the chosen side of the axis.\n4. ACTION — what happens during the clip, taken from the ACTION text\'s own wording. One continuous beat, nothing the text does not say.\n\nThen output ONLY the Seedance prompt, in exactly this structure, one paragraph per line:\n\n[Image 1] is the overhead blocking MAP of this scene — a schematic diagram. Read it only for positions, spacing and directions of the named parties. Nothing in the video may look like it: no diagrams, no lines, no labels, no white schematic style.\n{references} — one clause per remaining image: "[Image N] is <who/what> — exact identity/appearance." Omit this line if there are no other images.\n{scene} — one sentence: the place, time and light, photoreal, cinematic.\n{blocking} — the projected view: camera position and height first, then each party foreground to background with frame side, facing and eyeline, matching the map.\n{action} — the beat of this shot across the clip\'s duration, in the ACTION text\'s own words where possible; bodies and objects move, the event is witnessed, no one plays to camera.\n{camera} — the camera\'s path through the space during the shot, as movement, at whatever tempo the drama demands (e.g. "the camera holds low and pushes toward…" / "the camera whips right to follow…"), never abstract film-grammar terms.\n\nRules: never mention the map after its first line. No character ever looks at the camera. No shot lists, no headings, no quotes, no code fences — output the prompt text only.',
+    label: 'Blockout still — the clay convention',
+    vars: ['{scene}'],
+    text: 'A matte clay blockout render, like a physical maquette photographed on a modelmaker bench. Every figure is a smooth featureless clay mannequin with NO face, NO hair and NO clothing detail, each moulded from a single flat solid colour. The set is plain neutral grey clay volumes. Soft even studio light from above, gentle shadows, no textures, no patterns, no text, no markings, no watermark.\n\n{scene}',
   },
-  'previz.project.user': {
+
+  // The previz take: the still animates, the clay convention holds for the whole clip.
+  'previz.take': {
     agent: 'Previz',
-    label: 'Projection — instruction',
-    vars: ['{moment}', '{camera}', '{refsList}'],
-    text: 'ACTION (verbatim — the moment this shot covers):\n"""\n{moment}\n"""\nCAMERA: {camera}\nImages attached in order: the blocking map{refsList}\nWrite the Seedance 2.0 prompt.',
+    label: 'Previz take — motion over the blockout',
+    vars: ['{motion}'],
+    text: '{motion}\n\nKeep the clay maquette look of the first frame throughout: featureless solid-colour clay figures, grey clay set, same studio light.',
+  },
+
+  // The beauty pass. This wording is what routes the task to VIDEO EDITING — Seedance
+  // detects it from the prompt, then locks ratio and duration to the source clip
+  // (they must not be sent) while still honouring `resolution`.
+  'previz.beauty': {
+    agent: 'Previz',
+    label: 'Beauty pass — editing task (1080p)',
+    vars: ['{look}', '{replacements}', '{count}'],
+    text: '【Editing Goal】\nEdit @Video1, replacing the clay figures and the clay set with the real scene. {look}\n\n【Role of the Source Video】\n@Video1 is the sole editing master and governs the layout of the space, the camera position, the camera movement, the figures\' motion paths, occlusion relationships and event order.\n\n【Edit Objects and Scope】\n{replacements}\nRe-render the grey clay set as the real location described above, keeping its exact shape, layout and camera framing. There are exactly {count} figures throughout; do not add or remove anyone.\n\n【Timeline Inheritance】\nEach figure inherits the timing, duration, path and speed of the clay figure it replaces. The camera movement, shot changes and event order remain exactly as in @Video1.',
   },
 
   // The Edit-shot editor's STRUCTURE-LOCKED render ("use this frame as reference"):

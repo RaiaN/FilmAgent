@@ -12,7 +12,6 @@ const DWELL = {
   brief: 3000,
   material: 2000,
   cast: 1200,
-  previz: 1200,
   sbchat: 2200,
   keyframe: 700,
   audio: 1800,
@@ -86,12 +85,6 @@ export const buildDemoSteps = (nodes, project) => {
     steps.push({ ids: [], frameIds: cast.map((x) => x.id), caption: 'Cast & World — the whole ensemble', dwellMs: 2000, padding: 0.2 });
   }
 
-  // Floor plans — the scene blocking maps (Previz v2).
-  const plans = list.filter((n) => isAsset(n) && !claimed.has(n.id) && n.data?.floorPlan && displaySrc(n));
-  plans.forEach((n) => {
-    claim(n);
-    steps.push({ ids: [n.id], caption: `Previz — ${n.data?.label || 'the scene blocking map'}`, dwellMs: DWELL.previz });
-  });
 
   // Storyboard — the shot-division chat, then the keyframe grid filling in.
   const sbchats = list.filter((n) => n.type === 'sbchat');

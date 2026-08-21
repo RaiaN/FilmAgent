@@ -294,7 +294,8 @@ export const composeKeyframePrompt = ({ body = '', shotTemplate = '', style = ''
   const framing = t.framing || 'medium shot';
   const angle = t.angle || 'eye-level';
   const sty = String(style || '').trim();
-  const styleClause = sty && sty.toLowerCase() !== 'auto' ? `, ${sty} aesthetic` : '';
+  const styled = !!sty && sty.toLowerCase() !== 'auto';
+  const styleClause = styled ? `, ${sty} aesthetic` : '';
   const line1 = `Cinematic ${framing}, ${angle}${lens ? `, ${lens} lens` : ''}${styleClause}.`;
   const exp = String(expression || '').trim();
   const eth = String(ethnicity || '').trim();
@@ -302,7 +303,10 @@ export const composeKeyframePrompt = ({ body = '', shotTemplate = '', style = ''
     exp ? `Facial expression: ${exp}.` : '',
     eth && eth.toLowerCase() !== 'unspecified' ? `The people are ${eth}.` : '',
   ].filter(Boolean).join(' ');
-  const line6 = `${dof}, fine film grain, photo-realistic, high resolution. Characters never look at the camera; no on-image text, captions or watermarks.`;
+  // The MEDIUM belongs to the STYLE, never to this wrapper: a supplied style (a clay
+  // blockout, a sketch, an illustrated look) must not be overridden by a hardcoded
+  // photoreal claim. With no style stated, the photoreal default still rides.
+  const line6 = `${dof}, ${styled ? '' : 'fine film grain, photo-realistic, '}high resolution. Characters never look at the camera; no on-image text, captions or watermarks.`;
   return [line1, [String(body || '').trim(), overrides].filter(Boolean).join(' '), line6].filter(Boolean).join('\n');
 };
 

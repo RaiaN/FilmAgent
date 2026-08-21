@@ -55,7 +55,11 @@ export const createBrowserClient = (apiKey) => ({
   },
 
   async startVideo({ content, model, resolution, ratio, duration, generateAudio, seed }) {
-    const body = { apiKey, model, content, resolution, ratio, generate_audio: !!generateAudio, watermark: false, return_last_frame: true };
+    // ratio and duration are OMITTED when falsy: a Seedance EDITING task (routed by the
+    // prompt's wording) locks both to the source clip and REJECTS the request outright if
+    // either is sent — `InvalidParameter.TaskTypeConstraint`.
+    const body = { apiKey, model, content, resolution, generate_audio: !!generateAudio, watermark: false, return_last_frame: true };
+    if (ratio) body.ratio = ratio;
     if (duration && duration !== 'auto') body.duration = Number(duration);
     if (seed != null && seed !== '') body.seed = Number(seed);
     const res = await fetch('/api/seedance', {

@@ -88,62 +88,7 @@ export const splitIntoShots = async ({ text, count, config } = {}, ctx) => {
   return { segments };
 };
 
-// ---- Previz v2: floor plan (AD blocking map) + per-shot projection ----------------------
-// floorPlan: ONE reason call runs the AD planner CoT (space → parties → moves → axis)
-// and emits the frozen Seedream diagram prompt; ONE image call renders it literal
-// (thinking off — the optimize rewrite re-pictorializes style contracts). The brief
-// rides via sentinel so renderTemplate never touches the user's words.
-export const floorPlan = async ({ brief, config } = {}, ctx) => {
-  const text = String(brief || '').trim();
-  if (!text) throw new Error('Floor plan needs the brief text first.');
-  const SLOT = '@@BRIEF@@';
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('previz.plan.user', { brief: SLOT }).split(SLOT).join(text.slice(0, 8000)),
-    systemPrompt: renderTemplate('previz.plan.system', {}),
-    modelId: getModel('reasoner', config), reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const planPrompt = String(content || '').trim();
-  if (!/^A schematic 2D FLOOR PLAN/.test(planPrompt)) throw new Error('The planner returned no usable floor-plan prompt — try again.');
-  const { url, cacheUrl } = await ctx.client.generateImage({
-    prompt: planPrompt,
-    referenceImages: [],
-    size: '2048x2048',
-    model: getModel(defaultImageModelKey(), config),
-    optimizePrompt: false,
-  });
-  if (!url) throw new Error('No floor-plan image URL in response');
-  return { url, cacheUrl, planPrompt };
-};
-
-// projectShot: the VLM READS the rendered map (so hand-edits flow through), picks a
-// camera on one side of the AXIS, and converts top-down positions into the shot's
-// camera-relative Seedance prompt. `moment` = the card's own action text, verbatim.
-export const projectShot = async ({ mapUrl, moment, camera = '', refsList = '', config } = {}, ctx) => {
-  const act = String(moment || '').trim();
-  if (!act) throw new Error('Write the shot prompt first — the projection needs the moment.');
-  if (!mapUrl) throw new Error('The floor-plan image is missing.');
-  const SLOT = '@@MOMENT@@';
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('previz.project.user', {
-      moment: SLOT,
-      camera: String(camera || '').trim() || "director's choice",
-      // No plates attached → say so EXPLICITLY, or the model invents identity clauses
-      // for [Image 2]+ that don't exist on the card (observed live on the first run).
-      refsList: String(refsList || '').trim() || ' — and NOTHING else: the map is the ONLY image; never reference [Image 2] or beyond',
-    }).split(SLOT).join(act.slice(0, 4000)),
-    systemPrompt: renderTemplate('previz.project.system', {}),
-    images: [mapUrl],
-    modelId: getModel('reasoner', config), reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const prompt = String(content || '').trim();
-  if (!prompt) throw new Error('The projection came back empty — try again.');
-  return { prompt };
-};
-
-// ---- Mask: identity scrub for ANY board image ------------------------------------------
-// An image EDIT that reproduces the frame but replaces every person
-// with a flat solid-color silhouette (left→right: blue, green, yellow, red, purple). The
-// invented identities die here; the plate carries pure geometry into the shoot.
+// ---- Mask: scrub identity out of ANY board image into a flat colour plate -------------
 export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => {
   const src = String(url || '').trim();
   if (!src) throw new Error('Mask needs a rendered image first.');

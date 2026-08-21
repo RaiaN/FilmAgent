@@ -302,8 +302,9 @@ export const storyboardAgent = {
 // FLOOR PLAN — a schematic overhead blocking map (Seed 2.0 Pro plans space/parties/
 // moves/AXIS, Seedream Pro draws it). The map is the scene's spatial state: edit it
 // like any image; attach it to a SHOT card and the projection writes camera-relative
-// blocking into that card's prompt. On the canvas the agent card's Run calls
-// runFloorPlan; this run() is canvas-only.
+// PREVIZ — structure first, look second. A standalone card: scene description → clay
+// blockout still → 480p previz take → 1080p beauty pass (a Seedance editing task over
+// the previz clip). The rail tap lays the card; every step is a tap on the card itself.
 export const previzAgent = {
   id: 'previz',
   label: 'Previz',
@@ -311,10 +312,10 @@ export const previzAgent = {
   color: AGENT_COLORS.previz,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { brief: '' },
-  describe: 'Brief → the scene\'s SCHEMATIC: an overhead blocking map (parties, moves, the AXIS). Edit it like any image; attach it to a SHOT card to project camera-relative blocking into the prompt.',
+  defaultSettings: { brief: '', camera: '', durationSec: 5 },
+  describe: 'Scene description → a clay BLOCKOUT still (staging, no identity) → a 480p previz take → a 1080p beauty pass that re-renders the previz photoreal, inheriting its blocking, camera and timing exactly.',
   async run() {
-    throw new Error('The Previz agent lays image nodes on the canvas — run it from the board.');
+    throw new Error('The Previz agent lays a card on the canvas — run it from the board.');
   },
 };
 

@@ -183,15 +183,26 @@ const StoryboardFields = ({ s, up, imageAssets, onOpenRefDrawer }) => (
 const PrevizFields = ({ s, up }) => (
   <>
     <div>
-      <Text style={FIELD_LABEL}>Scene brief — empty = the selected Brief card</Text>
+      <Text style={FIELD_LABEL}>Scene description</Text>
       <Input.TextArea
         value={s.brief || ''} onChange={(v) => up({ brief: v })}
-        placeholder="the scene to block — who is where, what stands between them; leave empty to read the selected Brief verbatim"
+        placeholder="the shot to previz — who is where, what happens, how the camera moves"
         autoSize={{ minRows: 4, maxRows: 10 }}
       />
     </div>
+    <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ flex: 1 }}>
+        <Text style={FIELD_LABEL}>Camera</Text>
+        <ShotTemplateSelect value={s.camera} onChange={(v) => up({ camera: v })} placeholder="planner chooses" />
+      </div>
+      <div style={{ width: 120 }}>
+        <Text style={FIELD_LABEL}>Duration</Text>
+        <Select size="small" style={{ width: '100%' }} value={s.durationSec || 5} onChange={(v) => up({ durationSec: v })}
+          options={[5, 8, 10, 12].map((v) => ({ label: `${v}s`, value: v }))} />
+      </div>
+    </div>
     <Text type="secondary" style={{ fontSize: 12 }}>
-      Run renders the scene&rsquo;s SCHEMATIC — an overhead blocking map (parties, moves, the AXIS). Edit it like any image; attach it to a SHOT card to project blocking into the prompt.
+      Adds a Previz card: clay blockout still &rarr; 480p previz take &rarr; 1080p beauty pass. Each step is a separate tap.
     </Text>
   </>
 );
@@ -343,6 +354,7 @@ const DRAFT_PRIMARY = {
   story: { label: 'Add Brief card', needsKey: false },
   shot: { label: 'Add SHOT card', needsKey: false },
   storyboard: { label: 'Add storyboard', needsKey: false },
+  previz: { label: 'Add Previz card', needsKey: false },
 };
 
 const LayerPanel = ({ agentId, values, onChange, imageAssets = [], audioAssets = [], onOpenRefDrawer, running, draft, onPrimary, onClose, apiKeyPresent }) => {

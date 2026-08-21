@@ -895,6 +895,20 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [selectedNodes]);
   // Clicking an agent card while a draft panel is open → the card takes the panel.
   useEffect(() => { if (selectedAgentNode && panelAgentId) setPanelAgentId(null); }, [selectedAgentNode, panelAgentId]);
+  // A Variations panel FOLLOWS the board selection: whichever image is selected while
+  // the panel is open becomes its source — tap order never matters. Draft panel →
+  // layer draft; a bound card (shift-selected together with the image) → the card.
+  useEffect(() => {
+    const sel = selectedNodes.find((n) => n.data?.kind === 'image' && refUrl(n));
+    if (!sel) return;
+    const isVar = (id) => id === 'characterVariations' || id === 'locationVariations';
+    if (panelAgentId && isVar(panelAgentId)) {
+      setLayerSettings((prev) => (prev[panelAgentId]?.anchorId === sel.id ? prev
+        : { ...prev, [panelAgentId]: { ...(prev[panelAgentId] || {}), anchorId: sel.id } }));
+    } else if (selectedAgentNode && isVar(selectedAgentNode.data?.agentId) && selectedAgentNode.data?.settings?.anchorId !== sel.id) {
+      setNodes((ns) => ns.map((n) => (n.id === selectedAgentNode.id ? { ...n, data: { ...n.data, settings: { ...(n.data.settings || {}), anchorId: sel.id } } } : n)));
+    }
+  }, [selectedNodes, panelAgentId, selectedAgentNode, setNodes]);
   // Board image assets, for the Storyboard agent's optional reference picker (thumbnails to tick).
   const imageAssets = useMemo(() => nodes
     .filter((n) => n.data?.kind === 'image' && refUrl(n) && !n.data?.loading)
@@ -4175,7 +4189,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Deterministic dispatch of a CONFIRMED chat action to the existing machinery.
   // Returns the chat's reply line.
   const dispatchFilmAction = useCallback(async (action, params = {}) => {
-    const selImages = nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && n.data?.url);
+    const selImages = nodesRef.current.filter((n) => n.selected && n.data?.kind === 'image' && refUrl(n));
     // When an agent runs with no explicit premise, fall back to the SELECTED Brief node's text.
     const selStoryIdea = () => nodesRef.current.find((n) => n.type === 'story' && n.selected)?.data?.idea?.trim() || '';
     switch (action) {
@@ -4444,13 +4458,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       } else if (agentId === 'audio') {
         await runAudioClip({ text: s.prompt, imageRef: s.imageRef || '', audioRefs: s.audioRefs || [], near: beside });
       } else if (agentId === 'characterVariations' || agentId === 'locationVariations') {
-        const anchor = nodesRef.current.find((n) => n.id === s.anchorId && n.data?.kind === 'image' && n.data?.url);
+        const anchor = nodesRef.current.find((n) => n.id === s.anchorId && n.data?.kind === 'image' && refUrl(n));
         if (!anchor) { Message.warning('Pick the source image on the card first.'); return; }
         const { result } = await runAgent({ agentId, settings: s, selectionNodes: [anchor], origin: groupOrigin() });
         Message.success(result?.async ? `${layer.label} started` : `${layer.label} finished`);
       } else if (agentId === 'inspiration') {
         const picked = (s.refs || []).map((rid) => nodesRef.current.find((x) => x.id === rid))
-          .filter((n) => n && n.data?.kind === 'image' && n.data?.url);
+          .filter((n) => n && n.data?.kind === 'image' && refUrl(n));
         const { result } = await runAgent({ agentId, settings: s, selectionNodes: picked, origin: groupOrigin() });
         Message.success(result?.async ? `${layer.label} started` : `${layer.label} finished`);
       }
@@ -4505,15 +4519,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // The rail / context-menu tap OPENS THE CONFIGURATION PANEL — nothing lands on the
   // board from a click. Configure the agent there; its primary button then ADDS the
   // configured element (or runs the selection-verb). Draft settings persist per project
-  // in layerSettings; variations pre-bind the selected image as their source.
+  // in layerSettings (a Variations panel follows the selected image — see the effect).
   const handleRailTap = useCallback((layerId) => {
     if (!AGENT_MAP[layerId]) return;
     panelAtRef.current = originOverride.current || null;
     originOverride.current = null;
-    if (layerId === 'characterVariations' || layerId === 'locationVariations') {
-      const sel = nodesRef.current.find((n) => n.selected && n.data?.kind === 'image' && n.data?.url);
-      if (sel) setLayerSettings((prev) => ({ ...prev, [layerId]: { ...(prev[layerId] || {}), anchorId: sel.id } }));
-    }
     // Deselect agent CARDS only (a selected card would keep the panel bound to it);
     // the Brief selection survives — the storyboard verb needs it.
     setNodes((ns) => ns.map((n) => (n.type === 'agent' && n.selected ? { ...n, selected: false } : n)));
@@ -4601,7 +4611,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [updateTimeline]);
 
   const addSelectedToTimeline = useCallback(() => {
-    const sel = nodesRef.current.find((n) => n.selected && n.data?.kind === 'image' && n.data?.url);
+    const sel = nodesRef.current.find((n) => n.selected && n.data?.kind === 'image' && refUrl(n));
     if (!sel) { Message.warning('Select a board image first'); return; }
     addAssetToTimeline({ url: refUrl(sel), assetId: sel.data.assetId || null, label: sel.data.label });
   }, [addAssetToTimeline]);
@@ -4863,7 +4873,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const selectionCount = selectedNodes.length;
   // One Lock TOGGLE for the whole selection: if everything selected is already locked the
   // button unlocks, otherwise it locks (icon/label reflect the action it will take).
-  const canAddSelected = useMemo(() => selectedNodes.some((n) => n.data?.kind === 'image' && n.data?.url), [selectedNodes]);
+  const canAddSelected = useMemo(() => selectedNodes.some((n) => n.data?.kind === 'image' && refUrl(n)), [selectedNodes]);
   // Board images not yet tagged into the bible — what "Build brand kit" classifies.
   const untaggedImageCount = useMemo(() => nodes.filter((n) => n.data?.kind === 'image' && (n.data?.localUrl || n.data?.url)
     && !n.data?.bibleRole && !n.id.startsWith('shot-') && !n.id.startsWith('film-')).length, [nodes]);

@@ -2194,6 +2194,51 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // One tap on the floor plan births a SHOT card beside it (the storyboard-promote
   // pattern — no selection dance): ONE reason call reads the map + its stored brief
   // and writes the camera-relative blocking as the new card's prompt — visible,
+  // The board shows the PLAN (cards, bonds, sequences); takes — the dailies bin — never
+  // render as board nodes. The nodes still exist (persistence, viewer, timeline and the
+  // resume poll all keep working) but stay permanently hidden via the RF `hidden` flag
+  // (never serialized). The card face carries a 🎞 count chip that opens the Take
+  // Library drawer — the ONE surface for renders. The self-guarded setNodes (same
+  // reference when nothing changes) prevents effect loops.
+  useEffect(() => {
+    if (demoOverlay) return; // the demo replay owns `hidden` while it plays
+    setNodes((ns) => {
+      const cardIds = new Set(ns.filter((n) => n.type === 'cut' || n.type === 'previz').map((n) => n.id));
+      const cardOfSatellite = (n) => {
+        if (String(n.id).startsWith('grid-') && cardIds.has(String(n.id).slice(5))) return String(n.id).slice(5);
+        if (n.parentId && String(n.parentId).startsWith('grid-') && cardIds.has(String(n.parentId).slice(5))) return String(n.parentId).slice(5);
+        if (String(n.id).startsWith('shot-') && cardIds.has(String(n.id).slice(5))) return String(n.id).slice(5);
+        return null;
+      };
+      const counts = new Map();
+      ns.forEach((n) => {
+        const cid = cardOfSatellite(n);
+        if (cid && n.data?.kind === 'video') counts.set(cid, (counts.get(cid) || 0) + 1);
+      });
+      // Storyboard strip rows are hidden data nodes too (same contract as takes:
+      // `hidden` never serializes, so it must be re-asserted continuously).
+      const isStripRow = (n) => !!n.data?.keyframe && String(n.id).startsWith('sbpanel-') && /-\d+$/.test(String(n.id));
+      let changed = false;
+      const out = ns.map((n) => {
+        if (isStripRow(n)) {
+          if (!n.hidden) { changed = true; return { ...n, hidden: true }; }
+          return n;
+        }
+        const cid = cardOfSatellite(n);
+        if (cid) {
+          if (!n.hidden) { changed = true; return { ...n, hidden: true }; }
+          return n;
+        }
+        if (n.type === 'cut' || n.type === 'previz') {
+          const c = counts.get(n.id) || 0;
+          if ((n.data?.takeCount || 0) !== c) { changed = true; return { ...n, data: { ...n.data, takeCount: c } }; }
+        }
+        return n;
+      });
+      return changed ? out : ns;
+    });
+  }, [nodes, demoOverlay, setNodes]);
+
   // ---- SEQUENCE element handlers ---------------------------------------------------
   // Collapse hides the member cards (+ their take grids and docked shots) via the
   // React Flow `hidden` flag — same mechanism as the demo replay, never serialized

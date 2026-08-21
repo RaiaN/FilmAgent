@@ -31,7 +31,6 @@ npm start          # or: npm run dev
 | Video Fast | `MODELARK_MODEL_SEEDANCE_FAST` | Seedance 2.0 Fast endpoint | Ark console (`ep-…`) |
 | Video Mini | `MODELARK_MODEL_SEEDANCE_MINI` | Seedance 2.0 Mini endpoint | Ark console (`ep-…`) |
 | Audio | `MODELARK_MODEL_SEED_AUDIO` | Seed Audio 1.0 | public model name |
-| TTS | `MODELARK_MODEL_SEED_TTS` | Seed TTS 2.0 | public model name |
 
 `ep-…` ids are **account-scoped**: create the endpoint for the model in *your* Ark
 console and paste its id. Base URLs: `MODELARK_API_BASE_URL` (Ark region) and

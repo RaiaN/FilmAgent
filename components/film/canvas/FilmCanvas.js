@@ -999,9 +999,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         });
         node.data.assetId = asset.assetId || null;
         node.data.tosUrl = asset.url;
-        // Uploads carry an embedded thumb (their TOS url isn't fetchable); use it
-        // as the local preview/reference. Generated assets have a loadable url.
-        if (asset.thumb) node.data.localUrl = asset.thumb;
+        // Uploads carry an embedded thumb (their TOS url isn't always fetchable). It is
+        // a FALLBACK only — the full url stays the display and reference source.
+        if (asset.thumb) node.data.thumbUrl = asset.thumb;
         setNodes((ns) => ns.concat(node));
       } catch {
         Message.error('Could not add library asset');
@@ -1053,7 +1053,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     });
     node.data.assetId = item.assetId || null;
     node.data.tosUrl = item.url;
-    if (item.thumb) node.data.localUrl = item.thumb;
+    if (item.thumb) node.data.thumbUrl = item.thumb; // fallback only — never the reference source
     setNodes((ns) => ns.concat(node));
     Message.success('Added to board');
   }, [rfInstance, setNodes]);

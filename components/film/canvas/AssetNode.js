@@ -43,7 +43,7 @@ const visibilityStyle = (visibility) => {
 };
 
 const AssetNodeInner = ({ id, data, selected }) => {
-  const { kind, url, localUrl, cacheUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
+  const { kind, url, localUrl, cacheUrl, thumbUrl, label, locked, layerId, loading, visibility, preserved, preserving, bibleRole } = data;
   const { onTagRole, onRename, onImgError, onAddToTimeline, onRemoveFromTimeline, onTimelineIds, onEditKeyframe, onExpandKeyframe, onMaskPrevis, onAttachPlate, onCastColors, onPromoteKeyframe, onToggleMediaRef, onEditImage, onOpenViewer, onPreserve, onRenderStill, onPatchKeyframeText, onDuplicate, onViewImage, onNeedPoster, lod } = useContext(AssetNodeContext);
   // Inline body edit on an UNRENDERED shot card (double-click) — free, no render, no LLM.
   const onTimeline = !!(onTimelineIds && onTimelineIds.has && onTimelineIds.has(id));
@@ -60,9 +60,12 @@ const AssetNodeInner = ({ id, data, selected }) => {
   // expiry) before any error surfaces.
   const srcChain = useMemo(() => {
     const c = [];
-    [cacheUrl, localUrl, url].forEach((s) => { if (s && !c.includes(s)) c.push(s); });
+    // thumbUrl sorts LAST: a low-res preview is a FALLBACK for an unfetchable
+    // original (some uploads), never the preferred source — it must not display,
+    // and must not ride into generations, while a real url exists.
+    [cacheUrl, localUrl, url, thumbUrl].forEach((s) => { if (s && !c.includes(s)) c.push(s); });
     return c;
-  }, [cacheUrl, localUrl, url]);
+  }, [cacheUrl, localUrl, url, thumbUrl]);
   const [srcIdx, setSrcIdx] = useState(0);
   const [attempt, setAttempt] = useState(0); // remount key — a remounted <img> re-requests a failed src
   const [dead, setDead] = useState(false);   // the whole chain failed

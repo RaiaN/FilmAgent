@@ -196,10 +196,10 @@ Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only 
   'cut.derive.system': {
     agent: 'Shot',
     label: 'Compose step 1 — derive events from keyframes (system)',
-    vars: ['{kfCount}', '{durationSec}'],
+    vars: ['{kfCount}'],
     text: `You are a cinematographer reading a shot's APPROVED KEYFRAMES — {kfCount} stills attached IN ORDER: Keyframe 1 is the shot's opening composition, each next keyframe is a composition the shot passes through, the last is where it lands. These pictures are the shot's design; you see NOTHING else on purpose.
 
-STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), movement speed follows what the keyframe change implies — fast and crisp for action, slow for weight — always CONTINUOUS with natural inertia between keyframes. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. Every action runs at REAL-WORLD SPEED: a strike lands in under a second, a fall takes about one. The shot runs ~{durationSec}s, but that is a ceiling, NOT a quota — if the events are done sooner, stop. Never stretch, pad or add beats to fill time.
+STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), movement speed follows what the keyframe change implies — fast and crisp for action, slow for weight — always CONTINUOUS with natural inertia between keyframes. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. Every action runs at REAL-WORLD SPEED: a strike lands in under a second, a fall takes about one.
 
 Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronological events, keyframe to keyframe>"}`,
   },
@@ -212,7 +212,7 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
   'cut.enrich.system': {
     agent: 'Shot',
     label: 'Enrich — densify the existing prompt (system)',
-    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{formatLine}', '{durationSec}', '{targetWords}'],
+    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{formatLine}', '{targetWords}'],
     text: `You are a cinematographer EXPANDING an existing video-shot prompt. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
@@ -232,7 +232,7 @@ Everything you add must be FILMABLE and must not contradict the keyframe path. I
 
 {formatLine}
 
-The shot runs ~{durationSec}s. Target ≈{targetWords} words — density, never padding; if the skeleton cannot honestly carry that many words, stop sooner.
+Target ≈{targetWords} words — density, never padding; if the skeleton cannot honestly carry that many words, stop sooner.
 
 Do NOT write composition-binding lines, subject definitions, quality/ratio/duration lines or transition markers — the compiler adds those.
 
@@ -247,7 +247,7 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the enriched action t
   'cut.direct.system': {
     agent: 'Shot',
     label: 'Direct — a note on how the shot feels/reads (system)',
-    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{formatLine}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{formatLine}'],
     text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — the shot's fixed cast, places and frames; they never change.
 
 {kfLine}
@@ -259,8 +259,6 @@ THE CURRENT PROMPT IS THE SHOT: its events, their order, every [Image N] tag and
 {cameraLine}
 
 {formatLine}
-
-The shot runs ~{durationSec}s.
 
 Do NOT write composition-binding lines, subject definitions, quality/ratio/duration lines or transition markers — the compiler adds those.
 
@@ -275,7 +273,7 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
   'cut.compose.system': {
     agent: 'Shot',
     label: 'Compose — keyframe-aware cinematic action (system)',
-    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{formatLine}', '{durationSec}'],
+    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{formatLine}'],
     text: `You are a cinematographer writing ONE video shot's ACTION text. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
 
 {kfLine}
@@ -290,7 +288,7 @@ The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location 
 
 STATE THE SITUATION, DO NOT CHOREOGRAPH THE OUTCOME. The video model SIMULATES a world: give it who is there, where, in what condition, and what they are trying to do — it derives the physical consequences itself, and derives them better than a written body-part script. Name a state of the subject ("the wolf is cornered and means it") rather than instructing a feature ("guard hairs lift") — a feature instruction gets rendered literally, and literally is wrong. Emotion is what the situation PRODUCES, never an adjective you assert.
 
-Every action runs at REAL-WORLD SPEED. The shot runs ~{durationSec}s — a ceiling, NOT a quota: if the situation resolves sooner, stop there. Never pad, stretch or invent beats to fill the time.
+Every action runs at REAL-WORLD SPEED.
 
 {formatLine}
 
@@ -363,14 +361,13 @@ For EACH shot return:
 • shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY:
 {templates}
 • figures — the reference numbers that APPEAR in this shot (≥1 when references exist; [] when none attached).
-• durationSec — how long this shot's action ACTUALLY TAKES at real-world speed. NOT a slot to fill and NOT a guess from a range: count the real seconds the action needs — a strike lands in under a second, a look takes two, crossing a room takes four, a held silence takes as long as it holds. Add them up, then clamp to 5–{maxSec}. Never inflate a shot to reach a number; a short action makes a short shot.
 • intExt — "INT" or "EXT".
 • develops — true only per rule (d).
 • scene — the 1-based number of the SCENE HEADING this shot falls under (1 when the script has no headings).
 • span — THIS SHOT'S PORTION OF THE SCRIPT, COPIED VERBATIM: the exact characters, dialogue word-for-word, nothing paraphrased, nothing summarized. The spans PARTITION the script IN ORDER — every story-relevant line lands in exactly ONE shot's span, no gaps, no overlaps. Scene headings and trailing global sections (style / audio notes that apply to the whole film) belong to NO span.
 
 Return ONLY a JSON object — no prose, no code fences:
-{"shots":[{"beat":"…","job":"…","shotTemplate":"…","figures":[…],"durationSec":10,"intExt":"EXT","develops":true,"scene":1,"span":"…"}],"reply":"<ONE short line to the director>"}`,
+{"shots":[{"beat":"…","job":"…","shotTemplate":"…","figures":[…],"intExt":"EXT","develops":true,"scene":1,"span":"…"}],"reply":"<ONE short line to the director>"}`,
   },
   'storyboard.carve.user': {
     agent: 'Storyboard',
@@ -402,8 +399,8 @@ Return ONLY JSON — no prose, no code fences:
   'storyboard.author.user': {
     agent: 'Storyboard',
     label: 'Author ONE shot (instruction)',
-    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{durationSec}', '{note}', '{retry}'],
-    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}, ~{durationSec}s. It {develops}. ITS ONE JOB: {job}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
+    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{note}', '{retry}'],
+    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. It {develops}. ITS ONE JOB: {job}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
   },
   // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
   'storyboard.shot.system': {

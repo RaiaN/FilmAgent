@@ -155,12 +155,11 @@ const SPAN_SLOT = '@@BRIEF@@';
 export const storyboardCarve = async ({ script = '', style = '', references = [], config } = {}, ctx) => {
   const text = String(script || '').trim();
   if (!text) throw new Error('Carving needs the brief/script text first.');
-  const maxSec = maxShotSeconds(defaultVideoModelKey());
-  const countGoal = `Carve into as many shots as the script NEEDS — every shot must earn its place; pacing picks each durationSec (5–${maxSec}s). Never pad; never cram. Hard cap 24 shots — a longer script carves its first stretch and the reply says what remains uncarved.`;
+  const countGoal = `Carve into as many shots as the script NEEDS — every shot must earn its place. Never pad; never cram.`;
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('storyboard.carve.user', { script: SPAN_SLOT, style: style || 'auto' }).split(SPAN_SLOT).join(text.slice(0, 12000)),
-    systemPrompt: renderTemplate('storyboard.carve.system', { templates: shotTemplateCatalog(), countGoal, maxSec: String(maxSec), refCount: String(refs.length) }),
+    systemPrompt: renderTemplate('storyboard.carve.system', { templates: shotTemplateCatalog(), countGoal, refCount: String(refs.length) }),
     images: refs,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -175,9 +174,6 @@ export const storyboardCarve = async ({ script = '', style = '', references = []
       // An id outside the library stays EMPTY — no camera is ever substituted.
       shotTemplate: SHOT_TEMPLATE_BY_ID[s?.shotTemplate] ? s.shotTemplate : '',
       figures,
-      // Planning space allows the 2.5 range (4-30s); the CARD clamps per-model at
-      // print time, so a wide-paced plan degrades loudly there, never silently here.
-      durationSec: Math.max(4, Math.min(30, Math.round(Number(s?.durationSec) || 10))),
       intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
       develops: !!s?.develops,
       scene: Math.max(1, Math.round(Number(s?.scene) || 1)),
@@ -249,7 +245,7 @@ const withDialogueGate = async (source, field, run) => {
 // AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
 // motion dropped; still missing → returned in `missingDialogue` (the card flags it,
 // never silently).
-export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', durationSec = 10, config } = {}, ctx) => {
+export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', config } = {}, ctx) => {
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || {}; // no id → framing falls to "director's choice", never a substituted camera
   const wanted = spanDialogueLines(span);
@@ -259,7 +255,6 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
         script: SPAN_SLOT, span: '@@SPAN@@', beat, job: String(job || '').trim() || 'unstated — infer the single job from the span and serve it', framing: [tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(', ') || 'director\'s choice',
         develops: develops ? 'DEVELOPS — write the exiting state' : 'HOLDS — exiting stays empty',
         prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
-        durationSec: String(Math.max(4, Math.round(Number(durationSec) || 10))),
         note: String(note || '').trim() ? "DIRECTOR'S NOTE — apply it to THIS shot (where it conflicts with the span, the note wins):\n@@NOTE@@\n" : '',
         retry: retryNote || '',
       }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)).split('@@NOTE@@').join(String(note).slice(0, 1000)),
@@ -450,7 +445,7 @@ export const ENRICH_LEVELS = (modelKey) => {
 // texture/atmosphere/VFX/sound precision around it, grounded in the attached chips.
 // Keyframes and references are inputs, never outputs — the card's pointers and chip
 // list stay exactly as they are.
-export const enrichShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, level = 'rich', camera = null, job = '', config } = {}, ctx) => {
+export const enrichShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), level = 'rich', camera = null, job = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material) throw new Error('Enrich needs the shot prompt — write it or Compose first.');
   const lv = ENRICH_LEVELS(modelKey).find((l) => l.key === level) || ENRICH_LEVELS(modelKey)[1];
@@ -458,7 +453,7 @@ export const enrichShotAction = async ({ text = '', references = [], roster = []
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.enrich.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)) + retry,
-      systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec), targetWords: String(lv.words) }),
+      systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), targetWords: String(lv.words) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -475,7 +470,7 @@ export const enrichShotAction = async ({ text = '', references = [], roster = []
 // shot FEELS and READS (tone, pacing, emphasis, atmosphere, wording); events, order,
 // [Image N] tags, dialogue, references and keyframes all stay. The note wins over the
 // old text where they disagree.
-export const directShotAction = async ({ text = '', note = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, camera = null, job = '', config } = {}, ctx) => {
+export const directShotAction = async ({ text = '', note = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), camera = null, job = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   const theNote = String(note || '').trim();
   if (!material) throw new Error('Direct needs the shot prompt — write it or Compose first.');
@@ -486,7 +481,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
         .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)) + retry,
-      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec) }),
+      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -499,7 +494,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   return out;
 };
 
-export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, camera = null, job = '', config } = {}, ctx) => {
+export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), camera = null, job = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
   // ---- STEP 1 · DERIVE (keyframes only — deliberately blind to text and refs, so the
@@ -509,7 +504,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
     const kfUrls = kfIndices.map((k) => references[k - 1]).filter(Boolean);
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.derive.user', { kfCount: String(kfUrls.length) }),
-      systemPrompt: renderTemplate('cut.derive.system', { kfCount: String(kfUrls.length), durationSec: String(durationSec) }),
+      systemPrompt: renderTemplate('cut.derive.system', { kfCount: String(kfUrls.length) }),
       images: kfUrls,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -526,7 +521,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)') + retry,
-      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec) }),
+      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,

@@ -3,7 +3,7 @@
 // The canvas and the headless SDK both call these; only the injected `client`
 // differs. Prompts/models resolve through suiteConfig (root ← client ← per-call).
 
-import { renderTemplate, getModel, getRuntime, clampSizeForModel, maxShotSeconds, videoModelKeyOf, videoTraits, defaultImageModelKey } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, clampSizeForModel, clampShotSeconds, videoModelKeyOf, videoTraits, defaultImageModelKey } from '../suiteConfig';
 import { withRetry } from './retry';
 
 // Variation "axes" and styles are no longer hardcoded pools — the agentic
@@ -171,8 +171,10 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
   // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
   if (!imageUrl && !assetId && !refUrls.length && !firstFrameUrl && !String(motion || '').trim()) throw new Error('animate requires a prompt, imageUrl, assetId, refUrls or firstFrameUrl');
-  // Duration cap comes from the slot capability table — never an inline literal.
-  duration = Math.min(maxShotSeconds(modelKey), Math.max(5, Math.round(Number(duration) || 10)));
+  // Duration cap comes from the slot capability table — never an inline literal. AUTO
+  // stays AUTO all the way to the wire: startVideo then omits the field and the model
+  // runs the events as long as they take (what a Film-born card asks for).
+  duration = clampShotSeconds(modelKey, duration);
   const prompt = buildAnimatePrompt({ motion, camera, lens, focalLength, aperture });
   const content = [{ type: 'text', text: prompt }];
   // CONTINUITY: the previous shot's FINAL FRAME becomes the literal FIRST FRAME of this

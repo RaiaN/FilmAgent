@@ -23,7 +23,7 @@ const SequenceNode = ({ id, data = {} }) => {
     const m = members.find((x) => x && x.id === cid);
     const d = (m && m.data) || {};
     const status = d.status === 'running' ? 'running' : d.status === 'failed' ? 'failed' : (d.shotUrl ? 'shot' : 'planned');
-    return { cid, i, status, beat: d.beat || `Shot ${i + 1}`, durationSec: d.durationSec || 10, missing: !m };
+    return { cid, i, status, beat: d.beat || `Shot ${i + 1}`, durationSec: Number(d.durationSec) || 0, missing: !m };
   }).filter((r) => !r.missing);
   const shotCount = rows.filter((r) => r.status === 'shot').length;
   const running = rows.some((r) => r.status === 'running');
@@ -48,7 +48,7 @@ const SequenceNode = ({ id, data = {} }) => {
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_DOT[r.status], flexShrink: 0 }} />
             <Text style={{ color: '#c9cdd4', fontSize: 11, width: 18 }}>{String(r.i + 1).padStart(2, '0')}</Text>
             <Text style={{ color: '#e5e6eb', fontSize: 11, flex: 1, minWidth: 0 }} ellipsis>{r.beat}</Text>
-            <Text style={{ color: '#5a6472', fontSize: 10 }}>{r.durationSec}s{r.status === 'failed' ? ' · failed' : ''}</Text>
+            <Text style={{ color: '#5a6472', fontSize: 10 }}>{r.durationSec ? `${r.durationSec}s` : 'auto'}{r.status === 'failed' ? ' · failed' : ''}</Text>
           </div>
         ))}
         <Button

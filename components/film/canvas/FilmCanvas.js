@@ -54,7 +54,7 @@ import { animate as animateOp, generateFilmAudio } from '../../../utils/film/cor
 import { previzPlan, blockoutStill, previzTake, beautyTake } from '../../../utils/film/core/previz';
 import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
-import { clampResolution, maxShotSeconds, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
+import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
 import { routeStudioAction } from '../../../utils/film/core/director';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -282,31 +282,6 @@ const localToPoolTags = (text, figures) => {
   let t = String(text || '');
   (figures || []).forEach((g, i) => { t = t.split(`[Image ${i + 1}]`).join(`@@P${g}@@`); });
   return t.replace(/@@P(\d+)@@/g, '[Image $1]');
-};
-
-// 'Film' packing: strip rows → EXACTLY the requested number of consecutive chunks
-// (default 1 = the whole strip in one SHOT card), balanced by duration. Order is the
-// film — never reordered, never split mid-row. Pure.
-const packStripChunks = (rows, cardCount = 1) => {
-  const n = Math.max(1, Math.min(rows.length, Math.round(Number(cardCount) || 1)));
-  const total = rows.reduce((a, r) => a + r.durationSec, 0);
-  const chunks = [];
-  let cur = [];
-  let sum = 0;
-  let remaining = total;
-  let left = n;
-  rows.forEach((r, i) => {
-    cur.push(r);
-    sum += r.durationSec;
-    const rowsAfter = rows.length - i - 1;
-    if (left > 1 && ((sum >= remaining / left && rowsAfter >= left - 1) || rowsAfter === left - 1)) {
-      chunks.push(cur);
-      remaining -= sum;
-      cur = []; sum = 0; left -= 1;
-    }
-  });
-  if (cur.length) chunks.push(cur);
-  return chunks;
 };
 
 const buildInitialLayerState = (project) => {
@@ -2417,7 +2392,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         job: sShot.job || kf.data.job || '',
         action: '', promptOverride: mappedMotion || mapped, framing: '',
         shotTemplate: sShot.shotTemplate || kf.data.shotTemplate || 'medium-shot',
-        durationSec: Math.min(maxShotSeconds(defaultVideoModelKey()), Math.max(5, Math.round(Number(sShot.durationSec) || 10))), // model CEILING, never pace — carve already paced
+        durationSec: AUTO_SECONDS, // the events set the length; the card can still pin a ceiling
         refEntryIds: refIds, audio: sShot.audio || '',
       }, pos);
       const cardId = `${idPrefix}-0`;
@@ -2449,7 +2424,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // idPrefix lets a parallel generator lay 'cut' cards with distinct ids so they don't
     // collide with — or get pruned alongside — the Story's cut-N (default prefix 'cut').
     const id = `${panel.idPrefix || 'cut'}-${panel.index}`;
-    const sec = Math.min(maxShotSeconds(defaultVideoModelKey()), Math.max(5, panel.durationSec || 10));
+    const sec = clampShotSeconds(defaultVideoModelKey(), panel.durationSec);
     const cine = shotTemplateCinematography(panel.shotTemplate);
     // The content a (re)derive writes from the panel — the prompt/camera/action/refs. NOT
     // the take (shotUrl/status) or the user's own asset attachments; those survive.
@@ -2600,7 +2575,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         direct: true,
         motion,
         camera: 'auto',
-        durationSec: Math.min(maxShotSeconds(videoModelKeyOf(c.data.videoModel)), Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
+        durationSec: clampShotSeconds(videoModelKeyOf(c.data.videoModel), c.data.durationSec),
         refEntryIds,
         refUrls: refs.map((r) => r.url),
         refAssetIds: refs.map((r) => r.assetId || null),
@@ -2627,7 +2602,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       direct: true,
       motion,
       camera: 'auto',
-      durationSec: Math.min(maxShotSeconds(videoModelKeyOf(c.data.videoModel)), Math.max(5, Math.round(Number(c.data.durationSec) || 10))),
+      durationSec: clampShotSeconds(videoModelKeyOf(c.data.videoModel), c.data.durationSec),
       refEntryIds,
       refUrls: references.map((r) => r.url),
       // Parallel to refUrls: a registered portrait-library id (or null) per ref, so the
@@ -3039,7 +3014,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey,
         camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
         job: card.data?.job || '',
-        durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot compose · ${out.action.length}-char action${out.derived ? ` (derived ${out.derived.length} chars from keyframes)` : ''}` });
       onPatchCut(id, {
@@ -3087,7 +3061,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         modelKey: videoModelKeyOf(card.data?.videoModel),
         camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
         job: card.data?.job || '',
-        durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       onPatchCut(id, {
         promptOverride: out.action,
@@ -3131,7 +3104,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey, level,
         camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
         job: card.data?.job || '',
-        durationSec: Math.max(4, Math.round(Number(card.data?.durationSec) || 10)),
       }, ctx);
       traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot enrich · ${text.length} → ${out.action.length} chars` });
       onPatchCut(id, {
@@ -3181,7 +3153,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // so the rows' global [Image N] tags stay valid with zero rewriting; the stills
   // append after as the keyframe chips. Cards land pre-chained (bonds = order; the
   // card's own keyframes remain the only continuity mechanism).
-  const filmStrip = useCallback((panelId, cardCount = 1) => {
+  const filmStrip = useCallback((panelId) => {
     const chatId = String(panelId).replace('sbpanel', 'sbchat');
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const shots = chat?.data?.shots || [];
@@ -3195,7 +3167,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         audio: val('audio'), exiting: val('exiting'),
         scene: Number(d.scene ?? s.scene) || 1,
         shotTemplate: d.shotTemplate || s.shotTemplate || '',
-        durationSec: Number(d.durationSec ?? s.durationSec) || 10,
         nodeId: node?.id || null,
         startUrl: d.cacheUrl || d.localUrl || d.url || '',
         endUrl: (d.endStill && (d.endStill.cacheUrl || d.endStill.url)) || '',
@@ -3211,10 +3182,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (noText.length) { Message.warning(`Shot${noText.length === 1 ? '' : 's'} ${noText.join(', ')} ${noText.length === 1 ? 'has' : 'have'} no text — author or write the row${noText.length === 1 ? '' : 's'} first.`); return; }
     const missingEnd = rows.filter((r) => r.startUrl && r.exiting && !r.endUrl).map((r) => r.i + 1);
     const modelKey = defaultVideoModelKey();
-    const maxSec = maxShotSeconds(modelKey);
     const refCap = videoTraits(modelKey).refCap;
     const stamped = videoTraits(modelKey).keyframeGrammar === 'keyframes'; // interval grammar rides with the keyframe-chain dialect
-    const chunks = packStripChunks(rows, cardCount);
+    const chunks = [rows]; // the strip is ONE card — the model paces it, nothing is packed by a clock
     // The whole pool, in pool order — the [Image N] numbering the rows' text uses.
     const pool = (chat?.data?.refs || chat?.data?.pool || []).map(poolRef).filter((p) => p.url);
     // The scene's LOCATION PLATE rides on the card as well — anchoring the board's
@@ -3247,6 +3217,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const rebase = (txt, off) => txt
       .replace(/\b(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)s\s*:/g, (m, a, b) => `${Number(a) + off}-${Number(b) + off}s:`)
       .replace(/\bat\s+(\d+(?:\.\d+)?)s\b/g, (m, a) => `at ${Number(a) + off}s`);
+    // A row that carries its OWN stamps rebases onto where the previous stamped row
+    // ended — the offset comes from the text, never from a duration we assigned.
+    const lastStamp = (txt) => [...String(txt).matchAll(/\b\d+(?:\.\d+)?\s*-\s*(\d+(?:\.\d+)?)s\s*:/g)]
+      .reduce((m, x) => Math.max(m, Number(x[1])), 0);
     chunks.forEach((chunk, ci) => {
       let t = 0;
       const text = chunk.map((r, ri) => {
@@ -3256,14 +3230,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const inner = stamped && innerStamps(body);
         const seg = [cam ? `${cam[0].toUpperCase()}${cam.slice(1)}.` : '', inner ? rebase(body, t) : body, r.audio].filter(Boolean).join(' ');
         const line = chunk.length > 1 && !inner ? `Shot ${ri + 1}: ${seg}` : seg;
-        t += r.durationSec;
+        if (inner) t = Math.max(t, lastStamp(seg));
         return line;
       }).join('\n\n');
       storyboardPanelRef.current({
         index: ci, cut: cutBase + ci, idPrefix, cols: 1,
         title: chunk.length === 1 ? chunk[0].beat : `${chunk[0].beat} → ${chunk[chunk.length - 1].beat}`,
         action: '', promptOverride: text, framing: '',
-        shotTemplate: '', durationSec: t,
+        shotTemplate: '', durationSec: AUTO_SECONDS, // the events set the length, not a clock we impose
         refEntryIds: [], audio: '',
       }, base);
       const stillChips = [];
@@ -3293,12 +3267,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         id: `cont-${idPrefix}-${i}-${idPrefix}-${i + 1}`, source: `${idPrefix}-${i}`, target: `${idPrefix}-${i + 1}`, type: 'continuity',
       })).filter((e) => !es.some((x) => x.id === e.id))));
     }
-    if (overCap) Message.warning(`${overCap} card${overCap === 1 ? '' : 's'} exceed${overCap === 1 ? 's' : ''} the model's ${refCap}-reference cap — later chips are trimmed at shoot time; slim the REFS pool or split into more cards.`);
-    // A chunk whose rows sum past the model's duration cap gets CLAMPED at the card —
-    // the take compresses (an animatic, not the full-length film). Reported, never silent.
-    const overLong = chunks.map((c, i) => ({ i: i + 1, sec: c.reduce((a, r) => a + r.durationSec, 0) })).filter((x) => x.sec > maxSec);
-    if (overLong.length) Message.info(`Card${overLong.length === 1 ? '' : 's'} ${overLong.map((x) => `${x.i} (${x.sec}s)`).join(', ')} exceed${overLong.length === 1 ? 's' : ''} the model's ${maxSec}s cap — the take clamps to ${maxSec}s and the action compresses; raise the card count for full length.`);
-    Message.success(`Filmed the strip into ${chunks.length} SHOT card${chunks.length === 1 ? '' : 's'} (${chunks.map((c) => c.reduce((a, r) => a + r.durationSec, 0)).join('s + ')}s)${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''}${missingEnd.length ? ` — shot${missingEnd.length === 1 ? '' : 's'} ${missingEnd.join(', ')} pin${missingEnd.length === 1 ? 's' : ''} START only (END not rendered)` : ''}${chunks.length > 1 ? ' — 🎬 each card in order.' : ' — 🎬 when ready.'}`);
+    if (overCap) Message.warning(`${overCap} card${overCap === 1 ? '' : 's'} exceed${overCap === 1 ? 's' : ''} the model's ${refCap}-reference cap — later chips are trimmed at shoot time; slim the REFS pool or turn off the stills you do not need.`);
+    Message.success(`Filmed the strip into ONE SHOT card — ${rows.length} shot${rows.length === 1 ? '' : 's'}, duration left to the model${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''}${missingEnd.length ? ` — shot${missingEnd.length === 1 ? '' : 's'} ${missingEnd.join(', ')} pin${missingEnd.length === 1 ? 's' : ''} START only (END not rendered)` : ''} — 🎬 when ready.`);
   }, [freeOrigin, onPatchCut, applyEdges]);
 
   // CANON media references — audio/video nodes the user tagged (★ Reference): every SHOT
@@ -3598,7 +3568,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // one mapping, so a rebuilt row is indistinguishable from a laid one).
   const kfCardData = (s, i, refs, style, imageModel, panelId) => ({
     label: s.beat, beat: s.beat, job: s.job || '', body: s.body, shotTemplate: s.shotTemplate, expression: s.expression || '',
-    figures: s.figures || [], durationSec: s.durationSec || 10, intExt: s.intExt || '', scene: s.scene || 1,
+    figures: s.figures || [], intExt: s.intExt || '', scene: s.scene || 1,
     figureLabels: (s.figures || []).map((f) => String(refs[f - 1]?.label || `Image ${f}`).slice(0, 16)),
     motion: s.motion || '', exiting: s.exiting || '', audio: s.audio || '',
     span: s.span || '', authorPending: !!s.authorPending, missingDialogue: s.missingDialogue || [], authorError: s.authorError || '',
@@ -3719,7 +3689,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           Message.warning(`${carve.uncovered.length} script line${carve.uncovered.length === 1 ? '' : 's'} landed in NO shot — e.g. "${carve.uncovered[0].slice(0, 70)}". Re-create the shot list, or add the missing beat yourself.`);
         }
         const shots = carve.shots.map((s) => ({
-          beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures, durationSec: s.durationSec,
+          beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures,
           intExt: s.intExt, develops: s.develops, scene: s.scene, span: s.span,
           body: s.span, motion: '', exiting: '', audio: '', expression: '', authorPending: true,
         }));
@@ -3742,7 +3712,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             const a = await storyboardAuthor({
               script: rawScript || script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate, develops: s.develops,
               prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: figs.map((g) => poolUrls[g - 1]),
-              durationSec: s.durationSec,
             }, ctx);
             shots[i] = { ...shots[i], body: localToPoolTags(a.body, figs), motion: localToPoolTags(a.motion, figs), exiting: localToPoolTags(a.exiting, figs), audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
             if (a.missingDialogue?.length) flagged += 1;

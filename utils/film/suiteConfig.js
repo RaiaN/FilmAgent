@@ -231,6 +231,13 @@ export const videoTraits = (key) => VIDEO_MODEL_TRAITS[key] || VIDEO_MODEL_TRAIT
 export const RES_BY_MODEL = Object.fromEntries(Object.entries(VIDEO_MODEL_TRAITS).map(([k, t]) => [k, t.res]));
 export const resDefault = (model) => videoTraits(model).resDefault;
 export const maxShotSeconds = (model) => videoTraits(model).maxSeconds;
+// A SHOT card's length is either a NUMBER of seconds or 'auto'. 'auto' sends NO duration
+// on the wire at all — the model runs the events as long as they take, which is what the
+// Film button births; a number stays clamped to the endpoint's window.
+export const AUTO_SECONDS = 'auto';
+export const clampShotSeconds = (model, v) => (String(v) === AUTO_SECONDS
+  ? AUTO_SECONDS
+  : Math.min(maxShotSeconds(model), Math.max(5, Math.round(Number(v) || 10))));
 
 // The DEFAULT video slot for a card that hasn't picked one: the FIRST CONFIGURED
 // slot in preference order (2.5 leads when its env var is set). Env-driven — never

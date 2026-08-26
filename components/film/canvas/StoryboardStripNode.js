@@ -1,6 +1,6 @@
 import { memo, useContext, useEffect, useMemo, useState } from 'react';
 import { useNodesData } from '@xyflow/react';
-import { Button, InputNumber, Typography } from '@arco-design/web-react';
+import { Button, Typography } from '@arco-design/web-react';
 import { IconRefresh, IconPlayCircle, IconLoading, IconVideoCamera, IconArrowUp, IconArrowDown, IconClose, IconExpand, IconBrush, IconTag, IconEdit } from '@arco-design/web-react/icon';
 import { AssetNodeContext } from './AssetNode';
 import { StoryboardChatContext } from './StoryboardChatNode';
@@ -61,9 +61,6 @@ const StoryboardStripInner = ({ id, data, selected }) => {
   const shots = chatArr?.[0]?.data?.shots || [];
   const rowIds = useMemo(() => shots.map((_, i) => `${id}-${i}`), [id, shots.length]);
   const rows = useNodesData(rowIds);
-  const totalSec = shots.reduce((a, s) => a + (Number(s.durationSec) || 0), 0);
-  // How many SHOT cards Film packs into — 1 (default) = the whole strip in one card.
-  const [filmCards, setFilmCards] = useState(1);
 
   return (
     <div style={{ width: 780, background: '#fff', borderRadius: 10, overflow: 'hidden', border: `2px solid ${selected ? '#165dff' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(22,93,255,0.12)' : '0 1px 4px rgba(0,0,0,0.08)' }}>
@@ -71,7 +68,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
       {/* title bar = the drag handle; everything below is nodrag */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: '1px solid #e5e6eb' }}>
         <Text bold style={{ fontSize: 12 }}>Storyboard strip</Text>
-        <Text type="secondary" style={{ fontSize: 10 }}>{shots.length} shot{shots.length === 1 ? '' : 's'} · {totalSec}s</Text>
+        <Text type="secondary" style={{ fontSize: 10 }}>{shots.length} shot{shots.length === 1 ? '' : 's'}</Text>
         {shots.length > 0 && onFilmStrip && (
           <span className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
             <Button
@@ -79,19 +76,9 @@ const StoryboardStripInner = ({ id, data, selected }) => {
               type="primary"
               style={{ background: '#b06f10', borderColor: '#b06f10', height: 20 }}
               icon={<IconVideoCamera />}
-              onClick={() => onFilmStrip(id, filmCards)}
-              title={`Film — pack the strip into ${filmCards === 1 ? 'ONE SHOT card (all stills ride as its keyframe chain)' : `${filmCards} chained SHOT cards (rows split evenly by duration)`}: rows' text verbatim, stills pinned. No LLM, no generation — 🎬 when ready.`}
+              onClick={() => onFilmStrip(id)}
+              title="Film — the whole strip into ONE SHOT card: rows' text verbatim, stills pinned as its keyframe chain, duration left to the model."
             >Film</Button>
-            <InputNumber
-              size="mini"
-              min={1}
-              max={shots.length}
-              step={1}
-              value={filmCards}
-              onChange={(v) => setFilmCards(Math.max(1, Math.min(shots.length, Math.round(Number(v) || 1))))}
-              style={{ width: 52, height: 20 }}
-              title="How many SHOT cards Film packs the strip into — 1 (default) = the whole strip in one card"
-            />
           </span>
         )}
         <Text type="secondary" style={{ fontSize: 9, marginLeft: 'auto' }}>1 row = 1 shot</Text>
@@ -100,7 +87,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
         <Text type="secondary" style={{ display: 'block', fontSize: 11, padding: 14 }}>Empty strip — Divide into shots on the control card lays the rows.</Text>
       )}
       <div style={{ display: shots.length ? 'flex' : 'none', borderBottom: '1px solid #e5e6eb', background: '#f7f8fa' }}>
-        <Text style={{ flex: 1, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 12px' }}>SHOT · {shots.length} · {totalSec}s</Text>
+        <Text style={{ flex: 1, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 12px' }}>SHOT · {shots.length}</Text>
         <Text style={{ width: STILL_W, flexShrink: 0, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 8px', borderLeft: '1px solid #e5e6eb' }}>START</Text>
         <Text style={{ width: STILL_W, flexShrink: 0, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 8px', borderLeft: '1px solid #e5e6eb' }}>END</Text>
       </div>
@@ -117,7 +104,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                   re-author, or the shot editor (⤢); surgery via ↑ ↓ ✕. */}
               <div style={{ flex: 1, minWidth: 0, padding: '7px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <Text style={{ fontSize: 10, fontWeight: 700, color: '#4e5969' }}>
-                  {`#${String(i + 1).padStart(2, '0')} · ${row.beat || s.beat || 'Shot'} · ${row.durationSec || s.durationSec || 10}s${row.intExt ? ` · ${row.intExt}` : ''}`}
+                  {`#${String(i + 1).padStart(2, '0')} · ${row.beat || s.beat || 'Shot'}${row.intExt ? ` · ${row.intExt}` : ''}`}
                 </Text>
                 {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{[tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(' · ') || tpl.name}{develops ? ' · DEVELOPS' : ''}</Text>}
                 {String(row.job || '').trim() && (

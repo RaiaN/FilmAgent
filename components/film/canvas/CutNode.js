@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Modal } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
-import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, videoModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { ENRICH_LEVELS } from '../../../utils/film/core/storyboard';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
@@ -179,9 +179,12 @@ const CutNodeInner = ({ id, data, selected }) => {
   // is the card's NAME; it only feeds the shoot prompt as a FALLBACK when PROMPT is empty.
 
   // Duration is gated by the endpoint: the 2.0 family caps at 15s, Seedance 2.5 at 30s.
+  // AUTO is its own value — no duration on the wire, the model runs the events as long
+  // as they take. Cards born from the Film button start there.
   const videoModel = videoModelKeyOf(data.videoModel);
   const maxDur = maxShotSeconds(videoModel);
-  const durationSec = Math.min(maxDur, Math.max(5, Math.round(Number(data.durationSec) || 10)));
+  const durationSec = clampShotSeconds(videoModel, data.durationSec);
+  const durOptions = [AUTO_SECONDS, ...Array.from({ length: Math.floor(maxDur / 5) }, (_, i) => (i + 1) * 5)];
   const resOptions = RES_BY_MODEL[videoModel] || RES_BY_MODEL.seedance;
   const maxRefs = videoTraits(videoModel).refCap; // the CARD's model decides how many image refs ride
   const resolution = resOptions.includes(data.resolution) ? data.resolution : resDefault(videoModel);
@@ -273,21 +276,20 @@ const CutNodeInner = ({ id, data, selected }) => {
           </Tag>
         )}
         <span style={{ flex: 1 }} />
-        {/* The SHOT's length — one configurable duration (5–15s), the single source of
-            truth for how long this shot runs (drives shotFromCard). */}
-        <span title="Shot duration in seconds (5–15; Seedance 2.5 allows up to 30)" style={{ display: 'inline-flex' }}>
-          <InputNumber
-            className="nodrag"
-            size="mini"
-            min={5}
-            max={maxDur}
-            step={1}
-            value={durationSec}
-            onChange={(v) => patch({ durationSec: Math.min(maxDur, Math.max(5, Math.round(Number(v) || 10))) })}
-            suffix="s"
-            style={{ width: 72 }}
-          />
-        </span>
+        {/* The SHOT's length — Auto (no duration sent: the events set it) or a fixed
+            ceiling in seconds. The single source of truth for shotFromCard. */}
+        <Select
+          className="nodrag"
+          size="mini"
+          value={durationSec}
+          onChange={(v) => patch({ durationSec: v })}
+          style={{ width: 84 }}
+          title="How long this shot runs. Auto sends no duration at all — the model plays the events out as long as they honestly take (what the Film button sets). A number caps it."
+        >
+          {durOptions.map((d) => (
+            <Select.Option key={String(d)} value={d}>{d === AUTO_SECONDS ? 'Auto' : `${d}s`}</Select.Option>
+          ))}
+        </Select>
         <Button
           className="nodrag"
           size="mini"

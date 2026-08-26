@@ -1,7 +1,7 @@
 import { Button, Checkbox, Input, InputNumber, Select, Typography } from '@arco-design/web-react';
 import { IconPlayArrow, IconPlus, IconClose } from '@arco-design/web-react/icon';
 import { AGENT_MAP, IMAGE_RESOLUTIONS } from '../../../utils/film/agents';
-import { IMAGE_MODEL_OPTIONS, imageModelKeyOf, imageTraits, maxShotSeconds, defaultVideoModelKey } from '../../../utils/film/suiteConfig';
+import { IMAGE_MODEL_OPTIONS, imageModelKeyOf, imageTraits, maxShotSeconds, AUTO_SECONDS, defaultVideoModelKey } from '../../../utils/film/suiteConfig';
 import { SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
@@ -138,7 +138,11 @@ const ShotFields = ({ s, up }) => (
     </div>
     <div>
       <Text style={FIELD_LABEL}>Duration</Text>
-      <InputNumber size="small" min={5} max={maxShotSeconds(defaultVideoModelKey())} value={s.durationSec} onChange={(v) => up({ durationSec: v })} style={{ width: 90 }} suffix="s" />
+      <Select size="small" value={s.durationSec} onChange={(v) => up({ durationSec: v })} style={{ width: 96 }}>
+        {[AUTO_SECONDS, ...Array.from({ length: Math.floor(maxShotSeconds(defaultVideoModelKey()) / 5) }, (_, i) => (i + 1) * 5)].map((d) => (
+          <Select.Option key={String(d)} value={d}>{d === AUTO_SECONDS ? 'Auto' : `${d}s`}</Select.Option>
+        ))}
+      </Select>
     </div>
   </>
 );

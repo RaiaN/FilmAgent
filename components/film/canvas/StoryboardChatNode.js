@@ -78,14 +78,15 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
           <Section label={`SCREENPLAY${scenes ? ` · ${scenes} scene${scenes === 1 ? '' : 's'}` : ''}`}>
             {!String(data.screenplay || '').trim() ? (
               <Button
-                size="small" long loading={!!data.busy}
+                size="small" long type="primary" loading={!!data.busy}
                 disabled={!String(data.script || '').trim()}
+                style={{ background: '#b06f10', borderColor: '#b06f10' }}
                 onClick={() => onNormalize(id)}
                 title={String(data.script || '').trim()
                   ? 'Convert the script to screenplay format — sluglines, action lines, dialogue verbatim, nothing invented (unstated slug fields say UNSTATED). 1 reasoner call; a pasted screenplay carries verbatim for free.'
                   : 'Type the script above first'}
               >
-                Normalize — draft the screenplay (1 call · free if already one)
+                Normalize — draft the screenplay
               </Button>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -97,7 +98,7 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
                 />
                 <div style={{ display: 'flex', gap: 4 }}>
                   <Popconfirm title="Throw away this screenplay (and your edits) and re-normalize the script from scratch?" okText="Re-normalize" onOk={() => onNormalize(id)}>
-                    <Button size="mini" status="warning" loading={!!data.busy} style={{ flex: 1 }}>Re-normalize</Button>
+                    <Button size="mini" type="primary" loading={!!data.busy} style={{ flex: 1, background: '#b06f10', borderColor: '#b06f10' }}>Re-normalize</Button>
                   </Popconfirm>
                 </div>
                 {/* THE SETTING per scene. Every shot in a scene renders against the same

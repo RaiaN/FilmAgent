@@ -54,7 +54,7 @@ const CellImg = ({ srcs, alt, title, onDoubleClick, onDead }) => {
 };
 
 const StoryboardStripInner = ({ id, data, selected }) => {
-  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onFilmStrip, onViewImage, onImgError, onRenderEnd, onEnhanceStill, onTagFrame, onEditEndFrame, onEditStartFrame } = useContext(AssetNodeContext);
+  const { onRenderStill, onEditKeyframe, onExpandKeyframe, onPromoteKeyframe, onFilmStrip, onViewImage, onImgError, onEnhanceStill, onTagFrame, onEditStartFrame } = useContext(AssetNodeContext);
   const { onListAction } = useContext(StoryboardChatContext);
   const chatId = data.chatId || String(id).replace('sbpanel', 'sbchat');
   const chatArr = useNodesData([chatId]);
@@ -89,7 +89,6 @@ const StoryboardStripInner = ({ id, data, selected }) => {
       <div style={{ display: shots.length ? 'flex' : 'none', borderBottom: '1px solid #e5e6eb', background: '#f7f8fa' }}>
         <Text style={{ flex: 1, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 12px' }}>SHOT · {shots.length}</Text>
         <Text style={{ width: STILL_W, flexShrink: 0, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 8px', borderLeft: '1px solid #e5e6eb' }}>START</Text>
-        <Text style={{ width: STILL_W, flexShrink: 0, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 8px', borderLeft: '1px solid #e5e6eb' }}>END</Text>
       </div>
       <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ maxHeight: 560, overflowY: 'auto' }}>
         {shots.map((s, i) => {
@@ -97,7 +96,6 @@ const StoryboardStripInner = ({ id, data, selected }) => {
           const row = rows?.[i]?.data || {};
           const tpl = SHOT_TEMPLATE_BY_ID[row.shotTemplate || s.shotTemplate];
           const still = row.cacheUrl || row.localUrl || row.url;
-          const hasEnd = !!String(row.exiting ?? s.exiting ?? '').trim(); // an END STATE sentence is what makes a row a pair
           return (
             <div key={nodeId} style={{ display: 'flex', alignItems: 'stretch', borderTop: i ? '1px solid #e5e6eb' : 'none', background: '#fffdf7' }}>
               {/* TEXT column — display only: words change via the action bar's Note →
@@ -106,7 +104,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                 <Text style={{ fontSize: 10, fontWeight: 700, color: '#4e5969' }}>
                   {`#${String(i + 1).padStart(2, '0')} · ${row.beat || s.beat || 'Shot'}${row.intExt ? ` · ${row.intExt}` : ''}`}
                 </Text>
-                {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{[tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(' · ') || tpl.name}{hasEnd ? ' · ENDS ON' : ''}</Text>}
+                {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{[tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(' · ') || tpl.name}</Text>}
                 {String(row.job || '').trim() && (
                   <Text title="This shot's ONE JOB — carved with the shot list; the author and every prompt verb serve it" style={{ fontSize: 9, color: '#b06f10', fontStyle: 'italic' }} ellipsis={{ rows: 1 }}>◎ {row.job}</Text>
                 )}
@@ -166,7 +164,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                       <Button size="mini" icon={<IconTag />} onClick={(e) => { e.stopPropagation(); onTagFrame(nodeId, 'start'); }} title="Tag as FRAME — lands this still as a tagged board asset; it becomes a reference chip on every SHOT card, pickable as a keyframe (free)">Tag</Button>
                     )}
                     {onRenderStill && (
-                      <Button size="mini" icon={<IconRefresh />} onClick={(e) => { e.stopPropagation(); onRenderStill(nodeId); }} title="Re-render from the CURRENT text (a developing shot chains a fresh END too) — the stale-sync and the fresh re-roll are the same action" />
+                      <Button size="mini" icon={<IconRefresh />} onClick={(e) => { e.stopPropagation(); onRenderStill(nodeId); }} title="Re-render from the CURRENT text — the stale-sync and the fresh re-roll are the same action" />
                     )}
                   </div>
                 )}
@@ -195,47 +193,6 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                     title="The words moved after this render — click to re-render the pair from the current text"
                     style={{ position: 'absolute', bottom: 5, left: 5, right: 5, zIndex: 3, background: 'rgba(255,125,0,0.92)', color: '#fff', fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, textAlign: 'center', cursor: 'pointer' }}
                   >text changed — click to re-render</span>
-                )}
-              </div>
-              {/* END cell — ALWAYS present so the columns align. ↻ re-rolls JUST the END
-                  (boundary iteration); an empty cell opens the shot editor to write one. */}
-              <div
-                style={{ ...cellBase, cursor: hasEnd ? 'default' : 'pointer' }}
-                title={hasEnd ? 'END frame — the pair pins this shot\'s take. Edit the end state in the shot editor.' : 'This shot holds one composition — click to open the shot editor and write an END state'}
-                onClick={() => { if (!hasEnd && onExpandKeyframe) onExpandKeyframe(nodeId); }}
-              >
-                {hasEnd && <span style={{ ...badge, background: 'rgba(29,107,196,0.9)' }}>END</span>}
-                {hasEnd && !row.endLoading && (
-                  <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, display: 'flex', gap: 3 }}>
-                    {row.endStill?.url && onEditEndFrame && (
-                      <Button size="mini" icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditEndFrame(nodeId); }} title="Edit the END frame — instruction edit, draw marks, camera reframe; the result replaces the END in place (the Edit-shot editor)" />
-                    )}
-                    {row.endStill?.url && onEnhanceStill && (
-                      <Button size="mini" icon={<IconBrush />} onClick={(e) => { e.stopPropagation(); onEnhanceStill(nodeId, 'end'); }} title="Enhance the END frame — finishing pass with composition/identity locked. 1 VLM + 1 image, replaces in place." />
-                    )}
-                    {row.endStill?.url && onTagFrame && (
-                      <Button size="mini" icon={<IconTag />} onClick={(e) => { e.stopPropagation(); onTagFrame(nodeId, 'end'); }} title="Tag the END frame as a FRAME chip — usable as a keyframe on any SHOT card (free)">Tag</Button>
-                    )}
-                    {still && onRenderEnd && (
-                      <Button size="mini" icon={<IconRefresh />} onClick={(e) => { e.stopPropagation(); onRenderEnd(nodeId); }} title="Re-render the END frame ONLY — one image from the current START still + end state; the START stays" />
-                    )}
-                  </div>
-                )}
-                {hasEnd ? (
-                  row.endStill?.url ? (
-                    <CellImg srcs={[row.endStill.cacheUrl, row.endStill.url]} alt="END" title="END frame — double-click to view full screen" onDoubleClick={() => onViewImage && onViewImage({ id: nodeId, end: true })} />
-                  ) : row.endLoading ? (
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
-                      <IconLoading style={{ fontSize: 18, color: '#165dff' }} />
-                      <Text style={{ fontSize: 10, color: '#4e5969', fontWeight: 600 }}>
-                        {row.enhancePhase === 'look' ? '✦ 1/2 · agent studying the frame…' : row.enhancePhase === 'edit' ? '✦ 2/2 · applying the finishing pass…' : 'rendering END…'}
-                      </Text>
-                    </span>
-                  ) : (
-                    <Text title={`⇥ END: ${row.exiting} — renders with the still`} style={{ fontSize: 10, color: '#1d6bc4', padding: '0 10px', textAlign: 'center' }} ellipsis={{ rows: 4 }}>⇥ {row.exiting}</Text>
-                  )
-                ) : (
-                  <Text type="secondary" style={{ fontSize: 10 }}>HOLD · ＋ end state</Text>
                 )}
               </div>
             </div>

@@ -1,7 +1,6 @@
 // Storyboard core. The AD-PLANNER DIVISION (storyboardCarve → storyboardAuthor) is the one storyboard
-// brain: brief/script → shot list (body · motion · exiting · audio per shot), turn by
-// turn with the director; storyboardKeyframe/storyboardEndframe render each shot's
-// START still and (for developing shots) its chained END frame. Also home to the Story
+// brain: brief/script → shot list (body · motion · audio per shot), turn by
+// turn with the director; storyboardKeyframe renders each shot's still. Also home to the Story
 // agent (writeFilmPrompt → idea/script → one long cinematic prompt) and the
 // pre-production draft (castFromIdea).
 //
@@ -265,7 +264,6 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
     return {
       body: String(raw.body || '').replace(/\s+/g, ' ').trim().slice(0, 900),
       motion: String(raw.motion || '').replace(/\s+/g, ' ').trim().slice(0, 1800),
-      exiting: String(raw.exiting || '').replace(/\s+/g, ' ').trim().slice(0, 400),
       audio: String(raw.audio || '').replace(/\s+/g, ' ').trim().slice(0, 300),
       expression: String(raw.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),
     };
@@ -289,26 +287,6 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
 // freshly-rendered START still — [Image 1] IS the start, the composed instruction
 // carries the advance (+ the camera-under-lock reframe when the shot's camera moves),
 // and the casting refs ride behind for identity. Fast path, like every locked edit.
-export const storyboardEndframe = async ({ exiting = '', startUrl = '', refs = [], imageModel = defaultImageModelKey(), shotTemplate = '', config } = {}, ctx) => {
-  const line = String(exiting || '').trim().slice(0, 800);
-  if (!line || !startUrl) throw new Error('endframe needs an exiting sentence and the START still');
-  // LITERALLY the Edit-shot call: the END STATE sentence rides VERBATIM as the edit
-  // instruction — no wrapper prose. The only composition is the established
-  // camera-under-lock reframe clause when the shot's camera moves (the same clause an
-  // Edit-shot camera change adds).
-  const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate];
-  const move = String(tpl?.move || '').trim();
-  const isStatic = !move || /static|lock/i.test(move);
-  const instruction = [
-    isStatic ? '' : `Reframe to the composition the camera reaches at the end of its ${move} — the same scene, subjects and moment.`,
-    line,
-  ].filter(Boolean).join(' ');
-  const out = await storyboardKeyframe({
-    body: instruction, refs: [startUrl, ...(refs || [])].filter(Boolean), imageModel, frameEdit: true, config,
-  }, ctx);
-  return out; // { url, cacheUrl, prompt }
-};
-
 // QUICK STORYBOARD, pre-division: ONE page rendered straight from the VERBATIM
 // script — the renderer picks the moments itself. No carve, no rows, no side
 // effects; after a division the page renders from the real shot list instead.

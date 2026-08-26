@@ -52,7 +52,7 @@ import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } 
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
 import { previzPlan, blockoutStill, previzTake, beautyTake } from '../../../utils/film/core/previz';
-import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardEndframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
+import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -2380,10 +2380,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // renumbering applies (both fields share the pool numbering).
       const motion0 = String(sShot.motion || '').trim();
       const mappedMotion = motion0 ? renumber(resolveShotRefs({ ...sShot, body: motion0 }, pool).body) : '';
-      // The anchors carry their WORDING (manual: text and image say the same thing) —
-      // START = the still's description, END = the exiting state, badges renumbered.
-      const exiting0 = String(sShot.exiting || '').trim();
-      const mappedExiting = exiting0 ? renumber(resolveShotRefs({ ...sShot, body: exiting0 }, pool).body) : '';
+      // The anchor carries its WORDING (manual: text and image say the same thing).
       const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
       // A SEQUENCE reads top → bottom: one COLUMN — long scripts scroll naturally;
       // the bond arcs from a card's right dot down to the next card's left dot.
@@ -2396,24 +2393,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         refEntryIds: refIds, audio: sShot.audio || '',
       }, pos);
       const cardId = `${idPrefix}-0`;
-      // The still IS the card's START anchor — ONE mechanism: the pinned grammar's
-      // composition binding replaces the old FIRST-FRAME lock text entirely. A rendered
-      // pair carries its END frame across as the END anchor (nodeId null — the END
-      // lives on the START node's data, not as its own board node).
-      // The stills are CHIPS (first + last assetRefs); the keyframes POINT at them —
-      // each image rides once.
+      // The still IS the card's ONE keyframe — the pinned grammar's composition binding
+      // replaces the old FIRST-FRAME lock text entirely. The still is a CHIP; the
+      // keyframe POINTS at it, so the image rides once.
       const beatLabel = sShot.beat || `Frame ${(Number(kf.data.index) || 0) + 1}`;
-      const endUrl = kf.data.endStill?.url ? (kf.data.endStill.cacheUrl || kf.data.endStill.url) : '';
       onPatchCut(cardId, {
-        assetRefs: [
-          { nodeId: kf.id, url, label: beatLabel },
-          ...looseRefs,
-          ...(endUrl ? [{ nodeId: null, url: endUrl, label: `${beatLabel} · end` }] : []),
-        ],
-        keyframes: [
-          { nodeId: kf.id, url, label: beatLabel, desc: mapped, pickedAt: Date.now() },
-          ...(endUrl ? [{ nodeId: null, url: endUrl, label: `${beatLabel} · end`, desc: mappedExiting, pickedAt: Date.now() }] : []),
-        ],
+        assetRefs: [{ nodeId: kf.id, url, label: beatLabel }, ...looseRefs],
+        keyframes: [{ nodeId: kf.id, url, label: beatLabel, desc: mapped, pickedAt: Date.now() }],
       });
       return cardId;
   }, [onPatchCut]);
@@ -3141,8 +3127,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const cut = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
     const cardId = layAnchoredCard(kf, sShot, pool, cut, base);
     if (!cardId) return;
-    const hasEnd = !!kf.data.endStill?.url;
-    Message.success(`SHOT ${cut + 1} laid from “${String(kf.data.beat || 'keyframe').slice(0, 24)}” — refs attached, K1${hasEnd ? ' + K2' : ''} pinned; 🎬 when ready.`);
+    Message.success(`SHOT ${cut + 1} laid from “${String(kf.data.beat || 'keyframe').slice(0, 24)}” — refs attached, K1 pinned; 🎬 when ready.`);
   }, [freeOrigin, layAnchoredCard]);
 
   // 'FILM' — the strip's one-tap road to takes: pack the rows into the REQUESTED
@@ -3164,23 +3149,21 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const val = (k) => String(d[k] ?? s[k] ?? '').trim();
       return {
         i, beat: val('beat') || `Shot ${i + 1}`, motion: val('motion'), body: val('body'),
-        audio: val('audio'), exiting: val('exiting'),
+        audio: val('audio'),
         scene: Number(d.scene ?? s.scene) || 1,
         shotTemplate: d.shotTemplate || s.shotTemplate || '',
         nodeId: node?.id || null,
         startUrl: d.cacheUrl || d.localUrl || d.url || '',
-        endUrl: (d.endStill && (d.endStill.cacheUrl || d.endStill.url)) || '',
-        busy: !!(d.loading || d.endLoading || d.authorPending),
+        busy: !!(d.loading || d.authorPending),
       };
     });
     if (rows.some((r) => r.busy)) { Message.warning('A still or author call is mid-flight — let it land before filming the strip.'); return; }
     // Stills are PER-ROW opt-in, never a gate: an unrendered row is a deliberate
     // choice — its interval rides text-only (the model stages it from the words);
     // a rendered row is pinned. Reported, not refused.
-    const textOnly = rows.filter((r) => !r.startUrl && !r.endUrl).map((r) => r.i + 1);
+    const textOnly = rows.filter((r) => !r.startUrl).map((r) => r.i + 1);
     const noText = rows.filter((r) => !r.motion && !r.body).map((r) => r.i + 1);
     if (noText.length) { Message.warning(`Shot${noText.length === 1 ? '' : 's'} ${noText.join(', ')} ${noText.length === 1 ? 'has' : 'have'} no text — author or write the row${noText.length === 1 ? '' : 's'} first.`); return; }
-    const missingEnd = rows.filter((r) => r.startUrl && r.exiting && !r.endUrl).map((r) => r.i + 1);
     const modelKey = defaultVideoModelKey();
     const refCap = videoTraits(modelKey).refCap;
     const stamped = videoTraits(modelKey).keyframeGrammar === 'keyframes'; // interval grammar rides with the keyframe-chain dialect
@@ -3247,10 +3230,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           stillChips.push({ nodeId: r.nodeId, url: r.startUrl, label: r.beat });
           kfPtrs.push({ nodeId: r.nodeId, url: r.startUrl, label: r.beat, desc: r.body, pickedAt: Date.now() });
         }
-        if (r.endUrl) {
-          stillChips.push({ nodeId: null, url: r.endUrl, label: `${r.beat} · end` });
-          kfPtrs.push({ nodeId: null, url: r.endUrl, label: `${r.beat} · end`, desc: r.exiting, pickedAt: Date.now() });
-        }
       });
       // Location plates ride FIRST (with the pool) so they anchor the setting without
       // disturbing the stills' keyframe pointers, which resolve by url.
@@ -3268,7 +3247,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       })).filter((e) => !es.some((x) => x.id === e.id))));
     }
     if (overCap) Message.warning(`${overCap} card${overCap === 1 ? '' : 's'} exceed${overCap === 1 ? 's' : ''} the model's ${refCap}-reference cap — later chips are trimmed at shoot time; slim the REFS pool or turn off the stills you do not need.`);
-    Message.success(`Filmed the strip into ONE SHOT card — ${rows.length} shot${rows.length === 1 ? '' : 's'}, duration left to the model${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''}${missingEnd.length ? ` — shot${missingEnd.length === 1 ? '' : 's'} ${missingEnd.join(', ')} pin${missingEnd.length === 1 ? 's' : ''} START only (END not rendered)` : ''} — 🎬 when ready.`);
+    Message.success(`Filmed the strip into ONE SHOT card — ${rows.length} shot${rows.length === 1 ? '' : 's'}, duration left to the model${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''} — 🎬 when ready.`);
   }, [freeOrigin, onPatchCut, applyEdges]);
 
   // CANON media references — audio/video nodes the user tagged (★ Reference): every SHOT
@@ -3570,13 +3549,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     label: s.beat, beat: s.beat, job: s.job || '', body: s.body, shotTemplate: s.shotTemplate, expression: s.expression || '',
     figures: s.figures || [], intExt: s.intExt || '', scene: s.scene || 1,
     figureLabels: (s.figures || []).map((f) => String(refs[f - 1]?.label || `Image ${f}`).slice(0, 16)),
-    motion: s.motion || '', exiting: s.exiting || '', audio: s.audio || '',
+    motion: s.motion || '', audio: s.audio || '',
     span: s.span || '', authorPending: !!s.authorPending, missingDialogue: s.missingDialogue || [], authorError: s.authorError || '',
     style, imageModel, keyframe: true, panelId, index: i,
   });
   // The render-stash keys that must TRAVEL WITH a shot through cut/reorder/insert —
   // the paid pixels and their provenance (never regenerated by surgery).
-  const KF_STASH = ['url', 'cacheUrl', 'bodyRendered', 'shotRefs', 'endStill', 'staleStill'];
+  const KF_STASH = ['url', 'cacheUrl', 'bodyRendered', 'shotRefs', 'staleStill'];
 
   // Reconcile the panel to `shots` as TEXT-FIRST CARDS — layout only, ZERO renders.
   // Each shot lands (or updates) in the grid slot its still will occupy: a compact
@@ -3691,7 +3670,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         const shots = carve.shots.map((s) => ({
           beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures,
           intExt: s.intExt, scene: s.scene, span: s.span,
-          body: s.span, motion: '', exiting: '', audio: '', expression: '', authorPending: true,
+          body: s.span, motion: '', audio: '', expression: '', authorPending: true,
         }));
         // A figure-less shot authors with ZERO reference anchors (no [Image N] at all) —
         // legal, but never silent: the carve owed every shot its figures.
@@ -3713,7 +3692,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
               script: rawScript || script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate,
               prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: figs.map((g) => poolUrls[g - 1]),
             }, ctx);
-            shots[i] = { ...shots[i], body: localToPoolTags(a.body, figs), motion: localToPoolTags(a.motion, figs), exiting: localToPoolTags(a.exiting, figs), audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
+            shots[i] = { ...shots[i], body: localToPoolTags(a.body, figs), motion: localToPoolTags(a.motion, figs), audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
             if (a.missingDialogue?.length) flagged += 1;
           } catch (e) {
             shots[i] = { ...shots[i], authorPending: false, authorError: e.message };
@@ -3741,7 +3720,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Index-addressed row ids mean surgery MUST NOT run while a render or author call is
   // in flight — the completion would land on whichever shot NOW owns that index.
   const panelRowsBusy = useCallback((panelId, count) => Array.from({ length: count }, (_, i) => nodesRef.current.find((n) => n.id === `${panelId}-${i}`)?.data || {})
-    .some((d) => d.loading || d.endLoading || d.authorPending), []);
+    .some((d) => d.loading || d.authorPending), []);
 
   // ROW SURGERY CORE: rebuild the strip from (shots, stash) parallel arrays — cards are
   // recreated 0..N-1 (ids are index-addressed), positions re-pitched, panel resized,
@@ -3841,13 +3820,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // (same url) with the frame role — decoupled from row surgery, so cutting or
   // re-ordering rows never breaks a card that references it. This is how arbitrary
   // storyboard frames become keyframe-pickable chips on ANY SHOT card.
-  const tagStripStill = useCallback((nodeId, which = 'start') => {
+  const tagStripStill = useCallback((nodeId) => {
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node?.data?.keyframe) return;
-    const isEnd = which === 'end';
-    const src = isEnd ? (node.data.endStill?.cacheUrl || node.data.endStill?.url) : (node.data.cacheUrl || node.data.url);
+    const src = node.data.cacheUrl || node.data.url;
     if (!src) { Message.warning('Render the still first — tagging needs pixels.'); return; }
-    const label = `${node.data.beat || 'Frame'}${isEnd ? ' · end' : ''}`;
+    const label = String(node.data.beat || 'Frame');
     if (nodesRef.current.some((n) => n.data?.bibleRole === 'frame' && (n.data?.url === src || n.data?.bibleRefUrl === src))) {
       Message.info(`"${label}" is already tagged as a frame.`);
       return;
@@ -3973,21 +3951,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // kind of render (a locked edit re-rolls as a locked edit).
       const stashRefs = annotatedFrame ? [node.data.cacheUrl || node.data.url, ...ordered.slice(1)].filter(Boolean) : ordered; // never persist megabyte annotated data: urls
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false, shotRefs: stashRefs, bodyRendered: body, renderedFrameEdit: frameEdit, promptUsed, staleStill: undefined } } : n)));
-      // PAIR: a shot whose author wrote an `exiting` sentence chains its END frame off
-      // the still that just landed — same tap, second named spend. The END rides as
-      // data.endStill and becomes the card's END anchor at promote.
-      const exiting = String((editFields.exiting ?? node.data.exiting) || '').trim();
-      if (exiting && !frameEdit) {
-        setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
-        traceRef.current.startRun({ note: `Agent · Storyboard (END frame · ${String(node.data.beat || '').slice(0, 24)})` });
-        try {
-          const end = await storyboardEndframe({ exiting, startUrl: cacheUrl || url, refs: ordered, imageModel, shotTemplate: node.data.shotTemplate }, ctx);
-          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: end.url, cacheUrl: end.cacheUrl || null, promptUsed: end.prompt }, endLoading: false } } : n)));
-        } catch (e) {
-          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: false, endError: e.message } } : n)));
-          Message.warning(`END frame failed (${e.message}) — the START still stands; re-render to retry the pair.`);
-        }
-      }
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
     }
@@ -4015,8 +3978,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       for (let k = 1; k <= need; k += 1) {
         const ideal = Math.max(1, Math.min(shots.length - 2, Math.round((k * (shots.length - 1)) / (need + 1))));
         const cands = [ideal, ideal - 1, ideal + 1].filter((x) => x > 0 && x < shots.length - 1 && !picked.has(x));
-        const dev = cands.find((x) => String(shots[x]?.exiting || '').trim());
-        const chosen = dev ?? cands[0];
+        const chosen = cands[0];
         if (chosen !== undefined) picked.add(chosen);
       }
       pageShots = [...picked].sort((a, b) => a - b).map((i2) => shots[i2]);
@@ -4060,70 +4022,40 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // ENHANCE a rendered still IN PLACE — the agentic finishing pass: 1 VLM look (writes
   // the tailored change-only instruction) + 1 structure-locked edit. Works on a row's
   // START still or its END frame; the text is untouched so nothing goes stale.
-  const enhanceRowStill = useCallback(async (nodeId, which = 'start') => {
+  const enhanceRowStill = useCallback(async (nodeId) => {
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node?.data?.keyframe) return;
-    const isEnd = which === 'end';
-    const src = isEnd ? (node.data.endStill?.cacheUrl || node.data.endStill?.url) : (node.data.cacheUrl || node.data.url);
+    const src = node.data.cacheUrl || node.data.url;
     if (!src) { Message.warning('Render the still first — Enhance upgrades an existing frame.'); return; }
-    if (node.data.loading || node.data.endLoading) { Message.warning('A render is in flight on this row — let it land first.'); return; }
+    if (node.data.loading) { Message.warning('A render is in flight on this row — let it land first.'); return; }
     const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
     const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
     const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
-    const busyKey = isEnd ? 'endLoading' : 'loading';
     const setPhase = (ph) => setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, enhancePhase: ph } } : n)));
-    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [busyKey]: true, enhancePhase: 'look', error: undefined, endError: undefined } } : n)));
-    traceRef.current.startRun({ note: `Agent · Enhance still (${isEnd ? 'END · ' : ''}${String(node.data.beat || '').slice(0, 24)} · 1 VLM + 1 image)` });
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true, enhancePhase: 'look', error: undefined } } : n)));
+    traceRef.current.startRun({ note: `Agent · Enhance still (${String(node.data.beat || '').slice(0, 24)} · 1 VLM + 1 image)` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
-      const out = await enhanceStill({ imageUrl: src, context: isEnd ? (node.data.exiting || '') : (node.data.body || ''), imageModel, onPhase: setPhase }, ctx);
+      const out = await enhanceStill({ imageUrl: src, context: node.data.body || '', imageModel, onPhase: setPhase }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? {
         ...n,
         data: {
           ...n.data,
-          [busyKey]: false,
+          loading: false,
           enhancePhase: undefined,
           // in place — the enhanced frame replaces the old one; provenance of the old
           // src is dropped so nothing stale (localUrl/assetId) can shadow it
-          ...(isEnd
-            ? { endStill: { url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt } }
-            : { url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt, localUrl: undefined, assetId: undefined, preserved: undefined }),
+          url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt, localUrl: undefined, assetId: undefined, preserved: undefined,
         },
       } : n)));
-      Message.success(`Enhanced${isEnd ? ' END frame' : ''} — ${out.instruction.slice(0, 140)}${out.instruction.length > 140 ? '…' : ''}`);
+      Message.success(`Enhanced — ${out.instruction.slice(0, 140)}${out.instruction.length > 140 ? '…' : ''}`);
     } catch (e) {
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [busyKey]: false, enhancePhase: undefined } } : n)));
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, enhancePhase: undefined } } : n)));
       Message.error(`Enhance failed: ${e.message}`);
     }
   }, [apiKey, setNodes]);
 
-  // Re-roll ONLY the END frame — the boundary-iteration loop: the chained edit re-runs
-  // from the CURRENT start still + CURRENT end-state sentence; the START never re-renders.
-  // One named image spend per tap.
-  const renderEndOnly = useCallback(async (nodeId) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
-    const node = nodesRef.current.find((n) => n.id === nodeId);
-    if (!node?.data?.keyframe) return;
-    const exiting = String(node.data.exiting || '').trim();
-    if (!exiting) { Message.warning('This shot has no END state — write one first (shot editor).'); return; }
-    const startUrl = node.data.cacheUrl || node.data.url;
-    if (!startUrl) { Message.warning('Render the still first — the END frame chains off it.'); return; }
-    const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
-    const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
-    const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
-    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
-    traceRef.current.startRun({ note: `Agent · Storyboard (END re-roll · ${String(node.data.beat || '').slice(0, 24)})` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-    try {
-      const end = await storyboardEndframe({ exiting, startUrl, refs: node.data.shotRefs || [], imageModel, shotTemplate: node.data.shotTemplate }, ctx);
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: end.url, cacheUrl: end.cacheUrl || null, promptUsed: end.prompt }, endLoading: false } } : n)));
-      Message.success('END frame re-rolled — the START stands untouched.');
-    } catch (e) {
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: false, endError: e.message } } : n)));
-      Message.error(`END re-roll failed: ${e.message}`);
-    }
-  }, [apiKey, setNodes]);
 
   // TEXT-ONLY row patch (free, nothing renders): the inline double-click body edit or a
   // beat rename. A real text change on a row that already has a still marks staleStill
@@ -4135,10 +4067,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chatId = panelId ? panelId.replace('sbpanel', 'sbchat') : null;
     const hasStill = !!(node.data.url || node.data.cacheUrl);
     const { showText, ...shotPatch } = patch;
-    // Only fields that feed PIXELS invalidate them: body/template/expression/figures →
-    // the START still; exiting → the chained END frame. motion/audio/duration/intExt
-    // ride to the take, not the still — they sync to the list without staling anything.
-    const STILL_KEYS = ['body', 'shotTemplate', 'expression', 'figures', 'exiting', 'beat'];
+    // Only fields that feed PIXELS invalidate them: body/template/expression/figures.
+    // motion/audio/intExt ride to the take, not the still — they sync to the list
+    // without staling anything.
+    const STILL_KEYS = ['body', 'shotTemplate', 'expression', 'figures', 'beat'];
     const touchesStill = Object.keys(shotPatch).some((k) => STILL_KEYS.includes(k));
     setNodes((ns) => ns.map((n) => {
       if (n.id === nodeId) return { ...n, data: { ...n.data, ...patch, ...(shotPatch.beat ? { label: shotPatch.beat } : {}), ...(touchesStill && hasStill ? { staleStill: true } : {}) } };
@@ -4178,19 +4110,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     try {
       const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: merged.shotTemplate, style, expression: merged.expression, refs: shotRefs, imageModel, frameEdit: !!node.data.renderedFrameEdit }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, promptUsed, loading: false } } : n)));
-      // A fresh roll is a NEW composition — a shot with an END STATE re-chains its END so the
-      // pair never silently mismatches.
-      const exiting2 = String(node.data.exiting || '').trim();
-      if (exiting2 && !node.data.renderedFrameEdit) {
-        setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
-        try {
-          const end = await storyboardEndframe({ exiting: exiting2, startUrl: cacheUrl || url, refs: shotRefs, imageModel, shotTemplate: merged.shotTemplate }, ctx);
-          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: end.url, cacheUrl: end.cacheUrl || null, promptUsed: end.prompt }, endLoading: false } } : n)));
-        } catch (e2) {
-          setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: false, endError: e2.message } } : n)));
-          Message.warning(`END re-chain failed (${e2.message}) — the new START stands; END ↻ retries the pair's second frame.`);
-        }
-      }
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
     }
@@ -4199,10 +4118,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // ---- Keyframe Expand editor: see/edit the whole shot (body + references + camera/expression) ----
   // (Its Regenerate = saveKeyframeShot above — same fresh-render path as the card's Render still.)
   const [expandedKeyframeId, setExpandedKeyframeId] = useState(null);
-  // The END frame opens in the SAME Edit-shot UI: instruction edit + draw marks +
-  // camera-under-lock reframe, applied through the one frameEdit grammar; the result
-  // replaces endStill in place. Pair GENERATION is untouched.
-  const [endEditId, setEndEditId] = useState(null);
   const [startEditId, setStartEditId] = useState(null);
   // Pixels-only edit of the START still, in place: same frameEdit grammar, same pool
   // mechanics as the END editor. Text untouched → nothing goes stale; the END keeps
@@ -4238,41 +4153,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } catch (e) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: e.message } } : n)));
       Message.error(`START edit failed: ${e.message}`);
-    }
-  }, [apiKey, setNodes]);
-  const applyEndFrameEdit = useCallback(async (nodeId, edits = {}) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
-    const node = nodesRef.current.find((n) => n.id === nodeId);
-    const src = node?.data?.endStill?.cacheUrl || node?.data?.endStill?.url;
-    if (!src) return;
-    const { annotatedFrame, body = '', shotTemplate, figures } = edits;
-    let instruction = String(body || '').trim();
-    if (!instruction && !annotatedFrame) { Message.warning('Describe the change — the END frame edits by instruction (or draw marks).'); return; }
-    const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
-    const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
-    const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
-    // The editor's pool = [END frame, ...the storyboard's ref pool]. Ticked refs ride
-    // behind the frame (props/casting for the change); the instruction's [Image N]
-    // numbers are renumbered to the attach order by the shared resolver.
-    const editorPool = [src, ...freshPoolUrls(chat?.data?.refs || [])];
-    const ticked = [1, ...((Array.isArray(figures) ? figures : []).filter((f) => f > 1))];
-    const { ordered, body: renumbered } = resolveShotRefs({ figures: ticked, body: instruction }, editorPool);
-    instruction = renumbered;
-    if (shotTemplate) {
-      const t = SHOT_TEMPLATE_BY_ID[shotTemplate];
-      if (t) instruction = `Reframe to a ${[t.framing, t.angle].filter(Boolean).join(', ')} — the same scene, subjects and moment. ${instruction}`;
-    }
-    const refsToSend = [annotatedFrame || ordered[0] || src, ...ordered.slice(1)];
-    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
-    traceRef.current.startRun({ note: `Agent · Storyboard (END frame edit · ${String(node.data.beat || '').slice(0, 24)})` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-    try {
-      const out = await storyboardKeyframe({ body: instruction, refs: refsToSend, imageModel, frameEdit: true, frameEditAnnotated: !!annotatedFrame }, ctx);
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endStill: { url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt }, endLoading: false } } : n)));
-      Message.success('END frame edited in place — the START stands untouched.');
-    } catch (e) {
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: false, endError: e.message } } : n)));
-      Message.error(`END edit failed: ${e.message}`);
     }
   }, [apiKey, setNodes]);
 
@@ -5227,10 +5107,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
   const tagCtx = useMemo(() => ({ onTagRole: tagNode, onRename: renameNode, onImgError: healNodeUrl, onAddToTimeline: addTakeToTimeline, onRemoveFromTimeline: removeTakeFromTimeline, onTimelineIds: onTimelineNodeIds, onEditKeyframe: editKeyframe, onExpandKeyframe: setExpandedKeyframeId, onMaskPrevis: setMaskImgId, onAttachPlate: attachPlateToCard, onCastColors: setPlateCastId, onPromoteKeyframe: promoteKeyframeToCard, onFilmStrip: filmStrip, onToggleMediaRef: toggleMediaRef, onEditImage: openFrameEditor, onOpenViewer: setViewerId, onPreserve: preserveNodeById, onDuplicate: duplicateNode, onViewImage: setLightboxId, onNeedPoster: ensurePoster,
-    onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onRenderEnd: renderEndOnly, onEnhanceStill: enhanceRowStill, onTagFrame: tagStripStill, onEditEndFrame: setEndEditId, onEditStartFrame: setStartEditId,
+    onRenderStill: (id) => saveKeyframeShot(id, {}), onPatchKeyframeText: patchKeyframeText, onEnhanceStill: enhanceRowStill, onTagFrame: tagStripStill, onEditStartFrame: setStartEditId,
     // A demo run is a SHOW — previews beat render savings, so the tile LOD is
     // suspended while it plays (pull-back steps must paint real media, not tiles).
-    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, filmStrip, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, renderEndOnly, enhanceRowStill, tagStripStill, duplicateNode, ensurePoster, lodCoarse, demoOverlay]);
+    lod: lodCoarse && !demoOverlay }), [tagNode, renameNode, healNodeUrl, addTakeToTimeline, removeTakeFromTimeline, onTimelineNodeIds, editKeyframe, attachPlateToCard, promoteKeyframeToCard, filmStrip, toggleMediaRef, openFrameEditor, preserveNodeById, saveKeyframeShot, patchKeyframeText, enhanceRowStill, tagStripStill, duplicateNode, ensurePoster, lodCoarse, demoOverlay]);
 
   // The Storyboard chat node runs one brainstorm turn per message, scoped to its own cards.
   // Pool mutations for the chat node's REFS block (SHOT-card-style chips): toggle a bible
@@ -5837,29 +5717,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           />
         );
       })()}
-      {endEditId && (() => {
-        const kf = nodes.find((n) => n.id === endEditId);
-        const src = kf?.data?.endStill?.cacheUrl || kf?.data?.endStill?.url;
-        if (!kf || !src) return null;
-        const chatId = kf.data.panelId ? String(kf.data.panelId).replace('sbpanel', 'sbchat') : null;
-        const chat = chatId && nodes.find((n) => n.id === chatId);
-        const pool = [src, ...freshPoolUrls(chat?.data?.refs || [])]; // [1] = the END frame itself
-        return (
-          <KeyframeEditor
-            key={`end-${endEditId}`}
-            shot={{ beat: `${kf.data.beat || 'Shot'} · END`, body: '', shotTemplate: kf.data.shotTemplate || 'medium-shot', expression: '', figures: [1] }}
-            pool={pool}
-            preview={src}
-            loading={!!kf.data.endLoading}
-            imageAssets={imageAssets}
-            mode="frame"
-            onClose={() => setEndEditId(null)}
-            onSave={(edits) => applyEndFrameEdit(endEditId, edits)}
-            promptUsed={kf.data.endStill?.promptUsed}
-            onAddRef={chatId ? (async (url) => { const n = await addReferenceToPool(chatId, url); return n ? n + 1 : null; }) : undefined}
-          />
-        );
-      })()}
       {plateCastId && (() => {
         const n = nodes.find((x) => x.id === plateCastId);
         if (!n) return null;
@@ -5896,13 +5753,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       })()}
       {/* LIGHTBOX — full-screen image view (dbl-click any image; Esc / click closes). */}
       {lightboxId && (() => {
-        // Accepts a node id, or { id, end: true } — the END still lives NESTED on its
-        // row (data.endStill), not as a node of its own; both frames view the same way.
         const req = typeof lightboxId === 'string' ? { id: lightboxId } : lightboxId;
         const n = nodes.find((x) => x.id === req.id);
-        const src = n && (req.end
-          ? (n.data?.endStill?.cacheUrl || n.data?.endStill?.url)
-          : (n.data?.cacheUrl || n.data?.localUrl || n.data?.url));
+        const src = n && (n.data?.cacheUrl || n.data?.localUrl || n.data?.url);
         if (!src) return null;
         return (
           <div

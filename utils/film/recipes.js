@@ -177,9 +177,9 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
   }
   const shotLines = shots.map((sh, i) => {
     const parts = [];
-    // The anchors carry their own DESCRIPTIONS (the still's wording / the exiting
-    // state) — the manual wants text AND image to say the same thing: the image pins
-    // the composition, the words make the content unambiguous.
+    // Each keyframe carries its own DESCRIPTION (the still's wording) — the manual
+    // wants text AND image to say the same thing: the image pins the composition,
+    // the words make the content unambiguous.
     const sDesc = String(sh.startDesc || '').trim().replace(/\.$/, '');
     const eDesc = String(sh.endDesc || '').trim().replace(/\.$/, '');
     // ORDERED KEYFRAME LIST: kfIndices = [K1..Kn] chip positions; first

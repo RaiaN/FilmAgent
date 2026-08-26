@@ -175,7 +175,6 @@ export const storyboardCarve = async ({ script = '', style = '', references = []
       shotTemplate: SHOT_TEMPLATE_BY_ID[s?.shotTemplate] ? s.shotTemplate : '',
       figures,
       intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
-      develops: !!s?.develops,
       scene: Math.max(1, Math.round(Number(s?.scene) || 1)),
       // The span keeps its line breaks — it IS the script slice, not prose.
       span: String(s?.span || '').trim().slice(0, 4000),
@@ -245,7 +244,7 @@ const withDialogueGate = async (source, field, run) => {
 // AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
 // motion dropped; still missing → returned in `missingDialogue` (the card flags it,
 // never silently).
-export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', develops = false, prevBeat = '', nextBeat = '', references = [], note = '', config } = {}, ctx) => {
+export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', prevBeat = '', nextBeat = '', references = [], note = '', config } = {}, ctx) => {
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || {}; // no id → framing falls to "director's choice", never a substituted camera
   const wanted = spanDialogueLines(span);
@@ -253,7 +252,6 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('storyboard.author.user', {
         script: SPAN_SLOT, span: '@@SPAN@@', beat, job: String(job || '').trim() || 'unstated — infer the single job from the span and serve it', framing: [tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(', ') || 'director\'s choice',
-        develops: develops ? 'DEVELOPS — write the exiting state' : 'HOLDS — exiting stays empty',
         prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
         note: String(note || '').trim() ? "DIRECTOR'S NOTE — apply it to THIS shot (where it conflicts with the span, the note wins):\n@@NOTE@@\n" : '',
         retry: retryNote || '',
@@ -267,7 +265,7 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
     return {
       body: String(raw.body || '').replace(/\s+/g, ' ').trim().slice(0, 900),
       motion: String(raw.motion || '').replace(/\s+/g, ' ').trim().slice(0, 1800),
-      exiting: develops ? String(raw.exiting || '').replace(/\s+/g, ' ').trim().slice(0, 400) : '',
+      exiting: String(raw.exiting || '').replace(/\s+/g, ' ').trim().slice(0, 400),
       audio: String(raw.audio || '').replace(/\s+/g, ' ').trim().slice(0, 300),
       expression: String(raw.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),
     };

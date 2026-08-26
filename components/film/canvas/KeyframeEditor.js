@@ -106,13 +106,13 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
     if (expression.trim() !== String(shot.expression || '')) edits.expression = expression.trim();
     if (JSON.stringify(figures) !== JSON.stringify(Array.isArray(shot.figures) ? shot.figures : [])) edits.figures = figures;
     if (motion.trim() !== String(shot.motion || '')) edits.motion = motion.trim();
-    if (exiting.trim() !== String(shot.exiting || '')) { edits.exiting = exiting.trim(); edits.develops = !!exiting.trim(); }
+    if (exiting.trim() !== String(shot.exiting || '')) { edits.exiting = exiting.trim(); }
     if (audio.trim() !== String(shot.audio || '')) edits.audio = audio.trim();
     if (!Object.keys(edits).length) { if (!opts.silent) Message.info('Nothing changed.'); return; }
     onSaveText(edits);
     if (!opts.silent) {
       Message.success(edits.exiting !== undefined
-        ? (edits.exiting ? 'Words saved — the shot now DEVELOPS; its END frame renders with the still.' : 'Words saved — the shot now HOLDS (no END frame).')
+        ? (edits.exiting ? 'Words saved — the shot now ends on a written state; its END frame renders with the still.' : 'Words saved — the shot holds one composition (no END frame).')
         : 'Words saved — free, nothing rendered.');
     }
   };
@@ -221,7 +221,7 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
             <div style={{ marginBottom: 12, padding: '8px 10px', border: '1px solid #e5e6eb', borderRadius: 6 }}>
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Action — what the take performs; dialogue in {'{'}curly braces{'}'}</Text>
               <Input.TextArea value={motion} onChange={setMotion} autoSize={{ minRows: 2, maxRows: 6 }} style={{ marginBottom: 6 }} />
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>End state — one on-screen sentence; empty = HOLD, written = DEVELOPS (chained END frame)</Text>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>End state — one on-screen sentence. Empty (the common case) = the shot holds one composition; written = a chained END frame pins where it lands</Text>
               <Input.TextArea value={exiting} onChange={setExiting} autoSize={{ minRows: 1, maxRows: 3 }} style={{ marginBottom: 6 }} />
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>Audio —（music） &lt;sfx&gt; {'{'}dialogue{'}'}</Text>
               <Input value={audio} onChange={setAudio} />

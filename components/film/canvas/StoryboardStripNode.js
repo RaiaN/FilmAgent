@@ -97,7 +97,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
           const row = rows?.[i]?.data || {};
           const tpl = SHOT_TEMPLATE_BY_ID[row.shotTemplate || s.shotTemplate];
           const still = row.cacheUrl || row.localUrl || row.url;
-          const develops = !!String(row.exiting ?? s.exiting ?? '').trim();
+          const hasEnd = !!String(row.exiting ?? s.exiting ?? '').trim(); // an END STATE sentence is what makes a row a pair
           return (
             <div key={nodeId} style={{ display: 'flex', alignItems: 'stretch', borderTop: i ? '1px solid #e5e6eb' : 'none', background: '#fffdf7' }}>
               {/* TEXT column — display only: words change via the action bar's Note →
@@ -106,7 +106,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                 <Text style={{ fontSize: 10, fontWeight: 700, color: '#4e5969' }}>
                   {`#${String(i + 1).padStart(2, '0')} · ${row.beat || s.beat || 'Shot'}${row.intExt ? ` · ${row.intExt}` : ''}`}
                 </Text>
-                {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{[tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(' · ') || tpl.name}{develops ? ' · DEVELOPS' : ''}</Text>}
+                {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{[tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(' · ') || tpl.name}{hasEnd ? ' · ENDS ON' : ''}</Text>}
                 {String(row.job || '').trim() && (
                   <Text title="This shot's ONE JOB — carved with the shot list; the author and every prompt verb serve it" style={{ fontSize: 9, color: '#b06f10', fontStyle: 'italic' }} ellipsis={{ rows: 1 }}>◎ {row.job}</Text>
                 )}
@@ -198,14 +198,14 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                 )}
               </div>
               {/* END cell — ALWAYS present so the columns align. ↻ re-rolls JUST the END
-                  (boundary iteration); a HOLD cell opens the shot editor to write one. */}
+                  (boundary iteration); an empty cell opens the shot editor to write one. */}
               <div
-                style={{ ...cellBase, cursor: develops ? 'default' : 'pointer' }}
-                title={develops ? 'END frame — this shot develops; the pair pins its take. Edit the end state in the shot editor.' : 'HOLD shot — click to open the shot editor and write an END state'}
-                onClick={() => { if (!develops && onExpandKeyframe) onExpandKeyframe(nodeId); }}
+                style={{ ...cellBase, cursor: hasEnd ? 'default' : 'pointer' }}
+                title={hasEnd ? 'END frame — the pair pins this shot\'s take. Edit the end state in the shot editor.' : 'This shot holds one composition — click to open the shot editor and write an END state'}
+                onClick={() => { if (!hasEnd && onExpandKeyframe) onExpandKeyframe(nodeId); }}
               >
-                {develops && <span style={{ ...badge, background: 'rgba(29,107,196,0.9)' }}>END</span>}
-                {develops && !row.endLoading && (
+                {hasEnd && <span style={{ ...badge, background: 'rgba(29,107,196,0.9)' }}>END</span>}
+                {hasEnd && !row.endLoading && (
                   <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, display: 'flex', gap: 3 }}>
                     {row.endStill?.url && onEditEndFrame && (
                       <Button size="mini" icon={<IconEdit />} onClick={(e) => { e.stopPropagation(); onEditEndFrame(nodeId); }} title="Edit the END frame — instruction edit, draw marks, camera reframe; the result replaces the END in place (the Edit-shot editor)" />
@@ -221,7 +221,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                     )}
                   </div>
                 )}
-                {develops ? (
+                {hasEnd ? (
                   row.endStill?.url ? (
                     <CellImg srcs={[row.endStill.cacheUrl, row.endStill.url]} alt="END" title="END frame — double-click to view full screen" onDoubleClick={() => onViewImage && onViewImage({ id: nodeId, end: true })} />
                   ) : row.endLoading ? (

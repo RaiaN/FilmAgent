@@ -347,7 +347,7 @@ Return ONLY the screenplay text — no preamble, no commentary, no code fences, 
     vars: ['{templates}', '{countGoal}', '{refCount}'],
     text: `You are a film DIRECTOR + 1st AD CARVING a script into a SHOT LIST — STRUCTURE ONLY. You do NOT write shot prose here; a second pass authors each shot. Your whole attention goes to carving well.
 
-PLAN FIRST — think through, none of it in the output: (a) what TRANSFORMS across the scene; give every shot ONE job, cut any without one. (b) attention rhythm (poses a new question / raises stakes / withholds / reverses / releases) — never the same operation three times running; place a breath after a reversal. (c) geography — hold one axis, sizes progress with intensity, re-establish wide after an axis or location change. (d) DEVELOP vs HOLD — a shot develops only when its FINAL moment looks different ON SCREEN from its first (externalized, walkable within its duration). (e) at most 4 named subjects per shot.
+PLAN FIRST — think through, none of it in the output: (a) what TRANSFORMS across the scene; give every shot ONE job, cut any without one. (b) attention rhythm (poses a new question / raises stakes / withholds / reverses / releases) — never the same operation three times running; place a breath after a reversal. (c) geography — hold one axis, sizes progress with intensity, re-establish wide after an axis or location change. (d) at most 4 named subjects per shot.
 
 The script's SCENE HEADINGS (numbered INT./EXT. sluglines) are HARD boundaries: a shot NEVER spans two scenes; the geography rules apply WITHIN a scene and every new scene re-establishes; each slug's location and time ground the shot, and an UNSTATED slug field stays undecided — never invent it.
 
@@ -362,12 +362,11 @@ For EACH shot return:
 {templates}
 • figures — the reference numbers that APPEAR in this shot (≥1 when references exist; [] when none attached).
 • intExt — "INT" or "EXT".
-• develops — true only per rule (d).
 • scene — the 1-based number of the SCENE HEADING this shot falls under (1 when the script has no headings).
 • span — THIS SHOT'S PORTION OF THE SCRIPT, COPIED VERBATIM: the exact characters, dialogue word-for-word, nothing paraphrased, nothing summarized. The spans PARTITION the script IN ORDER — every story-relevant line lands in exactly ONE shot's span, no gaps, no overlaps. Scene headings and trailing global sections (style / audio notes that apply to the whole film) belong to NO span.
 
 Return ONLY a JSON object — no prose, no code fences:
-{"shots":[{"beat":"…","job":"…","shotTemplate":"…","figures":[…],"intExt":"EXT","develops":true,"scene":1,"span":"…"}],"reply":"<ONE short line to the director>"}`,
+{"shots":[{"beat":"…","job":"…","shotTemplate":"…","figures":[…],"intExt":"EXT","scene":1,"span":"…"}],"reply":"<ONE short line to the director>"}`,
   },
   'storyboard.carve.user': {
     agent: 'Storyboard',
@@ -391,7 +390,7 @@ Return ONLY JSON — no prose, no code fences:
 {
  "body": "<the shot's OPENING frame as a Seedream keyframe, 2–5 sentences, in this order: (1) SUBJECT — 'The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged' (place/object: 'the exact <place/object> in [Image N]'); pose and gaze matching the reference. (2) SECONDARY subjects via their own [Image K]. (3) ENVIRONMENT — location, set details, time of day. (4) LIGHTING, colour grade, mood. A STILL — no camera verbs, nothing mid-blur, no one looks at camera, no on-image text.>",
  "motion": "<the shot's SITUATION for the video model, in event order — who is there, in what condition, what each is trying to do, and what happens as a result. The model simulates the world and derives the physical detail, so state the situation and the observable outcome; do NOT write a body-part script and do NOT instruct individual features (say a subject is cornered and means it, never that its hackles lift — a feature instruction renders literally). Every action at real-world speed; as many sentences as the span needs and NO more. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in parentheses (…). What you leave out does not happen.>",
- "exiting": "<ONLY when the shot DEVELOPS: ONE sentence — the frame's END state as an EDIT of the opening frame, concrete and on-screen. Else empty.>",
+ "exiting": "<ONE sentence — the frame's END state as an EDIT of the opening frame, concrete and on-screen — and ONLY when the shot's last moment genuinely LOOKS different from its first. A shot that holds one composition (a look, a line of dialogue, a held breath) leaves this EMPTY, and empty is the common case: write it only when you can name what visibly changed.>",
  "audio": "<the shot's sound line in the same symbol grammar, or empty>",
  "expression": "<1–3 words for the main subject's expression, or empty>"
 }`,
@@ -399,8 +398,8 @@ Return ONLY JSON — no prose, no code fences:
   'storyboard.author.user': {
     agent: 'Storyboard',
     label: 'Author ONE shot (instruction)',
-    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{develops}', '{prevBeat}', '{nextBeat}', '{note}', '{retry}'],
-    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. It {develops}. ITS ONE JOB: {job}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
+    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{prevBeat}', '{nextBeat}', '{note}', '{retry}'],
+    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. ITS ONE JOB: {job}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
   },
   // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
   'storyboard.shot.system': {

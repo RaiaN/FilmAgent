@@ -3690,7 +3690,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         }
         const shots = carve.shots.map((s) => ({
           beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures,
-          intExt: s.intExt, develops: s.develops, scene: s.scene, span: s.span,
+          intExt: s.intExt, scene: s.scene, span: s.span,
           body: s.span, motion: '', exiting: '', audio: '', expression: '', authorPending: true,
         }));
         // A figure-less shot authors with ZERO reference anchors (no [Image N] at all) —
@@ -3710,7 +3710,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             // ref the shot doesn't contain; its local numbering remaps to pool numbers.
             const figs = (Array.isArray(s.figures) ? s.figures : []).filter((g) => poolUrls[g - 1]);
             const a = await storyboardAuthor({
-              script: rawScript || script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate, develops: s.develops,
+              script: rawScript || script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate,
               prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: figs.map((g) => poolUrls[g - 1]),
             }, ctx);
             shots[i] = { ...shots[i], body: localToPoolTags(a.body, figs), motion: localToPoolTags(a.motion, figs), exiting: localToPoolTags(a.exiting, figs), audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
@@ -3973,9 +3973,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // kind of render (a locked edit re-rolls as a locked edit).
       const stashRefs = annotatedFrame ? [node.data.cacheUrl || node.data.url, ...ordered.slice(1)].filter(Boolean) : ordered; // never persist megabyte annotated data: urls
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false, shotRefs: stashRefs, bodyRendered: body, renderedFrameEdit: frameEdit, promptUsed, staleStill: undefined } } : n)));
-      // PAIR: a DEVELOPING shot (the planner wrote an `exiting` sentence) chains its
-      // END frame off the still that just landed — same tap, second named spend. The
-      // END rides as data.endStill and becomes the card's END anchor at promote.
+      // PAIR: a shot whose author wrote an `exiting` sentence chains its END frame off
+      // the still that just landed — same tap, second named spend. The END rides as
+      // data.endStill and becomes the card's END anchor at promote.
       const exiting = String((editFields.exiting ?? node.data.exiting) || '').trim();
       if (exiting && !frameEdit) {
         setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, endLoading: true, endError: undefined } } : n)));
@@ -4006,7 +4006,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const preDivision = !shots.length; // no rows yet → one page straight from the script
     // PANEL BUDGET: the Panels select caps the page. Sampling is DETERMINISTIC —
     // first + last always ride, middles are evenly spaced with a preference for
-    // DEVELOPS shots (the big state transitions), no LLM, no spend.
+    // shots that carry an END STATE (the big transitions), no LLM, no spend.
     const target = Number(chat.data?.sheetPanels) || 0;
     let pageShots = shots;
     if (!preDivision && target && shots.length > target) {
@@ -4106,7 +4106,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node?.data?.keyframe) return;
     const exiting = String(node.data.exiting || '').trim();
-    if (!exiting) { Message.warning('This shot HOLDS — write an END state first (shot editor).'); return; }
+    if (!exiting) { Message.warning('This shot has no END state — write one first (shot editor).'); return; }
     const startUrl = node.data.cacheUrl || node.data.url;
     if (!startUrl) { Message.warning('Render the still first — the END frame chains off it.'); return; }
     const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
@@ -4178,7 +4178,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     try {
       const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: merged.shotTemplate, style, expression: merged.expression, refs: shotRefs, imageModel, frameEdit: !!node.data.renderedFrameEdit }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, promptUsed, loading: false } } : n)));
-      // A fresh roll is a NEW composition — a DEVELOPS shot re-chains its END so the
+      // A fresh roll is a NEW composition — a shot with an END STATE re-chains its END so the
       // pair never silently mismatches.
       const exiting2 = String(node.data.exiting || '').trim();
       if (exiting2 && !node.data.renderedFrameEdit) {

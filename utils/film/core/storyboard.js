@@ -243,7 +243,7 @@ const withDialogueGate = async (source, field, run) => {
 // AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
 // motion dropped; still missing → returned in `missingDialogue` (the card flags it,
 // never silently).
-export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', prevBeat = '', nextBeat = '', references = [], note = '', config } = {}, ctx) => {
+export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', prevBeat = '', nextBeat = '', references = [], note = '', settingIndex = 0, config } = {}, ctx) => {
   const refs = (references || []).filter(Boolean).slice(0, 10);
   const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || {}; // no id → framing falls to "director's choice", never a substituted camera
   const wanted = spanDialogueLines(span);
@@ -252,6 +252,9 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
       prompt: renderTemplate('storyboard.author.user', {
         script: SPAN_SLOT, span: '@@SPAN@@', beat, job: String(job || '').trim() || 'unstated — infer the single job from the span and serve it', framing: [tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(', ') || 'director\'s choice',
         prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
+        settingLine: Number(settingIndex) > 0
+          ? `\n[Image ${Number(settingIndex)}] IS THE SETTING — the scene's location plate. The shot happens in THAT exact place: cite it for the environment ("the exact location in [Image ${Number(settingIndex)}]"), never as a person or a subject, and never describe a different place.`
+          : '',
         note: String(note || '').trim() ? "DIRECTOR'S NOTE — apply it to THIS shot (where it conflicts with the span, the note wins):\n@@NOTE@@\n" : '',
         retry: retryNote || '',
       }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)).split('@@NOTE@@').join(String(note).slice(0, 1000)),

@@ -397,8 +397,8 @@ Return ONLY JSON — no prose, no code fences:
   'storyboard.author.user': {
     agent: 'Storyboard',
     label: 'Author ONE shot (instruction)',
-    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{prevBeat}', '{nextBeat}', '{note}', '{retry}'],
-    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. ITS ONE JOB: {job}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
+    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{prevBeat}', '{nextBeat}', '{settingLine}', '{note}', '{retry}'],
+    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. ITS ONE JOB: {job}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n{settingLine}\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
   },
   // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
   'storyboard.shot.system': {

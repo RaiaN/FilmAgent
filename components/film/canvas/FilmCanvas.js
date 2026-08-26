@@ -234,11 +234,10 @@ const resolveShotRefs = (s, refs = []) => {
 // A storyboard's reference POOL entry: {entryId?, nodeId?, url, label} — the pool ORDER
 // is the [Image N] numbering the division and keyframes use. Older projects stored bare
 // url strings; normalize wherever the pool is read.
-// SCENE → LOCATION PLATE. A shot's still renders from the refs its `figures` name, and
-// carve names people — so without this the location plate never rides and every row
-// invents its own version of the place. The screenplay already answers it: the slugline
-// names the location and every row carries its scene number, so the binding is
-// deterministic. An explicit per-scene pick (chat.data.sceneLocations) always wins; the
+// SCENE → LOCATION PLATE. Resolved ONCE, at divide time: the plate joins the ref pool
+// and its index is stamped into every figure list in that scene, so from there on the
+// setting is a figure like any subject — attached, numbered and invalidated by the one
+// mechanism. An explicit per-scene pick (chat.data.sceneLocations) always wins; the
 // fallback matches the slugline's location words against the bible's location plates.
 // No match → UNBOUND, reported on the row. A plate is never guessed.
 const slugLocationOf = (slug) => String(slug || '')
@@ -269,6 +268,14 @@ const locationPlateFor = (chat, sceneNo, bible) => {
     else if (score === bestScore) tied = true;
   });
   return tied ? null : best;
+};
+
+// A shot's figures PLUS its scene's location plate, appended LAST so the subjects keep
+// their numbering. The setting rides as a figure like everything else — no second path.
+const withSetting = (figures, scene, sceneIdx) => {
+  const figs = Array.isArray(figures) ? figures : [];
+  const idx = sceneIdx.get(Number(scene) || 1);
+  return idx && !figs.includes(idx) ? [...figs, idx] : figs;
 };
 
 const poolRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
@@ -905,10 +912,49 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       plate: locationPlateFor(chat, sc.n, bibleRef.current),
     }));
   }, []);
+  // Re-binding a scene RE-STAMPS its shots: the new plate joins the pool, its index
+  // replaces the old one in every figure list of that scene (and in the authored body's
+  // tags), and rows that already have pixels go stale so the strip asks to re-render.
   const setSceneLocation = useCallback((chatId, sceneNo, plateId) => {
-    setNodes((ns) => ns.map((n) => (n.id === chatId
-      ? { ...n, data: { ...n.data, sceneLocations: { ...(n.data.sceneLocations || {}), [String(sceneNo)]: plateId || '' } } }
-      : n)));
+    const chat = nodesRef.current.find((n) => n.id === chatId);
+    if (!chat) return;
+    const bible = bibleRef.current || [];
+    const oldPlate = locationPlateFor(chat, sceneNo, bible);
+    const newPlate = plateId ? bible.find((b) => b.id === plateId && b.url) : null;
+    const panelId = chat.data?.panelId;
+    const inScene = (v) => (Number(v) || 1) === (Number(sceneNo) || 1);
+    setNodes((ns) => {
+      const refs = (chat.data?.refs || []).map(poolRef);
+      const idxOf = (plate) => (plate ? refs.findIndex((r) => r.url === plate.url || (plate.nodeId && r.nodeId === plate.nodeId)) + 1 : 0);
+      let newIdx = idxOf(newPlate);
+      if (newPlate && !newIdx) {
+        refs.push({ entryId: newPlate.id, nodeId: newPlate.nodeId || null, url: newPlate.url, label: newPlate.name || 'location' });
+        newIdx = refs.length;
+      }
+      const oldIdx = idxOf(oldPlate);
+      if (oldIdx === newIdx && !!oldIdx === !!newIdx) return ns.map((n) => (n.id === chatId
+        ? { ...n, data: { ...n.data, sceneLocations: { ...(n.data.sceneLocations || {}), [String(sceneNo)]: plateId || '' } } }
+        : n));
+      const restamp = (figs) => {
+        const kept = (Array.isArray(figs) ? figs : []).filter((g) => g !== oldIdx);
+        return newIdx && !kept.includes(newIdx) ? [...kept, newIdx] : kept;
+      };
+      const retag = (body) => (oldIdx && newIdx ? String(body || '').split(`[Image ${oldIdx}]`).join(`[Image ${newIdx}]`) : String(body || ''));
+      return ns.map((n) => {
+        if (n.id === chatId) {
+          return { ...n,
+            data: { ...n.data,
+              refs,
+              sceneLocations: { ...(n.data.sceneLocations || {}), [String(sceneNo)]: plateId || '' },
+              shots: (n.data.shots || []).map((sh) => (inScene(sh.scene) ? { ...sh, figures: restamp(sh.figures), body: retag(sh.body) } : sh)) } };
+        }
+        if (panelId && String(n.id).startsWith(`${panelId}-`) && n.data?.keyframe && inScene(n.data.scene)) {
+          const hasStill = !!(n.data.url || n.data.cacheUrl);
+          return { ...n, data: { ...n.data, figures: restamp(n.data.figures), body: retag(n.data.body), ...(hasStill ? { staleStill: true } : {}) } };
+        }
+        return n;
+      });
+    });
   }, [setNodes]);
 
   const openTakesForCard = useCallback((cardId) => {
@@ -3170,13 +3216,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chunks = [rows]; // the strip is ONE card — the model paces it, nothing is packed by a clock
     // The whole pool, in pool order — the [Image N] numbering the rows' text uses.
     const pool = (chat?.data?.refs || chat?.data?.pool || []).map(poolRef).filter((p) => p.url);
-    // The scene's LOCATION PLATE rides on the card as well — anchoring the board's
-    // stills is only half of it; the take has to be anchored too. Scenes are per-row,
-    // so a packed card collects every distinct plate its rows sit in.
-    const scenePlates = [...new Map(rows
-      .map((r) => locationPlateFor(chat, r.scene, bibleRef.current))
-      .filter(Boolean)
-      .map((p) => [p.id, p])).values()];
     const poolChips = pool.map((p) => {
       const be = bibleRef.current.find((b) => b.url && (b.id === p.entryId || (p.nodeId && b.nodeId === p.nodeId) || b.url === p.url));
       return { nodeId: p.nodeId || be?.nodeId || null, url: p.url, label: p.label || be?.name || 'ref', ...(be ? { assetId: be.assetId || null, role: be.role || '' } : {}) };
@@ -3231,13 +3270,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           kfPtrs.push({ nodeId: r.nodeId, url: r.startUrl, label: r.beat, desc: r.body, pickedAt: Date.now() });
         }
       });
-      // Location plates ride FIRST (with the pool) so they anchor the setting without
-      // disturbing the stills' keyframe pointers, which resolve by url.
-      const locChips = scenePlates
-        .filter((p) => !poolChips.some((c) => c.url === p.url))
-        .map((p) => ({ nodeId: p.nodeId || null, url: p.url, label: p.name || 'location', assetId: p.assetId || null, role: 'location' }));
-      if (poolChips.length + locChips.length + stillChips.length > refCap) overCap += 1;
-      onPatchCut(`${idPrefix}-${ci}`, { assetRefs: [...poolChips, ...locChips, ...stillChips], keyframes: kfPtrs });
+      if (poolChips.length + stillChips.length > refCap) overCap += 1;
+      onPatchCut(`${idPrefix}-${ci}`, { assetRefs: [...poolChips, ...stillChips], keyframes: kfPtrs });
     });
     // Pre-chain the chunks — the bond carries ORDER (and the START picker's explicit
     // last-frame offer); it never auto-threads.
@@ -3649,7 +3683,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         .filter((n) => !(String(n.id).startsWith(`${panelId}-`) && /^\d+$/.test(String(n.id).slice(String(panelId).length + 1))))
         .map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, shots: [], shotCount: 0 } } : n)));
     }
-    const refs = node.data?.refs || [];
+    // THE SETTING IS A FIGURE. Each scene's location plate joins the pool BEFORE the
+    // carve, so it carries a real [Image N] the author can cite and every downstream
+    // consumer attaches it exactly like a subject — one mechanism, not two.
+    const scenePlateIdx = new Map(); // scene number → 1-based pool index
+    const refs = (node.data?.refs || []).map(poolRef);
+    parseScenes(script).forEach((sc) => {
+      const plate = locationPlateFor(node, sc.n, bibleRef.current);
+      if (!plate) return;
+      let i = refs.findIndex((r) => r.url === plate.url || (plate.nodeId && r.nodeId === plate.nodeId));
+      if (i < 0) { refs.push({ entryId: plate.id, nodeId: plate.nodeId || null, url: plate.url, label: plate.name || 'location' }); i = refs.length - 1; }
+      scenePlateIdx.set(sc.n, i + 1);
+    });
     const style = node.data?.style || '';
     const imageModel = imageModelKeyOf(node.data?.imageModel);
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true, stripHidden: false } } : n)));
@@ -3668,7 +3713,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           Message.warning(`${carve.uncovered.length} script line${carve.uncovered.length === 1 ? '' : 's'} landed in NO shot — e.g. "${carve.uncovered[0].slice(0, 70)}". Re-create the shot list, or add the missing beat yourself.`);
         }
         const shots = carve.shots.map((s) => ({
-          beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures,
+          beat: s.beat, shotTemplate: s.shotTemplate, figures: withSetting(s.figures, s.scene, scenePlateIdx),
           intExt: s.intExt, scene: s.scene, span: s.span,
           body: s.span, motion: '', audio: '', expression: '', authorPending: true,
         }));
@@ -3688,9 +3733,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             // ONLY the shot's carved figures attach — the author cannot activate a
             // ref the shot doesn't contain; its local numbering remaps to pool numbers.
             const figs = (Array.isArray(s.figures) ? s.figures : []).filter((g) => poolUrls[g - 1]);
+            const settingLocal = figs.indexOf(scenePlateIdx.get(Number(s.scene) || 1)) + 1; // 0 = this shot has no plate
             const a = await storyboardAuthor({
               script: rawScript || script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate,
               prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: figs.map((g) => poolUrls[g - 1]),
+              settingIndex: settingLocal,
             }, ctx);
             shots[i] = { ...shots[i], body: localToPoolTags(a.body, figs), motion: localToPoolTags(a.motion, figs), audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
             if (a.missingDialogue?.length) flagged += 1;
@@ -3918,14 +3965,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const { useFrame, annotatedFrame, ...editFields } = edits; // render-mode flags — never persisted onto the shot
     const shot = { beat: node.data.beat, shotTemplate: node.data.shotTemplate, expression: node.data.expression || '', figures: node.data.figures || [], body: node.data.body || '', ...editFields };
     let { ordered, body } = resolveShotRefs(shot, refs);
-    // THE SETTING RIDES AS A REFERENCE. Appended AFTER the figures so the body's
-    // existing [Image N] numbering is untouched, and named explicitly — an attached
-    // plate nobody cites is far weaker than one the prompt points at.
-    const locPlate = locationPlateFor(chat, node.data.scene, bibleRef.current);
-    if (locPlate && !ordered.some((u) => u === locPlate.url)) {
-      ordered = [...ordered, locPlate.url];
-      body = `${body} The setting is the exact location in [Image ${ordered.length}] — the same place, architecture, materials, layout and light.`.trim();
-    }
     // Structure lock: the current still anchors composition; the text drives the change.
     // Drawn marks ride on a BAKED COPY of the frame — [Image 1] becomes the annotated
     // image; the draw template obeys the marks and removes them from the result.

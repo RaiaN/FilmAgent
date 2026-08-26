@@ -234,6 +234,43 @@ const resolveShotRefs = (s, refs = []) => {
 // A storyboard's reference POOL entry: {entryId?, nodeId?, url, label} — the pool ORDER
 // is the [Image N] numbering the division and keyframes use. Older projects stored bare
 // url strings; normalize wherever the pool is read.
+// SCENE → LOCATION PLATE. A shot's still renders from the refs its `figures` name, and
+// carve names people — so without this the location plate never rides and every row
+// invents its own version of the place. The screenplay already answers it: the slugline
+// names the location and every row carries its scene number, so the binding is
+// deterministic. An explicit per-scene pick (chat.data.sceneLocations) always wins; the
+// fallback matches the slugline's location words against the bible's location plates.
+// No match → UNBOUND, reported on the row. A plate is never guessed.
+const slugLocationOf = (slug) => String(slug || '')
+  .replace(/^\s*(?:\d+[A-Za-z-]*[\s.:]+)?(?:INT\.?\/EXT|EXT\.?\/INT|INT|EXT|I\/E)\b[./\s-]*/i, '')
+  .split(/\s+-\s+/)[0]
+  .replace(/\(.*?\)/g, '')
+  .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .toLowerCase();
+
+const locationPlateFor = (chat, sceneNo, bible) => {
+  const picked = (chat?.data?.sceneLocations || {})[String(sceneNo || 1)];
+  const plates = (bible || []).filter((b) => b.role === 'location' && b.url);
+  if (picked) return plates.find((b) => b.id === picked) || null;
+  const scenes = parseScenes(chat?.data?.screenplay || '');
+  const scene = scenes[Math.max(0, (Number(sceneNo) || 1) - 1)];
+  const want = slugLocationOf(scene?.slug);
+  if (!want || want === 'unstated') return null;
+  const words = want.split(' ').filter((w) => w.length > 2);
+  // Match on shared significant words, best score wins; a tie or zero overlap = unbound.
+  let best = null; let bestScore = 0; let tied = false;
+  plates.forEach((p) => {
+    const name = String(p.name || '').toLowerCase();
+    const score = words.filter((w) => name.includes(w)).length;
+    if (!score) return;
+    if (score > bestScore) { best = p; bestScore = score; tied = false; }
+    else if (score === bestScore) tied = true;
+  });
+  return tied ? null : best;
+};
+
 const poolRef = (r) => (typeof r === 'string' ? { url: r, label: '' } : (r || {}));
 const poolUrls = (refs) => (refs || []).map((r) => poolRef(r).url).filter(Boolean);
 
@@ -884,6 +921,21 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // focus wins until the user selects a different card on the canvas.
   const [takeLibFocusId, setTakeLibFocusId] = useState(null);
   useEffect(() => { if (focusedCutId) setTakeLibFocusId(null); }, [focusedCutId]);
+  // The scene→location bindings the strip and control card display, plus the override.
+  const sceneLocationsOf = useCallback((chatId) => {
+    const chat = nodesRef.current.find((n) => n.id === chatId);
+    if (!chat) return [];
+    return parseScenes(chat.data?.screenplay || '').map((sc) => ({
+      n: sc.n, slug: sc.slug,
+      plate: locationPlateFor(chat, sc.n, bibleRef.current),
+    }));
+  }, []);
+  const setSceneLocation = useCallback((chatId, sceneNo, plateId) => {
+    setNodes((ns) => ns.map((n) => (n.id === chatId
+      ? { ...n, data: { ...n.data, sceneLocations: { ...(n.data.sceneLocations || {}), [String(sceneNo)]: plateId || '' } } }
+      : n)));
+  }, [setNodes]);
+
   const openTakesForCard = useCallback((cardId) => {
     setTakeLibFocusId(cardId);
     setTakeLibOpen(true);
@@ -2995,9 +3047,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         cameraStale: undefined,
         developSource: card.data?.developSource || text, // the original words survive, stashed once
         composeDropped: out.dropped || [], // text events the keyframes overrode — reported, never silent
+        missingDialogue: out.missingDialogue || [], // spoken lines the rewrite lost — reported, never silent
         ...(out.audio && !String(card.data?.audio || '').trim() ? { audio: out.audio } : {}),
       });
-      if (out.dropped?.length) Message.warning(`Composed from the keyframes — overrode from your text: ${out.dropped.join(' · ')} (stashed in developSource if you want it back).`);
+      if (out.missingDialogue?.length) Message.warning(`Composed — ⚠ dropped dialogue: ${out.missingDialogue.join(' · ')}. Re-run or restore the line by hand.`);
+      else if (out.dropped?.length) Message.warning(`Composed from the keyframes — overrode from your text: ${out.dropped.join(' · ')} (stashed in developSource if you want it back).`);
       else Message.success(kfIndices.length
         ? `Composed FROM ${kfIndices.length} keyframe${kfIndices.length === 1 ? '' : 's'} — the action walks K1 → K${kfIndices.length}; dialogue carried verbatim.`
         : 'Composed against the references — wording carried.');
@@ -3041,7 +3095,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         developSource: card.data?.developSource || text,
         ...(out.audio ? { audio: out.audio } : {}),
       });
-      Message.success('Note applied — the shot reads as directed; references, dialogue and keyframes untouched.');
+      if (out.missingDialogue?.length) Message.warning(`Note applied — ⚠ dropped dialogue: ${out.missingDialogue.join(' · ')}. Re-run or restore the line by hand.`);
+      else Message.success('Note applied — the shot reads as directed; references, dialogue and keyframes untouched.');
     } catch (e) { Message.error(`Direct failed: ${e.message}`); }
     finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
   }, [apiKey, onPatchCut]);
@@ -3085,7 +3140,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         developSource: card.data?.developSource || text,
         ...(out.audio && !String(card.data?.audio || '').trim() ? { audio: out.audio } : {}),
       });
-      Message.success(`Enriched — ${out.action.split(/\s+/).length} words; events, [Image N] tags and dialogue carried.`);
+      if (out.missingDialogue?.length) Message.warning(`Enriched — ⚠ dropped dialogue: ${out.missingDialogue.join(' · ')}. Re-run or restore the line by hand.`);
+      else Message.success(`Enriched — ${out.action.split(/\s+/).length} words; events, [Image N] tags and dialogue carried.`);
     } catch (e) { Message.error(`Enrich failed: ${e.message}`); }
     finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
   }, [apiKey, onPatchCut]);
@@ -3137,6 +3193,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       return {
         i, beat: val('beat') || `Shot ${i + 1}`, motion: val('motion'), body: val('body'),
         audio: val('audio'), exiting: val('exiting'),
+        scene: Number(d.scene ?? s.scene) || 1,
         shotTemplate: d.shotTemplate || s.shotTemplate || '',
         durationSec: Number(d.durationSec ?? s.durationSec) || 10,
         nodeId: node?.id || null,
@@ -3160,6 +3217,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chunks = packStripChunks(rows, cardCount);
     // The whole pool, in pool order — the [Image N] numbering the rows' text uses.
     const pool = (chat?.data?.refs || chat?.data?.pool || []).map(poolRef).filter((p) => p.url);
+    // The scene's LOCATION PLATE rides on the card as well — anchoring the board's
+    // stills is only half of it; the take has to be anchored too. Scenes are per-row,
+    // so a packed card collects every distinct plate its rows sit in.
+    const scenePlates = [...new Map(rows
+      .map((r) => locationPlateFor(chat, r.scene, bibleRef.current))
+      .filter(Boolean)
+      .map((p) => [p.id, p])).values()];
     const poolChips = pool.map((p) => {
       const be = bibleRef.current.find((b) => b.url && (b.id === p.entryId || (p.nodeId && b.nodeId === p.nodeId) || b.url === p.url));
       return { nodeId: p.nodeId || be?.nodeId || null, url: p.url, label: p.label || be?.name || 'ref', ...(be ? { assetId: be.assetId || null, role: be.role || '' } : {}) };
@@ -3214,8 +3278,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           kfPtrs.push({ nodeId: null, url: r.endUrl, label: `${r.beat} · end`, desc: r.exiting, pickedAt: Date.now() });
         }
       });
-      if (poolChips.length + stillChips.length > refCap) overCap += 1;
-      onPatchCut(`${idPrefix}-${ci}`, { assetRefs: [...poolChips, ...stillChips], keyframes: kfPtrs });
+      // Location plates ride FIRST (with the pool) so they anchor the setting without
+      // disturbing the stills' keyframe pointers, which resolve by url.
+      const locChips = scenePlates
+        .filter((p) => !poolChips.some((c) => c.url === p.url))
+        .map((p) => ({ nodeId: p.nodeId || null, url: p.url, label: p.name || 'location', assetId: p.assetId || null, role: 'location' }));
+      if (poolChips.length + locChips.length + stillChips.length > refCap) overCap += 1;
+      onPatchCut(`${idPrefix}-${ci}`, { assetRefs: [...poolChips, ...locChips, ...stillChips], keyframes: kfPtrs });
     });
     // Pre-chain the chunks — the bond carries ORDER (and the START picker's explicit
     // last-frame offer); it never auto-threads.
@@ -3529,7 +3598,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // one mapping, so a rebuilt row is indistinguishable from a laid one).
   const kfCardData = (s, i, refs, style, imageModel, panelId) => ({
     label: s.beat, beat: s.beat, job: s.job || '', body: s.body, shotTemplate: s.shotTemplate, expression: s.expression || '',
-    figures: s.figures || [], durationSec: s.durationSec || 10, intExt: s.intExt || '',
+    figures: s.figures || [], durationSec: s.durationSec || 10, intExt: s.intExt || '', scene: s.scene || 1,
     figureLabels: (s.figures || []).map((f) => String(refs[f - 1]?.label || `Image ${f}`).slice(0, 16)),
     motion: s.motion || '', exiting: s.exiting || '', audio: s.audio || '',
     span: s.span || '', authorPending: !!s.authorPending, missingDialogue: s.missingDialogue || [], authorError: s.authorError || '',
@@ -3643,6 +3712,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       {
         const poolUrls = freshPoolUrls(refs);
         const carve = await storyboardCarve({ script, style, references: poolUrls }, ctx);
+        // The carve promises its spans partition the script; this is the check. Story
+        // the shot list does not cover is reported, never swallowed.
+        if (carve.uncovered?.length) {
+          traceRef.current.log({ level: 'run', kind: 'decision', note: `Carve · ${carve.uncovered.length} script line(s) uncovered` });
+          Message.warning(`${carve.uncovered.length} script line${carve.uncovered.length === 1 ? '' : 's'} landed in NO shot — e.g. "${carve.uncovered[0].slice(0, 70)}". Re-create the shot list, or add the missing beat yourself.`);
+        }
         const shots = carve.shots.map((s) => ({
           beat: s.beat, shotTemplate: s.shotTemplate, figures: s.figures, durationSec: s.durationSec,
           intExt: s.intExt, develops: s.develops, scene: s.scene, span: s.span,
@@ -3896,6 +3971,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const { useFrame, annotatedFrame, ...editFields } = edits; // render-mode flags — never persisted onto the shot
     const shot = { beat: node.data.beat, shotTemplate: node.data.shotTemplate, expression: node.data.expression || '', figures: node.data.figures || [], body: node.data.body || '', ...editFields };
     let { ordered, body } = resolveShotRefs(shot, refs);
+    // THE SETTING RIDES AS A REFERENCE. Appended AFTER the figures so the body's
+    // existing [Image N] numbering is untouched, and named explicitly — an attached
+    // plate nobody cites is far weaker than one the prompt points at.
+    const locPlate = locationPlateFor(chat, node.data.scene, bibleRef.current);
+    if (locPlate && !ordered.some((u) => u === locPlate.url)) {
+      ordered = [...ordered, locPlate.url];
+      body = `${body} The setting is the exact location in [Image ${ordered.length}] — the same place, architecture, materials, layout and light.`.trim();
+    }
     // Structure lock: the current still anchors composition; the text drives the change.
     // Drawn marks ride on a BAKED COPY of the frame — [Image 1] becomes the annotated
     // image; the draw template obeys the marks and removes them from the result.
@@ -5257,12 +5340,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, []);
 
   const sbChatCtx = useMemo(() => ({
-    onDivide: runDivide, onNormalize: normalizeChatBrief, onListAction: storyboardListAction, bibleEntries,
+    onDivide: runDivide, onNormalize: normalizeChatBrief, onSceneLocations: sceneLocationsOf, onSetSceneLocation: setSceneLocation, locationPlates: (bibleEntries || []).filter((b) => b.role === 'location' && b.url), onListAction: storyboardListAction, bibleEntries,
     onToggleBibleRef: sbToggleBibleRef, onRemoveRef: sbRemoveRef,
     onRenderAll: renderAllStills, onRenderSheet: renderSheetFromChat, onCastFromScript: castFromStoryboard,
     onPatchChat: (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))),
     onOpenRefDrawer: openRefDrawer,
-  }), [runDivide, normalizeChatBrief, storyboardListAction, bibleEntries, sbToggleBibleRef, sbRemoveRef, renderAllStills, castFromStoryboard, openRefDrawer]);
+  }), [runDivide, normalizeChatBrief, sceneLocationsOf, setSceneLocation, storyboardListAction, bibleEntries, sbToggleBibleRef, sbRemoveRef, renderAllStills, castFromStoryboard, openRefDrawer]);
 
   // Handlers only — each Brief node reads its OWN state from node.data and calls these
   // with its id, so one stable context drives every Brief element on the board.

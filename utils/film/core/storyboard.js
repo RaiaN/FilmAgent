@@ -186,7 +186,8 @@ export const storyboardCarve = async ({ script = '', style = '', references = []
     };
   }).filter((s) => s.span);
   if (!shots.length) throw new Error('The carve came back empty — try rephrasing.');
-  return { shots, reply: String(raw.reply || '').replace(/\s+/g, ' ').trim().slice(0, 400) || 'Carved the script.' };
+  const uncovered = uncoveredScriptLines(text, shots);
+  return { shots, uncovered, reply: String(raw.reply || '').replace(/\s+/g, ' ').trim().slice(0, 400) || 'Carved the script.' };
 };
 
 // The span's dialogue, extracted deterministically: quoted runs plus screenplay-style
@@ -212,6 +213,38 @@ export const spanDialogueLines = (span = '') => {
   return [...new Set(out.filter((l) => l.length >= 4))];
 };
 const normText = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+// The carve PROMISES its spans partition the script. Nothing enforced that, so a
+// dropped paragraph became story that no shot covers and nobody was told. This is the
+// check: every substantial script line must appear inside some span. Scene headings are
+// excluded by contract; short fragments are skipped because a 3-word line matches
+// almost anything. Pure — no call, no cost.
+export const uncoveredScriptLines = (script, shots = []) => {
+  const covered = normText((shots || []).map((sh) => sh?.span || '').join('\n'));
+  if (!covered) return [];
+  return String(script || '').split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length >= 12 && !SLUG_RE.test(l))
+    .filter((l) => !covered.includes(normText(l)));
+};
+
+// ---- #2 the dialogue gate, shared ------------------------------------------------
+// The AUTHOR has always verified that every spoken line from its span survived. The
+// CARD verbs (compose / enrich / direct) make the same promise in their templates and
+// never checked it, so a Compose could silently drop dialogue. Same gate, same retry:
+// run, diff, retry once naming the missing lines, report whatever still didn't make it.
+const withDialogueGate = async (source, field, run) => {
+  const wanted = spanDialogueLines(source);
+  let out = await run('');
+  if (!wanted.length) return { ...out, missingDialogue: [] };
+  const missingIn = (o) => wanted.filter((l) => !normText(o?.[field] || '').includes(normText(l)));
+  let missing = missingIn(out);
+  if (missing.length && String(out?.[field] || '').trim()) {
+    out = await run(`\n\nRETRY — your previous draft DROPPED these dialogue lines. Every one must appear word-for-word, in curly braces, with its speaker named: ${missing.map((l) => `"${l}"`).join(' · ')}`);
+    missing = missingIn(out);
+  }
+  return { ...out, missingDialogue: missing };
+};
 
 // AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
 // motion dropped; still missing → returned in `missingDialogue` (the card flags it,
@@ -422,17 +455,20 @@ export const enrichShotAction = async ({ text = '', references = [], roster = []
   if (!material) throw new Error('Enrich needs the shot prompt — write it or Compose first.');
   const lv = ENRICH_LEVELS(modelKey).find((l) => l.key === level) || ENRICH_LEVELS(modelKey)[1];
   const SLOT = '@@PROMPT@@';
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('cut.enrich.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)),
-    systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec), targetWords: String(lv.words) }),
-    images: references,
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const raw = parseJson(content) || {};
-  const action = String(raw.action || '').trim();
-  if (!action) throw new Error('Enrich came back empty — try again.');
-  return { action, audio: String(raw.audio || '').trim() };
+  const run = async (retry) => {
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('cut.enrich.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)) + retry,
+      systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec), targetWords: String(lv.words) }),
+      images: references,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    const raw = parseJson(content) || {};
+    return { action: String(raw.action || '').trim(), audio: String(raw.audio || '').trim() };
+  };
+  const out = await withDialogueGate(material, 'action', run);
+  if (!out.action) throw new Error('Enrich came back empty — try again.');
+  return out;
 };
 
 // DIRECT — apply ONE director's note to the card's prompt: the note shapes how the
@@ -446,18 +482,21 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   if (!theNote) throw new Error('Write the note — what should this shot feel or read like?');
   const T = '@@TEXT@@';
   const N = '@@NOTE@@';
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
-      .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)),
-    systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec) }),
-    images: references,
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const raw = parseJson(content) || {};
-  const action = String(raw.action || '').trim();
-  if (!action) throw new Error('Direct came back empty — try again.');
-  return { action, audio: String(raw.audio || '').trim() };
+  const run = async (retry) => {
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
+        .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)) + retry,
+      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec) }),
+      images: references,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    const raw = parseJson(content) || {};
+    return { action: String(raw.action || '').trim(), audio: String(raw.audio || '').trim() };
+  };
+  const out = await withDialogueGate(material, 'action', run);
+  if (!out.action) throw new Error('Direct came back empty — try again.');
+  return out;
 };
 
 export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), durationSec = 10, camera = null, job = '', config } = {}, ctx) => {
@@ -484,18 +523,26 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
     ? `THE DERIVED EVENTS below were read from the shot's APPROVED KEYFRAMES — they are the authority on WHAT HAPPENS:\n<<<\n${derived}\n>>>\nRewrite them into the final action: replace each visual handle with its subject's [Image N] number from the roster, keep the event order and pacing. From the director's text carry ONLY what pictures cannot show — every dialogue line word-for-word in curly braces with its speaker named (placed at the right moments), proper names, and intent that does not contradict the events. Any text event the derived events contradict is dropped — list each in "dropped" (one short line), never silently.`
     : `The director's text is the MATERIAL and the authority on WHAT HAPPENS: carry its wording, its events and every dialogue line word-for-word in curly braces with the speaker named — you re-structure and ground it against the images, you never re-invent it. "dropped" stays empty.`;
   const SLOT = '@@PROMPT@@';
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)'),
-    systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec) }),
-    images: references,
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const raw = parseJson(content) || {};
-  const action = String(raw.action || '').trim();
-  if (!action) throw new Error('Compose came back empty — try again.');
-  const dropped = (Array.isArray(raw.dropped) ? raw.dropped : []).map((c) => String(c || '').trim()).filter(Boolean).slice(0, 6);
-  return { action, audio: String(raw.audio || '').trim(), dropped, derived };
+  const run = async (retry) => {
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)') + retry,
+      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), durationSec: String(durationSec) }),
+      images: references,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    const raw = parseJson(content) || {};
+    return {
+      action: String(raw.action || '').trim(),
+      audio: String(raw.audio || '').trim(),
+      dropped: (Array.isArray(raw.dropped) ? raw.dropped : []).map((c) => String(c || '').trim()).filter(Boolean).slice(0, 6),
+    };
+  };
+  // The director's own text is the dialogue source — keyframes cannot speak, so a line
+  // in the text must survive into the action even when the pictures rule the events.
+  const out = await withDialogueGate(material, 'action', run);
+  if (!out.action) throw new Error('Compose came back empty — try again.');
+  return { ...out, derived };
 };
 
 // ENHANCE a rendered still — the agentic finishing pass: ONE tap = a

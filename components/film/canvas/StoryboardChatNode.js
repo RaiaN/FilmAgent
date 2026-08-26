@@ -9,7 +9,7 @@ const { Text } = Typography;
 // Bridge from the chat node back to FilmCanvas's handlers (functions can't live in
 // serializable node.data).
 export const StoryboardChatContext = createContext({
-  onDivide: null, onNormalize: null, onListAction: null, bibleEntries: [], onToggleBibleRef: null, onRemoveRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPatchChat: null, onOpenRefDrawer: null,
+  onDivide: null, onNormalize: null, onSceneLocations: null, onSetSceneLocation: null, locationPlates: [], onListAction: null, bibleEntries: [], onToggleBibleRef: null, onRemoveRef: null, onRenderAll: null, onRenderSheet: null, onCastFromScript: null, onPatchChat: null, onOpenRefDrawer: null,
 });
 
 // Same role palette as the SHOT card's reference chips.
@@ -44,11 +44,12 @@ const Section = ({ label, children, style }) => (
 // the story-level HITL gate, edited as text) → Create shot list (scene-aware carve).
 // Surgery lives ON the surfaces: the screenplay text here, shot rows on the strip.
 const StoryboardChatNodeInner = ({ id, data, selected }) => {
-  const { onDivide, onNormalize, bibleEntries, onToggleBibleRef, onRemoveRef, onRenderAll, onRenderSheet, onCastFromScript, onPatchChat, onOpenRefDrawer } = useContext(StoryboardChatContext);
+  const { onDivide, onNormalize, onSceneLocations, onSetSceneLocation, locationPlates = [], bibleEntries, onToggleBibleRef, onRemoveRef, onRenderAll, onRenderSheet, onCastFromScript, onPatchChat, onOpenRefDrawer } = useContext(StoryboardChatContext);
   const count = (data.shots || []).length;
   const [refsOpen, setRefsOpen] = useState(true);
   const pool = useMemo(() => (data.refs || []).map(asRef).filter((r) => r.url), [data.refs]);
   const scenes = useMemo(() => parseScenes(data.screenplay).length, [data.screenplay]);
+  const sceneBindings = useMemo(() => (onSceneLocations ? onSceneLocations(id) : []), [onSceneLocations, id, data.screenplay, data.sceneLocations, bibleEntries]);
   const cap = imageRefCap(data.imageModel);
   const bible = bibleEntries || [];
   return (
@@ -99,6 +100,30 @@ const StoryboardChatNodeInner = ({ id, data, selected }) => {
                     <Button size="mini" status="warning" loading={!!data.busy} style={{ flex: 1 }}>Re-normalize</Button>
                   </Popconfirm>
                 </div>
+                {/* THE SETTING per scene. Every shot in a scene renders against the same
+                    location plate — without it each still invents its own version of the
+                    place. Auto-matched from the slugline; unmatched stays UNBOUND (never
+                    guessed) and the strip rows say so. */}
+                {sceneBindings.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+                    <Text style={{ fontSize: 9, fontWeight: 700, color: '#86909c' }}>SETTING — one location plate per scene</Text>
+                    {sceneBindings.map((sc) => (
+                      <div key={sc.n} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ fontSize: 9, color: '#86909c', width: 20, flexShrink: 0 }}>{sc.n}.</Text>
+                        <Text style={{ fontSize: 9, color: '#4e5969', flex: 1, minWidth: 0 }} ellipsis>{sc.slug}</Text>
+                        <Select
+                          size="mini" placeholder={locationPlates.length ? '⚠ unbound' : 'no location plates'} allowClear showSearch
+                          disabled={!locationPlates.length}
+                          value={sc.plate?.id || undefined}
+                          onChange={(v) => onSetSceneLocation(id, sc.n, v || '')}
+                          style={{ width: 132, flexShrink: 0 }}
+                          title={sc.plate ? `Every shot in this scene renders against "${sc.plate.name}"` : 'No plate bound — these shots each invent their own version of the place'}
+                          options={locationPlates.map((p) => ({ label: p.name || 'location', value: p.id }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {count > 0 ? (
                   <Popconfirm title={`Throw away the current ${count}-shot list (and its authored text) and re-carve from this screenplay?`} okText="Create" onOk={() => onDivide && onDivide(id, { fresh: true })}>
                     <Button size="small" long type="primary" icon={<IconPlayArrow />} loading={!!data.busy} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="Re-carve the strip from the approved screenplay — 1 + N reasoner calls">

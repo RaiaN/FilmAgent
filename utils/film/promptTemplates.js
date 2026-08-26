@@ -199,7 +199,7 @@ Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only 
     vars: ['{kfCount}', '{durationSec}'],
     text: `You are a cinematographer reading a shot's APPROVED KEYFRAMES — {kfCount} stills attached IN ORDER: Keyframe 1 is the shot's opening composition, each next keyframe is a composition the shot passes through, the last is where it lands. These pictures are the shot's design; you see NOTHING else on purpose.
 
-STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), movement speed follows what the keyframe change implies — fast and crisp for action, slow for weight — always CONTINUOUS with natural inertia between keyframes, externalize emotion as visible physical detail. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. The shot runs ~{durationSec}s — pace the events to fill it, no more.
+STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), movement speed follows what the keyframe change implies — fast and crisp for action, slow for weight — always CONTINUOUS with natural inertia between keyframes. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. Every action runs at REAL-WORLD SPEED: a strike lands in under a second, a fall takes about one. The shot runs ~{durationSec}s, but that is a ceiling, NOT a quota — if the events are done sooner, stop. Never stretch, pad or add beats to fill time.
 
 Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronological events, keyframe to keyframe>"}`,
   },
@@ -286,7 +286,11 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
 
 {cameraLine}
 
-The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; movement speed FOLLOWS the action's nature — a strike or impact is fast and crisp, a hesitation or realization is slow — but ALL motion is CONTINUOUS with natural inertia and follow-through (nothing teleports, nothing loops); externalize emotion as visible physical detail; characters never look at the camera. Sound effects in angle brackets <…>, music in parentheses (…). The shot runs ~{durationSec}s — pace the events to fill it, no more.
+The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; movement speed FOLLOWS the action's nature — a strike or impact is fast and crisp, a hesitation or realization is slow — but ALL motion is CONTINUOUS with natural inertia and follow-through (nothing teleports, nothing loops); characters never look at the camera. Sound effects in angle brackets <…>, music in parentheses (…).
+
+STATE THE SITUATION, DO NOT CHOREOGRAPH THE OUTCOME. The video model SIMULATES a world: give it who is there, where, in what condition, and what they are trying to do — it derives the physical consequences itself, and derives them better than a written body-part script. Name a state of the subject ("the wolf is cornered and means it") rather than instructing a feature ("guard hairs lift") — a feature instruction gets rendered literally, and literally is wrong. Emotion is what the situation PRODUCES, never an adjective you assert.
+
+Every action runs at REAL-WORLD SPEED. The shot runs ~{durationSec}s — a ceiling, NOT a quota: if the situation resolves sooner, stop there. Never pad, stretch or invent beats to fill the time.
 
 {formatLine}
 
@@ -355,11 +359,11 @@ The script's SCENE HEADINGS (numbered INT./EXT. sluglines) are HARD boundaries: 
 
 For EACH shot return:
 • beat — a 2–4 word name.
-• job — ONE short line: this shot's single dramatic JOB, what it DOES to the audience (poses the question X / raises the stakes by Y / reverses Z / releases W / reveals V). A shot whose job you cannot state does not belong in the list.
+• job — ONE short line: what this shot's actor is up against and what they are trying to do. A shot whose job you cannot state does not belong in the list.
 • shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY:
 {templates}
 • figures — the reference numbers that APPEAR in this shot (≥1 when references exist; [] when none attached).
-• durationSec — 5–{maxSec}.
+• durationSec — how long this shot's action ACTUALLY TAKES at real-world speed. NOT a slot to fill and NOT a guess from a range: count the real seconds the action needs — a strike lands in under a second, a look takes two, crossing a room takes four, a held silence takes as long as it holds. Add them up, then clamp to 5–{maxSec}. Never inflate a shot to reach a number; a short action makes a short shot.
 • intExt — "INT" or "EXT".
 • develops — true only per rule (d).
 • scene — the 1-based number of the SCENE HEADING this shot falls under (1 when the script has no headings).
@@ -389,7 +393,7 @@ Write "motion" as plain event-order prose — NEVER numeric time markers; the se
 Return ONLY JSON — no prose, no code fences:
 {
  "body": "<the shot's OPENING frame as a Seedream keyframe, 2–5 sentences, in this order: (1) SUBJECT — 'The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged' (place/object: 'the exact <place/object> in [Image N]'); pose and gaze matching the reference. (2) SECONDARY subjects via their own [Image K]. (3) ENVIRONMENT — location, set details, time of day. (4) LIGHTING, colour grade, mood. A STILL — no camera verbs, nothing mid-blur, no one looks at camera, no on-image text.>",
- "motion": "<the shot's FULL PERFORMANCE for the video model — as many sentences as the span demands, in event order: body parts with degree and speed, continuous movement at the speed the event demands, transitions between actions (inertia, follow-through), emotion externalized as visible physical detail. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in parentheses (…). What you leave out does not happen.>",
+ "motion": "<the shot's SITUATION for the video model, in event order — who is there, in what condition, what each is trying to do, and what happens as a result. The model simulates the world and derives the physical detail, so state the situation and the observable outcome; do NOT write a body-part script and do NOT instruct individual features (say a subject is cornered and means it, never that its hackles lift — a feature instruction renders literally). Every action at real-world speed; as many sentences as the span needs and NO more. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in parentheses (…). What you leave out does not happen.>",
  "exiting": "<ONLY when the shot DEVELOPS: ONE sentence — the frame's END state as an EDIT of the opening frame, concrete and on-screen. Else empty.>",
  "audio": "<the shot's sound line in the same symbol grammar, or empty>",
  "expression": "<1–3 words for the main subject's expression, or empty>"

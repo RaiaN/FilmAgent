@@ -209,41 +209,6 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
     vars: ['{kfCount}'],
     text: 'The {kfCount} attached stills are the keyframes, in shot order. Read them and return the JSON.',
   },
-  'cut.enrich.system': {
-    agent: 'Shot',
-    label: 'Enrich — densify the existing prompt (system)',
-    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{formatLine}', '{targetWords}'],
-    text: `You are a cinematographer EXPANDING an existing video-shot prompt. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
-
-{kfLine}
-
-THE CURRENT TEXT IS THE SKELETON — nothing it says may be lost or reordered: every event in its order, every existing [Image N] tag, and every dialogue line word-for-word in curly braces with its speaker. You ADD precision AROUND that skeleton:
-• camera — lens feel, movement quality, how the frame breathes (never a new setup)
-• motion — general verbs for the flow; body-part micro-detail (degree, speed, weight, inertia) spent only on the one or two story-bearing beats
-• appearance and texture — wardrobe, skin, materials, wear, grounded in what the attached images actually show; address subjects ONLY by their existing [Image N] numbers, never invent a new number
-• background and atmosphere — secondary life, weather, haze, dust, light behavior
-• VFX where the events imply them, described physically
-• sound — weave <sfx> and (music) moments at the right beats; dialogue stays untouched
-Everything you add must be FILMABLE and must not contradict the keyframe path. If the skeleton lacks an opening summary, make the FIRST sentence a one-sentence summary — subject + location + event + style + camera.
-
-{jobLine}
-
-{cameraLine}
-
-{formatLine}
-
-Target ≈{targetWords} words — density, never padding; if the skeleton cannot honestly carry that many words, stop sooner.
-
-Do NOT write composition-binding lines, subject definitions, quality/ratio/duration lines or transition markers — the compiler adds those.
-
-Return ONLY JSON — no prose, no code fences: {"action":"<the enriched action text>","audio":"<one sound line in the symbol grammar, or empty>"}`,
-  },
-  'cut.enrich.user': {
-    agent: 'Shot',
-    label: 'Enrich — densify the existing prompt (instruction)',
-    vars: ['{refRoster}', '{text}'],
-    text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE CURRENT PROMPT (the skeleton — every event, [Image N] tag and dialogue line rides verbatim):\n"""\n{text}\n"""\n\nReturn the JSON.',
-  },
   'cut.direct.system': {
     agent: 'Shot',
     label: 'Direct — a note on how the shot feels/reads (system)',

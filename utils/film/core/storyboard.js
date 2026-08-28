@@ -11,6 +11,7 @@ import { resolveImageSize } from '../imageSizes';
 import { composeSeedancePrompt, composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
 import { parseJson } from './director';
 import { withRetry, isTransient } from './retry';
+import { skillLineOf } from '../skills';
 import { isImagePolicyError } from './operations';
 import { runWithConcurrency } from './parallel';
 
@@ -224,7 +225,7 @@ export const uncoveredScriptLines = (script, shots = []) => {
 
 // ---- #2 the dialogue gate, shared ------------------------------------------------
 // The AUTHOR has always verified that every spoken line from its span survived. The
-// CARD verbs (compose / enrich / direct) make the same promise in their templates and
+// CARD verbs (compose / direct) make the same promise in their templates and
 // never checked it, so a Compose could silently drop dialogue. Same gate, same retry:
 // run, diff, retry once naming the missing lines, report whatever still didn't make it.
 const withDialogueGate = async (source, field, run) => {
@@ -378,13 +379,16 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // into a still description); the only change is [Image N] tags matching the badge
 // order. Sentinel slot keeps the prompt verbatim through the template.
 // COMPOSE — a 2-STEP PIPELINE: STEP 1 DERIVE reads ONLY the keyframes and
-// narrates the visual path; STEP 2 ENRICH binds subjects to their real [Image N]
+// narrates the visual path; STEP 2 binds subjects to their real [Image N]
 // chips and weaves in the text's dialogue/names/important wording (overrides
 // reported in dropped[], originals stashed by the caller). No keyframes → single
-// enrich call, text as the material. Binding lines / definitions / tails stay the
+// write call, text as the material. Binding lines / definitions / tails stay the
 // deterministic compiler's job either way.
 // The video model's TEXT-FORMAT contract, keyed off the same trait the compiler's
-// keyframe grammar uses. The 2.5 branch is distilled from the OFFICIAL sd25-pe skill
+// keyframe grammar uses. THE SKILL LIBRARY OUTRANKS THIS: when a skill is bound to the
+// card's model slot its whole document rides instead, verbatim. This distilled fallback
+// only runs for a slot with no skill bound.
+// The 2.5 branch is distilled from the OFFICIAL sd25-pe skill
 // (.agents/skills/sd25-pe/SKILL.md — the vendor's prompt spec, not house doctrine);
 // the 2.0 family ignores timestamps entirely.
 const formatLineOf = (modelKey) => (videoTraits(modelKey).keyframeGrammar === 'keyframes'
@@ -408,43 +412,6 @@ const kfLineOf = (kfIndices) => (kfIndices.length
   ? `KEYFRAME PATH — the shot's visual spine, IN ORDER: it opens on the composition of [Image ${kfIndices[0]}]${kfIndices.slice(1, -1).map((k) => `, passes through [Image ${k}]`).join('')}${kfIndices.length > 1 ? ` and lands on [Image ${kfIndices[kfIndices.length - 1]}]` : ''}.`
   : 'No keyframes are set — ground the action against the reference images and the text alone.');
 
-// Density levels for Enrich — approximate word ceilings per the model guides (2.0
-// dilutes past ~400 words; 2.5's 30s window rewards far denser text).
-export const ENRICH_LEVELS = (modelKey) => {
-  const w = videoTraits(modelKey).enrichWords;
-  return [
-    { key: 'light', label: 'Light polish', words: w.light },
-    { key: 'rich', label: 'Rich detail', words: w.rich },
-    { key: 'max', label: 'Maximal density', words: w.max },
-  ];
-};
-
-// ENRICH — expand the CURRENT prompt in place: the text is the untouchable skeleton
-// (events, order, [Image N] tags, dialogue verbatim); the call adds camera/motion/
-// texture/atmosphere/VFX/sound precision around it, grounded in the attached chips.
-// Keyframes and references are inputs, never outputs — the card's pointers and chip
-// list stay exactly as they are.
-export const enrichShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), level = 'rich', camera = null, job = '', config } = {}, ctx) => {
-  const material = String(text || '').trim();
-  if (!material) throw new Error('Enrich needs the shot prompt — write it or Compose first.');
-  const lv = ENRICH_LEVELS(modelKey).find((l) => l.key === level) || ENRICH_LEVELS(modelKey)[1];
-  const SLOT = '@@PROMPT@@';
-  const run = async (retry) => {
-    const { content } = await ctx.client.reason({
-      prompt: renderTemplate('cut.enrich.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)) + retry,
-      systemPrompt: renderTemplate('cut.enrich.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey), targetWords: String(lv.words) }),
-      images: references,
-      modelId: getModel('reasoner', config),
-      reasoningEffort: getRuntime(config).reasoningEffort,
-    });
-    const raw = parseJson(content) || {};
-    return { action: String(raw.action || '').trim(), audio: String(raw.audio || '').trim() };
-  };
-  const out = await withDialogueGate(material, 'action', run);
-  if (!out.action) throw new Error('Enrich came back empty — try again.');
-  return out;
-};
-
 // DIRECT — apply ONE director's note to the card's prompt: the note shapes how the
 // shot FEELS and READS (tone, pacing, emphasis, atmosphere, wording); events, order,
 // [Image N] tags, dialogue, references and keyframes all stay. The note wins over the
@@ -460,7 +427,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
         .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)) + retry,
-      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey) }),
+      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: skillLineOf(modelKey) || formatLineOf(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -491,7 +458,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
     derived = String((parseJson(content) || {}).events || '').trim();
     if (!derived) throw new Error('Deriving from the keyframes came back empty — try again.');
   }
-  // ---- STEP 2 · ENRICH (all chips + roster + derived events + optional text) ----
+  // ---- STEP 2 · WRITE (all chips + roster + derived events + optional text) ----
   const kfLine = kfLineOf(kfIndices);
   const authorityLine = kfIndices.length
     ? `THE DERIVED EVENTS below were read from the shot's APPROVED KEYFRAMES — they are the authority on WHAT HAPPENS:\n<<<\n${derived}\n>>>\nRewrite them into the final action: replace each visual handle with its subject's [Image N] number from the roster, keep the event order and pacing. From the director's text carry ONLY what pictures cannot show — every dialogue line word-for-word in curly braces with its speaker named (placed at the right moments), proper names, and intent that does not contradict the events. Any text event the derived events contradict is dropped — list each in "dropped" (one short line), never silently.`
@@ -500,7 +467,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)') + retry,
-      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: formatLineOf(modelKey) }),
+      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: skillLineOf(modelKey) || formatLineOf(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,

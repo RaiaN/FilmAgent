@@ -1,0 +1,12 @@
+OmniSys:
+- Seedance Video EDIT -> Video degradation
+- Crowds + Eyes -> How to control -> Workflow
+- Duplicate and drop frames - 2.0 and 2.5 (frames drop), frame pacing is non-consistent
+-- Camera movement - when intense - heavier action in the scene (24th frame, 23rd frame, 5-6 frame gaps)
+- Audio design: Seedance 2.5 generated, another team (post-production), might use real voice over, dubbing
+- Video -> Character sheet
+- 30 FPS video output
+- Smallest tiny details change (woman face)
+- Location, wide shot, texture floor -> weird (distorted!)
+- Using more references leads to quality degradation
+---- 15-16 references - "Marching of an army" shot -> 10 character refs -> model gets confused -> orientation changed -> 

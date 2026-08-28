@@ -52,7 +52,7 @@ import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } 
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
 import { previzPlan, blockoutStill, previzTake, beautyTake } from '../../../utils/film/core/previz';
-import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, enrichShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
+import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -2600,6 +2600,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         videoRefCount: videoRefUrls.length,
         audioRoles: (c.data.audioRefs || []).map((r) => r.role || ''),
         videoRoles: (c.data.videoRefs || []).map((r) => r.role || ''),
+        // The official template's goal sentence + unused-asset accounting need the
+        // card's own title and the FULL attach count (not just the named subjects).
+        goal: String(c.data.beat || '').trim(),
+        imageCount: refs.length,
         modelKey: videoModelKeyOf(c.data.videoModel),
       });
       return {
@@ -3037,7 +3041,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     splitFlightRef.current.add(`dev-${id}`);
     onPatchCut(id, { developing: true });
     traceRef.current.startRun({ note: kfIndices.length
-      ? `Agent · Shot compose (derive from ${kfIndices.length} keyframe${kfIndices.length === 1 ? '' : 's'} → enrich with ${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 2 calls)`
+      ? `Agent · Shot compose (derive from ${kfIndices.length} keyframe${kfIndices.length === 1 ? '' : 's'} → write with ${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 2 calls)`
       : `Agent · Shot compose (${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 1 call)` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
@@ -3106,49 +3110,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
   }, [apiKey, onPatchCut]);
 
-  // ENRICH the card's CURRENT prompt in place — the expansion twin of Compose: the
-  // text is the skeleton (events, [Image N] tags, dialogue verbatim), the call adds
-  // camera/motion/texture/atmosphere/VFX/sound density around it. References and
-  // keyframes are read, never written.
-  const enrichCutPrompt = useCallback(async (id, level = 'rich') => {
-    if (splitFlightRef.current.has(`dev-${id}`)) return;
-    const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
-    if (!card || card.data?.developing || card.data?.splitting) return;
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
-    const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
-    if (!text) { Message.warning('Enrich expands the existing prompt — write it, or Compose first.'); return; }
-    const baseRefs = shotReferences(card.data, bibleRef.current);
-    const kfPairs = cardKfPairs(card.data, baseRefs);
-    const kfIndices = kfPairs.map((x) => x.idx);
-    const roster = [
-      ...baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`),
-      ...(card.data.audioRefs || []).map((a, i) => `Audio ${i + 1} = ${a.label || 'audio clip'}${a.role ? ` (${a.role})` : ''}`),
-      ...(card.data.videoRefs || []).map((v, i) => `Video ${i + 1} = ${v.label || 'video'}${v.role ? ` (${v.role})` : ''}`),
-    ];
-    const modelKey = videoModelKeyOf(card.data?.videoModel);
-    splitFlightRef.current.add(`dev-${id}`);
-    onPatchCut(id, { developing: true });
-    traceRef.current.startRun({ note: `Agent · Shot enrich (${level} · ${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 1 call)` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-    try {
-      const tpl = SHOT_TEMPLATE_BY_ID[card.data?.shotTemplate];
-      const out = await enrichShotAction({
-        text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey, level,
-        camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
-        job: card.data?.job || '',
-      }, ctx);
-      traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot enrich · ${text.length} → ${out.action.length} chars` });
-      onPatchCut(id, {
-        promptOverride: out.action,
-        cameraStale: undefined,
-        developSource: card.data?.developSource || text,
-        ...(out.audio && !String(card.data?.audio || '').trim() ? { audio: out.audio } : {}),
-      });
-      if (out.missingDialogue?.length) Message.warning(`Enriched — ⚠ dropped dialogue: ${out.missingDialogue.join(' · ')}. Re-run or restore the line by hand.`);
-      else Message.success(`Enriched — ${out.action.split(/\s+/).length} words; events, [Image N] tags and dialogue carried.`);
-    } catch (e) { Message.error(`Enrich failed: ${e.message}`); }
-    finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
-  }, [apiKey, onPatchCut]);
 
   // PROMOTE an approved storyboard keyframe to a production SHOT card — the boards →
   // shot-list handoff. The card carries the shot's beat/camera/duration, the keyframe
@@ -3176,15 +3137,15 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     Message.success(`SHOT ${cut + 1} laid from “${String(kf.data.beat || 'keyframe').slice(0, 24)}” — refs attached, K1 pinned; 🎬 when ready.`);
   }, [freeOrigin, layAnchoredCard]);
 
-  // 'FILM' — the strip's one-tap road to takes: pack the rows into the REQUESTED
-  // number of SHOT cards (default 1 — the whole strip rides one card); each card
-  // carries its chunk's stills pinned as the keyframe chain and the rows' text
-  // VERBATIM as `Shot N:` blocks (the official storyboard grammar — no invented
-  // timestamps). Deterministic — no LLM between the approved strip and the cards. The whole REFS pool rides FIRST on every card, in pool order,
-  // so the rows' global [Image N] tags stay valid with zero rewriting; the stills
-  // append after as the keyframe chips. Cards land pre-chained (bonds = order; the
-  // card's own keyframes remain the only continuity mechanism).
-  const filmStrip = useCallback((panelId) => {
+  // 'FILM' — the strip's one-tap road to takes. The rows become ONE SHOT card whose
+  // stills are pinned as its keyframe chain, and then the card's prompt is WRITTEN by
+  // Compose under the SKILL bound to that card's model — the vendor's own prompt spec,
+  // sent verbatim. The rows are the material, not the output. The whole REFS pool rides
+  // FIRST on every card, in pool order, so the rows' global [Image N] tags stay valid
+  // with zero rewriting; the stills append after as the keyframe chips. Cards land
+  // pre-chained (bonds = order; the card's own keyframes remain the only continuity
+  // mechanism).
+  const filmStrip = useCallback(async (panelId) => {
     const chatId = String(panelId).replace('sbpanel', 'sbchat');
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const shots = chat?.data?.shots || [];
@@ -3273,6 +3234,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       if (poolChips.length + stillChips.length > refCap) overCap += 1;
       onPatchCut(`${idPrefix}-${ci}`, { assetRefs: [...poolChips, ...stillChips], keyframes: kfPtrs });
     });
+    // THE PROMPT IS WRITTEN, NOT ASSEMBLED. The rows' text is the MATERIAL; Compose runs
+    // it through the skill bound to this card's model (the vendor's own spec, verbatim)
+    // so the card carries the best prompt that model's guide can produce. Waits for the
+    // card + its refs to land in the node store first — Compose reads them from there.
+    const cardIds = chunks.map((_c, ci) => `${idPrefix}-${ci}`);
+    const landed = async (id) => {
+      for (let i = 0; i < 60; i += 1) {
+        if (nodesRef.current.find((n) => n.id === id)?.data?.keyframes) return true;
+        await new Promise((r) => { setTimeout(r, 25); });
+      }
+      return false;
+    };
     // Pre-chain the chunks — the bond carries ORDER (and the START picker's explicit
     // last-frame offer); it never auto-threads.
     if (chunks.length > 1) {
@@ -3281,8 +3254,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       })).filter((e) => !es.some((x) => x.id === e.id))));
     }
     if (overCap) Message.warning(`${overCap} card${overCap === 1 ? '' : 's'} exceed${overCap === 1 ? 's' : ''} the model's ${refCap}-reference cap — later chips are trimmed at shoot time; slim the REFS pool or turn off the stills you do not need.`);
-    Message.success(`Filmed the strip into ONE SHOT card — ${rows.length} shot${rows.length === 1 ? '' : 's'}, duration left to the model${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''} — 🎬 when ready.`);
-  }, [freeOrigin, onPatchCut, applyEdges]);
+    Message.success(`Filmed the strip into ONE SHOT card — ${rows.length} shot${rows.length === 1 ? '' : 's'}, duration left to the model${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''} — writing the prompt with the model's skill…`);
+    for (const id of cardIds) {
+      if (await landed(id)) await composeCutPrompt(id);
+    }
+  }, [freeOrigin, onPatchCut, applyEdges, composeCutPrompt]);
 
   // CANON media references — audio/video nodes the user tagged (★ Reference): every SHOT
   // card offers them as one-tap attach chips in its REFERENCES row (the media analog of
@@ -3327,14 +3303,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onAttachAsset: attachRefToCut,
     onSplitCut: splitCardToShots,
     onComposeCut: composeCutPrompt,
-    onEnrichCut: enrichCutPrompt,
     onDirectCut: directCutPrompt,
     onOpenTakes: openTakesForCard,
     boardImages,
     prevTakeFrames,
     onCompilePreview: previewCutPrompt,
     onOpenRefDrawer: openRefDrawer,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, enrichCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt, openRefDrawer]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt, openRefDrawer]);
 
   const filmMode = true; // Short-Film-only suite.
 

@@ -77,7 +77,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
               style={{ background: '#b06f10', borderColor: '#b06f10', height: 20 }}
               icon={<IconVideoCamera />}
               onClick={() => onFilmStrip(id)}
-              title="Film — the whole strip into ONE SHOT card: rows' text verbatim, stills pinned as its keyframe chain, duration left to the model."
+              title="Film — the whole strip into ONE SHOT card: stills pinned as its keyframe chain, duration left to the model, and the prompt WRITTEN by Compose under the skill bound to that model (the vendor's own spec). 1 call."
             >Film</Button>
           </span>
         )}

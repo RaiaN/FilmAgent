@@ -4,7 +4,6 @@ import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover,
 import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
-import { ENRICH_LEVELS } from '../../../utils/film/core/storyboard';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import EditableLabel from './EditableLabel';
@@ -16,7 +15,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onEnrichCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null, onOpenRefDrawer: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null, onOpenRefDrawer: null,
 });
 
 // One keyframe slot tile: shows its picked still, or a dashed ＋ tile. Clicking opens
@@ -53,7 +52,7 @@ const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00',
 
 // Text fields draft LOCALLY and commit on blur: routing every keystroke through the
 // React Flow store makes the controlled value arrive back a beat late, which resets
-// the caret to the end. External updates (Compose/Direct/Enrich) still flow in
+// the caret to the end. External updates (Compose/Direct) still flow in
 // whenever the field isn't focused.
 const DraftText = ({ value, onCommit, textarea = false, ...rest }) => {
   const [draft, setDraft] = useState(null); // null = not editing → show live value
@@ -94,7 +93,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onEnrichCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview, onOpenRefDrawer } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview, onOpenRefDrawer } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -192,7 +191,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   // hand-type. Picking stores the template id (so the dropdown highlights it) + its
   // name (cinePreset, for display) + the cinematography line.
   // Switching the preset under a WRITTEN prompt leaves camera wording in the text that
-  // contradicts the new pick — flag it; any prompt verb (Compose/Enrich/Direct) restages
+  // contradicts the new pick — flag it; any prompt verb (Compose/Direct) restages
   // the action for the locked camera and clears the flag.
   const pickTemplate = (tid) => {
     const t = SHOT_TEMPLATE_BY_ID[tid];
@@ -315,29 +314,14 @@ const CutNodeInner = ({ id, data, selected }) => {
           inputStyle={{ fontSize: 12, fontWeight: 700, color: '#f7ba1e', background: '#161b22', borderColor: '#2a313a' }}
         />
         {jobLine && (
-          <Text title="This shot's ONE JOB — carved with the shot list; Compose / Enrich / Direct all serve it" style={{ fontSize: 10, color: '#b08b3e', fontStyle: 'italic', marginTop: -4 }} ellipsis={{ rows: 1 }}>◎ {jobLine}</Text>
+          <Text title="This shot's ONE JOB — carved with the shot list; Compose / Direct all serve it" style={{ fontSize: 10, color: '#b08b3e', fontStyle: 'italic', marginTop: -4 }} ellipsis={{ rows: 1 }}>◎ {jobLine}</Text>
         )}
 
         <div>
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
             <span style={{ display: 'inline-flex', gap: 2 }}>
-              <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onComposeCut || data.developing || data.splitting} onClick={() => onComposeCut && onComposeCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Compose — with keyframes: 2 visible calls (DERIVE the events from the keyframes alone, then ENRICH with the reference chips + your dialogue/names verbatim); without: 1 call, your text as the material. Overridden text is reported, the compiler keeps adding the binding lines, previous text stashed.">Compose</Button>
-              <Popover
-                trigger="click" position="bl" color="#161b22"
-                content={(
-                  <div className="nodrag" style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 2, width: 220 }}>
-                    <Text style={{ fontSize: 9, fontWeight: 700, color: '#9fb4d0' }}>DENSITY — target scales with the video model</Text>
-                    {ENRICH_LEVELS(videoModelKeyOf(data.videoModel)).map((lv) => (
-                      <Button key={lv.key} size="mini" long style={{ justifyContent: 'flex-start' }} onClick={() => onEnrichCut && onEnrichCut(id, lv.key)}>
-                        {lv.label} · ~{lv.words} words
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              >
-                <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconEdit />} disabled={!onEnrichCut || data.developing || data.splitting} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Enrich — expand THIS prompt with cinematic density (camera, motion micro-detail, texture, atmosphere, VFX, sound) while every event, [Image N] tag, dialogue line, reference and keyframe stays exactly as it is. Pick a density — 1 visible call. Previous text stashed.">Enrich</Button>
-              </Popover>
+              <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onComposeCut || data.developing || data.splitting} onClick={() => onComposeCut && onComposeCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Compose — with keyframes: 2 visible calls (DERIVE the events from the keyframes alone, then WRITE it with the reference chips + your dialogue/names verbatim); without: 1 call, your text as the material. Overridden text is reported, the compiler keeps adding the binding lines, previous text stashed.">Compose</Button>
               <Popover
                 trigger="click" position="bl" color="#161b22"
                 content={(
@@ -437,7 +421,7 @@ const CutNodeInner = ({ id, data, selected }) => {
             </Text>
           )}
           {data.cameraStale && (
-            <Text style={{ color: '#f7ba1e', fontSize: 9 }}>camera preset changed after this prompt was written — Compose / Enrich / Direct restages the action for the new camera</Text>
+            <Text style={{ color: '#f7ba1e', fontSize: 9 }}>camera preset changed after this prompt was written — Compose / Dnrich / Direct restages the action for the new camera</Text>
           )}
           {anyKfBroken && (
             <Text style={{ color: '#f53f3f', fontSize: 9 }}>a keyframe points to a removed/disabled ref — toggle its chip back on or re-pick</Text>

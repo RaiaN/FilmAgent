@@ -186,7 +186,7 @@ export const clampSizeForModel = (modelKey, size) => {
 };
 
 // PER-SLOT CAPABILITY TABLE — the ONE place a video slot's behavior is declared.
-// Everything downstream (compiler grammar, duration/resolution caps, enrich
+// Everything downstream (compiler grammar, duration/resolution caps, prompt
 // density) keys off these TRAITS, never off slot-name comparisons — a new slot
 // is one entry here, zero call-site edits.
 const VIDEO_MODEL_TRAITS = {
@@ -197,7 +197,6 @@ const VIDEO_MODEL_TRAITS = {
     keyframeGrammar: 'composition',   // opens-exactly-on / passes / ends-exactly-on
     overallBlock: false,              // no closing Overall-requirements section
     refCap: 30,                       // reference images per request
-    enrichWords: { light: 180, rich: 280, max: 380 },
   },
   seedanceFast: {
     maxSeconds: 15,
@@ -206,7 +205,6 @@ const VIDEO_MODEL_TRAITS = {
     keyframeGrammar: 'composition',
     overallBlock: false,
     refCap: 30,
-    enrichWords: { light: 180, rich: 280, max: 380 },
   },
   seedanceMini: {
     maxSeconds: 15,
@@ -215,7 +213,6 @@ const VIDEO_MODEL_TRAITS = {
     keyframeGrammar: 'composition',
     overallBlock: false,
     refCap: 30,
-    enrichWords: { light: 180, rich: 280, max: 380 },
   },
   seedance25: {
     maxSeconds: 30,
@@ -224,7 +221,6 @@ const VIDEO_MODEL_TRAITS = {
     keyframeGrammar: 'keyframes',     // "Use Image a, Image b … in order as keyframes."
     overallBlock: true,               // closes with the Overall-requirements section
     refCap: 30,
-    enrichWords: { light: 220, rich: 400, max: 600 },
   },
 };
 export const videoTraits = (key) => VIDEO_MODEL_TRAITS[key] || VIDEO_MODEL_TRAITS[videoModelKeyOf(key)] || VIDEO_MODEL_TRAITS.seedance;

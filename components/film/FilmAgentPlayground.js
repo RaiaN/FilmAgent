@@ -11,12 +11,12 @@ import {
   Menu,
 } from '@arco-design/web-react';
 import {
-  IconFolder,
   IconFolderAdd,
   IconClockCircle,
   IconSettings,
   IconPlus,
   IconCode,
+  IconBook,
   IconCloudDownload,
   IconDownload,
   IconPlayArrow,
@@ -24,6 +24,8 @@ import {
 } from '@arco-design/web-react/icon';
 import FilmCanvas from './canvas/FilmCanvas';
 import PromptSettings from './PromptSettings';
+import SkillSettings from './SkillSettings';
+import { hydrateSkills } from '../../utils/film/skills';
 import { emptyProject } from '../../utils/film/projectShape';
 import {
   listRecent,
@@ -62,6 +64,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
   const [pathPicker, setPathPicker] = useState({ visible: false, mode: 'open', value: '' });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [promptsOpen, setPromptsOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(null);
 
@@ -165,6 +168,11 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
   // free), so churn or calm, the cloud is never more than ~15s behind the board.
   const projectStateRef = useRef(project);
   useEffect(() => { projectStateRef.current = project; }, [project]);
+
+  // The SKILLS LIBRARY loads with the app, NOT with its drawer: a skill that hasn't
+  // hydrated cannot bind, and Compose/Film would silently fall back to the distilled
+  // format line. One fetch per session.
+  useEffect(() => { hydrateSkills(); }, []);
   useEffect(() => {
     const iv = setInterval(() => { if (projectStateRef.current) cloudAutosave(projectStateRef.current); }, 15000);
     return () => clearInterval(iv);
@@ -225,21 +233,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
       Message.error(`Could not load: ${err.message}`);
     }
   }, [refreshRecent]);
-
-  const handleOpenExisting = async () => {
-    try {
-      const picked = await pickProjectFolder({ mode: 'open' });
-      if (picked.source === 'electron') {
-        if (picked.path) openExistingFromStorage({ kind: 'path', path: picked.path });
-      } else if (picked.source === 'handle') {
-        if (picked.handle) openExistingFromStorage({ kind: 'handle', handle: picked.handle });
-      } else {
-        setPathPicker({ visible: true, mode: 'open', value: '' });
-      }
-    } catch (err) {
-      Message.error(err.message);
-    }
-  };
 
   const handleOpenRecent = async (entry) => {
     try {
@@ -366,6 +359,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
   const dialogs = (
     <>
       <PromptSettings visible={promptsOpen} onClose={() => setPromptsOpen(false)} />
+      <SkillSettings visible={skillsOpen} onClose={() => setSkillsOpen(false)} />
       <Modal
         title={pathPicker.mode === 'saveAs' ? 'Save project to a folder' : 'Open existing project'}
         visible={pathPicker.visible}
@@ -569,8 +563,8 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
           <Button size="small" icon={<IconPlayArrow />} onClick={() => setDemoNonce((n) => n + 1)} title="Auto-demo — replay this board as a guided tour: brief → cast → storyboard → shots → takes, camera following. Pure playback, nothing is generated.">Demo</Button>
           <Button size="small" icon={<IconCloudDownload />} loading={cloudBusy} onClick={handleCloudOpenClick} title="Open a cloud project — autosave keeps every project in your TOS bucket as you work; restore the full board on any machine">Cloud open</Button>
           <Button size="small" icon={<IconCode />} onClick={() => setPromptsOpen(true)}>Prompts</Button>
+          <Button size="small" icon={<IconBook />} onClick={() => setSkillsOpen(true)} title="Skills — the model vendors' prompt specs, sent VERBATIM to whichever model slot each is bound to">Skills</Button>
           <Button size="small" icon={<IconSettings />} onClick={() => setSettingsOpen(true)}>Project</Button>
-          <Button size="small" icon={<IconFolder />} onClick={handleOpenExisting}>Open…</Button>
           {recent.length > 0 && (
             <Dropdown droplist={recentMenu} position="br">
               <Button size="small" icon={<IconClockCircle />}>Recent</Button>

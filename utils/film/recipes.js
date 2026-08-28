@@ -123,7 +123,7 @@ const SUBJECT_NOUN = { character: 'person', location: 'location', prop: 'object'
 const stripTrailingTransition = (t) => String(t || '').trim()
   .replace(/(?:\s|\n)*(?:CUT TO:?|CUT:|SMASH CUT(?: TO)?:?|FADE (?:OUT|TO BLACK|IN):?|DISSOLVE(?: TO)?:?|MATCH CUT(?: TO)?:?)\s*$/i, '').trim();
 
-export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0, audioRoles = [], videoRoles = [], modelKey = 'seedance' } = {}) => {
+export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematography = '', style = '', audioRefCount = 0, videoRefCount = 0, audioRoles = [], videoRoles = [], goal = '', imageCount = 0, modelKey = 'seedance' } = {}) => {
   // The 2.5 family speaks the OFFICIAL sd25-pe dialect (.agents/skills/sd25-pe/SKILL.md):
   // @ImageN wire notation, "maps to … use only …" subject scopes, verbatim first/last-frame
   // sentences, and NO generic quality/constraint tails. The 2.0 family keeps the
@@ -151,7 +151,7 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     location: 'use only the spatial layout, architecture, and lighting; do not use any people in the image',
     prop: 'use only the structure, material, and color',
   };
-  const defs = [...byName.entries()].map(([name, s]) => {
+  const subjectLines = [...byName.entries()].map(([name, s]) => {
     const imgs = s.indices.map((i) => tag('Image', i)).join(' and ');
     return g25
       ? `${name} maps to ${imgs}; ${SCOPE_25[s.role] || 'use only its directly observable features'}.`
@@ -159,10 +159,11 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
   });
   // Media binding lines are ROLE-scoped (the guide's partial-reference pattern) —
   // each asset contributes exactly its intended feature; unset role = the generic line.
+  const roleLines = [];
   for (let i = 0; i < audioRefCount; i += 1) {
     const role = (audioRoles || [])[i];
     const a = tag('Audio', i + 1);
-    defs.push(role === 'music' ? `Use ${a} as the music reference.`
+    roleLines.push(role === 'music' ? `Use ${a} as the music reference.`
       : role === 'ambience' ? `Use ${a} as the ambience and sound-design reference.`
         : role === 'voice' ? `Use the voice timbre of ${a}.`
           : `Use the sound and timbre of ${a} as reference.`);
@@ -170,11 +171,12 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
   for (let i = 0; i < videoRefCount; i += 1) {
     const role = (videoRoles || [])[i];
     const v = tag('Video', i + 1);
-    defs.push(role === 'camera' ? `Refer to the camera movement in ${v}.`
+    roleLines.push(role === 'camera' ? `Refer to the camera movement in ${v}.`
       : role === 'style' ? `Refer to the visual style of ${v}.`
         : role === 'motion' ? `Refer to the motion in ${v}.`
           : `Refer to the camera movement and motion in ${v}.`);
   }
+  const defs = [...subjectLines, ...roleLines];
   const shotLines = shots.map((sh, i) => {
     const parts = [];
     // Each keyframe carries its own DESCRIPTION (the still's wording) — the manual
@@ -232,10 +234,22 @@ export const composePinnedShotPrompt = ({ subjects = [], shots = [], cinematogra
     const consistency = chars.length
       ? `Keep the identity, count, and clothing of ${chars.map(([name, sub]) => `${name} (${sub.indices.map((i) => tag('Image', i)).join(' and ')})`).join(', ')} stable throughout.`
       : 'Keep subject identities and counts stable throughout.';
+    // THE OFFICIAL FIVE-BLOCK TEMPLATE (sd25-pe · Generation with Reference Assets).
+    // Every attached image is accounted for: the ones this shot uses are given a role,
+    // and the ones it does not are NAMED as unused so nothing bleeds in uninvited.
+    const body = [subjectLines.join(' '), shotLines.join('\n')].join('\n');
+    const cited = new Set();
+    [...body.matchAll(/@Image(\d+)/g)].forEach((m) => cited.add(Number(m[1])));
+    const unused = [];
+    for (let i = 1; i <= imageCount; i += 1) if (!cited.has(i)) unused.push(`@Image${i}`);
+    const principal = String(goal || '').trim();
     return [
-      defs.join('\n'),
-      shotLines.join('\n'),
-      `【Maintain Consistency】 ${[consistency, look ? `The visuals present ${look}.` : ''].filter(Boolean).join(' ')}`,
+      principal ? `【Generation Goal】\n${principal}` : '',
+      roleLines.length ? `【Reference Asset Roles】\n${roleLines.join('\n')}` : '',
+      unused.length ? `【Unused Assets】\n${unused.join(', ')} ${unused.length === 1 ? 'is' : 'are'} not used in this task — not for people, scenes, props, actions, camera or sound.` : '',
+      subjectLines.length ? `【Subjects and Relationships】\n${subjectLines.join('\n')}` : '',
+      `【Event Script】\n${shotLines.join('\n')}`,
+      `【Maintain Consistency】\n${[consistency, look ? `The visuals present ${look}.` : ''].filter(Boolean).join(' ')}`,
     ].filter(Boolean).join('\n\n');
   }
   return [

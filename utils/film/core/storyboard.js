@@ -391,9 +391,23 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // The 2.5 branch is distilled from the OFFICIAL sd25-pe skill
 // (.agents/skills/sd25-pe/SKILL.md — the vendor's prompt spec, not house doctrine);
 // the 2.0 family ignores timestamps entirely.
-const formatLineOf = (modelKey) => (videoTraits(modelKey).keyframeGrammar === 'keyframes'
-  ? `FORMAT (official Seedance 2.5 guide): structure the action as STAGES in event order — each stage carries ONE main event and names its observable END state (positions, prop ownership, visible result). Write numeric time segments ONLY when the material already carries them — then keep them as ONE continuous, non-overlapping clock starting at 0 ("0-3s: … 3-8s: …", never nested); NEVER invent time segments to fill a target duration. Emotion is OBSERVABLE performance: triggering event → immediate reaction → a few clear cues (eyes, breath, hands) → the target emotion; never inner states, and show the trigger before the reaction. A camera instruction names the move + its target subject + where it starts and where it arrives; expand niche terms into their visible result. Anchor spatial relationships to stable objects (the door, the counter, the vehicle), never screen-left/right. Dialogue: language + delivery + speaker + {dialogue} in curly braces, labeled per speaker; non-speakers keep their mouths naturally closed. Sound symbols: music in (), sound effects in <>, subtitles in 【】 — never put a subject's name in angle brackets. Do not add quality packs, watermark/subtitle bans, aspect-ratio or duration lines, or any generic constraint the material did not ask for.`
-  : 'FORMAT: this video model IGNORES timestamps. Write the action as plain event-order prose with no time markers.');
+// THE FALLBACK METHOD — used ONLY when no skill is bound to this model slot. House
+// doctrine lives here and nowhere else: when a vendor spec rides, it replaces this
+// wholesale, because the vendor's own principles outrank ours by definition.
+const formatLineOf = (modelKey) => {
+  const g25 = videoTraits(modelKey).keyframeGrammar === 'keyframes';
+  return `NO OFFICIAL SPEC IS INSTALLED for this model, so write to these principles instead — add one in the Skills library and it supersedes all of this.
+
+STRUCTURE. Open with ONE summary sentence (subject + place + event + style + camera), then the events in order. Address every subject by its image number. State what each attached image contributes and name the ones this shot does not use. Close by naming what must stay stable — identities, counts, clothing, prop ownership, spatial directions.
+
+${g25
+  ? 'Organise the action as STAGES in event order — one main event per stage, each naming its observable END state. Write numeric time segments ONLY when the material already carries them; then keep one continuous, non-overlapping clock from 0. NEVER invent time segments.'
+  : 'This model IGNORES timestamps. Write the action as plain event-order prose with no time markers.'}
+
+STATE THE SITUATION, DO NOT CHOREOGRAPH THE OUTCOME. The model SIMULATES a world: give it who is there, where, in what condition, and what they are trying to do — it derives the physical consequences better than a written body-part script. Name a state of the subject ("the wolf is cornered and means it") rather than instructing a feature ("guard hairs lift") — a feature instruction renders literally, and literally is wrong. Emotion is what the situation PRODUCES: show the trigger, then a few clear cues (eyes, breath, hands) — never an inner state asserted as an adjective, never every microexpression at once.
+
+Every action runs at REAL-WORLD SPEED. Anchor positions to stable objects (the door, the counter, the log), never to screen-left or screen-right. Dialogue: language + delivery + speaker + {dialogue} in curly braces. Music in (), sound effects in <>. Add no quality packs, no watermark or subtitle bans, and no aspect-ratio or duration lines — those are parameters, not prompt text.`;
+};
 
 // The card's LOCKED camera preset as a hard contract for the prompt verbs: prose
 // film-grammar alone is weak, so the camera must live IN the action text — staged,

@@ -195,6 +195,7 @@ const VIDEO_MODEL_TRAITS = {
     res: ['480p', '720p', '1080p', '4K'],
     resDefault: '1080p',
     keyframes: false,                 // 2.0 has NO first/last-frame control — refs are references, full stop
+    refPrefix: '',                    // 2.0 cites references as "Image 1" — no sigil, no brackets
     overallBlock: false,              // no closing Overall-requirements section
     refCap: 30,                       // reference images per request
   },
@@ -203,6 +204,7 @@ const VIDEO_MODEL_TRAITS = {
     res: ['480p', '720p', '1080p', '4K'],
     resDefault: '1080p',
     keyframes: false,
+    refPrefix: '',
     overallBlock: false,
     refCap: 30,
   },
@@ -211,6 +213,7 @@ const VIDEO_MODEL_TRAITS = {
     res: ['480p', '720p'],
     resDefault: '720p',
     keyframes: false,
+    refPrefix: '',
     overallBlock: false,
     refCap: 30,
   },
@@ -219,6 +222,7 @@ const VIDEO_MODEL_TRAITS = {
     res: ['480p', '720p', '1080p'],
     resDefault: '720p',
     keyframes: true,                  // ordered first/last-frame anchors are real here
+    refPrefix: '@',                   // 2.5 cites references as "@Image1"
     overallBlock: true,               // closes with the Overall-requirements section
     refCap: 30,
   },
@@ -227,6 +231,9 @@ export const videoTraits = (key) => VIDEO_MODEL_TRAITS[key] || VIDEO_MODEL_TRAIT
 export const RES_BY_MODEL = Object.fromEntries(Object.entries(VIDEO_MODEL_TRAITS).map(([k, t]) => [k, t.res]));
 export const resDefault = (model) => videoTraits(model).resDefault;
 export const maxShotSeconds = (model) => videoTraits(model).maxSeconds;
+// How THIS model cites an attached image. One speller, so the editor, the roster and
+// the prompt verbs can never disagree about notation. Square brackets are gone.
+export const imageTagOf = (model, n) => `${videoTraits(model).refPrefix}Image${videoTraits(model).refPrefix ? '' : ' '}${n}`;
 // A SHOT card's length is either a NUMBER of seconds or 'auto'. 'auto' sends NO duration
 // on the wire at all — the model runs the events as long as they take, which is what the
 // Film button births; a number stays clamped to the endpoint's window.

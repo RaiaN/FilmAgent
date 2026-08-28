@@ -5,7 +5,8 @@ const { Text } = Typography;
 
 // Large, focused editor for a SHOT card's cinematic prompt, with @-mention reference
 // tagging. Type "@" to pop a picker of THIS card's SENT references — only chips toggled
-// on (each shown with its Image index); choosing one inserts a literal "[Image N]" tag at
+// on (each shown with its Image index); choosing one inserts the citation the CARD'S OWN
+// MODEL spells it with (`@Image1` for the 2.5 family, `Image 1` for 2.0) at
 // the cursor — plain prompt text the video model reads, so a subject can be tied to a
 // specific plate. A native <textarea> is used for precise caret control.
 // `references` = [{ index, name, url }] in send order (only the ENABLED, sent refs).
@@ -18,7 +19,7 @@ const dark = {
 
 const NAV_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Enter', 'Escape']);
 
-const PromptEditorModal = ({ open, value, references = [], media = [], onChange, onClose }) => {
+const PromptEditorModal = ({ open, value, references = [], media = [], imageTag = (n) => `Image ${n}`, onChange, onClose }) => {
   const [text, setText] = useState(value || '');
   const [menu, setMenu] = useState(null); // { items: [{index,name,url}], hi } while an @-query is active
   const taRef = useRef(null);
@@ -54,15 +55,15 @@ const PromptEditorModal = ({ open, value, references = [], media = [], onChange,
 
   const apply = (v) => { setText(v); onChange?.(v); };
 
-  // Replace the active "@<query>" (from the @ up to the caret) with the ref's tag —
-  // "[Image N] " for a sent plate, "Audio N " / "Video N " for a media chip.
+  // Replace the active "@<query>" (from the @ up to the caret) with the ref's citation,
+  // spelled the way this card's model spells it; "Audio N " / "Video N " for media.
   const insertRef = (r) => {
     const el = taRef.current;
     const caret = el ? el.selectionStart : text.length;
     const val = el ? el.value : text;
     const at = val.slice(0, caret).lastIndexOf('@');
     const start = at >= 0 ? at : caret;
-    const token = r.kind === 'audio' ? `Audio ${r.index} ` : r.kind === 'video' ? `Video ${r.index} ` : `[Image${r.index}] `;
+    const token = r.kind === 'audio' ? `Audio ${r.index} ` : r.kind === 'video' ? `Video ${r.index} ` : `${imageTag(r.index)} `;
     apply(val.slice(0, start) + token + val.slice(caret));
     reposRef.current = start + token.length;
     setMenu(null);
@@ -87,7 +88,7 @@ const PromptEditorModal = ({ open, value, references = [], media = [], onChange,
       escToExit
     >
       <Text type="secondary" style={{ fontSize: 12 }}>
-        Type <b>@</b> to reference an image, audio or video asset — it inserts the matching <b>[Image N]</b> / <b>Audio N</b> / <b>Video N</b> tag at the cursor.
+        Type <b>@</b> to reference an image, audio or video asset — it inserts the matching <b>{imageTag('N')}</b> / <b>Audio N</b> / <b>Video N</b> citation at the cursor.
       </Text>
       <div style={{ position: 'relative', marginTop: 8 }}>
         <textarea

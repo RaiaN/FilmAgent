@@ -213,11 +213,11 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
     agent: 'Shot',
     label: 'Direct — a note on how the shot feels/reads (system)',
     vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{skill}'],
-    text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — the shot's fixed cast, places and frames; they never change.
+    text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as image 1 … image {refCount} — the shot's fixed cast, places and frames; they never change.
 
 {kfLine}
 
-THE CURRENT PROMPT IS THE SHOT: its events, their order, every [Image N] tag and every dialogue line word-for-word in curly braces all stay. You re-shape HOW it feels and reads per the note — tone, pacing, emphasis, atmosphere, wording. Where the note and the current text disagree, the note wins. Never add, drop or renumber an [Image N] tag.
+THE CURRENT PROMPT IS THE SHOT: its events, their order, every image citation and every dialogue line word-for-word in curly braces all stay. You re-shape HOW it feels and reads per the note — tone, pacing, emphasis, atmosphere, wording. Where the note and the current text disagree, the note wins. Never add, drop or renumber an image citation.
 
 {jobLine}
 
@@ -225,7 +225,7 @@ THE CURRENT PROMPT IS THE SHOT: its events, their order, every [Image N] tag and
 
 {skill}
 
-Do NOT write composition-binding lines, subject definitions, quality/ratio/duration lines or transition markers — the compiler adds those.
+THE CURRENT PROMPT IS THE FINAL PROMPT — it ships to the model verbatim, and nothing is added around it. Whatever structure it already carries (its blocks, its reference-role sentences, its subject definitions, its closing constraints) STAYS; you re-shape tone and wording inside that structure, you do not strip it and you do not rebuild it.
 
 Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action text>","audio":"<only if the note touches sound, else empty>"}`,
   },

@@ -79,6 +79,17 @@ export const skillLineOf = (modelKey) => {
   return `THE OFFICIAL PROMPT SPEC for this video model follows, verbatim. It OUTRANKS any habit or general practice: where it and this instruction disagree, the spec wins. Follow its templates, its notation and its final checklist.\n\n<<<SPEC\n${String(s.text).trim()}\nSPEC>>>`;
 };
 
+// THE SKILL IS MANDATORY. A verb that would otherwise fall back to house doctrine
+// stops instead and says which slot is unbound — a silently-degraded prompt is worse
+// than a refused one. Hydrates first, so a call early in the session cannot fail merely
+// because the library had not loaded yet.
+export const requireSkillLine = async (modelKey) => {
+  await hydrateSkills();
+  const line = skillLineOf(modelKey);
+  if (!line) throw new Error(`No skill is bound to "${modelKey}" — open Skills in the toolbar, add that model's prompt spec and bind it to this slot.`);
+  return line;
+};
+
 export const setSkillText = (id, text) => {
   const store = readStore();
   const custom = store.custom.find((c) => c.id === id);

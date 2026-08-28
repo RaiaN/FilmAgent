@@ -11,7 +11,7 @@ import { resolveImageSize } from '../imageSizes';
 import { composeSeedancePrompt, composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
 import { parseJson } from './director';
 import { withRetry, isTransient } from './retry';
-import { skillLineOf } from '../skills';
+import { requireSkillLine } from '../skills';
 import { isImagePolicyError } from './operations';
 import { runWithConcurrency } from './parallel';
 
@@ -382,32 +382,9 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
 // narrates the visual path; STEP 2 binds subjects to their real [Image N]
 // chips and weaves in the text's dialogue/names/important wording (overrides
 // reported in dropped[], originals stashed by the caller). No keyframes → single
-// write call, text as the material. Binding lines / definitions / tails stay the
-// deterministic compiler's job either way.
-// The video model's TEXT-FORMAT contract, keyed off the same trait the compiler's
-// keyframe grammar uses. THE SKILL LIBRARY OUTRANKS THIS: when a skill is bound to the
-// card's model slot its whole document rides instead, verbatim. This distilled fallback
-// only runs for a slot with no skill bound.
-// The 2.5 branch is distilled from the OFFICIAL sd25-pe skill
-// (.agents/skills/sd25-pe/SKILL.md — the vendor's prompt spec, not house doctrine);
-// the 2.0 family ignores timestamps entirely.
-// THE FALLBACK METHOD — used ONLY when no skill is bound to this model slot. House
-// doctrine lives here and nowhere else: when a vendor spec rides, it replaces this
-// wholesale, because the vendor's own principles outrank ours by definition.
-const formatLineOf = (modelKey) => {
-  const g25 = videoTraits(modelKey).keyframeGrammar === 'keyframes';
-  return `NO OFFICIAL SPEC IS INSTALLED for this model, so write to these principles instead — add one in the Skills library and it supersedes all of this.
-
-STRUCTURE. Open with ONE summary sentence (subject + place + event + style + camera), then the events in order. Address every subject by its image number. State what each attached image contributes and name the ones this shot does not use. Close by naming what must stay stable — identities, counts, clothing, prop ownership, spatial directions.
-
-${g25
-  ? 'Organise the action as STAGES in event order — one main event per stage, each naming its observable END state. Write numeric time segments ONLY when the material already carries them; then keep one continuous, non-overlapping clock from 0. NEVER invent time segments.'
-  : 'This model IGNORES timestamps. Write the action as plain event-order prose with no time markers.'}
-
-STATE THE SITUATION, DO NOT CHOREOGRAPH THE OUTCOME. The model SIMULATES a world: give it who is there, where, in what condition, and what they are trying to do — it derives the physical consequences better than a written body-part script. Name a state of the subject ("the wolf is cornered and means it") rather than instructing a feature ("guard hairs lift") — a feature instruction renders literally, and literally is wrong. Emotion is what the situation PRODUCES: show the trigger, then a few clear cues (eyes, breath, hands) — never an inner state asserted as an adjective, never every microexpression at once.
-
-Every action runs at REAL-WORLD SPEED. Anchor positions to stable objects (the door, the counter, the log), never to screen-left or screen-right. Dialogue: language + delivery + speaker + {dialogue} in curly braces. Music in (), sound effects in <>. Add no quality packs, no watermark or subtitle bans, and no aspect-ratio or duration lines — those are parameters, not prompt text.`;
-};
+// write call, text as the material. The write call produces the FINAL prompt — image
+// roles, keyframe grammar, look and sound included — under the SKILL bound to this
+// model slot. No skill bound, no call: requireSkillLine stops it and says which slot.
 
 // The card's LOCKED camera preset as a hard contract for the prompt verbs: prose
 // film-grammar alone is weak, so the camera must live IN the action text — staged,
@@ -452,7 +429,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
         .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)) + retry,
-      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: skillLineOf(modelKey) || formatLineOf(modelKey) }),
+      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), skill: await requireSkillLine(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -492,7 +469,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)') + retry,
-      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), lookLine: lookLineOf({ style, cinematography, audio }), formatLine: skillLineOf(modelKey) || formatLineOf(modelKey) }),
+      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), lookLine: lookLineOf({ style, cinematography, audio }), skill: await requireSkillLine(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,

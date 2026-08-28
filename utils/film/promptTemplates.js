@@ -212,7 +212,7 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
   'cut.direct.system': {
     agent: 'Shot',
     label: 'Direct — a note on how the shot feels/reads (system)',
-    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{formatLine}'],
+    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{skill}'],
     text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — the shot's fixed cast, places and frames; they never change.
 
 {kfLine}
@@ -223,7 +223,7 @@ THE CURRENT PROMPT IS THE SHOT: its events, their order, every [Image N] tag and
 
 {cameraLine}
 
-{formatLine}
+{skill}
 
 Do NOT write composition-binding lines, subject definitions, quality/ratio/duration lines or transition markers — the compiler adds those.
 
@@ -238,7 +238,7 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
   'cut.compose.system': {
     agent: 'Shot',
     label: 'Compose — the FINAL prompt sent to the video model (system)',
-    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{lookLine}', '{formatLine}'],
+    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{lookLine}', '{skill}'],
     text: `You are writing THE FINAL PROMPT for a video model. What you return is sent VERBATIM — nothing is appended, wrapped, renumbered or cleaned up afterwards. If you leave it out, it does not reach the model.
 
 THE SPEC BELOW IS THE METHOD. Everything above it is FACT about this particular shot — what is attached, what is locked, what the material is. Facts do not override the spec; they are its input.
@@ -255,7 +255,7 @@ THE SPEC BELOW IS THE METHOD. Everything above it is FACT about this particular 
 
 {lookLine}
 
-{formatLine}
+{skill}
 
 Return ONLY JSON — no prose, no code fences: {"action":"<the complete final prompt>","audio":""}`,
   },

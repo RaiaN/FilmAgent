@@ -39,6 +39,11 @@ const ActionRow = ({ e }) => {
       {e.prompt && (
         <div style={{ fontSize: 11, color: '#1d2129', background: '#f7f8fa', borderRadius: 4, padding: '3px 6px', margin: '2px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{e.prompt}</div>
       )}
+      {e.skill && (
+        <div style={{ fontSize: 10, color: '#b06f10', fontWeight: 600, margin: '2px 0' }} title="The vendor prompt spec sent VERBATIM in this call's system prompt">
+          ◈ skill: {e.skill}
+        </div>
+      )}
       {e.refs && e.refs.length > 0 && (
         <div style={{ fontSize: 10, color: '#86909c', wordBreak: 'break-word' }}>
           refs: {e.refs.map((r, i) => (

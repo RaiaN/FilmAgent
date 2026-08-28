@@ -404,12 +404,23 @@ const jobLineOf = (job) => (String(job || '').trim()
   ? `THE SHOT'S ONE JOB (from the shot list — every sentence serves it): ${String(job).trim()}`
   : '');
 
+// The card's LOOK and SOUND. Nothing appends these any more, so the prompt must carry
+// them or they do not reach the model. Empty fields say nothing — never a default look.
+const lookLineOf = ({ style = '', cinematography = '', audio = '' } = {}) => {
+  const look = [String(style || '').trim(), String(cinematography || '').trim()].filter(Boolean).join(' · ');
+  const snd = String(audio || '').trim();
+  return [
+    look ? `LOOK (from the card — carry it into the prompt): ${look}.` : '',
+    snd ? `SOUND (from the card — carry it in the spec's symbol grammar): ${snd}` : '',
+  ].filter(Boolean).join('\n') || 'No look or sound is pinned on the card — add none of your own beyond what the material implies.';
+};
+
 const cameraLineOf = (camera) => (camera && (camera.framing || camera.move)
   ? `CAMERA (director-locked, non-negotiable): ${[camera.framing, camera.angle, camera.move].filter(Boolean).join(' · ')}. Stage every event FOR this exact camera, carry it in the action text (summary sentence included), and never contradict it.`
   : 'No camera preset is locked — choose the single camera that serves the action best and commit to it in the text.');
 
 const kfLineOf = (kfIndices) => (kfIndices.length
-  ? `KEYFRAME PATH — the shot's visual spine, IN ORDER: it opens on the composition of [Image ${kfIndices[0]}]${kfIndices.slice(1, -1).map((k) => `, passes through [Image ${k}]`).join('')}${kfIndices.length > 1 ? ` and lands on [Image ${kfIndices[kfIndices.length - 1]}]` : ''}.`
+  ? `KEYFRAMES — image ${kfIndices.join(', image ')} ${kfIndices.length === 1 ? 'is this shot\'s' : 'are this shot\'s'} visual spine, IN THAT ORDER: the shot opens on image ${kfIndices[0]}${kfIndices.length > 1 ? ` and lands on image ${kfIndices[kfIndices.length - 1]}` : ''}. YOUR PROMPT MUST SAY SO ITSELF, in the spec's own keyframe grammar — nothing adds those sentences for you.`
   : 'No keyframes are set — ground the action against the reference images and the text alone.');
 
 // DIRECT — apply ONE director's note to the card's prompt: the note shapes how the
@@ -440,7 +451,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   return out;
 };
 
-export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), camera = null, job = '', config } = {}, ctx) => {
+export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), camera = null, job = '', style = '', cinematography = '', audio = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
   // ---- STEP 1 · DERIVE (keyframes only — deliberately blind to text and refs, so the
@@ -467,7 +478,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)') + retry,
-      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), formatLine: skillLineOf(modelKey) || formatLineOf(modelKey) }),
+      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), lookLine: lookLineOf({ style, cinematography, audio }), formatLine: skillLineOf(modelKey) || formatLineOf(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -481,7 +492,19 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   };
   // The director's own text is the dialogue source — keyframes cannot speak, so a line
   // in the text must survive into the action even when the pictures rule the events.
-  const out = await withDialogueGate(material, 'action', run);
+  // THE NUMBERING GATE. Nothing renumbers the prompt after this, so a citation outside
+  // 1..refCount would attach the WRONG picture at the wire. Run → check → retry once
+  // naming the offenders → report. A template that asks is not a guarantee.
+  const cited = (t) => [...String(t || '').matchAll(/(?:@\s*Image\s*|\[\s*Image\s+)(\d+)/gi)].map((m) => Number(m[1]));
+  const strays = (t) => [...new Set(cited(t).filter((n) => n < 1 || n > references.length))];
+  const gated = async (retry) => {
+    const first = await withDialogueGate(material, 'action', (r) => run([retry, r].filter(Boolean).join('\n')));
+    const bad = strays(first.action);
+    if (!bad.length || !references.length) return { ...first, strayRefs: bad };
+    const second = await run(`RETRY — your last prompt cited image ${bad.join(', image ')}, which ${bad.length === 1 ? 'does' : 'do'} not exist. ONLY images 1–${references.length} are attached. Rewrite it citing nothing outside that range.`);
+    return { ...second, strayRefs: strays(second.action) };
+  };
+  const out = await gated('');
   if (!out.action) throw new Error('Compose came back empty — try again.');
   return { ...out, derived };
 };

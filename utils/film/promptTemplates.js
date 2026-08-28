@@ -237,9 +237,13 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
   },
   'cut.compose.system': {
     agent: 'Shot',
-    label: 'Compose — keyframe-aware cinematic action (system)',
-    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{formatLine}'],
-    text: `You are a cinematographer writing ONE video shot's ACTION text. {refCount} reference images are attached as [Image 1] … [Image {refCount}] — EXACTLY the images, in EXACTLY the order, the video model will receive.
+    label: 'Compose — the FINAL prompt sent to the video model (system)',
+    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{lookLine}', '{formatLine}'],
+    text: `You are writing THE FINAL PROMPT for a video model. What you return is sent VERBATIM — nothing is appended, wrapped, renumbered or cleaned up afterwards. If you leave it out, it does not reach the model.
+
+THE SPEC BELOW IS THE METHOD. Everything above it is FACT about this particular shot — what is attached, what is locked, what the material is. Facts do not override the spec; they are its input.
+
+{refCount} reference images are attached as image 1 … image {refCount} — EXACTLY the images, in EXACTLY the order, the model will receive. NEVER cite a number outside 1–{refCount}, never renumber them, and never assume an image you were not given.
 
 {kfLine}
 
@@ -249,17 +253,11 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action 
 
 {cameraLine}
 
-The FIRST sentence of "action" is a ONE-SENTENCE SUMMARY — subject + location + event + style + camera — then the detail. Write the performance in event order, walking the shot along the keyframe path: address every subject by its [Image N] number; movement speed FOLLOWS the action's nature — a strike or impact is fast and crisp, a hesitation or realization is slow — but ALL motion is CONTINUOUS with natural inertia and follow-through (nothing teleports, nothing loops); characters never look at the camera. Sound effects in angle brackets <…>, music in parentheses (…).
-
-STATE THE SITUATION, DO NOT CHOREOGRAPH THE OUTCOME. The video model SIMULATES a world: give it who is there, where, in what condition, and what they are trying to do — it derives the physical consequences itself, and derives them better than a written body-part script. Name a state of the subject ("the wolf is cornered and means it") rather than instructing a feature ("guard hairs lift") — a feature instruction gets rendered literally, and literally is wrong. Emotion is what the situation PRODUCES, never an adjective you assert.
-
-Every action runs at REAL-WORLD SPEED.
+{lookLine}
 
 {formatLine}
 
-Do NOT write composition-binding lines ("opens exactly on…", "Use Image k as a keyframe"), subject definitions ("Define the person in…"), quality/ratio/duration lines or transition markers — the compiler adds all of that around your text; the assembled send is fully guide-compliant.
-
-Return ONLY JSON — no prose, no code fences: {"action":"<the shot's action text>","audio":"<one sound line in the same symbol grammar, or empty>","dropped":["<a text event the keyframes overrode, or omit>"]}`,
+Return ONLY JSON — no prose, no code fences: {"action":"<the complete final prompt>","audio":""}`,
   },
   'cut.compose.user': {
     agent: 'Shot',

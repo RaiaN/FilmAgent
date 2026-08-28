@@ -32,6 +32,19 @@ export const abbrevUrl = (u) => {
 
 const oneLine = (s, n = 280) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
 
+// WHICH SKILL RODE. The system prompt carries a bound skill inside a <<<SPEC … SPEC>>>
+// fence; read its frontmatter name and weight so the run log SHOWS the vendor spec was
+// sent, instead of the caller having to take it on faith. No fence → no skill.
+const skillOf = (sys) => {
+  const str = String(sys || '');
+  const i = str.indexOf('<<<SPEC');
+  if (i < 0) return '';
+  const j = str.indexOf('SPEC>>>', i);
+  const body = str.slice(i + 7, j < 0 ? str.length : j);
+  const m = /^name:\s*(.+)$/m.exec(body);
+  return `${m ? m[1].trim() : 'skill'} · ${Math.round(body.length / 4).toLocaleString()} tok`;
+};
+
 export const createTrace = () => {
   const entries = [];
   const listeners = new Set();
@@ -113,7 +126,7 @@ export const createTrace = () => {
     };
     return {
       ...client,
-      reason: (args = {}) => timed('reason', { prompt: oneLine(args.prompt), system: oneLine(args.systemPrompt, 90), refs: refsWithRoles(args.images), model: args.modelId }, () => client.reason(args)),
+      reason: (args = {}) => timed('reason', { prompt: oneLine(args.prompt), system: oneLine(args.systemPrompt, 90), skill: skillOf(args.systemPrompt), refs: refsWithRoles(args.images), model: args.modelId }, () => client.reason(args)),
       generateImage: (args = {}) => timed('generateImage', { prompt: oneLine(args.prompt), refs: refsWithRoles(args.referenceImages), model: args.model, size: args.size }, () => client.generateImage(args)),
       startVideo: (args = {}) => timed('startVideo', { prompt: oneLine((args.content || []).map((c) => c && c.text).filter(Boolean).join(' ')), model: args.model, duration: args.duration, resolution: args.resolution }, () => client.startVideo(args)),
       pollVideo: (args = {}) => timed('pollVideo', { task: args.taskId }, () => client.pollVideo(args)),
@@ -225,6 +238,7 @@ export const createTrace = () => {
       if (e.note) out.push(`${pad}    ${e.note}`);
       if (e.plan) out.push(`${pad}    plan: ${e.plan}`);
       if (e.prompt) out.push(`${pad}    prompt: ${e.prompt}`);
+      if (e.skill) out.push(`${pad}    skill:  ${e.skill}`);
       if (e.refs && e.refs.length) out.push(`${pad}    refs:   ${e.refs.join(', ')}`);
       if (e.assignments) out.push(`${pad}    → ${e.assignments}`);
       if (e.result) out.push(`${pad}    → ${e.result}`);

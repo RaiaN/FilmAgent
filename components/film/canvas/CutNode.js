@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Modal } from '@arco-design/web-react';
-import { IconLoading, IconExpand, IconEdit, IconEye, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
+import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover } from '@arco-design/web-react';
+import { IconLoading, IconExpand, IconEdit, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
@@ -15,7 +15,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onCompilePreview: null, onOpenRefDrawer: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onSplitCut: null, onComposeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onOpenRefDrawer: null,
 });
 
 // One keyframe slot tile: shows its picked still, or a dashed ＋ tile. Clicking opens
@@ -93,7 +93,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onCompilePreview, onOpenRefDrawer } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onAttachAsset, onSplitCut, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onOpenRefDrawer } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -149,11 +149,6 @@ const CutNodeInner = ({ id, data, selected }) => {
   const kfIdxs = kfs.map(kfIndex);
   const anyKfBroken = kfs.length > 0 && kfIdxs.some((i) => !i);
   const startKfIdx = kfIdxs[0] || 0;
-  // Compiled-prompt preview (full-prompt-preview rule): the 👁 in the KEYFRAMES header
-  // shows EXACTLY what 🎬 would send right now — anchors, subjects, constraint tail.
-  const [compiledOpen, setCompiledOpen] = useState(false);
-  const [compiledText, setCompiledText] = useState('');
-  const openCompiled = (e) => { e.stopPropagation(); setCompiledText(onCompilePreview ? onCompilePreview(id) : ''); setCompiledOpen(true); };
   const patch = (p) => onPatchCut && onPatchCut(id, p);
   const hasLook = Object.values(data.cine || {}).some((v) => String(v || '').trim())
     || (data.cinePreset === 'Custom' && !!String(data.cinematography || '').trim());
@@ -394,8 +389,6 @@ const CutNodeInner = ({ id, data, selected }) => {
                   style={{ color: '#3491fa', fontSize: 9, cursor: 'pointer' }}
                 >⛓ chain all refs</Text>
               )}
-              {startKfIdx > 0 && <Text style={{ color: '#3491fa', fontSize: 9 }}>shoots keyframe-pinned</Text>}
-              <IconEye className="nodrag" onClick={openCompiled} title="Preview the EXACT compiled prompt 🎬 will send (no spend)" style={{ fontSize: 12, color: '#9fb4d0', cursor: 'pointer' }} />
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -587,15 +580,6 @@ const CutNodeInner = ({ id, data, selected }) => {
           onClose={() => setEditorOpen(false)}
         />
       )}
-      <Modal
-        visible={compiledOpen}
-        onCancel={() => setCompiledOpen(false)}
-        footer={null}
-        title="Compiled Seedance prompt — exactly what 🎬 sends"
-        style={{ width: 640 }}
-      >
-        <pre className="nodrag nowheel" style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: '17px', maxHeight: 420, overflowY: 'auto', background: '#161b22', color: '#cdd3dc', padding: 12, borderRadius: 6, margin: 0 }}>{compiledText || '(nothing to compile yet — write a prompt or set anchors)'}</pre>
-      </Modal>
     </div>
   );
 };

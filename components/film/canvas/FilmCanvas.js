@@ -61,7 +61,7 @@ import { createBrowserClient } from '../../../utils/film/core/client';
 import { createTrace } from '../../../utils/film/core/trace';
 import { emptyTimeline, emptyBible } from '../../../utils/film/projectShape';
 import { bibleEntry, timelineEvent, orderedEvents, renumber, mirrorSessionEvents } from '../../../utils/film/timelineModel';
-import { BIBLE_ROLES, SHORT_FILM_RECIPE, composeFilmShotPrompt, composePinnedShotPrompt, shotReferences, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
+import { BIBLE_ROLES, SHORT_FILM_RECIPE, shotReferences, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
 import {
   createAssetNode,
   originFromSelection,
@@ -2565,78 +2565,15 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const shotFromCard = useCallback((c, { keepTake = true, audioRefUrls = [], videoRefUrls = [], videoRefAssetIds = [] } = {}) => {
     const refEntryIds = [...(c.data.refIds || []), ...(c.data.assetRefs || []).map(extRefId)];
     const baseRefs = shotReferences(c.data, bibleRef.current);
-    // The DP look layer (card's ＋ cinematography section) joins the Camera preset's
-    // line into ONE LOOK — labeled, chip order, empty fields silently absent.
-    const cineLook = [['lens', 'lens'], ['light', 'light'], ['grade', 'grade'], ['move', 'camera']]
-      .map(([k, label]) => { const v = String((c.data.cine || {})[k] || '').trim(); return v ? `${label}: ${v}` : ''; })
-      .filter(Boolean).join(' · ');
-    // ---- KEYFRAME-PINNED PATH -----------------------------------------------------
-    // A KEYFRAME is a POINTER to one of the card's ENABLED reference chips — the image
-    // rides ONCE, at its chip position, and the binding line cites that [Image i]
-    // (a ref never rides twice). A pointer whose chip was removed
-    // or toggled off resolves to nothing — the card falls back to the classic path
-    // and the face warns.
-    const kfPairs = cardKfPairs(c.data, baseRefs);
-    const kfIndices = kfPairs.map((x) => x.idx);
-    const startIdx = kfIndices[0] || 0;
-    if (startIdx) {
-      const refs = baseRefs;
-      const motion = composePinnedShotPrompt({
-        // The keyframe chips carry composition, not identity — exclude them from the
-        // subject-definition header (defining a still as a person reads as nonsense).
-        subjects: refs.map((r, i3) => ({ index: i3 + 1, name: r.name, role: r.role }))
-          .filter((sj) => sj.name && !kfIndices.includes(sj.index)),
-        shots: [{
-          kfIndices,
-          kfDescs: kfPairs.map((x) => x.ptr?.desc || ''), // per-keyframe states — the 2.5 dialect names each mid keyframe's content
-          startDesc: kfPairs[0]?.ptr?.desc || '',
-          endDesc: kfIndices.length > 1 ? (kfPairs[kfPairs.length - 1]?.ptr?.desc || '') : '',
-          action: c.data.promptOverride || '',
-          move: (SHOT_TEMPLATE_BY_ID[c.data.shotTemplate] || {}).move || '',
-          audio: c.data.audio || '',
-        }],
-        cinematography: [String(c.data.cinematography || '').trim(), cineLook].filter(Boolean).join(' · '),
-        audioRefCount: audioRefUrls.length,
-        videoRefCount: videoRefUrls.length,
-        audioRoles: (c.data.audioRefs || []).map((r) => r.role || ''),
-        videoRoles: (c.data.videoRefs || []).map((r) => r.role || ''),
-        // The official template's goal sentence + unused-asset accounting need the
-        // card's own title and the FULL attach count (not just the named subjects).
-        goal: String(c.data.beat || '').trim(),
-        imageCount: refs.length,
-        modelKey: videoModelKeyOf(c.data.videoModel),
-      });
-      return {
-        beat: c.data.beat,
-        direct: true,
-        motion,
-        camera: 'auto',
-        durationSec: clampShotSeconds(videoModelKeyOf(c.data.videoModel), c.data.durationSec),
-        refEntryIds,
-        refUrls: refs.map((r) => r.url),
-        refAssetIds: refs.map((r) => r.assetId || null),
-        firstFrameUrl: null,
-        resolution: clampResolution(videoModelKeyOf(c.data.videoModel), c.data.resolution),
-        ratio: c.data.ratio || '21:9', // cinematic scope by default
-        generateAudio: c.data.generateAudio,
-        seed: c.data.seed,
-        modelKey: videoModelKeyOf(c.data.videoModel),
-        ...(audioRefUrls.length ? { audioRefUrls } : {}),
-        ...(videoRefUrls.length ? { videoRefUrls, videoRefAssetIds } : {}),
-        ...(keepTake && c.data.shotUrl ? { shotUrl: c.data.shotUrl } : {}),
-      };
-    }
+    // THE CARD'S PROMPT IS THE PROMPT. Compose writes the whole thing — blocks, image
+    // roles, keyframe grammar, look and sound — and it rides VERBATIM. Nothing is
+    // appended, wrapped or renumbered here: what you read on the card is what the model
+    // is asked for, which is the only version of this that anyone can debug.
     const references = baseRefs;
-    const motion = composeFilmShotPrompt({
-      prompt: c.data.promptOverride || '',
-      shotTemplate: c.data.shotTemplate || '',
-      cinematography: [String(c.data.cinematography || '').trim(), cineLook].filter(Boolean).join(' · '),
-      audio: c.data.audio || '',
-    });
     return {
       beat: c.data.beat,
       direct: true,
-      motion,
+      motion: String(c.data.promptOverride || '').trim(),
       camera: 'auto',
       durationSec: clampShotSeconds(videoModelKeyOf(c.data.videoModel), c.data.durationSec),
       refEntryIds,
@@ -2645,17 +2582,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // shoot sends person/place plates as image_asset_id (trusted) instead of a screened url.
       refAssetIds: references.map((r) => r.assetId || null),
       firstFrameUrl: null,
-      // Standard Seedance 2.0 params edited on the card (fall back to engine defaults).
-      // Clamp resolution to what the chosen endpoint allows (Mini caps at 720p).
       resolution: clampResolution(videoModelKeyOf(c.data.videoModel), c.data.resolution),
       ratio: c.data.ratio || '21:9', // cinematic scope by default
       generateAudio: c.data.generateAudio,
-      seed: c.data.seed, // the card's own seed (if set) — the global sequence seed is gone
-      // Which Seedance endpoint to shoot on — the card's pick (default vs Mini).
+      seed: c.data.seed,
       modelKey: videoModelKeyOf(c.data.videoModel),
-      // The card's attached media (pre-resolved to data:/http, chip order) — Seedance's
-      // reference AUDIO tracks and reference VIDEOS (≤15s each): music + voices the take
-      // realizes, camera/motion it follows, instead of inventing its own.
       ...(audioRefUrls.length ? { audioRefUrls } : {}),
       ...(videoRefUrls.length ? { videoRefUrls, videoRefAssetIds } : {}),
       ...(keepTake && c.data.shotUrl ? { shotUrl: c.data.shotUrl } : {}),
@@ -3033,9 +2964,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
     if (!text && !baseRefs.length) { Message.warning('Compose needs something to work from — write the prompt, or attach references / keyframes.'); return; }
     const roster = [
-      ...baseRefs.map((r, i) => `[Image ${i + 1}] = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`),
-      ...(card.data.audioRefs || []).map((a, i) => `Audio ${i + 1} = ${a.label || 'audio clip'}${a.role ? ` (${a.role})` : ''}`),
-      ...(card.data.videoRefs || []).map((v, i) => `Video ${i + 1} = ${v.label || 'video'}${v.role ? ` (${v.role})` : ''}`),
+      ...baseRefs.map((r, i) => `image ${i + 1} = ${r.name || r.desc || 'reference'}${r.role ? ` (${r.role})` : ''}${kfIndices.includes(i + 1) ? ` — KEYFRAME ${kfIndices.indexOf(i + 1) + 1}` : ''}`),
+      ...(card.data.audioRefs || []).map((a, i) => `audio ${i + 1} = ${a.label || 'audio clip'}${a.role ? ` (${a.role})` : ''}`),
+      ...(card.data.videoRefs || []).map((v, i) => `video ${i + 1} = ${v.label || 'video'}${v.role ? ` (${v.role})` : ''}`),
     ];
     const modelKey = videoModelKeyOf(card.data?.videoModel);
     splitFlightRef.current.add(`dev-${id}`);
@@ -3046,10 +2977,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
     try {
       const tpl = SHOT_TEMPLATE_BY_ID[card.data?.shotTemplate];
+      // The card's DP layer (＋ cinematography) + its look/sound now reach the MODEL
+      // through Compose — nothing appends them at the wire any more.
+      const cineLook = [['lens', 'lens'], ['light', 'light'], ['grade', 'grade'], ['move', 'camera']]
+        .map(([k, label]) => { const v = String((card.data?.cine || {})[k] || '').trim(); return v ? `${label}: ${v}` : ''; })
+        .filter(Boolean).join(' · ');
       const out = await composeShotAction({
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey,
         camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
         job: card.data?.job || '',
+        style: card.data?.style || '',
+        cinematography: [String(card.data?.cinematography || '').trim(), cineLook].filter(Boolean).join(' · '),
+        audio: card.data?.audio || '',
       }, ctx);
       traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot compose · ${out.action.length}-char action${out.derived ? ` (derived ${out.derived.length} chars from keyframes)` : ''}` });
       onPatchCut(id, {
@@ -3290,10 +3229,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
   // The card's compiled-prompt preview (full-prompt-preview rule): EXACTLY what the
   // 🎬 shoot would send, anchors and all — pure read, no side effects, no spend.
-  const previewCutPrompt = useCallback((cardId) => {
-    const c = nodesRef.current.find((n) => n.id === cardId && n.type === 'cut');
-    try { return c ? shotFromCard(c).motion : ''; } catch { return ''; }
-  }, [shotFromCard]);
 
   const cutCtx = useMemo(() => ({
     onPatchCut,
@@ -3307,9 +3242,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onOpenTakes: openTakesForCard,
     boardImages,
     prevTakeFrames,
-    onCompilePreview: previewCutPrompt,
     onOpenRefDrawer: openRefDrawer,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, previewCutPrompt, openRefDrawer]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
 
   const filmMode = true; // Short-Film-only suite.
 

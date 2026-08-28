@@ -93,8 +93,7 @@ export const shotReferences = (data = {}, bibleEntries = []) => {
   return refs.slice(0, videoTraits(videoModelKeyOf(data.videoModel)).refCap);
 };
 
-// ---- Seedance doc-grammar compiler (composition-pinned shots), TWO dialects -------
-// THE COMPILER IS GONE. Compose writes the FINAL prompt — image roles, keyframe
+// THE PROMPT COMPILER IS GONE. Compose writes the FINAL prompt — image roles, keyframe
 // grammar, look and sound included — and it rides verbatim to the model. One text, one
 // place to read it, one place to fix it. Only the IMAGE side still composes below.
 

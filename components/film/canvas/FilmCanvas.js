@@ -2407,8 +2407,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       ));
       // body is numbered 1..k in ATTACH order (resolveShotRefs) → map to real badges
       // via a two-pass sentinel swap (loose refs sit directly after the bible plates —
-      // the still no longer occupies a ref slot, it rides as the START ANCHOR, which
-      // the pinned compiler appends AFTER every plate).
+      // the still rides as the card's keyframe chip, appended after every plate).
       const renumber = (t) => {
         let m = t;
         badgeOfAttach.forEach((b, idx) => { m = m.split(`[Image ${idx + 1}]`).join(`@@B${idx + 1}@@`); });
@@ -2950,9 +2949,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // never silently ignored. Explicit tap only; nothing runs under the hood.
   // COMPOSE — the card's ONE prompt-writing button, keyframe-aware: a visible call
   // that reads the card's keyframes (ordered),
-  // its enabled reference chips and the existing text, and writes the cinematic ACTION
-  // for the SELECTED video model per the best-practice guide. The text's wording +
-  // dialogue ride verbatim as the material; the compiler keeps owning binding lines.
+  // its enabled reference chips and the existing text, and writes THE FINAL PROMPT for
+  // the SELECTED video model under that model's bound skill. The text's wording +
+  // dialogue ride as the material; what comes back ships to the model verbatim.
   const composeCutPrompt = useCallback(async (id) => {
     if (splitFlightRef.current.has(`dev-${id}`)) return;
     const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
@@ -3232,8 +3231,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
     .slice(0, 80), [nodes]);
 
-  // The card's compiled-prompt preview (full-prompt-preview rule): EXACTLY what the
-  // 🎬 shoot would send, anchors and all — pure read, no side effects, no spend.
+
 
   const cutCtx = useMemo(() => ({
     onPatchCut,

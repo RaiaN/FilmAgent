@@ -186,7 +186,7 @@ export const clampSizeForModel = (modelKey, size) => {
 };
 
 // PER-SLOT CAPABILITY TABLE — the ONE place a video slot's behavior is declared.
-// Everything downstream (compiler grammar, duration/resolution caps, prompt
+// Everything downstream (keyframe support, duration/resolution caps, prompt
 // density) keys off these TRAITS, never off slot-name comparisons — a new slot
 // is one entry here, zero call-site edits.
 const VIDEO_MODEL_TRAITS = {

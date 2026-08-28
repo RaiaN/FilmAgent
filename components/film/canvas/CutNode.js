@@ -342,7 +342,17 @@ const CutNodeInner = ({ id, data, selected }) => {
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
             </span>
           </div>
+          {(data.developing || data.composePending) ? (
+            <div className="nodrag" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 10px', background: '#0d1117', border: '1px solid #21262d', borderRadius: 4, minHeight: 72 }}>
+              <IconLoading style={{ fontSize: 16, color: '#f7ba1e' }} />
+              <div style={{ minWidth: 0 }}>
+                <Text style={{ color: '#f7ba1e', fontSize: 11, fontWeight: 700, display: 'block' }}>Writing the prompt…</Text>
+                <Text style={{ color: '#6e7b8b', fontSize: 10 }} ellipsis>under the skill bound to {VIDEO_MODEL_OPTIONS.find((o) => o.key === videoModel)?.label || videoModel} — the rows are the material</Text>
+              </div>
+            </div>
+          ) : (
           <DraftText textarea className="nodrag nowheel" value={data.promptOverride} onCommit={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt — Expand to @-mention references" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
+          )}
         </div>
 
         <div>

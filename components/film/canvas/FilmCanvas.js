@@ -2997,9 +2997,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         developSource: card.data?.developSource || text, // the original words survive, stashed once
         composeDropped: out.dropped || [], // text events the keyframes overrode — reported, never silent
         missingDialogue: out.missingDialogue || [], // spoken lines the rewrite lost — reported, never silent
+        strayRefs: out.strayRefs || [], // image numbers cited that do not exist — reported, never silent
         ...(out.audio && !String(card.data?.audio || '').trim() ? { audio: out.audio } : {}),
       });
-      if (out.missingDialogue?.length) Message.warning(`Composed — ⚠ dropped dialogue: ${out.missingDialogue.join(' · ')}. Re-run or restore the line by hand.`);
+      if (out.strayRefs?.length) Message.warning(`Composed — ⚠ the prompt cites image ${out.strayRefs.join(', image ')}, which ${out.strayRefs.length === 1 ? 'is' : 'are'} NOT attached. Fix the numbering by hand or re-run.`);
+      else if (out.missingDialogue?.length) Message.warning(`Composed — ⚠ dropped dialogue: ${out.missingDialogue.join(' · ')}. Re-run or restore the line by hand.`);
       else if (out.dropped?.length) Message.warning(`Composed from the keyframes — overrode from your text: ${out.dropped.join(' · ')} (stashed in developSource if you want it back).`);
       else Message.success(kfIndices.length
         ? `Composed FROM ${kfIndices.length} keyframe${kfIndices.length === 1 ? '' : 's'} — the action walks K1 → K${kfIndices.length}; dialogue carried verbatim.`
@@ -3171,7 +3173,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         }
       });
       if (poolChips.length + stillChips.length > refCap) overCap += 1;
-      onPatchCut(`${idPrefix}-${ci}`, { assetRefs: [...poolChips, ...stillChips], keyframes: kfPtrs });
+      onPatchCut(`${idPrefix}-${ci}`, { assetRefs: [...poolChips, ...stillChips], keyframes: kfPtrs, composePending: true });
     });
     // THE PROMPT IS WRITTEN, NOT ASSEMBLED. The rows' text is the MATERIAL; Compose runs
     // it through the skill bound to this card's model (the vendor's own spec, verbatim)
@@ -3195,7 +3197,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (overCap) Message.warning(`${overCap} card${overCap === 1 ? '' : 's'} exceed${overCap === 1 ? 's' : ''} the model's ${refCap}-reference cap — later chips are trimmed at shoot time; slim the REFS pool or turn off the stills you do not need.`);
     Message.success(`Filmed the strip into ONE SHOT card — ${rows.length} shot${rows.length === 1 ? '' : 's'}, duration left to the model${textOnly.length ? ` — shot${textOnly.length === 1 ? '' : 's'} ${textOnly.join(', ')} ride${textOnly.length === 1 ? 's' : ''} text-only (no still, the model stages ${textOnly.length === 1 ? 'it' : 'them'} from the words)` : ''} — writing the prompt with the model's skill…`);
     for (const id of cardIds) {
-      if (await landed(id)) await composeCutPrompt(id);
+      const ok = await landed(id);
+      onPatchCut(id, { composePending: false });
+      if (ok) await composeCutPrompt(id);
+      else Message.error('The card did not settle in time — press Compose on it to write its prompt.');
     }
   }, [freeOrigin, onPatchCut, applyEdges, composeCutPrompt]);
 

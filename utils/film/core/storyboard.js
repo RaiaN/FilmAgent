@@ -410,9 +410,16 @@ const cameraLineOf = (camera) => (camera && (camera.framing || camera.move)
   ? `CAMERA (director-locked, non-negotiable): ${[camera.framing, camera.angle, camera.move].filter(Boolean).join(' · ')}. Stage every event FOR this exact camera, carry it in the action text (summary sentence included), and never contradict it.`
   : 'No camera preset is locked — choose the single camera that serves the action best and commit to it in the text.');
 
-const kfLineOf = (kfIndices) => (kfIndices.length
-  ? `KEYFRAMES — image ${kfIndices.join(', image ')} ${kfIndices.length === 1 ? 'is this shot\'s' : 'are this shot\'s'} visual spine, IN THAT ORDER: the shot opens on image ${kfIndices[0]}${kfIndices.length > 1 ? ` and lands on image ${kfIndices[kfIndices.length - 1]}` : ''}. YOUR PROMPT MUST SAY SO ITSELF, in the spec's own keyframe grammar — nothing adds those sentences for you.`
-  : 'No keyframes are set — ground the action against the reference images and the text alone.');
+// KEYFRAMES ARE A MODEL CAPABILITY, not a card feature. Seedance 2.0 has no first/last
+// frame control at all, so its pinned stills are plain references and the prompt must
+// NOT claim the shot opens or lands on them — a promise the endpoint cannot keep.
+const kfLineOf = (kfIndices, modelKey) => {
+  if (!kfIndices.length) return 'No keyframes are set — ground the action against the reference images and the text alone.';
+  if (!videoTraits(modelKey).keyframes) {
+    return `This model has NO keyframe control: image ${kfIndices.join(', image ')} ${kfIndices.length === 1 ? 'is a plain reference' : 'are plain references'} like every other attached image. Do NOT write that the shot opens on, passes through or lands on any of them — it cannot. Use them for what they SHOW.`;
+  }
+  return `KEYFRAMES — image ${kfIndices.join(', image ')} ${kfIndices.length === 1 ? 'is this shot\'s' : 'are this shot\'s'} visual spine, IN THAT ORDER: the shot opens on image ${kfIndices[0]}${kfIndices.length > 1 ? ` and lands on image ${kfIndices[kfIndices.length - 1]}` : ''}. YOUR PROMPT MUST SAY SO ITSELF, in the spec's own keyframe grammar — nothing adds those sentences for you.`;
+};
 
 // DIRECT — apply ONE director's note to the card's prompt: the note shapes how the
 // shot FEELS and READS (tone, pacing, emphasis, atmosphere, wording); events, order,
@@ -429,7 +436,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
         .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)) + retry,
-      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), skill: await requireSkillLine(modelKey) }),
+      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices, modelKey), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), skill: await requireSkillLine(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -461,7 +468,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
     if (!derived) throw new Error('Deriving from the keyframes came back empty — try again.');
   }
   // ---- STEP 2 · WRITE (all chips + roster + derived events + optional text) ----
-  const kfLine = kfLineOf(kfIndices);
+  const kfLine = kfLineOf(kfIndices, modelKey);
   const authorityLine = kfIndices.length
     ? `THE DERIVED EVENTS below were read from the shot's APPROVED KEYFRAMES — they are the authority on WHAT HAPPENS:\n<<<\n${derived}\n>>>\nRewrite them into the final action: replace each visual handle with its subject's [Image N] number from the roster, keep the event order and pacing. From the director's text carry ONLY what pictures cannot show — every dialogue line word-for-word in curly braces with its speaker named (placed at the right moments), proper names, and intent that does not contradict the events. Any text event the derived events contradict is dropped — list each in "dropped" (one short line), never silently.`
     : `The director's text is the MATERIAL and the authority on WHAT HAPPENS: carry its wording, its events and every dialogue line word-for-word in curly braces with the speaker named — you re-structure and ground it against the images, you never re-invent it. "dropped" stays empty.`;

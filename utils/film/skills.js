@@ -64,19 +64,20 @@ export const allSkills = () => {
 
 export const skillById = (id) => allSkills().find((s) => s.id === id) || null;
 
-// THE BINDING. A model slot's skill is the first skill that names it. No match → null,
-// and the verb runs exactly as it did before skills existed. A skill is never guessed.
-export const skillFor = (modelKey) => {
-  if (!modelKey) return null;
-  return allSkills().find((s) => (s.models || []).includes(modelKey)) || null;
-};
+// THE BINDING. EVERY skill that names this slot rides, in library order — a model can
+// have both a methodology and a vendor prompt guide, and dropping one because another
+// matched first would silently lose half the guidance. No match → empty.
+export const skillsFor = (modelKey) => (modelKey
+  ? allSkills().filter((s) => (s.models || []).includes(modelKey) && String(s.text || '').trim())
+  : []);
 
 // The line a verb sends. The document rides whole, fenced so the model can tell the spec
 // apart from the instruction wrapped around it.
 export const skillLineOf = (modelKey) => {
-  const s = skillFor(modelKey);
-  if (!s || !String(s.text || '').trim()) return '';
-  return `THE OFFICIAL PROMPT SPEC for this video model follows, verbatim. It OUTRANKS any habit or general practice: where it and this instruction disagree, the spec wins. Follow its templates, its notation and its final checklist.\n\n<<<SPEC\n${String(s.text).trim()}\nSPEC>>>`;
+  const found = skillsFor(modelKey);
+  if (!found.length) return '';
+  const body = found.map((s) => `<<<SPEC name: ${s.name}\n${String(s.text).trim()}\nSPEC>>>`).join('\n\n');
+  return `THE OFFICIAL PROMPT ${found.length === 1 ? 'SPEC' : 'SPECS'} for this model follow${found.length === 1 ? 's' : ''}, verbatim. ${found.length === 1 ? 'It OUTRANKS' : 'They OUTRANK'} any habit or general practice: where ${found.length === 1 ? 'it and this instruction disagree' : 'they and this instruction disagree'}, the spec wins. Follow ${found.length === 1 ? 'its' : 'their'} formulas, notation and checklists.\n\n${body}`;
 };
 
 // THE SKILL IS MANDATORY. A verb that would otherwise fall back to house doctrine

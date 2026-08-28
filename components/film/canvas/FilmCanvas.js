@@ -3112,7 +3112,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (noText.length) { Message.warning(`Shot${noText.length === 1 ? '' : 's'} ${noText.join(', ')} ${noText.length === 1 ? 'has' : 'have'} no text — author or write the row${noText.length === 1 ? '' : 's'} first.`); return; }
     const modelKey = defaultVideoModelKey();
     const refCap = videoTraits(modelKey).refCap;
-    const stamped = videoTraits(modelKey).keyframeGrammar === 'keyframes'; // interval grammar rides with the keyframe-chain dialect
+    const stamped = videoTraits(modelKey).keyframes; // interval grammar rides with the keyframe-chain dialect
     const chunks = [rows]; // the strip is ONE card — the model paces it, nothing is packed by a clock
     // The whole pool, in pool order — the [Image N] numbering the rows' text uses.
     const pool = (chat?.data?.refs || chat?.data?.pool || []).map(poolRef).filter((p) => p.url);

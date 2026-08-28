@@ -194,7 +194,7 @@ const VIDEO_MODEL_TRAITS = {
     maxSeconds: 15,
     res: ['480p', '720p', '1080p', '4K'],
     resDefault: '1080p',
-    keyframeGrammar: 'composition',   // opens-exactly-on / passes / ends-exactly-on
+    keyframes: false,                 // 2.0 has NO first/last-frame control — refs are references, full stop
     overallBlock: false,              // no closing Overall-requirements section
     refCap: 30,                       // reference images per request
   },
@@ -202,7 +202,7 @@ const VIDEO_MODEL_TRAITS = {
     maxSeconds: 15,
     res: ['480p', '720p', '1080p', '4K'],
     resDefault: '1080p',
-    keyframeGrammar: 'composition',
+    keyframes: false,
     overallBlock: false,
     refCap: 30,
   },
@@ -210,7 +210,7 @@ const VIDEO_MODEL_TRAITS = {
     maxSeconds: 15,
     res: ['480p', '720p'],
     resDefault: '720p',
-    keyframeGrammar: 'composition',
+    keyframes: false,
     overallBlock: false,
     refCap: 30,
   },
@@ -218,7 +218,7 @@ const VIDEO_MODEL_TRAITS = {
     maxSeconds: 30,
     res: ['480p', '720p', '1080p'],
     resDefault: '720p',
-    keyframeGrammar: 'keyframes',     // "Use Image a, Image b … in order as keyframes."
+    keyframes: true,                  // ordered first/last-frame anchors are real here
     overallBlock: true,               // closes with the Overall-requirements section
     refCap: 30,
   },

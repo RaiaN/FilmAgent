@@ -122,6 +122,20 @@ const StoryFields = ({ s, up }) => (
   </div>
 );
 
+// The EDIT draft: only the card's NAME. Which video it edits is picked ON the card —
+// a master is never guessed from selection, and the panel has nothing else to ask.
+const EditFields = ({ s, up }) => (
+  <>
+    <div>
+      <Text style={FIELD_LABEL}>Card name (optional)</Text>
+      <Input size="small" value={s.beat} onChange={(v) => up({ beat: v })} placeholder="what this edit does" />
+    </div>
+    <Text type="secondary" style={{ fontSize: 11 }}>
+      The card lands empty and asks for its master — any take, or any video on the board.
+    </Text>
+  </>
+);
+
 const ShotFields = ({ s, up }) => (
   <>
     <div>
@@ -345,6 +359,7 @@ export const AGENT_FIELDS = {
   storyboard: StoryboardFields,
   cast: CastFields,
   previz: PrevizFields,
+  edit: EditFields,
   inspiration: InspirationFields,
   characterVariations: VariationsFields,
   locationVariations: VariationsFields,

@@ -24,6 +24,8 @@ import {
   IconVideoCamera, IconCamera,
 } from '@arco-design/web-react/icon';
 import AssetNode, { AssetNodeContext } from './AssetNode';
+import EditNode from './EditNode';
+import { composeShotAction, directShotAction, editShotAction } from '../../../utils/film/core/shot';
 import CutNode, { CutContext } from './CutNode';
 import GroupNode from './GroupNode';
 import StoryScriptNode, { StoryScriptContext } from './StoryScriptNode';
@@ -52,7 +54,7 @@ import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } 
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
 import { previzPlan, blockoutStill, previzTake, beautyTake } from '../../../utils/film/core/previz';
-import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, composeShotAction, directShotAction, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
+import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { pipelineStatus } from '../../../utils/film/pipeline';
@@ -81,7 +83,9 @@ import { buildDemoSteps } from '../../../utils/film/demoScript';
 
 const { Text } = Typography;
 
-const nodeTypes = { previz: PrevizNode, asset: AssetNode, group: GroupNode, cut: CutNode, story: StoryScriptNode, sbchat: StoryboardChatNode, sbstrip: StoryboardStripNode, agent: AgentNode, note: NoteNode, sequence: SequenceNode };
+const isShotCard = (n) => n && (n.type === 'cut' || n.type === 'edit');
+
+const nodeTypes = { previz: PrevizNode, asset: AssetNode, group: GroupNode, cut: CutNode, edit: EditNode, story: StoryScriptNode, sbchat: StoryboardChatNode, sbstrip: StoryboardStripNode, agent: AgentNode, note: NoteNode, sequence: SequenceNode };
 const edgeTypes = { continuity: ContinuityEdge };
 
 const CELL_W = 240;
@@ -152,6 +156,7 @@ const buildNoteNode = ({ text = '', label = 'Note', meta = {} } = {}) => ({
 // (not yet measured). Children (parentId) live inside groups — callers exclude them.
 const NODE_FALLBACK = {
   cut: { w: 500, h: CUT_ROW_H },
+  edit: { w: 500, h: CUT_ROW_H },
   group: { w: 280, h: 220 },
   agent: { w: 250, h: 150 },
   note: { w: 280, h: 180 },
@@ -812,11 +817,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const [shotBrowserOpen, setShotBrowserOpen] = useState(false);
   const openRefDrawer = useCallback((req) => { setTakeLibOpen(false); setShotBrowserOpen(false); setRefDrawer(req); }, []);
   const closeRefDrawer = useCallback(() => setRefDrawer(null), []);
-  const focusedCutId = useMemo(() => (selectedNodes.find((n) => n.type === 'cut') || {}).id || null, [selectedNodes]);
+  const focusedCutId = useMemo(() => (selectedNodes.find(isShotCard) || {}).id || null, [selectedNodes]);
   // Groups mirror the SHOT cards in cut order. A card's takes = its grid children plus
   // the docked Action take (deduped when both hold the same render).
   const takeGroups = useMemo(() => {
-    const cards = nodes.filter((n) => n.type === 'cut' || n.type === 'previz').sort((a, b) => (a.data?.cut ?? 0) - (b.data?.cut ?? 0));
+    const cards = nodes.filter((n) => isShotCard(n) || n.type === 'previz').sort((a, b) => (a.data?.cut ?? 0) - (b.data?.cut ?? 0));
     return cards.map((c) => {
       const gridId = `grid-${c.id}`;
       const takes = nodes.filter((n) => n.parentId === gridId && n.data?.kind === 'video');
@@ -845,7 +850,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // (absolute position — parented sequence cards included) and selects it.
   const shotIndex = useMemo(() => {
     const takesBy = new Map(takeGroups.map((g) => [g.cardId, g.takes.length]));
-    return nodes.filter((n) => n.type === 'cut')
+    return nodes.filter(isShotCard)
       .sort((a, b) => (a.data?.cut ?? 0) - (b.data?.cut ?? 0))
       .map((c) => ({
         id: c.id,
@@ -1369,7 +1374,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     applyEdges((es) => {
       const cont = es.filter((e) => e.type === 'continuity');
       const heals = [];
-      (deleted || []).filter((n) => n.type === 'cut').forEach((n) => {
+      (deleted || []).filter(isShotCard).forEach((n) => {
         const inc = cont.find((e) => e.target === n.id && !ids.has(e.source));
         const out = cont.find((e) => e.source === n.id && !ids.has(e.target));
         if (inc && out) heals.push({ id: `cont-${inc.source}-${out.target}`, source: inc.source, target: out.target, type: 'continuity' });
@@ -2076,7 +2081,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const cutAssetEntries = useCallback(() => {
     const seen = new Set();
     const out = [];
-    nodesRef.current.filter((n) => n.type === 'cut').forEach((c) => {
+    nodesRef.current.filter(isShotCard).forEach((c) => {
       (c.data?.assetRefs || []).forEach((a) => {
         const eid = extRefId(a);
         if (!a.url || seen.has(eid)) return;
@@ -2213,8 +2218,45 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     return { patch, assigned };
   }, []);
 
+  // PICK A MASTER. Every video the board holds is a candidate — SHOT takes, previz
+  // takes and uploaded clips alike (takes are hidden nodes, so the drawer is the only
+  // place they are all visible at once). Single-pick; the card stores what it needs to
+  // state the locked facts on its face.
+  const pickMasterFor = useCallback((cardId) => {
+    const vids = nodesRef.current
+      .filter((n) => n.data?.kind === 'video' && (n.data?.cacheUrl || n.data?.url))
+      .map((n) => ({
+        id: n.id,
+        url: n.data.cacheUrl || n.data.url,
+        label: n.data.label || n.data.beat || 'video',
+        kind: 'video',
+        duration: Number(n.data.duration) || null,
+        posterUrl: n.data.posterUrl || null,
+        ratio: n.data.ratio || null,
+      }));
+    if (!vids.length) { Message.warning('No video on the board yet — shoot a take, or add one from the Library.'); return; }
+    setRefDrawer({
+      type: 'pick',
+      title: 'Pick the master',
+      hint: 'The video this card edits. Everything the edit does not change is inherited from it — scene, camera, timing.',
+      items: vids,
+      onPick: (item) => onPatchCut(cardId, {
+        master: { nodeId: item.id, url: item.url, label: item.label, duration: item.duration, posterUrl: item.posterUrl, ratio: item.ratio },
+      }),
+    });
+  }, [onPatchCut]);
+
+  const detachCardRef = useCallback((cardId, ref) => {
+    const card = nodesRef.current.find((n) => n.id === cardId && isShotCard(n));
+    if (!card) return;
+    onPatchCut(cardId, {
+      assetRefs: (card.data.assetRefs || []).filter((a) => a.url !== ref.url),
+      refIds: (card.data.refIds || []).filter((r) => r !== ref.entryId),
+    });
+  }, [onPatchCut]);
+
   const attachRefToCut = useCallback((cutId, payload) => {
-    const card = nodesRef.current.find((n) => n.id === cutId && n.type === 'cut');
+    const card = nodesRef.current.find((n) => n.id === cutId && isShotCard(n));
     if (!card || !payload?.url) return;
     const srcNode = payload.nodeId ? nodesRef.current.find((n) => n.id === payload.nodeId) : null;
     // Blocking plates (and legacy previz frames on old boards) get the FULL plate
@@ -2276,7 +2318,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   useEffect(() => {
     if (demoOverlay) return; // the demo replay owns `hidden` while it plays
     setNodes((ns) => {
-      const cardIds = new Set(ns.filter((n) => n.type === 'cut' || n.type === 'previz').map((n) => n.id));
+      const cardIds = new Set(ns.filter((n) => isShotCard(n) || n.type === 'previz').map((n) => n.id));
       const cardOfSatellite = (n) => {
         if (String(n.id).startsWith('grid-') && cardIds.has(String(n.id).slice(5))) return String(n.id).slice(5);
         if (n.parentId && String(n.parentId).startsWith('grid-') && cardIds.has(String(n.parentId).slice(5))) return String(n.parentId).slice(5);
@@ -2302,7 +2344,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           if (!n.hidden) { changed = true; return { ...n, hidden: true }; }
           return n;
         }
-        if (n.type === 'cut' || n.type === 'previz') {
+        if (isShotCard(n) || n.type === 'previz') {
           const c = counts.get(n.id) || 0;
           if ((n.data?.takeCount || 0) !== c) { changed = true; return { ...n, data: { ...n.data, takeCount: c } }; }
         }
@@ -2564,6 +2606,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const shotFromCard = useCallback((c, { keepTake = true, audioRefUrls = [], videoRefUrls = [], videoRefAssetIds = [] } = {}) => {
     const refEntryIds = [...(c.data.refIds || []), ...(c.data.assetRefs || []).map(extRefId)];
     const baseRefs = shotReferences(c.data, bibleRef.current);
+    // AN EDIT rides its MASTER first among the reference videos, and sends neither ratio
+    // nor duration — the endpoint locks both to that master and rejects a request that
+    // carries them. Everything else is a shot like any other.
+    const master = c.type === 'edit' ? c.data.master : null;
     // THE CARD'S PROMPT IS THE PROMPT. Compose writes the whole thing — blocks, image
     // roles, keyframe grammar, look and sound — and it rides VERBATIM. Nothing is
     // appended, wrapped or renumbered here: what you read on the card is what the model
@@ -2574,7 +2620,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       direct: true,
       motion: String(c.data.promptOverride || '').trim(),
       camera: 'auto',
-      durationSec: clampShotSeconds(videoModelKeyOf(c.data.videoModel), c.data.durationSec),
+      durationSec: master ? AUTO_SECONDS : clampShotSeconds(videoModelKeyOf(c.data.videoModel), c.data.durationSec),
       refEntryIds,
       refUrls: references.map((r) => r.url),
       // Parallel to refUrls: a registered portrait-library id (or null) per ref, so the
@@ -2582,12 +2628,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       refAssetIds: references.map((r) => r.assetId || null),
       firstFrameUrl: null,
       resolution: clampResolution(videoModelKeyOf(c.data.videoModel), c.data.resolution),
-      ratio: c.data.ratio || '21:9', // cinematic scope by default
+      ratio: master ? null : (c.data.ratio || '21:9'), // an editing task inherits the master's
       generateAudio: c.data.generateAudio,
       seed: c.data.seed,
       modelKey: videoModelKeyOf(c.data.videoModel),
       ...(audioRefUrls.length ? { audioRefUrls } : {}),
-      ...(videoRefUrls.length ? { videoRefUrls, videoRefAssetIds } : {}),
+      ...(master || videoRefUrls.length ? { videoRefUrls: [...(master ? [master.url] : []), ...videoRefUrls], videoRefAssetIds: [...(master ? [null] : []), ...videoRefAssetIds] } : {}),
       ...(keepTake && c.data.shotUrl ? { shotUrl: c.data.shotUrl } : {}),
     };
   }, []);
@@ -2599,7 +2645,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const upsertShotNodeForCard = useCallback((cardId, url) => {
     if (!url) return;
     setNodes((ns) => {
-      const card = ns.find((n) => n.id === cardId && n.type === 'cut');
+      const card = ns.find((n) => n.id === cardId && isShotCard(n));
       if (!card) return ns;
       const shotId = `shot-${cardId}`;
       const h = Math.round(card.measured?.height || card.height || NODE_FALLBACK.cut.h);
@@ -2722,7 +2768,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
   const handleShootCut = useCallback(async (cutId) => {
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
-    const card = nodesRef.current.find((n) => n.id === cutId && n.type === 'cut');
+    const card = nodesRef.current.find((n) => n.id === cutId && isShotCard(n));
     if (!card) return;
     // Continuity: a CHAIN EDGE into this card is authoritative — its source's last
     // frame threads in. On a board with a chain, an edge-less card is a HARD CUT (no
@@ -2954,7 +3000,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // dialogue ride as the material; what comes back ships to the model verbatim.
   const composeCutPrompt = useCallback(async (id) => {
     if (splitFlightRef.current.has(`dev-${id}`)) return;
-    const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
+    const card = nodesRef.current.find((n) => n.id === id && isShotCard(n));
     if (!card || card.data?.developing || card.data?.splitting) return;
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const baseRefs = shotReferences(card.data, bibleRef.current);
@@ -2981,7 +3027,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const cineLook = [['lens', 'lens'], ['light', 'light'], ['grade', 'grade'], ['move', 'camera']]
         .map(([k, label]) => { const v = String((card.data?.cine || {})[k] || '').trim(); return v ? `${label}: ${v}` : ''; })
         .filter(Boolean).join(' · ');
-      const out = await composeShotAction({
+      const out = card.type === 'edit'
+        ? await editShotAction({
+          text, master: card.data?.master, references: baseRefs.map((r) => r.url), roster, modelKey,
+        }, ctx)
+        : await composeShotAction({
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey,
         camera: tpl ? { framing: tpl.framing, angle: tpl.angle, move: tpl.move } : null,
         job: card.data?.job || '',
@@ -2989,6 +3039,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         cinematography: [String(card.data?.cinematography || '').trim(), cineLook].filter(Boolean).join(' · '),
         audio: card.data?.audio || '',
       }, ctx);
+      if (out.closureAdded) Message.info('The edit did not close its scope — the spec\'s closure sentence was appended.');
       traceRef.current.log({ level: 'run', kind: 'decision', note: `Shot compose · ${out.action.length}-char action${out.derived ? ` (derived ${out.derived.length} chars from keyframes)` : ''}` });
       onPatchCut(id, {
         promptOverride: out.action,
@@ -3217,7 +3268,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const prevTakeFrames = useMemo(() => {
     const map = {};
     edges.filter((e) => e.type === 'continuity').forEach((e) => {
-      const src = nodes.find((n) => n.id === e.source && n.type === 'cut');
+      const src = nodes.find((n) => n.id === e.source && isShotCard(n));
       if (src?.data?.lastFrameUrl) map[e.target] = { nodeId: null, url: src.data.lastFrameUrl, assetId: null, label: `◀ prev take last frame (${(src.data.beat || 'shot').slice(0, 18)})` };
     });
     return map;
@@ -3239,6 +3290,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     mediaEntries,
     onShootCut: handleShootCut,
     onAttachAsset: attachRefToCut,
+    onPickMaster: pickMasterFor,
+    onDetachRef: detachCardRef,
     onSplitCut: splitCardToShots,
     onComposeCut: composeCutPrompt,
     onDirectCut: directCutPrompt,
@@ -3246,7 +3299,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     boardImages,
     prevTakeFrames,
     onOpenRefDrawer: openRefDrawer,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, splitCardToShots, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, pickMasterFor, detachCardRef, splitCardToShots, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
 
   const filmMode = true; // Short-Film-only suite.
 
@@ -4520,6 +4573,26 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       closePanel();
       return;
     }
+    if (id === 'edit') {
+      // The EDIT card lands empty and asks for its master — nothing on the board is
+      // read, because which video you are editing is never a guess.
+      const pos = freeOrigin({ w: 780, h: 360, preferred: at || (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 240 }) : { x: 220, y: 220 }) });
+      const eid = `edit-${Date.now().toString(36)}`;
+      setNodes((ns) => ns.concat({
+        id: eid,
+        type: 'edit',
+        position: pos,
+        style: { width: 780 },
+        data: {
+          layerId: 'shot', beat: (d.beat || '').trim() || 'Edit', master: null,
+          promptOverride: '', assetRefs: [], refIds: [],
+          videoModel: d.videoModel || '', resolution: d.resolution || '1080p', seed: d.seed ?? null,
+        },
+      }));
+      closePanel();
+      Message.success('Edit card on the board — pick its master, say what changes, then 🎬.');
+      return;
+    }
     if (id === 'previz') {
       // The Previz card OWNS its scene text — typed words ride onto it VERBATIM and are
       // edited there. Nothing else on the board is read.
@@ -5181,7 +5254,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       };
     }
     if (refDrawer.type === 'cut') {
-      const node = nodes.find((n) => n.id === refDrawer.id && n.type === 'cut');
+      const node = nodes.find((n) => n.id === refDrawer.id && isShotCard(n));
       if (!node) return null;
       const d = node.data;
       const refIds = d.refIds || [];

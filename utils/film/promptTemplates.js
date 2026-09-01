@@ -209,6 +209,32 @@ Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronologi
     vars: ['{kfCount}'],
     text: 'The {kfCount} attached stills are the keyframes, in shot order. Read them and return the JSON.',
   },
+  'cut.edit.system': {
+    agent: 'Shot',
+    label: 'Edit — the FINAL editing prompt sent to the video model (system)',
+    vars: ['{refCount}', '{masterLine}', '{skill}'],
+    text: `You are writing THE FINAL PROMPT for a video EDITING task. What you return is sent VERBATIM — nothing is appended, wrapped or renumbered afterwards.
+
+THE SPEC BELOW IS THE METHOD. Everything above it is FACT about this particular edit.
+
+{masterLine}
+
+{refCount} target images are attached as image 1 … image {refCount} — EXACTLY the images, in EXACTLY the order, the model will receive. They are TARGET MATERIAL: what an edit replaces INTO. NEVER cite a number outside 1–{refCount}.
+
+THIS IS AN EDIT, NOT A REGENERATION. The master governs the scene, the camera position, the camera movement, the action trajectories, the occlusion relationships and the event order. Change ONLY what the director's note names. Never describe a new camera angle, a new framing or a different length — the master decides all three.
+
+Inventory what is visible in the master, name what changes, and name what stays. Then close the scope: state explicitly that everything not named above is unchanged. If you cannot see the master, do NOT claim to have inventoried it — say what changes and close the scope anyway.
+
+{skill}
+
+Return ONLY JSON — no prose, no code fences: {"action":"<the complete final editing prompt>","audio":""}`,
+  },
+  'cut.edit.user': {
+    agent: 'Shot',
+    label: 'Edit — the director note (instruction)',
+    vars: ['{refRoster}', '{text}'],
+    text: 'THE TARGET IMAGES, in send order:\n{refRoster}\n\nTHE CHANGE the director asked for:\n"""\n{text}\n"""\n\nReturn the JSON.',
+  },
   'cut.direct.system': {
     agent: 'Shot',
     label: 'Direct — a note on how the shot feels/reads (system)',

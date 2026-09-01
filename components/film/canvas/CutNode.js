@@ -7,6 +7,7 @@ import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, imageTag
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import EditableLabel from './EditableLabel';
+import { SeedanceParams, DraftText } from './cardBlocks';
 
 const { Text } = Typography;
 
@@ -50,25 +51,6 @@ const AnchorSlot = ({ label, value, onOpen, onClear }) => (
 
 const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00', frame: '#f5319d' };
 
-// Text fields draft LOCALLY and commit on blur: routing every keystroke through the
-// React Flow store makes the controlled value arrive back a beat late, which resets
-// the caret to the end. External updates (Compose/Direct) still flow in
-// whenever the field isn't focused.
-const DraftText = ({ value, onCommit, textarea = false, ...rest }) => {
-  const [draft, setDraft] = useState(null); // null = not editing → show live value
-  const commit = () => { if (draft !== null && draft !== (value || '')) onCommit(draft); setDraft(null); };
-  const C = textarea ? Input.TextArea : Input;
-  return (
-    <C
-      {...rest}
-      value={draft !== null ? draft : (value || '')}
-      onChange={(v) => setDraft(v)}
-      onFocus={() => setDraft(value || '')}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.target.blur(); }}
-    />
-  );
-};
 
 // Visual state of the cut as it shoots (border + header tag).
 // 'failed' is deliberately absent: individual takes fail and that's fine — the take
@@ -373,17 +355,7 @@ const CutNodeInner = ({ id, data, selected }) => {
           <DraftText textarea className="nodrag nowheel" value={data.audio} onCommit={(v) => patch({ audio: v })} placeholder="dialogue · ambient · foley · score" autoSize={{ minRows: 1, maxRows: 3 }} style={promptArea} />
         </div>
 
-        <div>
-          <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700, display: 'block', marginBottom: 3 }}>SEEDANCE 2.0 PARAMS</Text>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Select className="nodrag" size="mini" value={videoModel} onChange={(v) => patch({ videoModel: v, ...((RES_BY_MODEL[v] || RES_BY_MODEL.seedance).includes(data.resolution) ? {} : { resolution: resDefault(v) }) })} options={VIDEO_MODEL_OPTIONS.map((o) => ({ label: o.label, value: o.key }))} style={{ width: 148 }} triggerProps={{ autoAlignPopupWidth: false }} title="Which Seedance endpoint shoots this shot — Mini is faster/cheaper (caps at 720p)" />
-            <Select className="nodrag" size="mini" value={resolution} onChange={(v) => patch({ resolution: v })} options={resOptions.map((o) => ({ label: o, value: o }))} style={{ width: 76 }} triggerProps={{ autoAlignPopupWidth: false }} />
-            <Select className="nodrag" size="mini" value={data.ratio || '21:9'} onChange={(v) => patch({ ratio: v })} options={['21:9', 'adaptive', '16:9', '9:16', '1:1', '4:3'].map((o) => ({ label: o, value: o }))} style={{ width: 92 }} triggerProps={{ autoAlignPopupWidth: false }} />
-            <Checkbox className="nodrag" checked={data.generateAudio !== false} onChange={(c) => patch({ generateAudio: c })}><Text style={{ fontSize: 10, color: '#9fb4d0' }}>audio</Text></Checkbox>
-            <InputNumber className="nodrag" size="mini" placeholder="seed" value={data.seed ?? undefined} onChange={(v) => patch({ seed: v == null || v === '' ? null : Math.round(Number(v)) })} style={{ width: 88 }} />
-          </div>
-        </div>
-
+        <SeedanceParams data={data} patch={patch} videoModel={videoModel} resolution={resolution} resOptions={resOptions} />
         {/* KEYFRAMES — visual grounding: an ORDERED list of pointers into the enabled
             ref chips. K1 = the composition the shot opens on, Kn = where it lands,
             middles are passed through in order. Empty list → the classic path, untouched. */}

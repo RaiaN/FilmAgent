@@ -23,6 +23,7 @@ export const AGENT_COLORS = {
   story: '#f7ba1e',                // gold (the narrative spine: key events)
   storyboard: '#4e5969',           // graphite (the shot plan)
   shot: '#d9488f',                 // rose (a single SHOT card)
+  edit: '#1D9E75',                 // teal (editing: one master in, one master out)
   previz: '#3491fa',               // sky blue (blocking: floor plan → projected shots)
   audio: '#7816ff',                // violet (spoken word: VO / line reads)
 };
@@ -305,6 +306,23 @@ export const storyboardAgent = {
 // PREVIZ — structure first, look second. A standalone card: scene description → clay
 // blockout still → 480p previz take → 1080p beauty pass (a Seedance editing task over
 // the previz clip). The rail tap lays the card; every step is a tap on the card itself.
+// The VIDEO EDIT agent: one existing video is the sole master; the edit changes only
+// what you name and inherits the rest — scene, camera, trajectories, event order. A
+// standalone card, like Previz: the rail tap lays it, everything happens on the card.
+export const editAgent = {
+  id: 'edit',
+  label: 'Video Edit',
+  icon: 'previz',
+  color: AGENT_COLORS.edit,
+  consumes: [],
+  needsSelection: false,
+  defaultSettings: { beat: '', videoModel: '', resolution: '1080p', seed: null },
+  describe: 'One existing video is the sole master; the edit changes only what you name and inherits the rest — scene, camera, trajectories, event order. Ratio and duration are locked to the master.',
+  async run() {
+    throw new Error('The Video Edit agent lays a card on the canvas — run it from the board.');
+  },
+};
+
 export const previzAgent = {
   id: 'previz',
   label: 'Previz',
@@ -363,6 +381,7 @@ export const AGENTS = [
   storyboardAgent,
   previzAgent,
   shotAgent,
+  editAgent,
   castAgent,
   characterVariationsAgent,
   locationVariationsAgent,

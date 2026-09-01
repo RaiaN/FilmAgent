@@ -7,7 +7,7 @@ import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, imageTag
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import EditableLabel from './EditableLabel';
-import { SeedanceParams, DraftText } from './cardBlocks';
+import { SeedanceParams, DraftText, ReferencesRow } from './cardBlocks';
 
 const { Text } = Typography;
 
@@ -406,117 +406,7 @@ const CutNodeInner = ({ id, data, selected }) => {
           )}
         </div>
 
-        <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 3 }}>
-            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>REFERENCES → [Image1…N] · enabled only</Text>
-            {refTotal > maxRefs
-              && <Text style={{ color: '#f53f3f', fontSize: 9 }}>first {maxRefs} feed the shot</Text>}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {/* ENABLED refs only — the whole library lives in the ＋ drawer (never a
-                hundred inline chips). Click a chip to remove it from the shot. */}
-            {sentBibleIds.map((rid) => {
-              const b = (bibleEntries || []).find((x) => x.id === rid);
-              if (!b) return null;
-              const imgIdx = bibleImageIndex(rid);
-              const sent = imgIdx != null && imgIdx <= maxRefs;
-              return (
-                <span
-                  key={b.id}
-                  className="nodrag"
-                  onClick={() => toggleRef(b.id)}
-                  title={`${sent ? `Image${imgIdx} · ` : ''}${BIBLE_ROLE_META[b.role]?.label || b.role}: ${b.name || ''} — click to remove`}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                    padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                    border: `1px solid ${ROLE_COLOR[b.role] || '#86909c'}`,
-                    background: ROLE_COLOR[b.role] || '#86909c',
-                    color: '#fff',
-                  }}
-                >
-                  {sent && <b style={REF_BADGE}>{imgIdx}</b>}
-                  {b.url ? <img src={b.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
-                  {(b.name || BIBLE_ROLE_META[b.role]?.label || b.role).slice(0, 14)}
-                </span>
-              );
-            })}
-            {/* Non-bible board assets attached to JUST this shot — per-shot refs, not canon. */}
-            {assetRefs.map((a, j) => {
-              const imgIdx = assetImageIndex(j);
-              const sent = imgIdx <= maxRefs;
-              return (
-                <span
-                  key={a.url}
-                  className="nodrag"
-                  onClick={() => removeAssetRef(a.url)}
-                  title={`${sent ? `Image${imgIdx} · ` : ''}${a.label || 'asset'} — attached to this shot only; click to remove`}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
-                    padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                    border: '1px solid #e5e6eb', background: '#e5e6eb', color: '#1d2129',
-                  }}
-                >
-                  {sent && <b style={REF_BADGE}>{imgIdx}</b>}
-                  {a.url ? <img src={a.url} alt="" loading="lazy" decoding="async" style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover' }} /> : null}
-                  {(a.label || 'asset').slice(0, 14)}
-                </span>
-              );
-            })}
-            {/* Seedance media refs — audio clips (music / voices) and videos (camera / motion),
-                attached by tapping a ★-tagged offer chip below; click an attached chip to detach. */}
-            {audioRefs.map((a, ai) => (
-              <span
-                key={a.url}
-                className="nodrag"
-                title={`Audio ${ai + 1} — ${a.label || 'audio clip'} (≤15s). Click the role tag to cycle voice → music → ambience; ✕ detaches.`}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                  border: '1px solid rgba(120,22,255,0.55)', background: 'rgba(120,22,255,0.16)', color: '#c0a1ff',
-                }}
-              >
-                <b style={REF_BADGE}>A{ai + 1}</b>
-                <IconSound style={{ fontSize: 11 }} />
-                {(a.label || 'audio').slice(0, 12)}{Number(a.duration) ? ` · ${Math.round(a.duration)}s` : ''}
-                <b onClick={() => cycleAudioRole(a.url)} title="Role — what this clip is a reference FOR (drives the binding line)" style={{ ...REF_BADGE, cursor: 'pointer', minWidth: 0 }}>{a.role || 'sound'}</b>
-                <span onClick={() => removeAudioRef(a.url)} title="Detach" style={{ cursor: 'pointer' }}>✕</span>
-              </span>
-            ))}
-            {videoRefs.map((v, vi) => (
-              <span
-                key={v.url}
-                className="nodrag"
-                title={`Video ${vi + 1} — ${v.label || 'video'} (2–30s). Click the role tag to cycle motion → camera → style; ✕ detaches.`}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '1px 6px', borderRadius: 10, fontSize: 10,
-                  border: '1px solid #165dff', background: 'rgba(22,93,255,0.15)', color: '#6ea0ff',
-                }}
-              >
-                <b style={REF_BADGE}>V{vi + 1}</b>
-                <IconVideoCamera style={{ fontSize: 11 }} />
-                {(v.label || 'video').slice(0, 12)}
-                <b onClick={() => cycleVideoRole(v.url)} title="Role — what this clip is a reference FOR (drives the binding line)" style={{ ...REF_BADGE, cursor: 'pointer', minWidth: 0 }}>{v.role || 'cam+motion'}</b>
-                <span onClick={() => removeVideoRef(v.url)} title="Detach" style={{ cursor: 'pointer' }}>✕</span>
-              </span>
-            ))}
-            {onOpenRefDrawer && (
-              <span
-                className="nodrag"
-                onClick={() => onOpenRefDrawer({ type: 'cut', id })}
-                title="Browse the reference library — search + role tabs; toggle cast/world plates, board images and ★-tagged clips onto this shot"
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer',
-                  padding: '1px 8px', borderRadius: 10, fontSize: 10,
-                  border: '1px dashed #9fb4d0', color: '#9fb4d0', background: 'transparent',
-                }}
-              >
-                ＋ Add references
-              </span>
-            )}
-            {refTotal === 0 && audioRefs.length === 0 && videoRefs.length === 0 && <Text style={{ color: '#86909c', fontSize: 10 }}>none enabled — browse the library, or drop an image straight onto the card</Text>}
-          </div>
-        </div>
+        <ReferencesRow id={id} data={data} patch={patch} bibleEntries={bibleEntries} onOpenRefDrawer={onOpenRefDrawer} />
       </div>
       {/* CINEMATOGRAPHY — the DP look layer, ADDITIVE to the Camera preset line:
           four one-line fields joined into the take's LOOK at shoot time (empty adds

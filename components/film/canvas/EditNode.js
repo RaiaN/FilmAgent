@@ -1,11 +1,11 @@
 import { memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Button, Tag, Message } from '@arco-design/web-react';
-import { IconLoading, IconExpand, IconSync, IconMessage, IconVideoCamera, IconClose } from '@arco-design/web-react/icon';
+import { IconLoading, IconExpand, IconSync, IconVideoCamera } from '@arco-design/web-react/icon';
 import { RES_BY_MODEL, resDefault, videoModelKeyOf, videoTraits, imageTagOf } from '../../../utils/film/suiteConfig';
 import { shotReferences } from '../../../utils/film/recipes';
 import { CutContext } from './CutNode';
-import { SeedanceParams, BLOCK_LABEL, DraftText } from './cardBlocks';
+import { SeedanceParams, BLOCK_LABEL, DraftText, ReferencesRow } from './cardBlocks';
 import EditableLabel from './EditableLabel';
 import PromptEditorModal from './PromptEditorModal';
 
@@ -28,7 +28,7 @@ const promptArea = {
 };
 
 const EditNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onComposeCut, onDirectCut, onOpenTakes, onPickMaster, onDetachRef } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onComposeCut, onOpenTakes, onPickMaster, onDetachRef, onOpenRefDrawer } = useContext(CutContext);
   const [editorOpen, setEditorOpen] = useState(false);
   const patch = (p) => onPatchCut && onPatchCut(id, p);
 
@@ -81,7 +81,12 @@ const EditNodeInner = ({ id, data, selected }) => {
         <div>
           <Text style={{ ...BLOCK_LABEL, display: 'block', marginBottom: 3 }}>MASTER · the video being edited</Text>
           {master ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: '#0f1318', border: `1px solid ${tooShort ? '#a8071a' : '#2a313a'}`, borderRadius: 4 }}>
+            <div
+              className="nodrag"
+              onClick={() => onPickMaster && onPickMaster(id)}
+              title="Click to pick a different master"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, background: '#0f1318', border: `1px solid ${tooShort ? '#a8071a' : '#2a313a'}`, borderRadius: 4, cursor: 'pointer' }}
+            >
               <div style={{ width: 84, height: 48, borderRadius: 3, background: '#16241f', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
                 {master.posterUrl
                   ? <img src={master.posterUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -98,8 +103,6 @@ const EditNodeInner = ({ id, data, selected }) => {
                   </Text>
                 )}
               </div>
-              <Button className="nodrag" size="mini" onClick={() => onPickMaster && onPickMaster(id)} title="Swap the master — any take, or any video on the board">Swap</Button>
-              <Button className="nodrag" size="mini" type="text" icon={<IconClose />} onClick={() => patch({ master: null })} title="Detach the master" />
             </div>
           ) : (
             <Button
@@ -115,7 +118,6 @@ const EditNodeInner = ({ id, data, selected }) => {
             <Text style={BLOCK_LABEL}>THE EDIT</Text>
             <span style={{ display: 'inline-flex', gap: 2 }}>
               <Button className="nodrag" size="mini" type="text" icon={busy ? <IconLoading /> : <IconSync />} disabled={!onComposeCut || busy || !master} onClick={() => onComposeCut && onComposeCut(id)} style={{ color: '#9fb4d0' }} title="Compose — writes the FINAL editing prompt under this model's skill: what changes, what is preserved, and the scope closure">Compose</Button>
-              <Button className="nodrag" size="mini" type="text" icon={busy ? <IconLoading /> : <IconMessage />} disabled={!onDirectCut || busy} onClick={() => onDirectCut && onDirectCut(id)} style={{ color: '#9fb4d0' }} title="Direct — a note on how the edit should read; the structure stays">Direct</Button>
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0' }} title="Expand — full-size editor with @-mention">Expand</Button>
             </span>
           </div>
@@ -134,22 +136,10 @@ const EditNodeInner = ({ id, data, selected }) => {
           )}
         </div>
 
-        <div>
-          <Text style={{ ...BLOCK_LABEL, display: 'block', marginBottom: 3 }}>
-            TARGET MATERIAL → {imageTagOf(videoModel, '1')}…N · what the edit replaces INTO
-          </Text>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {targets.length ? targets.map((r, i) => (
-              <Tag
-                key={r.url} size="small" closable={!!onDetachRef}
-                onClose={() => onDetachRef && onDetachRef(id, r)}
-                style={{ background: '#0f1318', color: '#9fb4d0', border: '1px solid #2a313a' }}
-              >{imageTagOf(videoModel, i + 1)} · {r.name || 'ref'}</Tag>
-            )) : (
-              <Text style={{ fontSize: 10, color: '#6e7b8b' }}>none — a removal needs no material; a replacement usually does. Drop an image on the card.</Text>
-            )}
-          </div>
-        </div>
+        <ReferencesRow
+          id={id} data={data} patch={patch} bibleEntries={bibleEntries} onOpenRefDrawer={onOpenRefDrawer}
+          label={`TARGET MATERIAL → ${imageTagOf(videoModel, '1')}…N · what the edit replaces INTO`}
+        />
 
         <SeedanceParams
           data={data} patch={patch} videoModel={videoModel} resolution={resolution} resOptions={resOptions}

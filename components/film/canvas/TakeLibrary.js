@@ -13,7 +13,7 @@ const { Text } = Typography;
 
 const STATUS_COLOR = { running: '#165dff', shot: '#00b42a', failed: '#f53f3f' };
 
-const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onNeedPoster }) => {
+const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onNeedPoster, onPick }) => {
   const { id, url, cacheUrl, posterUrl, posterScaled, loading, error, label } = take;
   // Same lazy-poster contract as the board cards: ask once per session; a full-res
   // poster stamped before downscaling existed re-asks and self-heals.
@@ -23,8 +23,8 @@ const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemov
   return (
     <div style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #e5e6eb', background: '#fff' }}>
       <div
-        onClick={() => { if (url && !loading) onOpenViewer(id); }}
-        title={url && !loading ? 'Open in the Take Viewer' : undefined}
+        onClick={() => { if (!url || loading) return; if (onPick) onPick(take); else onOpenViewer(id); }}
+        title={url && !loading ? (onPick ? 'Pick this take' : 'Open in the Take Viewer') : undefined}
         style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', background: '#101418', cursor: url && !loading ? 'pointer' : 'default' }}
       >
         {posterUrl ? (
@@ -86,7 +86,7 @@ const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemov
 });
 TakeRow.displayName = 'TakeRow';
 
-const TakeLibrary = ({ groups, focusedCardId, timelineIds, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onClearTakes, onNeedPoster, onFocusCard, onShowAll, onClose }) => {
+const TakeLibrary = ({ pick = null, groups, focusedCardId, timelineIds, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onClearTakes, onNeedPoster, onFocusCard, onShowAll, onClose }) => {
   const focused = focusedCardId ? groups.find((g) => g.cardId === focusedCardId) : null;
   const shown = focused ? [focused] : groups.filter((g) => g.takes.length);
   const empty = !shown.length || (focused && !focused.takes.length);
@@ -102,7 +102,7 @@ const TakeLibrary = ({ groups, focusedCardId, timelineIds, onOpenViewer, onAddTo
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 300, zIndex: 9, borderLeft: '1px solid #e5e6eb', boxShadow: '-4px 0 16px rgba(0,0,0,0.08)', background: '#fff', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f2f3f5' }}>
-        <Text style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0 }}>🎞 Take Library</Text>
+        <Text style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0 }}>{pick ? `🎞 ${pick.title}` : '🎞 Take Library'}</Text>
         {focused && <Button size="mini" onClick={onShowAll} title="Show every shot's takes">All shots</Button>}
         {onClearTakes && clearCount > 0 && (
           <Popconfirm
@@ -150,6 +150,7 @@ const TakeLibrary = ({ groups, focusedCardId, timelineIds, onOpenViewer, onAddTo
                   onRemoveFromTimeline={onRemoveFromTimeline}
                   onDeleteTake={onDeleteTake}
                   onNeedPoster={onNeedPoster}
+                  onPick={pick ? pick.onPick : null}
                 />
               ))}
             </div>

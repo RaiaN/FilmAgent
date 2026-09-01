@@ -808,6 +808,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Takes never render as board nodes; this drawer is the one surface for renders.
   // Focus is selection-derived: a selected SHOT card filters the drawer to its takes.
   const [takeLibOpen, setTakeLibOpen] = useState(false);
+  const [masterPickFor, setMasterPickFor] = useState(null);
   // ---- REFERENCE BROWSER (right drawer) — the ONE library-picking surface -----------
   // Sources: a SHOT card ({type:'cut',id}), the storyboard pool ({type:'sbpool',id}),
   // a panel field ({type:'panel',field}) or a generic single-pick request
@@ -815,7 +816,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // ENABLED refs inline and opens this drawer to browse/toggle the rest.
   const [refDrawer, setRefDrawer] = useState(null);
   const [shotBrowserOpen, setShotBrowserOpen] = useState(false);
-  const openRefDrawer = useCallback((req) => { setTakeLibOpen(false); setShotBrowserOpen(false); setRefDrawer(req); }, []);
+  const openRefDrawer = useCallback((req) => { setTakeLibOpen(false); setMasterPickFor(null); setShotBrowserOpen(false); setRefDrawer(req); }, []);
   const closeRefDrawer = useCallback(() => setRefDrawer(null), []);
   const focusedCutId = useMemo(() => (selectedNodes.find(isShotCard) || {}).id || null, [selectedNodes]);
   // Groups mirror the SHOT cards in cut order. A card's takes = its grid children plus
@@ -2234,27 +2235,30 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // place they are all visible at once). Single-pick; the card stores what it needs to
   // state the locked facts on its face.
   const pickMasterFor = useCallback((cardId) => {
-    const vids = nodesRef.current
-      .filter((n) => n.data?.kind === 'video' && (n.data?.cacheUrl || n.data?.url))
-      .map((n) => ({
-        id: n.id,
-        url: n.data.cacheUrl || n.data.url,
-        label: n.data.label || n.data.beat || 'video',
-        kind: 'video',
-        duration: Number(n.data.duration) || null,
-        posterUrl: n.data.posterUrl || null,
-        ratio: n.data.ratio || null,
-      }));
-    if (!vids.length) { Message.warning('No video on the board yet — shoot a take, or add one from the Library.'); return; }
-    setRefDrawer({
-      type: 'pick',
-      title: 'Pick the master',
-      hint: 'The video this card edits. Everything the edit does not change is inherited from it — scene, camera, timing.',
-      items: vids,
-      onPick: (item) => onPatchCut(cardId, {
-        master: { nodeId: item.id, url: item.url, label: item.label, duration: item.duration, posterUrl: item.posterUrl, ratio: item.ratio },
-      }),
-    });
+    setRefDrawer(null);
+    setShotBrowserOpen(false);
+    setMasterPickFor(cardId);
+    setTakeLibOpen(true);
+  }, []);
+
+  // The take's real DURATION is read from the file, not guessed: the 4s editing floor
+  // and the "ratio and duration are locked" claim on the card both depend on it.
+  const adoptMaster = useCallback((cardId, take) => {
+    const url = take.cacheUrl || take.url;
+    if (!url) { Message.warning('That take has no video yet.'); return; }
+    onPatchCut(cardId, { master: { nodeId: take.id, url, label: take.label || 'take', posterUrl: take.posterUrl || null, duration: null, ratio: null } });
+    setMasterPickFor(null);
+    setTakeLibOpen(false);
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => {
+      const d = Number(v.duration) || 0;
+      const ratio = v.videoWidth && v.videoHeight ? `${v.videoWidth}×${v.videoHeight}` : null;
+      onPatchCut(cardId, { master: { nodeId: take.id, url, label: take.label || 'take', posterUrl: take.posterUrl || null, duration: d || null, ratio } });
+      if (d && d < 4) Message.warning(`That take is ${d.toFixed(1)}s — an editing task needs a 4–30s source.`);
+    };
+    v.onerror = () => { /* duration stays unread; the card says so */ };
+    v.src = url;
   }, [onPatchCut]);
 
   const detachCardRef = useCallback((cardId, ref) => {
@@ -5575,7 +5579,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             <ControlButton onClick={() => setHistoryOpen((v) => !v)} title="History" style={historyOpen ? { color: '#165dff' } : undefined}>
               <IconHistory style={{ fontSize: 14 }} />
             </ControlButton>
-            <ControlButton onClick={() => { setShotBrowserOpen(false); setTakeLibOpen((v) => !v); }} title="Take Library — every card's renders" style={takeLibOpen ? { color: '#165dff' } : undefined}>
+            <ControlButton onClick={() => { setShotBrowserOpen(false); setMasterPickFor(null); setTakeLibOpen((v) => !v); }} title="Take Library — every card's renders" style={takeLibOpen ? { color: '#165dff' } : undefined}>
               <IconVideoCamera style={{ fontSize: 14 }} />
             </ControlButton>
             <ControlButton onClick={() => { setTakeLibOpen(false); setRefDrawer(null); setShotBrowserOpen((v) => !v); }} title="SHOT browser — find any card on the board and fly to it" style={shotBrowserOpen ? { color: '#165dff' } : undefined}>
@@ -5638,6 +5642,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         )}
         {takeLibOpen && (
           <TakeLibrary
+            pick={masterPickFor ? { title: 'Pick the master', onPick: (t) => adoptMaster(masterPickFor, t) } : null}
             groups={takeGroups}
             focusedCardId={takeLibFocusId || focusedCutId}
             timelineIds={onTimelineNodeIds}
@@ -5649,7 +5654,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             onNeedPoster={ensurePoster}
             onFocusCard={selectAndCenter}
             onShowAll={() => { setTakeLibFocusId(null); setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n))); }}
-            onClose={() => { setTakeLibFocusId(null); setTakeLibOpen(false); }}
+            onClose={() => { setMasterPickFor(null); setTakeLibFocusId(null); setTakeLibOpen(false); }}
           />
         )}
 

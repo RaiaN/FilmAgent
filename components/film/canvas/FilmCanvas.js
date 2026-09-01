@@ -1368,6 +1368,17 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       }
     });
     const ids = new Set((deleted || []).map((n) => n.id));
+    const cardsGone = (deleted || []).filter(isShotCard).map((n) => n.id);
+    if (cardsGone.length) {
+      const grids = new Set(cardsGone.map((cid) => `grid-${cid}`));
+      let dropped = 0;
+      setNodes((ns) => ns.filter((n) => {
+        const orphan = grids.has(n.id) || (n.parentId && grids.has(n.parentId)) || cardsGone.some((cid) => String(n.id).startsWith(`shot-${cid}-`));
+        if (orphan && n.data?.kind === 'video') dropped += 1;
+        return !orphan;
+      }));
+      if (dropped) Message.info(`Removed ${dropped} take${dropped === 1 ? '' : 's'} with the deleted card — a card's dailies belong to it.`);
+    }
     updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => !ids.has(e.shotNodeId) && !ids.has(e.keyframeNodeId)) }));
     // Chain HEAL: deleting a chained card reconnects its neighbours. The healed bond is
     // born flagged — a downstream take consumed a handoff that no longer exists.
@@ -2318,11 +2329,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   useEffect(() => {
     if (demoOverlay) return; // the demo replay owns `hidden` while it plays
     setNodes((ns) => {
-      const cardIds = new Set(ns.filter((n) => isShotCard(n) || n.type === 'previz').map((n) => n.id));
+      // A satellite is decided by its ID SHAPE, never by whether its card is still
+      // there: an orphaned take is still a take, and must not surface on the board.
       const cardOfSatellite = (n) => {
-        if (String(n.id).startsWith('grid-') && cardIds.has(String(n.id).slice(5))) return String(n.id).slice(5);
-        if (n.parentId && String(n.parentId).startsWith('grid-') && cardIds.has(String(n.parentId).slice(5))) return String(n.parentId).slice(5);
-        if (String(n.id).startsWith('shot-') && cardIds.has(String(n.id).slice(5))) return String(n.id).slice(5);
+        if (String(n.id).startsWith('grid-')) return String(n.id).slice(5);
+        if (n.parentId && String(n.parentId).startsWith('grid-')) return String(n.parentId).slice(5);
+        if (String(n.id).startsWith('shot-')) return String(n.id).slice(5).replace(/-[^-]*$/, '');
         return null;
       };
       const counts = new Map();

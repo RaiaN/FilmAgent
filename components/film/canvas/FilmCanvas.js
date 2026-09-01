@@ -2859,6 +2859,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         onPatchCut(cutId, { status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null });
       } catch (err) {
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Take failed' } } : n)));
+        // THE CARD must hear about it too. Marking only the take left the card stuck on
+        // `running`: the face said "shooting…" forever and 🎬 stayed disabled, so the one
+        // thing you want after a failure — try again — was the one thing you could not do.
+        onPatchCut(cutId, { status: 'failed', error: err.message });
+        traceRef.current.log({ level: 'run', kind: 'decision', status: 'error', note: `Shoot FAILED · ${card.data.beat || `cut ${(card.data.cut ?? 0) + 1}`} (take ${takeNo})`, error: err.message });
         Message.error(`Shot failed: ${err.message}`);
       }
     })();

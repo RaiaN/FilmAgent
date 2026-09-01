@@ -55,7 +55,9 @@ const EditNodeInner = ({ id, data, selected }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'repeating-linear-gradient(135deg, #16241f 0 12px, #1D9E75 12px 24px)' }}>
         <Tag size="small" style={{ background: '#101418', color: '#5DCAA5', border: 'none', fontWeight: 700 }}>EDIT</Tag>
-        <EditableLabel value={data.beat || 'Edit'} onCommit={(v) => patch({ beat: v })} style={{ color: '#e5e6eb', fontSize: 12, fontWeight: 600 }} />
+        <span style={{ background: '#101418', borderRadius: 4, padding: '1px 8px', maxWidth: 320, overflow: 'hidden' }}>
+          <EditableLabel value={data.beat || 'Edit'} onCommit={(v) => patch({ beat: v })} style={{ color: '#e5e6eb', fontSize: 12, fontWeight: 600 }} />
+        </span>
         {Number(data.takeCount) > 0 && (
           <Tag
             size="small" className="nodrag"
@@ -76,6 +78,11 @@ const EditNodeInner = ({ id, data, selected }) => {
       </div>
 
       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {data.status === 'failed' && String(data.error || '').trim() && (
+          <div style={{ padding: '6px 8px', background: '#2a1215', border: '1px solid #a8071a', borderRadius: 4 }}>
+            <Text style={{ fontSize: 10, color: '#f7a4a4' }}>Shot failed — {data.error}</Text>
+          </div>
+        )}
         {/* THE MASTER — one video, exclusive. Everything the take does not change is
             inherited from it, so it is the card's first and most consequential field. */}
         <div>

@@ -17,7 +17,7 @@ const { Text, Paragraph } = Typography;
 const CollapseItem = Collapse.Item;
 
 // The SKILLS LIBRARY: vendor prompt specs the agents send VERBATIM, bound to model slots.
-// Disk skills come from .agents/skills/<id>/SKILL.md; edits and user skills live in
+// Disk skills come from skills/<id>/SKILL.md; edits and user skills live in
 // localStorage. The whole document rides on every call the binding covers, so each entry
 // shows its token weight.
 const SkillSettings = ({ visible, onClose }) => {
@@ -51,7 +51,7 @@ const SkillSettings = ({ visible, onClose }) => {
         <Paragraph type="secondary" style={{ fontSize: 12 }}>
           A skill is a model vendor&apos;s prompt spec. Bind it to a model slot and the whole document rides
           VERBATIM in every prompt call that model makes — no summary, no paraphrase. Skills in{' '}
-          <Text code>.agents/skills/</Text> load automatically; drop a folder in and it appears here.
+          <Text code>skills/</Text> load automatically; drop a folder in and it appears here.
         </Paragraph>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -124,7 +124,7 @@ const SkillSettings = ({ visible, onClose }) => {
           ))}
         </Collapse>
         {ready && !skills.length && (
-          <Text type="secondary" style={{ fontSize: 12 }}>No skills yet — add one, or drop a folder into .agents/skills/.</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>No skills yet — add one, or drop a folder into skills/.</Text>
         )}
       </div>
     </Drawer>

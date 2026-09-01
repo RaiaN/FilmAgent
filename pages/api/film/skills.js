@@ -1,11 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 
-// SKILLS ON DISK. Every .agents/skills/<id>/SKILL.md is a skill — the FOLDER is the
-// source of truth, so dropping a new vendor spec in makes it appear in the library with
-// zero code changes. Frontmatter (name/description, and an optional `models:` list)
-// rides through; a skill that names no model binds to nothing until the user picks one.
-const SKILLS_DIR = path.join(process.cwd(), '.agents', 'skills');
+// SKILLS ON DISK. Every skills/<id>/SKILL.md is a skill — the FOLDER is the source of
+// truth, so dropping a new vendor spec in makes it appear in the library with zero code
+// changes. Frontmatter (name/description, and an optional `models:` list) rides through;
+// a skill that names no model binds to nothing until the user picks one. A subfolder
+// WITHOUT a SKILL.md is not a skill and is skipped in silence.
+const SKILLS_DIR = path.join(process.cwd(), 'skills');
 
 // A deliberately small frontmatter reader: the two scalars we display plus the one list
 // we bind on. Not a YAML parser — a skill that needs more can be edited in the drawer.

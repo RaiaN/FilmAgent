@@ -159,13 +159,20 @@ export default function VideoPlayground() {
       const taskId = started.id || started.task_id;
       if (!taskId) throw new Error(started.error?.message || started.error || 'No task id came back');
 
+      // /api/seedance-status FLATTENS the task: { id, status, video_url,
+      // video_cache_url, … } — there is no nested `content`. Prefer the cached copy,
+      // which is the durable local/TOS mirror rather than an expiring source url.
       const poll = async () => {
         const st = await fetch(`/api/seedance-status?taskId=${encodeURIComponent(taskId)}`).then((r) => r.json());
-        if (st.status === 'succeeded' && st.content?.video_url) {
-          setVideoUrl(st.content.video_url); setPhase(''); setRunning(false); return;
-        }
         if (st.status === 'failed' || st.error) {
           throw new Error(st.error?.message || st.error || 'The task failed');
+        }
+        // A TERMINAL status ends the poll either way — success without a url is a bug
+        // to report, never a reason to spin forever.
+        if (st.status === 'succeeded') {
+          const url = st.video_cache_url || st.video_url;
+          if (!url) throw new Error('The task succeeded but returned no video url.');
+          setVideoUrl(url); setPhase(''); setRunning(false); return;
         }
         setPhase(`${st.status || 'running'}…`);
         pollRef.current = setTimeout(poll, POLL_MS);

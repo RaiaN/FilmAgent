@@ -286,7 +286,7 @@ const CutNodeInner = ({ id, data, selected }) => {
           maxLength={60}
           title="Double-click to rename this shot"
           pencilColor="#5a6472"
-          containerStyle={{ width: '100%', background: '#101418', borderRadius: 4, padding: '1px 8px' }}
+          containerStyle={{ width: '100%' }}
           textStyle={{ color: '#f7ba1e', fontSize: 12, fontWeight: 700 }}
           inputStyle={{ fontSize: 12, fontWeight: 700, color: '#f7ba1e', background: '#161b22', borderColor: '#2a313a' }}
         />

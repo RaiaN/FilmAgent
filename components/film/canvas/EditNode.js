@@ -55,9 +55,6 @@ const EditNodeInner = ({ id, data, selected }) => {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'repeating-linear-gradient(135deg, #16241f 0 12px, #1D9E75 12px 24px)' }}>
         <Tag size="small" style={{ background: '#101418', color: '#5DCAA5', border: 'none', fontWeight: 700 }}>EDIT</Tag>
-        <span style={{ background: '#101418', borderRadius: 4, padding: '1px 8px', maxWidth: 320, overflow: 'hidden' }}>
-          <EditableLabel value={data.beat || 'Edit'} onCommit={(v) => patch({ beat: v })} style={{ color: '#e5e6eb', fontSize: 12, fontWeight: 600 }} />
-        </span>
         {Number(data.takeCount) > 0 && (
           <Tag
             size="small" className="nodrag"
@@ -68,9 +65,12 @@ const EditNodeInner = ({ id, data, selected }) => {
         )}
         {status && <Tag size="small" style={{ background: '#101418', color: status.color, border: 'none', fontWeight: 700 }}>{status.label}</Tag>}
         <span style={{ flex: 1 }} />
+        {/* Only the endpoint's real preconditions gate 🎬: a master, and one long enough
+            to edit. NOT busy-state — a SHOT card fires as many parallel takes as you
+            like, and gating on `running` bricks a card whose status got stuck. */}
         <Button
           className="nodrag" size="mini" type="primary" icon={<IconVideoCamera />}
-          disabled={!onShootCut || !master || tooShort || busy || data.status === 'running'}
+          disabled={!onShootCut || !master || tooShort}
           onClick={() => onShootCut && onShootCut(id)}
           style={{ background: '#1D9E75', borderColor: '#1D9E75', height: 20 }}
           title={master ? 'Shoot the edit — the master rides as the sole editing reference' : 'Pick a master first'}
@@ -78,6 +78,17 @@ const EditNodeInner = ({ id, data, selected }) => {
       </div>
 
       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <EditableLabel
+          value={data.beat}
+          onCommit={(v) => patch({ beat: v })}
+          placeholder="Edit"
+          maxLength={60}
+          title="Double-click to rename this edit"
+          pencilColor="#5a6472"
+          containerStyle={{ width: '100%' }}
+          textStyle={{ color: '#5DCAA5', fontSize: 12, fontWeight: 700 }}
+          inputStyle={{ fontSize: 12, fontWeight: 700, color: '#5DCAA5', background: '#161b22', borderColor: '#2a313a' }}
+        />
         {data.status === 'failed' && String(data.error || '').trim() && (
           <div style={{ padding: '6px 8px', background: '#2a1215', border: '1px solid #a8071a', borderRadius: 4 }}>
             <Text style={{ fontSize: 10, color: '#f7a4a4' }}>Shot failed — {data.error}</Text>

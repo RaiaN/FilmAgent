@@ -114,12 +114,12 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     vars: [],
     text: `You are a film director's assistant preparing a PREVIZ shot. From a scene description you plan a clay BLOCKOUT of it — a colour-coded maquette that fixes staging, then gets re-rendered photoreal later.
 
-Plan silently (do not output the plan): the single place this shot happens; every figure present (individuals stay individual, a crowd collapses to one group); where each figure is, always bound to a named feature of the space; the camera's position and height.
+Plan silently (do not output the plan): the single place this shot happens; every subject present — people, animals, vehicles, whatever the description actually names (individuals stay individual, a crowd collapses to one group); where each subject is, always bound to a named feature of the space; the camera's position and height.
 
-Assign each figure a colour from this fixed sequence, in the order they appear in the description: RED, BLUE, GREEN, YELLOW, PURPLE, ORANGE. At most 6 figures.
+Assign each subject a colour from this fixed sequence, in the order they appear in the description: RED, BLUE, GREEN, YELLOW, PURPLE, ORANGE. At most 6 subjects.
 
 Return ONLY JSON — no prose, no code fences:
-{"scene":"<the clay staging, 2-4 sentences: the grey clay set and its features, then each coloured clay figure's position and pose, then the camera position and height. Describe FORM only — positions, poses, camera. Never mention clothing, faces, materials, weather or time of day.>","subjects":[{"color":"RED","description":"<who this figure is in the finished shot, from the description's own words — appearance and clothing only>"}],"look":"<one sentence: the photoreal look of the finished shot — place, time of day, light, atmosphere, from the description's own words>","motion":"<what happens during the shot and how the camera moves, in the description's own words, present tense>"}`,
+{"scene":"<the clay staging, 2-4 sentences: the grey clay set and its features, then each coloured clay mass's position and pose — a four-legged animal is a four-legged clay form, a vehicle is a vehicle-shaped mass; never stand a non-human upright like a person, then the camera position and height. Describe FORM only — positions, poses, camera. Never mention clothing, faces, materials, weather or time of day.>","subjects":[{"color":"RED","description":"<WHAT this subject is in the finished shot, in the description's own words. Name its KIND first and exactly — a dog, a wolf, a horse, a car, a man, a woman. Never assume a person: if the description says an animal, an animal it stays. Then its appearance; clothing only if it is a person.>"}],"look":"<one sentence: the photoreal look of the finished shot — place, time of day, light, atmosphere, from the description's own words>","motion":"<what happens during the shot and how the camera moves, in the description's own words, present tense>"}`,
   },
   'previz.plan.user': {
     agent: 'Previz',
@@ -134,7 +134,7 @@ Return ONLY JSON — no prose, no code fences:
     agent: 'Previz',
     label: 'Blockout still — the clay convention',
     vars: ['{scene}'],
-    text: 'A matte clay blockout render, like a physical maquette photographed on a modelmaker bench. Every figure is a smooth featureless clay mannequin with NO face, NO hair and NO clothing detail, each moulded from a single flat solid colour. The set is plain neutral grey clay volumes. Soft even studio light from above, gentle shadows, no textures, no patterns, no text, no markings, no watermark.\n\n{scene}',
+    text: 'A matte clay blockout render, like a physical maquette photographed on a modelmaker bench. Every subject is a smooth featureless clay form with NO face, NO hair and NO clothing detail — a person is a human-shaped mass, an animal keeps its own real silhouette and stance (a dog stands on four legs), a vehicle is a vehicle-shaped mass. Each is moulded from a single flat solid colour. The set is plain neutral grey clay volumes. Soft even studio light from above, gentle shadows, no textures, no patterns, no text, no markings, no watermark.\n\n{scene}',
   },
 
   // The previz take: the still animates, the clay convention holds for the whole clip.
@@ -142,7 +142,7 @@ Return ONLY JSON — no prose, no code fences:
     agent: 'Previz',
     label: 'Previz take — motion over the blockout',
     vars: ['{motion}'],
-    text: '{motion}\n\nKeep the clay maquette look of the first frame throughout: featureless solid-colour clay figures, grey clay set, same studio light.',
+    text: '{motion}\n\nKeep the clay maquette look of the first frame throughout: featureless solid-colour clay forms in their own real silhouettes, grey clay set, same studio light.',
   },
 
   // The beauty pass. This wording is what routes the task to VIDEO EDITING — Seedance
@@ -152,7 +152,7 @@ Return ONLY JSON — no prose, no code fences:
     agent: 'Previz',
     label: 'Beauty pass — editing task (1080p)',
     vars: ['{look}', '{replacements}', '{count}'],
-    text: '【Editing Goal】\nEdit @Video1, replacing the clay figures and the clay set with the real scene. {look}\n\n【Role of the Source Video】\n@Video1 is the sole editing master and governs the layout of the space, the camera position, the camera movement, the figures\' motion paths, occlusion relationships and event order.\n\n【Edit Objects and Scope】\n{replacements}\nRe-render the grey clay set as the real location described above, keeping its exact shape, layout and camera framing. There are exactly {count} figures throughout; do not add or remove anyone.\n\n【Timeline Inheritance】\nEach figure inherits the timing, duration, path and speed of the clay figure it replaces. The camera movement, shot changes and event order remain exactly as in @Video1.',
+    text: '【Editing Goal】\nEdit @Video1, replacing the clay forms and the clay set with the real scene. {look}\n\n【Role of the Source Video】\n@Video1 is the sole editing master and governs the layout of the space, the camera position, the camera movement, the subjects\' motion paths, occlusion relationships and event order.\n\n【Edit Objects and Scope】\n{replacements}\nRe-render the grey clay set as the real location described above, keeping its exact shape, layout and camera framing. There are exactly {count} subjects throughout; do not add or remove any.\n\n【Timeline Inheritance】\nEach subject inherits the timing, duration, path and speed of the clay form it replaces. The camera movement, shot changes and event order remain exactly as in @Video1.',
   },
 
   // The Edit-shot editor's STRUCTURE-LOCKED render ("use this frame as reference"):

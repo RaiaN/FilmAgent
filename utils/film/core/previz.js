@@ -17,7 +17,7 @@ export const PREVIZ_COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE', 'ORANG
 // The compact form of the clay convention, carried ON the blockout node so any later
 // EDIT of that still restates the medium instead of leaving a vacuum the image model
 // fills with its photoreal default.
-export const PREVIZ_CLAY_STYLE = 'matte clay blockout maquette — featureless solid-colour clay figures, plain grey clay set, no textures';
+export const PREVIZ_CLAY_STYLE = 'matte clay blockout maquette — featureless solid-colour clay forms in their own real silhouettes, plain grey clay set, no textures';
 
 const PREVIZ_RESOLUTION = '480p';
 const BEAUTY_RESOLUTION = '1080p';

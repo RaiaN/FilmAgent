@@ -514,7 +514,7 @@ const CutNodeInner = ({ id, data, selected }) => {
               <span
                 key={v.url}
                 className="nodrag"
-                title={`Video ${vi + 1} — ${v.label || 'video'} (≤15s). Click the role tag to cycle motion → camera → style; ✕ detaches.`}
+                title={`Video ${vi + 1} — ${v.label || 'video'} (2–30s). Click the role tag to cycle motion → camera → style; ✕ detaches.`}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                   padding: '1px 6px', borderRadius: 10, fontSize: 10,

@@ -68,8 +68,10 @@ const AssetUploadPlayground = ({
       videoEl.preload = 'metadata';
       videoEl.onloadedmetadata = () => {
         URL.revokeObjectURL(objectUrl);
-        if (videoEl.duration > 15) {
-          Message.error(`Video is ${Math.round(videoEl.duration)}s — maximum allowed is 15 seconds.`);
+        // Ark's reference-video window: [2, 30]s for generation, [4, 30]s for editing.
+        // The library holds the asset; the TASK decides which floor applies.
+        if (videoEl.duration > 30 || videoEl.duration < 2) {
+          Message.error(`Video is ${Math.round(videoEl.duration)}s — reference videos must be 2–30 seconds (video editing needs at least 4s).`);
           resolve(false);
           return;
         }
@@ -161,7 +163,7 @@ const AssetUploadPlayground = ({
                 size="small"
               >
                 <Radio value="Image">Image</Radio>
-                <Radio value="Video">Video (≤15s)</Radio>
+                <Radio value="Video">Video (2–30s)</Radio>
               </Radio.Group>
             </div>
           }
@@ -289,7 +291,7 @@ const AssetUploadPlayground = ({
 
         <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 16 }}>
           {isVideo
-            ? 'If you choose a local video, you can upload it to TOS first with the button above. Maximum video duration is 15 seconds.'
+            ? 'If you choose a local video, you can upload it to TOS first with the button above. Reference videos must be 2–30 seconds; video-editing tasks need at least 4 seconds.'
             : 'If you choose a local image, you can upload it to TOS first with the button above. The backend can also stage it automatically during CreateAsset using server-side .env.local settings.'}
         </Typography.Paragraph>
 

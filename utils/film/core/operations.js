@@ -196,7 +196,7 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   } else if (assetId) content.push({ type: 'image_asset_id', asset_id: assetId, role: 'reference_image' });
   else if (imageUrl) content.push({ type: 'image_url', image_url: { url: imageUrl }, role: 'reference_image' });
   // else: text-to-video — the prompt is the only content (no reference media).
-  // Reference AUDIO / VIDEO (plural; ≤15s each): the SHOT card's attached media —
+  // Reference AUDIO / VIDEO (plural; videos 2–30s each): the SHOT card's attached media —
   // music + voice clips the take realizes, camera/motion videos it follows, instead of
   // inventing its own. Audios BEFORE videos (the retake fallback's index math relies on
   // this order). data: urls are staged to TOS by /api/seedance.

@@ -71,7 +71,7 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
           refAssetIds: p.direct ? refAssetIds : [],
           firstFrameUrl: p.firstFrameUrl ?? null,  // prev shot's last frame → this shot's first frame
           audioRefUrls: p.audioRefUrls ?? [],      // the card's attached clips → reference audio (≤15s each)
-          videoRefUrls: p.videoRefUrls ?? [],      // the card's attached videos → reference video (≤15s each)
+          videoRefUrls: p.videoRefUrls ?? [],      // the card's attached videos → reference video (2–30s each)
           motion: p.motion || intent,
           camera: p.camera, lens: p.lens, focalLength: p.focalLength, aperture: p.aperture,
           duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: genAudio,

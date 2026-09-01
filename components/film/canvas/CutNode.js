@@ -57,7 +57,6 @@ const ROLE_COLOR = { character: '#722ed1', location: '#00b42a', prop: '#ff7d00',
 // itself carries its error in the Take Library; the card never wears a failure.
 const CUT_STATUS = {
   running: { color: '#165dff', label: 'rolling…' },
-  shot: { color: '#00b42a', label: 'shot ✓' },
 };
 
 
@@ -279,6 +278,11 @@ const CutNodeInner = ({ id, data, selected }) => {
       </div>
 
       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {data.status === 'failed' && String(data.error || '').trim() && (
+          <div style={{ padding: '6px 8px', background: '#2a1215', border: '1px solid #a8071a', borderRadius: 4 }}>
+            <Text style={{ fontSize: 10, color: '#f7a4a4' }}>Shot failed — {data.error}</Text>
+          </div>
+        )}
         <EditableLabel
           value={data.beat}
           onCommit={(v) => patch({ beat: v })}

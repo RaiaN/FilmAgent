@@ -44,9 +44,9 @@ const EditNodeInner = ({ id, data, selected }) => {
   // references, different job — the spec calls them the target material.
   const targets = shotReferences(data, bibleEntries);
   const busy = !!(data.developing || data.composePending);
-  const status = data.status === 'running' ? { label: 'shooting…', color: '#f7ba1e' }
-    : data.status === 'failed' ? { label: 'failed', color: '#f53f3f' }
-      : data.shotUrl ? { label: 'take landed', color: '#00b42a' } : null;
+  // Only IN PROGRESS earns a chip. A landed take is already announced by the take
+  // count; a failure speaks in the body, where its reason fits.
+  const status = data.status === 'running' ? { label: 'shooting…', color: '#f7ba1e' } : null;
 
   return (
     <div style={{ width: 780, background: '#101418', borderRadius: 10, border: `2px solid ${selected ? '#1D9E75' : '#28313c'}`, boxShadow: selected ? '0 0 0 3px rgba(29,158,117,0.16)' : '0 1px 4px rgba(0,0,0,0.35)', overflow: 'hidden' }}>

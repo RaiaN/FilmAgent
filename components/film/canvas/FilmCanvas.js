@@ -846,6 +846,28 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       };
     });
   }, [nodes]);
+  // PICKING A MASTER sees more than the dailies: any video ON THE BOARD is editable —
+  // an uploaded clip, something dragged in from the Library. They ride as one extra
+  // group so the picker stays a single surface with one set of poster mechanics.
+  const pickGroups = useMemo(() => {
+    const inTakes = new Set(takeGroups.flatMap((g) => g.takes.map((t) => t.id)));
+    const loose = nodes
+      .filter((n) => n.data?.kind === 'video' && !inTakes.has(n.id) && (n.data?.cacheUrl || n.data?.url))
+      .map((n) => ({
+        id: n.id,
+        url: n.data.url || '',
+        cacheUrl: n.data.cacheUrl || '',
+        posterUrl: n.data.posterUrl || '',
+        posterScaled: !!n.data.posterScaled,
+        loading: !!n.data.loading,
+        error: n.data.error || '',
+        label: n.data.label || 'Video',
+      }));
+    return loose.length
+      ? [...takeGroups, { cardId: '__board', cut: 9999, beat: 'Board videos', status: '', takes: loose }]
+      : takeGroups;
+  }, [nodes, takeGroups]);
+
   // ---- SHOT BROWSER (right drawer) — WHERE is the card I need on a big board -------
   // Every SHOT card in cut order, searchable; a click flies the viewport to the card
   // (absolute position — parented sequence cards included) and selects it.
@@ -5648,7 +5670,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         {takeLibOpen && (
           <TakeLibrary
             pick={masterPickFor ? { title: 'Pick the master', onPick: (t) => adoptMaster(masterPickFor, t) } : null}
-            groups={takeGroups}
+            groups={masterPickFor ? pickGroups : takeGroups}
             focusedCardId={takeLibFocusId || focusedCutId}
             timelineIds={onTimelineNodeIds}
             onOpenViewer={setViewerId}

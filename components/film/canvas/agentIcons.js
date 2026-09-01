@@ -13,6 +13,7 @@ import {
   IconCamera,
   IconEye,
   IconMindMapping,
+  IconLayout,
   IconSound,
 } from '@arco-design/web-react/icon';
 
@@ -25,8 +26,9 @@ export const AGENT_ICONS = {
   board: IconApps,       // Storyboard (the panel grid)
   cast: IconUserGroup,   // Cast & World (the ensemble: characters/monsters + places)
   shot: IconCamera,      // Shot (drops an empty SHOT card)
-  previz: IconMindMapping, // Previz (floor plan — the scene's blocking map)
+  previz: IconLayout,    // Previz (clay blockout → 480p previz → beauty pass: staged layers)
   audio: IconSound,      // Audio (speaks text verbatim into a clip node)
+  edit: IconMindMapping, // Video Edit (one master in, one master out)
 };
 
 export const agentIcon = (key) => AGENT_ICONS[key] || IconStar;

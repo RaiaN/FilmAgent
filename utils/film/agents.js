@@ -312,7 +312,7 @@ export const storyboardAgent = {
 export const editAgent = {
   id: 'edit',
   label: 'Video Edit',
-  icon: 'previz',
+  icon: 'edit',
   color: AGENT_COLORS.edit,
   consumes: [],
   needsSelection: false,
@@ -379,7 +379,6 @@ export const audioAgent = {
 export const AGENTS = [
   storyAgent,
   storyboardAgent,
-  previzAgent,
   shotAgent,
   editAgent,
   castAgent,
@@ -387,6 +386,7 @@ export const AGENTS = [
   locationVariationsAgent,
   audioAgent,
   inspirationAgent,
+  previzAgent,
 ];
 
 export const AGENT_MAP = AGENTS.reduce((acc, a) => {

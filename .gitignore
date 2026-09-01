@@ -39,4 +39,5 @@ yarn-error.log*
 .vercel
 asset-ids.txt
 .gitignore
-tools/*
+tools
+tools

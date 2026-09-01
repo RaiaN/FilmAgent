@@ -2641,13 +2641,16 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       .filter((x, i2, arr) => i2 === 0 || x.idx !== arr[i2 - 1].idx);
   };
 
-  const shotFromCard = useCallback((c, { keepTake = true, audioRefUrls = [], videoRefUrls = [], videoRefAssetIds = [] } = {}) => {
+  const shotFromCard = useCallback((c, { keepTake = true, audioRefUrls = [], videoRefUrls = [], videoRefAssetIds = [], masterUrl = '' } = {}) => {
     const refEntryIds = [...(c.data.refIds || []), ...(c.data.assetRefs || []).map(extRefId)];
     const baseRefs = shotReferences(c.data, bibleRef.current);
     // AN EDIT rides its MASTER first among the reference videos, and sends neither ratio
     // nor duration — the endpoint locks both to that master and rejects a request that
     // carries them. Everything else is a shot like any other.
-    const master = c.type === 'edit' ? c.data.master : null;
+    // The caller resolves the master to a DURABLE url (the node's cached media-store
+    // copy) exactly as it does the other media refs — /api/seedance presigns that to TOS.
+    // A raw take url is a signed Ark link that can lapse between shoot and edit.
+    const master = c.type === 'edit' && c.data.master ? { ...c.data.master, url: masterUrl || c.data.master.url } : null;
     // THE CARD'S PROMPT IS THE PROMPT. Compose writes the whole thing — blocks, image
     // roles, keyframe grammar, look and sound — and it rides VERBATIM. Nothing is
     // appended, wrapped or renumbered here: what you read on the card is what the model
@@ -2852,7 +2855,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       try {
         await ensureRefsRegistered(card);
         const { audioRefUrls, videoRefUrls, videoRefAssetIds } = await resolveCardMediaRefs(card);
-        const shot = shotFromCard(card, { keepTake: false, audioRefUrls, videoRefUrls, videoRefAssetIds });
+        const masterUrl = card.type === 'edit' ? durableVideoUrl(card.data?.master?.url || '') : '';
+        // FAIL LOUDLY, not at the endpoint: Ark can only fetch a public http(s) url, an
+        // asset:// id, or a media-store object the route presigns. Anything else would
+        // reach Seedance unfetchable and come back as an opaque failure.
+        if (card.type === 'edit' && masterUrl && !/^https?:/i.test(masterUrl) && !masterUrl.includes('/api/film/media?key=')) {
+          throw new Error('The master is not a fetchable video — re-pick it, or re-check the clip into the media store.');
+        }
+        const shot = shotFromCard(card, { keepTake: false, audioRefUrls, videoRefUrls, videoRefAssetIds, masterUrl });
         const refAssetIds = await registerShotRefs(shot.refUrls, shot.refAssetIds);
         // Seedance content-SCREENS every reference image and rejects any it judges to "contain
         // sensitive information / a real person" — photoreal cast plates trip it EVEN as fully

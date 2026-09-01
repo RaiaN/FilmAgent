@@ -2641,7 +2641,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       .filter((x, i2, arr) => i2 === 0 || x.idx !== arr[i2 - 1].idx);
   };
 
-  const shotFromCard = useCallback((c, { keepTake = true, audioRefUrls = [], videoRefUrls = [], videoRefAssetIds = [], masterUrl = '' } = {}) => {
+  const shotFromCard = useCallback((c, { keepTake = true, audioRefUrls = [], videoRefUrls = [], videoRefAssetIds = [], masterUrl = '', masterAssetId = null } = {}) => {
     const refEntryIds = [...(c.data.refIds || []), ...(c.data.assetRefs || []).map(extRefId)];
     const baseRefs = shotReferences(c.data, bibleRef.current);
     // AN EDIT rides its MASTER first among the reference videos, and sends neither ratio
@@ -2674,7 +2674,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       seed: c.data.seed,
       modelKey: videoModelKeyOf(c.data.videoModel),
       ...(audioRefUrls.length ? { audioRefUrls } : {}),
-      ...(master || videoRefUrls.length ? { videoRefUrls: [...(master ? [master.url] : []), ...videoRefUrls], videoRefAssetIds: [...(master ? [null] : []), ...videoRefAssetIds] } : {}),
+      ...(master || videoRefUrls.length ? { videoRefUrls: [...(master ? [master.url] : []), ...videoRefUrls], videoRefAssetIds: [...(master ? [masterAssetId] : []), ...videoRefAssetIds] } : {}),
       ...(keepTake && c.data.shotUrl ? { shotUrl: c.data.shotUrl } : {}),
     };
   }, []);
@@ -2855,14 +2855,22 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       try {
         await ensureRefsRegistered(card);
         const { audioRefUrls, videoRefUrls, videoRefAssetIds } = await resolveCardMediaRefs(card);
-        const masterUrl = card.type === 'edit' ? durableVideoUrl(card.data?.master?.url || '') : '';
+        // THE MASTER PREFERS asset:// — a registered Library id is the trusted, durable
+        // reference: nothing to presign, nothing to expire, and the content screen treats
+        // it as an owned asset rather than a raw url. Falls back to the media-store copy
+        // (which /api/seedance presigns) for a take that was never registered.
+        const masterNode = card.type === 'edit' && card.data?.master?.nodeId
+          ? nodesRef.current.find((n) => n.id === card.data.master.nodeId) : null;
+        const masterAssetId = masterNode?.data?.assetId || null;
+        const masterUrl = card.type !== 'edit' ? ''
+          : (masterAssetId ? `asset://${masterAssetId}` : durableVideoUrl(card.data?.master?.url || ''));
         // FAIL LOUDLY, not at the endpoint: Ark can only fetch a public http(s) url, an
         // asset:// id, or a media-store object the route presigns. Anything else would
         // reach Seedance unfetchable and come back as an opaque failure.
-        if (card.type === 'edit' && masterUrl && !/^https?:/i.test(masterUrl) && !masterUrl.includes('/api/film/media?key=')) {
+        if (card.type === 'edit' && masterUrl && !/^https?:/i.test(masterUrl) && !masterUrl.startsWith('asset://') && !masterUrl.includes('/api/film/media?key=')) {
           throw new Error('The master is not a fetchable video — re-pick it, or re-check the clip into the media store.');
         }
-        const shot = shotFromCard(card, { keepTake: false, audioRefUrls, videoRefUrls, videoRefAssetIds, masterUrl });
+        const shot = shotFromCard(card, { keepTake: false, audioRefUrls, videoRefUrls, videoRefAssetIds, masterUrl, masterAssetId });
         const refAssetIds = await registerShotRefs(shot.refUrls, shot.refAssetIds);
         // Seedance content-SCREENS every reference image and rejects any it judges to "contain
         // sensitive information / a real person" — photoreal cast plates trip it EVEN as fully

@@ -299,13 +299,12 @@ export const storyboardAgent = {
   },
 };
 
-// The PREVIZ agent (v2 — the BLOCKING agent): from a brief it renders the scene's
-// FLOOR PLAN — a schematic overhead blocking map (Seed 2.0 Pro plans space/parties/
-// moves/AXIS, Seedream Pro draws it). The map is the scene's spatial state: edit it
-// like any image; attach it to a SHOT card and the projection writes camera-relative
-// PREVIZ — structure first, look second. A standalone card: scene description → clay
-// blockout still → 480p previz take → 1080p beauty pass (a Seedance editing task over
-// the previz clip). The rail tap lays the card; every step is a tap on the card itself.
+// The PREVIZ agent: from a scene description it plans the STAGING, the action AXIS and
+// the COVERAGE, then draws a PAGE OF PLATES — an overhead staging map, a plate per
+// principal subject, and a pencil storyboard panel per shot. Plates are drawings because
+// the renderer is a text-to-image model with no scene to orbit; the camera work belongs
+// downstream to Seedance. It generates NO video: any plate dispatches to a SHOT card,
+// and with it the skills, the gates, the takes and the Take Library.
 // The VIDEO EDIT agent: one existing video is the sole master; the edit changes only
 // what you name and inherits the rest — scene, camera, trajectories, event order. A
 // standalone card, like Previz: the rail tap lays it, everything happens on the card.
@@ -331,7 +330,7 @@ export const previzAgent = {
   consumes: [],
   needsSelection: false,
   defaultSettings: { brief: '', camera: '', durationSec: 5 },
-  describe: 'Scene description → a clay BLOCKOUT still (staging, no identity) → a 480p previz take → a 1080p beauty pass that re-renders the previz photoreal, inheriting its blocking, camera and timing exactly.',
+  describe: 'Scene description → staging, the action axis and COVERAGE → a page of plates: an overhead staging map, a plate per principal subject, and a pencil storyboard panel per shot. Any plate dispatches to a SHOT card — a panel as its opening frame, a map or character plate as a reference. Previz decides staging, coverage and timing; it never generates video itself.',
   async run() {
     throw new Error('The Previz agent lays a card on the canvas — run it from the board.');
   },

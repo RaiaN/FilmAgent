@@ -1,143 +1,180 @@
-import { createContext, memo, useContext, useState } from 'react';
-import { Button, Typography, Select, Input } from '@arco-design/web-react';
-import { IconEye, IconPlayArrow, IconLoading, IconVideoCamera } from '@arco-design/web-react/icon';
-import { SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
+import { createContext, memo, useContext } from 'react';
+import { Typography, Button, Tag, Select, Message } from '@arco-design/web-react';
+import { IconLoading, IconPlayArrow, IconRefresh, IconCamera, IconVideoCamera } from '@arco-design/web-react/icon';
+import { DraftText, BLOCK_LABEL } from './cardBlocks';
+import { PREVIZ_RESOLUTIONS } from '../../../utils/film/core/previz';
 
 const { Text } = Typography;
 
-export const PrevizContext = createContext({ onBlockout: null, onPrevizTake: null, onBeautyTake: null, onPatchPreviz: null, onOpenTakes: null });
+export const PrevizContext = createContext({
+  onPlan: null, onRenderPlate: null, onRenderAll: null, onToShotCard: null, onPatchPreviz: null,
+});
 
-// Blur-commit draft — keystrokes through the RF store echo back a beat late.
-const DraftArea = ({ value, onCommit, ...rest }) => {
-  const [draft, setDraft] = useState(null);
-  return (
-    <Input.TextArea
-      {...rest}
-      value={draft !== null ? draft : (value || '')}
-      onChange={(v) => setDraft(v)}
-      onFocus={() => setDraft(value || '')}
-      onBlur={() => { if (draft !== null && draft !== (value || '')) onCommit(draft); setDraft(null); }}
-    />
-  );
+// THE PREVIZ PANEL — a page of plates, then dispatch. Previz decides STAGING, GEOGRAPHY,
+// EYELINES, COVERAGE and TIMING; it never makes video and never decides look.
+//
+// The plates are DRAWINGS because the renderer is a text-to-image model: a pencil panel
+// has no 3D scene it must stay faithful to, and panels are supposed to differ from one
+// another. Promote any plate and a SHOT card makes the take — with the skill, the gates,
+// the takes and the Take Library that the card already carries.
+const KIND = {
+  board: { label: 'PANEL', color: '#1d2129', fit: 'cover' },
+  map: { label: 'MAP', color: '#b06f10', fit: 'contain' },
+  character: { label: 'CHAR', color: '#722ed1', fit: 'contain' },
 };
 
-const Section = ({ label, children }) => (
-  <div style={{ background: '#f7f8fa', border: '1px solid #eceff3', borderRadius: 6, padding: 6 }}>
-    <Text style={{ display: 'block', fontSize: 9, fontWeight: 700, color: '#86909c', letterSpacing: 0.4, marginBottom: 4 }}>{label}</Text>
-    {children}
-  </div>
-);
-
-// A completed step: the artifact's thumb + what it is. Clicking flies to the node.
-const StepDone = ({ label, detail }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 5, background: '#e8f7ee', border: '1px solid #b7ebc6' }}>
-    <Text style={{ fontSize: 10, fontWeight: 700, color: '#00875a', flexShrink: 0 }}>✓ {label}</Text>
-    <Text style={{ fontSize: 10, color: '#4e5969' }} ellipsis>{detail}</Text>
-  </div>
-);
-
-// THE PREVIZ CARD — structure first, look second. Three taps, three artifacts:
-// clay blockout still → 480p previz take → 1080p beauty pass (a Seedance EDITING task).
-// Standalone: nothing here reads the screenplay, the strip or the shot list.
 const PrevizNodeInner = ({ id, data, selected }) => {
-  const { onBlockout, onPrevizTake, onBeautyTake, onPatchPreviz, onOpenTakes } = useContext(PrevizContext);
-  const busy = !!data.busy;
+  const { onPlan, onRenderPlate, onRenderAll, onToShotCard, onPatchPreviz } = useContext(PrevizContext);
+  const patch = (p) => onPatchPreviz && onPatchPreviz(id, p);
   const plan = data.plan || null;
-  const hasBrief = !!String(data.brief || '').trim();
-  const step = data.beautyId ? 3 : data.previzId ? 2 : data.blockoutId ? 1 : 0;
+  const plates = data.plates || [];
+  const sheet = plan?.plates || [];
+  const drawn = plates.filter((p) => p?.url).length;
+  const anyLoading = plates.some((p) => p?.loading);
+  const resolution = PREVIZ_RESOLUTIONS.includes(data.previzResolution) ? data.previzResolution : PREVIZ_RESOLUTIONS[0];
+
   return (
-    <div style={{ width: 420, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#3491fa' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(52,145,250,0.12)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+    <div style={{ width: 700, background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#3491fa' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(52,145,250,0.14)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
       <div style={{ height: 4, background: '#3491fa' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderBottom: '1px solid #f2f3f5' }}>
-        <IconEye style={{ color: '#3491fa', fontSize: 14 }} />
-        <Text bold style={{ fontSize: 12, flex: 1 }} ellipsis>Previz</Text>
-        {Number(data.takeCount) > 0 && (
-          <Text
-            className="nodrag"
-            title="Open this card's takes in the Take Library — scrub, download, add to the timeline"
-            onClick={(e) => { e.stopPropagation(); onOpenTakes && onOpenTakes(id); }}
-            style={{ fontSize: 10, color: '#3491fa', cursor: 'pointer', fontWeight: 600 }}
-          >🎞 {data.takeCount}</Text>
-        )}
-        <Text type="secondary" style={{ fontSize: 10 }}>{step}/3</Text>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: '1px solid #e5e6eb' }}>
+        <Text bold style={{ fontSize: 12 }}>Previz</Text>
+        <Text type="secondary" style={{ fontSize: 10 }}>
+          {sheet.length ? `${sheet.length} plate${sheet.length === 1 ? '' : 's'} · ${drawn} drawn` : 'staging, geography, coverage, timing — never look'}
+        </Text>
+        <span style={{ flex: 1 }} />
+        {data.busy && <Tag size="small" color="blue"><IconLoading style={{ marginRight: 3 }} />{data.step || 'working'}…</Tag>}
       </div>
 
-      <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px 0' }}>
-        <Section label="SCENE">
-          <DraftArea
-            value={data.brief}
-            onCommit={(v) => onPatchPreviz && onPatchPreviz(id, { brief: v })}
-            placeholder="the shot — who is where, what happens, how the camera moves…"
-            autoSize={{ minRows: 2, maxRows: 8 }}
-            style={{ fontSize: 11 }}
+      <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 660, overflowY: 'auto' }}>
+        <div>
+          <Text style={{ ...BLOCK_LABEL, color: '#86909c', display: 'block', marginBottom: 3 }}>SCENE</Text>
+          <DraftText
+            textarea value={data.brief} onCommit={(v) => patch({ brief: v })}
+            placeholder="what happens in this scene — who is there, where, and what they are doing"
+            autoSize={{ minRows: 2, maxRows: 6 }} style={{ fontSize: 11 }}
           />
-          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-            <Select
-              size="mini" style={{ flex: 1 }} placeholder="camera — planner chooses" allowClear showSearch
-              value={data.camera || undefined}
-              onChange={(v) => onPatchPreviz && onPatchPreviz(id, { camera: v || '' })}
-            >
-              {SHOT_TEMPLATES_BY_CATEGORY.map(({ category, templates }) => (
-                <Select.OptGroup key={category} label={category}>
-                  {templates.map((t) => <Select.Option key={t.id} value={t.id}>{t.name}</Select.Option>)}
-                </Select.OptGroup>
-              ))}
-            </Select>
-            <Select
-              size="mini" style={{ width: 74, flexShrink: 0 }}
-              value={data.durationSec || 5}
-              onChange={(v) => onPatchPreviz && onPatchPreviz(id, { durationSec: v })}
-              options={[5, 8, 10, 12].map((v) => ({ label: `${v}s`, value: v }))}
-              title="Previz take length — the beauty pass inherits it"
-            />
-          </div>
-        </Section>
+        </div>
+
+        <Button
+          size="small" long type="primary" icon={<IconPlayArrow />}
+          loading={!!data.busy} disabled={!onPlan || !String(data.brief || '').trim()}
+          style={{ background: '#b06f10', borderColor: '#b06f10' }}
+          onClick={() => onPlan && onPlan(id)}
+          title="One reasoner call: the staging, the action axis, the subjects and the whole plate page. No pixels."
+        >{plan ? 'Re-plan the page' : 'Plan the page'}</Button>
+
+        {data.error && <Text style={{ fontSize: 10, color: '#f53f3f' }}>{data.error}</Text>}
+
+        {plan && (
+          <>
+            <div>
+              <Text style={{ ...BLOCK_LABEL, color: '#86909c', display: 'block', marginBottom: 3 }}>STAGING</Text>
+              <Text style={{ fontSize: 10, color: '#4e5969', display: 'block' }}>{plan.scene}</Text>
+              {plan.axis && (
+                <Text style={{ fontSize: 10, color: '#b06f10', display: 'block', marginTop: 3 }} title="The line every camera stays on one side of — the geography previz exists to lock">
+                  ⟺ axis · {plan.axis}
+                </Text>
+              )}
+            </div>
+
+            {/* The legend. The plates carry NO lettering — an image model garbles text —
+                so the names that identify who is who live here, beside the drawings. */}
+            {(plan.subjects || []).length > 0 && (
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {plan.subjects.map((s, i) => (
+                  <Tag key={`${s.name}-${i}`} size="small" style={{ background: '#f2f3f5', color: '#4e5969', border: 'none' }} title={s.description}>
+                    {s.name || s.description.slice(0, 20)}
+                  </Tag>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>PLATES</Text>
+              <span style={{ flex: 1 }} />
+              <Select
+                size="mini" value={resolution} onChange={(v) => patch({ previzResolution: v })}
+                options={PREVIZ_RESOLUTIONS} style={{ width: 78 }}
+                title="What a promoted plate shoots at — previz is a decision, so it stays cheap"
+              />
+              <Button
+                size="mini" icon={anyLoading ? <IconLoading /> : <IconCamera />}
+                disabled={!onRenderAll || anyLoading}
+                onClick={() => onRenderAll && onRenderAll(id)}
+                title="Draw every plate that has none yet, in page order — character plates first, so the panels can reference them"
+              >Draw all</Button>
+            </div>
+
+            {/* THE PAGE — read left to right, top to bottom, like a storyboard sheet. */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+              {sheet.map((sh, i) => {
+                const plate = plates[i] || {};
+                const kind = KIND[sh.kind] || KIND.board;
+                return (
+                  <div key={i} style={{ border: '1px solid #e5e6eb', borderRadius: 6, background: '#fcfcfd', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                    <div
+                      onClick={() => !plate.loading && onRenderPlate && onRenderPlate(id, i)}
+                      title={plate.url ? sh.draw : 'Click to draw this plate'}
+                      style={{ position: 'relative', height: 88, background: '#eff1f4', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: onRenderPlate ? 'pointer' : 'default' }}
+                    >
+                      {plate.loading ? <IconLoading style={{ color: '#3491fa' }} />
+                        : plate.url ? <img src={plate.cacheUrl || plate.url} alt="" style={{ width: '100%', height: '100%', objectFit: kind.fit }} />
+                          : <Text style={{ fontSize: 9, color: '#a9aeb8' }}>draw</Text>}
+                      <span style={{ position: 'absolute', top: 3, left: 3, fontSize: 8, fontWeight: 700, letterSpacing: 0.4, padding: '0 4px', borderRadius: 3, background: kind.color, color: '#fff' }}>{kind.label}</span>
+                      {sh.durationSec ? <span style={{ position: 'absolute', bottom: 3, right: 3, fontSize: 8, padding: '0 4px', borderRadius: 3, background: 'rgba(0,0,0,0.55)', color: '#fff' }}>{sh.durationSec}s</span> : null}
+                    </div>
+                    <div style={{ padding: '4px 5px', display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+                      <Text style={{ fontSize: 9.5, fontWeight: 700, color: '#1d2129' }} ellipsis={{ rows: 1 }}>{i + 1}. {sh.title || sh.kind}</Text>
+                      {sh.caption && <Text style={{ fontSize: 9, color: '#86909c', lineHeight: 1.3 }} ellipsis={{ rows: 2 }}>{sh.caption}</Text>}
+                      {plate.error && <Text style={{ fontSize: 8.5, color: '#f53f3f' }} ellipsis={{ rows: 2 }}>{plate.error}</Text>}
+                      <span style={{ flex: 1 }} />
+                      {/* ONE primary action, and it is whatever the plate needs next:
+                          an undrawn plate can only be DRAWN, so offering SHOT beside it
+                          is a dead button. Once it is drawn, SHOT takes the slot and
+                          re-drawing steps aside into the icon. */}
+                      <div style={{ display: 'flex', gap: 3 }}>
+                        {plate.url ? (
+                          <>
+                            <Button
+                              size="mini" icon={<IconRefresh />} loading={!!plate.loading} disabled={!onRenderPlate}
+                              onClick={() => onRenderPlate && onRenderPlate(id, i)}
+                              style={{ padding: '0 5px', minWidth: 0 }}
+                              title="Draw it again"
+                            />
+                            <Button
+                              size="mini" type="primary" icon={<IconVideoCamera />}
+                              disabled={!onToShotCard}
+                              style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1, padding: 0, fontSize: 9 }}
+                              onClick={() => (onToShotCard ? onToShotCard(id, i) : Message.warning('not wired'))}
+                              title={sh.kind === 'board'
+                                ? `Lay a SHOT card from this panel — ${resolution}, the panel pinned as its opening frame, camera and action pre-filled`
+                                : `Lay a SHOT card with this plate as a reference — ${resolution}`}
+                            >SHOT</Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="mini" type="primary" icon={<IconCamera />}
+                            loading={!!plate.loading} disabled={!onRenderPlate}
+                            style={{ background: '#4e5969', borderColor: '#4e5969', flex: 1, padding: 0, fontSize: 9 }}
+                            onClick={() => onRenderPlate && onRenderPlate(id, i)}
+                            title={sh.draw || 'Draw this plate'}
+                          >Draw</Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {plan.look && (
+              <Text style={{ fontSize: 10, color: '#86909c' }} title="Rides to the SHOT card; never drawn on a plate">
+                look · {plan.look}
+              </Text>
+            )}
+          </>
+        )}
       </div>
-
-      <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {/* 1 — clay blockout. The cheap gate: identity-free, re-roll until staging is right. */}
-        {data.blockoutId
-          ? <StepDone label="Blockout" detail={plan ? `${(plan.subjects || []).map((s) => s.color.toLowerCase()).join(', ')} — clay` : 'clay still'} />
-          : null}
-        <Button
-          size="small" long loading={busy && data.step === 'blockout'} disabled={!hasBrief || busy}
-          icon={<IconPlayArrow />}
-          onClick={() => onBlockout && onBlockout(id)}
-          style={data.blockoutId ? {} : { background: '#3491fa', borderColor: '#3491fa', color: '#fff' }}
-          title="Plan the staging and render the clay blockout still — colour-coded, identity-free. 1 reasoner call + 1 image; re-roll freely."
-        >
-          {data.blockoutId ? 'Re-roll blockout' : '1 · Blockout still'}
-        </Button>
-
-        {/* 2 — the previz take. Cheapest video the model sells; all structure decided here. */}
-        <Button
-          size="small" long loading={busy && data.step === 'previz'} disabled={!data.blockoutId || busy}
-          icon={<IconVideoCamera />}
-          onClick={() => onPrevizTake && onPrevizTake(id)}
-          style={data.blockoutId && !data.previzId ? { background: '#3491fa', borderColor: '#3491fa', color: '#fff' } : {}}
-          title={data.blockoutId ? 'Animate the blockout at 480p — the still rides as the first frame. Blocking, camera and timing get decided here.' : 'Render the blockout still first'}
-        >
-          {data.previzId ? 'Re-shoot previz' : '2 · Previz take · 480p'}
-        </Button>
-
-        {/* 3 — the beauty pass: an EDITING task, so ratio and duration come from the previz. */}
-        <Button
-          size="small" long loading={busy && data.step === 'beauty'} disabled={!data.previzId || busy}
-          icon={<IconVideoCamera />}
-          onClick={() => onBeautyTake && onBeautyTake(id)}
-          style={data.previzId && !data.beautyId ? { background: '#b06f10', borderColor: '#b06f10', color: '#fff' } : {}}
-          title={data.previzId ? 'Re-render the previz photoreal at 1080p — a Seedance editing task: the clip is the master, so blocking, camera and timing are inherited exactly.' : 'Shoot the previz take first'}
-        >
-          {data.beautyId ? 'Re-run beauty pass' : '3 · Beauty pass · 1080p'}
-        </Button>
-      </div>
-
-      {busy && (
-        <Text style={{ fontSize: 10, color: '#165dff', padding: '0 10px 6px' }}><IconLoading /> {data.step === 'blockout' ? 'planning + rendering the blockout…' : data.step === 'previz' ? 'shooting the previz take…' : 'running the beauty pass…'}</Text>
-      )}
-      {String(data.error || '').trim() && (
-        <Text style={{ fontSize: 10, color: '#f53f3f', padding: '0 10px 6px' }} ellipsis={{ rows: 2 }}>⚠ {data.error}</Text>
-      )}
     </div>
   );
 };

@@ -53,7 +53,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { previzPlan, blockoutStill, previzTake, beautyTake } from '../../../utils/film/core/previz';
+import { previzPlan, previzPlate, PREVIZ_RESOLUTIONS } from '../../../utils/film/core/previz';
 import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
@@ -1433,6 +1433,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Storyboard panels → CUT cards. The card-laying logic lives with the other cut
   // handlers further down; the ref bridges the ordering.
   const storyboardPanelRef = useRef(null);
+  // Previz DISPATCH lives far below (it needs onPatchCut and the panel layer), while the
+  // previz context is built above it — the ref is the seam.
+  const previzDispatchRef = useRef({ toShot: () => {} });
+  // Compose is declared far below (it closes over the bible, the trace and the client);
+  // previz dispatch needs to CALL it. Same seam as previzDispatchRef, other direction.
+  const composeCutRef = useRef(null);
 
   // Cast & World streams plates via onPlan/onEntry (not onAsset), so every trigger —
   // agent card, strip, chat — routes through the same castDraft path. The handler is
@@ -1769,15 +1775,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   }, [apiKey, rfInstance, freeOrigin, setNodes]);
 
 
-  // ---- Previz v2: FLOOR PLAN — the scene's schematic overhead blocking map ------------
-  // One explicit tap = ONE reason call (the AD planner CoT: space → parties → moves →
-  // AXIS) + ONE Seedream Pro render (literal mode). The map lands as a normal image
-  // node (layerId 'previz'): editable like any image; attaching it to a SHOT card is
-  // the projection moment (see attachMapToCard).
-  // ---- PREVIZ: blockout still -> 480p previz take -> 1080p beauty pass --------------
-  // Structure first, look second. Each step is an explicit tap that lands its own board
-  // artifact; the PLAN (colour->subject map + target look) is computed once at step 1 and
-  // stored on the card, so steps 2 and 3 re-infer nothing.
+  // ---- PREVIZ: plan the page → draw the plates → dispatch any plate to a SHOT card --
+  // Structure first, look second. The PLAN is one reasoner call and everything after it
+  // reads that object, so no plate re-infers the staging. Plates live on the panel.
   const patchPreviz = useCallback((id, patch) => {
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)));
   }, [setNodes]);
@@ -1789,132 +1789,103 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     return true;
   }, [apiKey]);
 
-  // The blockout STILL is a board image (a plate you look at, edit and reuse). TAKES are
-  // NOT: they follow the board's one convention — hidden children of `grid-<cardId>`,
-  // surfaced only through the Take Library (no board <video>, no second display surface).
-  const layPrevizStill = useCallback((cardId) => {
-    const card = nodesRef.current.find((n) => n.id === cardId);
-    const position = freeOrigin({ w: 360, h: 280, preferred: { x: (card?.position?.x || 0) + 460, y: card?.position?.y || 0 } });
-    const node = createAssetNode({ kind: 'image', url: '', label: 'Blockout', position, layerId: 'previz' });
-    node.data.loading = true;
-    node.data.previz = true;
-    setNodes((ns) => ns.concat(node));
-    return node.id;
-  }, [freeOrigin, setNodes]);
-
-  const layPrevizTake = useCallback((cardId, label) => {
-    const card = nodesRef.current.find((n) => n.id === cardId);
-    const gridId = `grid-${cardId}`;
-    const takeId = `shot-${cardId}-${Date.now().toString(36)}`;
-    setNodes((ns) => {
-      const slot = ns.filter((n) => n.parentId === gridId).length;
-      let next = ns;
-      if (!ns.some((n) => n.id === gridId)) {
-        const grid = createGroupNode({
-          label: 'Previz takes',
-          position: { x: (card?.position?.x || 0) + 460, y: (card?.position?.y || 0) + 320 },
-          width: GROUP_PAD * 2 + TAKE_COLS * CELL_W,
-          height: GROUP_HEADER + GROUP_PAD + TAKE_CELL_H,
-        });
-        next = next.concat({ ...grid, id: gridId, hidden: true }); // parent BEFORE child (RF ordering); born HIDDEN — never flash on the board
-      }
-      const tn = createAssetNode({
-        kind: 'video', url: '', label,
-        position: { x: GROUP_PAD + (slot % TAKE_COLS) * CELL_W, y: GROUP_HEADER + GROUP_PAD + Math.floor(slot / TAKE_COLS) * TAKE_CELL_H },
-      });
-      next = next.concat({ ...tn, id: takeId, parentId: gridId, hidden: true, data: { ...tn.data, loading: true } });
-      const rows = Math.floor(slot / TAKE_COLS) + 1;
-      const h = GROUP_HEADER + GROUP_PAD + rows * TAKE_CELL_H;
-      return next.map((n) => (n.id === gridId ? { ...n, style: { ...n.style, width: GROUP_PAD * 2 + TAKE_COLS * CELL_W, height: h } } : n));
-    });
-    return takeId;
-  }, [setNodes]);
-
-  // STEP 1 — plan + clay blockout still. Identity-free, so re-rolling costs one image.
-  const runPrevizBlockout = useCallback(async (cardId) => {
+  // A PLATE is a drawing that lives ON the panel (data.plates), never a loose board node:
+  // the panel is the one surface for them, exactly as the Take Library is for takes.
+  // PREVIZ PLAN — one reasoner call: the staging, the axis, the subjects and the whole
+  // plate page. No pixels, no video. Re-plan freely.
+  const runPrevizPlan = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const brief = String(card?.data?.brief || '').trim();
     if (!brief) { Message.warning('Write the scene description first.'); return; }
     if (card?.data?.busy || !previzKeyOk()) return;
-    patchPreviz(cardId, { busy: true, step: 'blockout', error: '' });
-    traceRef.current.startRun({ note: 'Agent · Previz · blockout' });
-    const ctx = previzCtxOf();
-    const nodeId = layPrevizStill(cardId);
+    patchPreviz(cardId, { busy: true, step: 'plan', error: '' });
+    traceRef.current.startRun({ note: 'Agent · Previz · plan' });
     try {
-      const plan = await previzPlan({ brief, camera: shotTemplateCinematography(card?.data?.camera) || '' }, ctx);
-      const { url, cacheUrl, prompt, styleLock } = await blockoutStill({ plan, imageModel: 'seedreamPro' }, ctx);
-      traceRef.current.log({ level: 'run', kind: 'decision', note: `Previz · blockout (${plan.subjects.length} figures: ${plan.subjects.map((s) => s.color).join(', ')})` });
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, prompt, styleLock, loading: false } } : n)));
-      patchPreviz(cardId, { plan, blockoutId: nodeId, previzId: null, beautyId: null, busy: false, step: '' });
-      Message.success(`Blockout on the board — ${plan.subjects.map((s) => `${s.color.toLowerCase()} = ${s.description}`).join(' · ')}. Re-roll until the staging is right.`);
+      const plan = await previzPlan({ brief, camera: shotTemplateCinematography(card?.data?.camera) || '' }, previzCtxOf());
+      const panels = plan.plates.filter((p) => p.kind === 'board').length;
+      traceRef.current.log({ level: 'run', kind: 'decision', note: `Previz · ${plan.plates.length} plates (${panels} panel${panels === 1 ? '' : 's'}), ${plan.subjects.length} subject${plan.subjects.length === 1 ? '' : 's'}` });
+      patchPreviz(cardId, { plan, plates: [], busy: false, step: '' });
+      Message.success(`Page planned — ${plan.plates.length} plates, ${panels} panel${panels === 1 ? '' : 's'}. Draw them, then send any plate to a SHOT card.`);
     } catch (e) {
-      setNodes((ns) => ns.filter((n) => n.id !== nodeId));
       patchPreviz(cardId, { busy: false, step: '', error: e.message });
-      Message.error(`Blockout failed: ${e.message}`);
+      Message.error(`Previz plan failed: ${e.message}`);
     }
-  }, [patchPreviz, previzCtxOf, previzKeyOk, layPrevizStill, setNodes]);
+  }, [patchPreviz, previzCtxOf, previzKeyOk]);
 
-  // Poll a Seedance task into an already-laid video node.
-  const settlePrevizVideo = useCallback(async (ctx, taskId, nodeId) => {
-    const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
-    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null } } : n)));
-    return videoUrl;
-  }, [setNodes]);
+  // ONE PLATE. The plates already drawn ride as references — the character plates first,
+  // since they pin WHO, then the first drawn panel, which pins the hand. This is the only
+  // real lever on consistency: the renderer has no scene memory between calls, so a plate
+  // drawn early in the page simply has less to hold onto.
+  const previzPlateRefs = useCallback((plan, plates, index) => {
+    const urlOf = (i) => plates[i]?.cacheUrl || plates[i]?.url || null;
+    const sheet = plan.plates || [];
+    if (sheet[index]?.kind === 'character') return []; // a character plate is the anchor; it copies no one
+    // LABELLED, not just attached: the plate prompt names each reference by the subject
+    // it stands for, so "the wolf" is bound to a drawing instead of to the model's prior.
+    const chars = sheet
+      .map((p, i) => (p.kind === 'character' && i !== index && urlOf(i)
+        ? { url: urlOf(i), label: p.title || (plan.subjects || [])[0]?.name || 'this subject' }
+        : null))
+      .filter(Boolean);
+    const firstPanel = sheet.findIndex((p, i) => p.kind === 'board' && i !== index && urlOf(i));
+    const hand = firstPanel >= 0 && sheet[index]?.kind === 'board'
+      ? [{ url: urlOf(firstPanel), label: 'the pencil hand to match' }]
+      : [];
+    return [...chars.slice(0, 3), ...hand].slice(0, 4);
+  }, []);
 
-  // STEP 2 — the previz take at 480p: the blockout animates, structure gets decided.
-  const runPrevizTake = useCallback(async (cardId) => {
+  const renderPrevizPlate = useCallback(async (cardId, index) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
-    const still = nodesRef.current.find((n) => n.id === card?.data?.blockoutId);
-    const stillUrl = still && refUrl(still);
-    if (!stillUrl) { Message.warning('Render the blockout still first.'); return; }
-    if (card?.data?.busy || !previzKeyOk()) return;
-    patchPreviz(cardId, { busy: true, step: 'previz', error: '' });
-    traceRef.current.startRun({ note: 'Agent · Previz · take (480p)' });
-    const ctx = previzCtxOf();
-    const nodeId = layPrevizTake(cardId, 'Previz · 480p');
+    const plan = card?.data?.plan;
+    if (!plan) { Message.warning('Plan the page first.'); return; }
+    if (!previzKeyOk()) return;
+    const mark = (patch) => setNodes((ns) => ns.map((n) => (n.id === cardId
+      ? { ...n, data: { ...n.data, plates: Object.assign([], n.data.plates || [], { [index]: { ...(n.data.plates || [])[index], ...patch } }) } }
+      : n)));
+    mark({ loading: true, error: '' });
+    traceRef.current.startRun({ note: `Agent · Previz · plate ${index + 1}` });
     try {
-      const { taskId } = await previzTake({
-        stillUrl: absLocalMediaUrl(stillUrl), plan: card.data.plan, durationSec: card.data.durationSec || 5,
-      }, ctx);
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, taskId } } : n)));
-      await settlePrevizVideo(ctx, taskId, nodeId);
-      patchPreviz(cardId, { previzId: nodeId, beautyId: null, busy: false, step: '' });
-      Message.success('Previz take on the board — check the blocking and camera, then run the beauty pass.');
+      const references = previzPlateRefs(plan, card.data.plates || [], index);
+      const { url, cacheUrl, prompt } = await previzPlate({ plan, index, references, imageModel: 'seedreamPro' }, previzCtxOf());
+      mark({ url, cacheUrl: cacheUrl || null, prompt, loading: false, error: '' });
     } catch (e) {
-      setNodes((ns) => ns.filter((n) => n.id !== nodeId));
-      patchPreviz(cardId, { busy: false, step: '', error: e.message });
-      Message.error(`Previz take failed: ${e.message}`);
+      mark({ loading: false, error: e.message });
+      Message.error(`Plate ${index + 1} failed: ${e.message}`);
+      throw e;
     }
-  }, [patchPreviz, previzCtxOf, previzKeyOk, layPrevizTake, settlePrevizVideo, setNodes]);
+  }, [previzCtxOf, previzKeyOk, previzPlateRefs, setNodes]);
 
-  // STEP 3 — the beauty pass: a Seedance EDITING task over the previz clip. Ratio and
-  // duration are inherited from the source (the op omits them); resolution is honoured.
-  const runPrevizBeauty = useCallback(async (cardId) => {
+  // DRAW ALL, in a deliberate order: character plates first so the panels can reference
+  // them, then the rest in page order. Sequential on purpose — each plate wants to see
+  // what the ones before it drew. A failure stops the run rather than burning the page.
+  const renderAllPrevizPlates = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
-    const prev = nodesRef.current.find((n) => n.id === card?.data?.previzId);
-    const previzUrl = prev && refUrl(prev);
-    if (!previzUrl) { Message.warning('Shoot the previz take first.'); return; }
-    if (card?.data?.busy || !previzKeyOk()) return;
-    patchPreviz(cardId, { busy: true, step: 'beauty', error: '' });
-    traceRef.current.startRun({ note: 'Agent · Previz · beauty pass (1080p)' });
-    const ctx = previzCtxOf();
-    const nodeId = layPrevizTake(cardId, 'Beauty · 1080p');
+    const plan = card?.data?.plan;
+    if (!plan) { Message.warning('Plan the page first.'); return; }
+    const done = card.data.plates || [];
+    const todo = plan.plates
+      .map((p, i) => ({ p, i }))
+      .filter(({ i }) => !done[i]?.url)
+      .sort((a, b) => (a.p.kind === 'character' ? 0 : 1) - (b.p.kind === 'character' ? 0 : 1));
+    if (!todo.length) { Message.info('Every plate is already drawn.'); return; }
+    patchPreviz(cardId, { busy: true, step: 'drawing' });
     try {
-      const { taskId } = await beautyTake({ previzUrl: absLocalMediaUrl(previzUrl), plan: card.data.plan }, ctx);
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, taskId } } : n)));
-      await settlePrevizVideo(ctx, taskId, nodeId);
-      patchPreviz(cardId, { beautyId: nodeId, busy: false, step: '' });
-      Message.success('Beauty pass on the board — the previz structure, rendered photoreal at 1080p.');
-    } catch (e) {
-      setNodes((ns) => ns.filter((n) => n.id !== nodeId));
-      patchPreviz(cardId, { busy: false, step: '', error: e.message });
-      Message.error(`Beauty pass failed: ${e.message}`);
+      for (const { i } of todo) {
+        // eslint-disable-next-line no-await-in-loop
+        await renderPrevizPlate(cardId, i);
+      }
+      Message.success(`${todo.length} plate${todo.length === 1 ? '' : 's'} drawn.`);
+    } catch {
+      Message.error('Stopped — fix the failed plate and draw again.');
+    } finally {
+      patchPreviz(cardId, { busy: false, step: '' });
     }
-  }, [patchPreviz, previzCtxOf, previzKeyOk, layPrevizTake, settlePrevizVideo, setNodes]);
+  }, [patchPreviz, renderPrevizPlate]);
 
   const previzCtx = useMemo(() => ({
-    onBlockout: runPrevizBlockout, onPrevizTake: runPrevizTake, onBeautyTake: runPrevizBeauty, onPatchPreviz: patchPreviz, onOpenTakes: openTakesForCard,
-  }), [runPrevizBlockout, runPrevizTake, runPrevizBeauty, patchPreviz, openTakesForCard]);
+    onPlan: runPrevizPlan, onRenderPlate: renderPrevizPlate, onRenderAll: renderAllPrevizPlates, onPatchPreviz: patchPreviz,
+    onToShotCard: (a, b) => previzDispatchRef.current.toShot(a, b),
+  }), [runPrevizPlan, renderPrevizPlate, renderAllPrevizPlates, patchPreviz]);
 
   // MASK — reproduce ANY board image (storyboard frames, uploads, plates) with every
   // person as a flat color silhouette: identities are scrubbed, the plate is pure
@@ -2984,6 +2955,69 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const splitFlightRef = useRef(new Set());
   const laySeqRef = useRef(0);
 
+  // Declared HERE, not with the other previz handlers: they close over onPatchCut,
+  // storyboardPanelRef and laySeqRef, all defined below that block — reading them
+  // earlier is a temporal-dead-zone crash at first render.
+  // DISPATCH → a SHOT card. A PANEL rides as the card's opening frame with its camera
+  // and action pre-filled, so the card is shootable on arrival. A MAP or CHARACTER plate
+  // is not a frame of the film, so it rides as a REFERENCE instead — geography, or who
+  // the subject is. Previz makes no video of its own: generation belongs to the SHOT
+  // card, and with it the skill, the gates, the takes and the Take Library.
+  const previzToShotCard = useCallback((cardId, index) => {
+    const card = nodesRef.current.find((n) => n.id === cardId);
+    const plan = card?.data?.plan;
+    const sh = (plan?.plates || [])[index];
+    const plate = (card?.data?.plates || [])[index];
+    if (!sh || !plate?.url) { Message.warning('Draw this plate first — it is what the card is built on.'); return; }
+    const isPanel = sh.kind === 'board';
+    const resolution = PREVIZ_RESOLUTIONS.includes(card.data?.previzResolution) ? card.data.previzResolution : PREVIZ_RESOLUTIONS[0];
+    const pos = freeOrigin({ w: 780, h: 360, preferred: { x: (card.position?.x || 0) + 900, y: (card.position?.y || 0) + index * 120 } });
+    const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
+    const cardId2 = `${idPrefix}-0`;
+    const cut = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
+    storyboardPanelRef.current({
+      index: 0, cut, idPrefix, cols: 1,
+      title: sh.title || `Previz ${index + 1}`,
+      action: '',
+      promptOverride: (isPanel
+        ? [sh.camera, sh.motion, plan.look]
+        : [plan.scene, plan.look]).filter(Boolean).join('. '),
+      framing: '', shotTemplate: '',
+      durationSec: sh.durationSec || 5,
+      refEntryIds: [], audio: '',
+    }, pos);
+    const chip = { nodeId: null, url: plate.cacheUrl || plate.url, label: sh.title || `Previz plate ${index + 1}` };
+    onPatchCut(cardId2, {
+      assetRefs: [chip],
+      resolution,
+      previzOf: { cardId, index },
+      // Only a PANEL is a frame of the film, and only 2.5 honours a first frame.
+      ...(isPanel ? { keyframes: [{ ...chip, desc: sh.camera || '', pickedAt: Date.now() }], videoModel: 'seedance25' } : {}),
+    });
+    // AUTO-COMPOSE. The card lands with the planner's words, which are notes, not a
+    // prompt — the model's skill has not touched them yet. Composing here FINISHES the
+    // tap the user already made rather than doing something behind their back: one
+    // click, one card, one call, and what lands is shootable.
+    onPatchCut(cardId2, { composePending: true });
+    Message.success(isPanel
+      ? `SHOT card laid from panel ${index + 1} — ${resolution}, the panel pinned as its opening frame. Writing the prompt with the model's skill…`
+      : `SHOT card laid — the ${sh.kind} plate rides as a reference at ${resolution}. Writing the prompt with the model's skill…`);
+    (async () => {
+      // Wait for the card to settle: compose reads nodesRef, and the lay is two queued
+      // setState calls deep. Same wait the Film-strip flow uses.
+      let landed = false;
+      for (let i = 0; i < 60 && !landed; i += 1) {
+        landed = !!nodesRef.current.find((n) => n.id === cardId2)?.data?.assetRefs?.length;
+        // eslint-disable-next-line no-await-in-loop
+        if (!landed) await new Promise((r) => { setTimeout(r, 25); });
+      }
+      onPatchCut(cardId2, { composePending: false });
+      if (landed && composeCutRef.current) await composeCutRef.current(cardId2);
+      else Message.error('The card did not settle in time — press Compose on it to write its prompt.');
+    })();
+  }, [freeOrigin, onPatchCut]);
+  previzDispatchRef.current = { toShot: previzToShotCard };
+
   // Lay one SHOT card per split segment, tiled 3-wide next to the anchor node (a Brief
   // or the card being split). Cut numbers: `startCut` when the caller renumbers around
   // a replaced card, else max(existing cut)+1 — Action shoots cards in cut order, so a
@@ -3361,6 +3395,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     prevTakeFrames,
     onOpenRefDrawer: openRefDrawer,
   }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, pickMasterFor, detachCardRef, splitCardToShots, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
+  composeCutRef.current = composeCutPrompt;
 
   const filmMode = true; // Short-Film-only suite.
 
@@ -4666,7 +4701,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       }));
       if ((d.brief || '').trim()) setLayerSettings((prev) => ({ ...prev, previz: { ...(prev.previz || {}), brief: '' } }));
       closePanel();
-      Message.success('Previz card on the board — blockout still, then the 480p previz take, then the beauty pass.');
+      Message.success('Previz panel on the board — plan the coverage, render the plates, then send each to a SHOT card.');
       return;
     }
     spawnAgentNode(id, { at, preset: d });

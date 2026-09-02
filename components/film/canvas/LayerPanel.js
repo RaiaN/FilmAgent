@@ -220,7 +220,7 @@ const PrevizFields = ({ s, up }) => (
       </div>
     </div>
     <Text type="secondary" style={{ fontSize: 12 }}>
-      Adds a Previz card: clay blockout still &rarr; 480p previz take &rarr; 1080p beauty pass. Each step is a separate tap.
+      Adds a Previz panel: plan the page &rarr; draw the plates (overhead map, character plates, pencil storyboard panels) &rarr; dispatch any plate to a SHOT card. Previz makes no video itself.
     </Text>
   </>
 );

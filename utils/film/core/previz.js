@@ -1,29 +1,29 @@
-import { renderTemplate, getModel, getRuntime, keyframeImageSize, defaultImageModelKey, imageModelKeyOf } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, keyframeImageSize, clampSizeForModel, defaultImageModelKey, imageModelKeyOf } from '../suiteConfig';
 import { parseJson } from './director';
 
-// PREVIZ — structure first, look second. Three steps, three artifacts:
-//   1. blockout still  (Seedream)  — colour-coded clay maquette: staging, no identity
-//   2. previz take     (Seedance @480p) — the still animates; blocking + camera, cheap
-//   3. beauty take     (Seedance @1080p) — an EDITING task over the previz clip
+// PREVIZ — a PAGE OF PLATES, then dispatch. Two steps, no video of its own:
+//   1. plan   (reasoner) — the staging, the axis, the subjects, and the plate list
+//   2. plates (Seedream) — each plate drawn on demand; any plate promotes to a SHOT card
 //
-// The PLAN call runs once at step 1 and fixes the colour->subject mapping, so steps 2
-// and 3 are deterministic: the editing prompt reads back the exact colours the blockout
-// was rendered with, and nothing is re-inferred between passes.
+// Why drawings and not a 3D-style blockout: the plate renderer is a text-to-image model.
+// It has no scene to orbit and no memory between calls, so "the same staging from camera
+// 2" is not a thing it can do — asking for it yields N pictures that merely resemble each
+// other by accident. A pencil storyboard panel has no such requirement: panels are
+// SUPPOSED to differ, and what carries between them is the drawing convention, which an
+// image model holds easily. The camera work moves downstream to Seedance, which is a
+// world model and can actually place a camera.
 
-// The clay palette, in the order the planner assigns it. A pipeline constant: the
-// blockout renders these colours and the beauty pass replaces them by name.
-export const PREVIZ_COLORS = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE', 'ORANGE'];
+export const PREVIZ_RESOLUTIONS = ['480p', '720p']; // previz is a decision tool, never a deliverable
+export const PREVIZ_RESOLUTION = '480p';
 
-// The compact form of the clay convention, carried ON the blockout node so any later
-// EDIT of that still restates the medium instead of leaving a vacuum the image model
-// fills with its photoreal default.
-export const PREVIZ_CLAY_STYLE = 'matte clay blockout maquette — featureless solid-colour clay forms in their own real silhouettes, plain grey clay set, no textures';
+export const PLATE_KINDS = ['board', 'map', 'character'];
 
-const PREVIZ_RESOLUTION = '480p';
-const BEAUTY_RESOLUTION = '1080p';
+// A move drawn as an arrow is the storyboard's own notation for camera motion, and an
+// arrow is a MARK — something an image model draws well, unlike the words for it.
+const MOVE_RE = /\b(pan|tilt|track|tracking|dolly|push|pull|zoom|crane|boom|whip|handheld|steadicam|orbit|arc)\w*/i;
 
-// ONE reasoner call: scene description -> the clay staging, the colour map, the target
-// look and the motion. Everything downstream reads this object.
+// ONE reasoner call: the staging, the action axis, the subjects and the whole plate page.
+// Everything downstream reads this object; nothing is re-inferred per plate.
 export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) => {
   const text = String(brief || '').trim();
   if (!text) throw new Error('Previz needs a scene description first.');
@@ -35,92 +35,95 @@ export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) 
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
   const raw = parseJson(content) || {};
+  const clean = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+
   const subjects = (Array.isArray(raw.subjects) ? raw.subjects : [])
-    .map((s) => ({
-      color: PREVIZ_COLORS.includes(String(s?.color || '').toUpperCase()) ? String(s.color).toUpperCase() : '',
-      description: String(s?.description || '').replace(/\s+/g, ' ').trim().slice(0, 300),
-    }))
-    .filter((s) => s.color && s.description)
-    .slice(0, PREVIZ_COLORS.length);
+    .map((s) => ({ name: clean(s?.name, 40), description: clean(s?.description, 300) }))
+    .filter((s) => s.name || s.description)
+    .slice(0, 8);
+
+  // THE PAGE. Order is the planner's — map, then characters, then the board panels in
+  // cut order — so the grid reads top-left to bottom-right the way a storyboard page does.
+  const plates = (Array.isArray(raw.plates) ? raw.plates : [])
+    .map((p) => {
+      const kind = PLATE_KINDS.includes(String(p?.kind || '').toLowerCase()) ? String(p.kind).toLowerCase() : 'board';
+      return {
+        kind,
+        title: clean(p?.title, 60),
+        draw: clean(p?.draw, 1400),
+        // Only a board panel carries a shot — it is the only kind that describes one.
+        caption: kind === 'board' ? clean(p?.caption, 300) : '',
+        camera: kind === 'board' ? clean(p?.camera, 300) : '',
+        motion: kind === 'board' ? clean(p?.motion, 800) : '',
+        durationSec: kind === 'board' ? Math.max(3, Math.min(15, Math.round(Number(p?.durationSec) || 5))) : null,
+      };
+    })
+    .filter((p) => p.draw)
+    .slice(0, 16);
+
   const plan = {
-    scene: String(raw.scene || '').replace(/\s+/g, ' ').trim().slice(0, 1600),
+    scene: clean(raw.scene, 1600),
+    axis: clean(raw.axis, 400),
     subjects,
-    look: String(raw.look || '').replace(/\s+/g, ' ').trim().slice(0, 400),
-    motion: String(raw.motion || '').replace(/\s+/g, ' ').trim().slice(0, 1200),
+    look: clean(raw.look, 400),
+    plates,
   };
-  if (!plan.scene) throw new Error('The previz plan came back without a staging — try again.');
+  if (!plan.plates.length) throw new Error('The previz plan came back with no plates — try again.');
   return plan;
 };
 
-// STEP 1 — the clay blockout still. Identity-free by construction, so re-rolling the
-// staging costs nothing but the image.
-export const blockoutStill = async ({ plan, imageModel = defaultImageModelKey(), config } = {}, ctx) => {
-  const scene = String(plan?.scene || '').trim();
-  if (!scene) throw new Error('Blockout needs the previz plan.');
+// ONE PLATE. `references` are the plates already on the page, each with the NAME it
+// stands for: a character plate pins WHO, an earlier board panel pins the hand. Naming
+// them matters — an unlabelled reference is a mood board, a labelled one is a casting
+// instruction, and only the second stops the wolf turning into a boar.
+const NUM = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+
+export const previzPlate = async ({ plan, index = 0, references = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
+  const plate = (plan?.plates || [])[index];
+  if (!plate?.draw) throw new Error('That plate is not in the plan.');
   const model = imageModelKeyOf(imageModel);
-  const prompt = renderTemplate('previz.blockout', { scene });
+  const refs = references.filter((r) => r?.url).slice(0, 4);
+
+  let prompt;
+  if (plate.kind === 'map') {
+    // The map is the one plate that WANTS the whole space: it exists to show geography.
+    prompt = renderTemplate('previz.plate.map', {
+      draw: [plate.draw, String(plan?.scene || '').trim(), String(plan?.axis || '').trim()].filter(Boolean).join(' '),
+    });
+  } else if (plate.kind === 'character') {
+    prompt = renderTemplate('previz.plate.character', { draw: plate.draw });
+  } else {
+    // A board panel gets its OWN words and nothing else. Appending the scene description
+    // pushes every panel toward the establishing wide — the whole clearing has to fit —
+    // which is exactly how a tight single ends up a wide two-shot.
+    const names = (plan?.subjects || []).map((sub) => sub.name || sub.description).filter(Boolean);
+    prompt = renderTemplate('previz.plate.board', {
+      draw: plate.draw,
+      marks: MOVE_RE.test(plate.camera)
+        ? ` Over the drawing, mark the camera move with one bold hand-drawn arrow showing its direction (${plate.camera.toLowerCase()}) — a plain drawn line and arrowhead, no lettering.`
+        : '',
+      // CAST CLOSURE. An image model asked for two animals in a forest draws a pack,
+      // because that is what forests contain in its training data. The count has to be
+      // stated and the absence has to be stated with it.
+      cast: names.length
+        ? ` Exactly ${NUM[names.length] || names.length} living ${names.length === 1 ? 'subject appears' : 'subjects appear'} in this panel — ${names.join(' and ')} — and nothing else that is alive: no other animal, no third figure, no person, no onlooker, nothing moving in the background.`
+        : '',
+      refs: refs.length
+        ? ` Use the attached drawings for identity: ${refs.map((r, i) => `Image ${i + 1} is ${r.label}`).join('; ')}. Draw those exact subjects — same build, same coat, same markings.`
+        : '',
+    });
+  }
+
+  const size = plate.kind === 'character'
+    ? clampSizeForModel(model, '1440x1920') // a figure alone reads in portrait
+    : keyframeImageSize(model);
+
   const { url, cacheUrl } = await ctx.client.generateImage({
     prompt,
-    size: keyframeImageSize(model),
+    referenceImages: refs.length ? refs.map((r) => r.url) : undefined,
+    size,
     model: getModel(model, config),
     optimizePrompt: false,
   });
-  return { url, cacheUrl, prompt, styleLock: PREVIZ_CLAY_STYLE };
-};
-
-// STEP 2 — the previz take: the blockout animates at 480p. The still rides as
-// `first_frame` (a near-lock: composition holds, the opening may crop very slightly).
-export const previzTake = async ({ stillUrl, plan, durationSec = 5, ratio = 'adaptive', modelKey, config } = {}, ctx) => {
-  if (!stillUrl) throw new Error('The previz take needs the blockout still.');
-  const motion = String(plan?.motion || '').trim();
-  if (!motion) throw new Error('The previz take needs the plan\'s motion line.');
-  const prompt = renderTemplate('previz.take', { motion });
-  const { taskId } = await ctx.client.startVideo({
-    content: [
-      { type: 'text', text: prompt },
-      { type: 'image_url', image_url: { url: stillUrl }, role: 'first_frame' },
-    ],
-    model: getModel(modelKey || 'seedance25', config),
-    resolution: PREVIZ_RESOLUTION,
-    ratio,
-    duration: Math.max(5, Math.round(Number(durationSec) || 5)),
-    generateAudio: false,
-  });
-  return { taskId, prompt };
-};
-
-// One replacement line per planned subject — the editing task's scope, built from the
-// same colour map the blockout was rendered with.
-const replacementsOf = (subjects, plateCount = 0) => (subjects || []).map((s, i) => {
-  const plate = plateCount > i ? ` Match the appearance in @Image${i + 1}.` : '';
-  return `Replace the ${s.color} clay figure with ${s.description}, at exactly the same position, pose, motion path and timing.${plate}`;
-}).join('\n');
-
-// STEP 3 — the beauty pass: a VIDEO EDITING task over the previz clip at 1080p.
-// The prompt's wording is what routes it; Seedance then locks ratio and duration to the
-// source (both omitted here — sending either is rejected) while honouring resolution.
-export const beautyTake = async ({ previzUrl, plan, plateUrls = [], modelKey, config } = {}, ctx) => {
-  if (!previzUrl) throw new Error('The beauty pass needs the previz take.');
-  const subjects = Array.isArray(plan?.subjects) ? plan.subjects : [];
-  if (!subjects.length) throw new Error('The beauty pass needs the plan\'s colour map.');
-  const plates = (plateUrls || []).filter(Boolean).slice(0, 5); // spec: editing takes 1-5 target images
-  const prompt = renderTemplate('previz.beauty', {
-    look: String(plan?.look || '').trim(),
-    replacements: replacementsOf(subjects, plates.length),
-    count: String(subjects.length),
-  });
-  const content = [
-    { type: 'text', text: prompt },
-    { type: 'video_url', video_url: { url: previzUrl }, role: 'reference_video' },
-  ];
-  plates.forEach((url) => content.push({ type: 'image_url', image_url: { url }, role: 'reference_image' }));
-  const { taskId } = await ctx.client.startVideo({
-    content,
-    model: getModel(modelKey || 'seedance25', config),
-    resolution: BEAUTY_RESOLUTION,
-    ratio: null,      // locked to the source clip by the editing task
-    duration: 'auto', // same
-    generateAudio: false,
-  });
-  return { taskId, prompt };
+  return { url, cacheUrl, prompt };
 };

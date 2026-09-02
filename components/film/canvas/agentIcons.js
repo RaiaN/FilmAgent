@@ -26,7 +26,7 @@ export const AGENT_ICONS = {
   board: IconApps,       // Storyboard (the panel grid)
   cast: IconUserGroup,   // Cast & World (the ensemble: characters/monsters + places)
   shot: IconCamera,      // Shot (drops an empty SHOT card)
-  previz: IconLayout,    // Previz (clay blockout → 480p previz → beauty pass: staged layers)
+  previz: IconLayout,    // Previz (a page of plates: map, characters, storyboard panels)
   audio: IconSound,      // Audio (speaks text verbatim into a clip node)
   edit: IconMindMapping, // Video Edit (one master in, one master out)
 };

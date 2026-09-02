@@ -103,62 +103,72 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting and composition — but replace {targets} with FLAT solid-color silhouettes, one per subject: hard edges, completely filled with one color, no facial features, no clothing detail, no shading. Assign the colors left to right: blue, then green, then yellow, then red, then purple (repeat the sequence if there are more figures). Each silhouette keeps its subject\'s exact position, scale and pose. Everything NOT replaced stays photorealistic and identical to [Image 1]. No text or watermarks.',
   },
 
-  // ---- Previz: blockout still -> 480p previz take -> 1080p beauty pass (editing) -----
-  // The PLAN call runs once, at step 1: it fixes the colour->subject mapping and the
-  // target look so steps 2 and 3 need no further inference. The clay spec inside
-  // previz.blockout is a FROZEN pipeline convention, not taste — the beauty pass reads
-  // those exact colours back out.
+  // ---- Previz: plan a PAGE OF PLATES -> promote any plate to a SHOT card -------------
+  // Previz plates are DRAWINGS, which is what a text-to-image model is actually good at:
+  // a pencil panel has no 3D scene to be consistent with, and panels are ALLOWED to look
+  // different from each other — that is the medium. What carries between them is the
+  // pencil convention, not a camera. Three kinds: an overhead map, character plates,
+  // and the storyboard panels themselves.
   'previz.plan.system': {
     agent: 'Previz',
-    label: 'Previz plan — blockout prompt + colour map (system)',
+    label: 'Previz plan — the plate page (system)',
     vars: [],
-    text: `You are a film director's assistant preparing a PREVIZ shot. From a scene description you plan a clay BLOCKOUT of it — a colour-coded maquette that fixes staging, then gets re-rendered photoreal later.
+    text: `You are a storyboard artist and 1st AD preparing PREVIZ for a scene. Previz decides STAGING, GEOGRAPHY, EYELINES, COVERAGE and TIMING — never final look. Your output is a PAGE OF PLATES: drawings a director reads before a frame is shot.
 
-Plan silently (do not output the plan): the single place this shot happens; every subject present — people, animals, vehicles, whatever the description actually names (individuals stay individual, a crowd collapses to one group); where each subject is, always bound to a named feature of the space; the camera's position and height.
+Plan silently, then output. Fix the scene first: the one place it happens and the features that define it; every subject the description actually names — people, animals, vehicles (individuals stay individual, a crowd collapses to one group); where each stands, bound to a named feature; which way each one FACES; and the ACTION AXIS, the line between the two principal subjects that every camera stays on one side of.
 
-Assign each subject a colour from this fixed sequence, in the order they appear in the description: RED, BLUE, GREEN, YELLOW, PURPLE, ORANGE. At most 6 subjects.
+Then choose the plates. Three kinds:
+  "map" — ONE overhead floor plan of the whole setup with every camera position marked. Include one whenever the scene has geography worth locking: more than one subject, or movement through space.
+  "character" — one plate per PRINCIPAL subject, alone on the page. At most 4.
+  "board" — one storyboard panel per SHOT, in cut order. The bulk of the page.
+
+COVERAGE — how you choose the board panels. Be a director, not a camera operator:
+  - Open on the widest shot that makes the geography legible, and return to a wide whenever the geography changes.
+  - Play the scene from BOTH sides of the axis: a single on one subject is answered by the reverse on the other. A scene of two parties shot entirely from one bearing is a failure.
+  - Vary SIZE deliberately. Go tight for what the story turns on — a face, a hand, an object — and only there. Never go tight while the audience still needs to know where everyone is.
+  - Cover REACTION, not only action. The shot of someone watching is usually the shot that makes the moment land.
+  - Give the panels RHYTHM. Duration follows tension: hold a wide, cut fast through an exchange. Never give every shot the same length.
+  - As few panels as the scene truly needs and no fewer — usually 6 to 12.
+  - If the description states a total RUNTIME for the scene, the panel durations must add up to it. Reach it by covering more of the scene, never by stretching every shot.
+
+Every board panel shows ONLY the subjects you listed, and never a person unless a person is one of them. A forest, a street or a crowd scene invites the artist to add bystanders and extra animals — write each panel so there is nothing for them to fill in.
+
+DRAWING each plate. The artist is an image model with NO 3D scene and no memory between plates, so "4m north of the dog, 0.8m height, tight single" draws nothing at all. Write every "draw" as WHAT THE FINISHED DRAWING SHOWS: which subject sits where in the frame (left / centre / right, high / low), how big each one is (fills the frame, half the frame height, a small figure in the distance), which way each faces and where it looks, what is in the foreground and what is behind, and where the horizon or eye level falls. State camera height only as what it does to the picture — "seen from below, the horizon low behind them", never a measurement. Name subjects by the name you gave them so the same one recurs across plates.
 
 Return ONLY JSON — no prose, no code fences:
-{"scene":"<the clay staging, 2-4 sentences: the grey clay set and its features, then each coloured clay mass's position and pose — a four-legged animal is a four-legged clay form, a vehicle is a vehicle-shaped mass; never stand a non-human upright like a person, then the camera position and height. Describe FORM only — positions, poses, camera. Never mention clothing, faces, materials, weather or time of day.>","subjects":[{"color":"RED","description":"<WHAT this subject is in the finished shot, in the description's own words. Name its KIND first and exactly — a dog, a wolf, a horse, a car, a man, a woman. Never assume a person: if the description says an animal, an animal it stays. Then its appearance; clothing only if it is a person.>"}],"look":"<one sentence: the photoreal look of the finished shot — place, time of day, light, atmosphere, from the description's own words>","motion":"<what happens during the shot and how the camera moves, in the description's own words, present tense>"}`,
+{"scene":"<2-3 sentences: the space and its features, in drawable terms>","axis":"<one sentence: the action axis named against two fixed features, and which side the cameras stay on>","subjects":[{"name":"<short name, reused on every plate>","description":"<what this subject IS — its KIND first and exactly: a dog, a wolf, a car, a man, a woman. Never assume a person: if the description says an animal, an animal it stays. Then appearance; clothing only if it is a person.>"}],"look":"<one sentence: the photoreal look of the finished scene — place, time of day, light, atmosphere, in the description's own words. Rides to the SHOT card, never drawn on a plate.>","plates":[{"kind":"map","title":"<3-6 words>","draw":"<what the overhead plan shows: the set pieces and their positions seen from above, each subject's marker and which way it faces, and every camera position with the direction it points. Describe placement — there are no labels to read.>"},{"kind":"character","title":"<the subject's name>","draw":"<the figure alone: kind, build, stance, coat or clothing, markings, anything carried>"},{"kind":"board","title":"<3-6 words>","draw":"<what this panel shows, by the drawing rule above>","caption":"<one line: what happens in this shot — the words that go under the panel>","camera":"<the shot in film terms: size, angle, and any move. Rides to the SHOT card.>","motion":"<what happens during this shot, present tense, in the description's own words>","durationSec":5}]}
+
+At most 16 plates.`,
   },
   'previz.plan.user': {
     agent: 'Previz',
     label: 'Previz plan — instruction',
     vars: ['{brief}', '{camera}'],
-    text: 'SCENE DESCRIPTION (verbatim):\n"""\n{brief}\n"""\nCAMERA: {camera}\n\nPlan the blockout and return the JSON.',
+    text: 'SCENE DESCRIPTION (verbatim):\n"""\n{brief}\n"""\nCAMERA: {camera}\n\nPlan the plates and return the JSON.',
   },
 
-  // The frozen clay convention. Identity-free by construction: no faces, no clothing,
-  // no textures — so nothing can drift while the staging is re-rolled.
-  'previz.blockout': {
+  // The three plate conventions. Frozen: every board panel must come off the same pencil,
+  // or the page stops reading as one document. No lettering anywhere — an image model
+  // garbles text, and the captions and legends live on the panel UI instead.
+  'previz.plate.board': {
     agent: 'Previz',
-    label: 'Blockout still — the clay convention',
-    vars: ['{scene}'],
-    text: 'A matte clay blockout render, like a physical maquette photographed on a modelmaker bench. Every subject is a smooth featureless clay form with NO face, NO hair and NO clothing detail — a person is a human-shaped mass, an animal keeps its own real silhouette and stance (a dog stands on four legs), a vehicle is a vehicle-shaped mass. Each is moulded from a single flat solid colour. The set is plain neutral grey clay volumes. Soft even studio light from above, gentle shadows, no textures, no patterns, no text, no markings, no watermark.\n\n{scene}',
+    label: 'Plate — storyboard panel (pencil)',
+    vars: ['{draw}', '{marks}', '{cast}', '{refs}'],
+    text: 'A single hand-drawn STORYBOARD PANEL in graphite pencil on off-white paper. Black and white only, no colour anywhere. Loose confident contour lines, light cross-hatching for shadow, unfinished sketch quality — figures are simplified, but their pose, scale, screen position and eyeline read exactly. A four-legged animal is drawn on four legs; a vehicle keeps its own silhouette. The drawing fills the whole image edge to edge: no paper border, no frame line, no panel number, no lettering, no caption, no watermark.{marks}{cast}{refs}\n\nTHE PANEL SHOWS: {draw}',
   },
-
-  // The previz take: the still animates, the clay convention holds for the whole clip.
-  'previz.take': {
+  'previz.plate.map': {
     agent: 'Previz',
-    label: 'Previz take — motion over the blockout',
-    vars: ['{motion}'],
-    text: '{motion}\n\nKeep the clay maquette look of the first frame throughout: featureless solid-colour clay forms in their own real silhouettes, grey clay set, same studio light.',
+    label: 'Plate — overhead staging map',
+    vars: ['{draw}'],
+    text: 'A technical OVERHEAD FLOOR PLAN of a film set, drawn as clean thin-line vector art on plain white. Straight top-down orthographic view, no perspective, no shading, no fill except where stated. Set pieces, furniture and vehicles are drawn as accurate outlined shapes seen from directly above. Each person or animal is a plain dark filled oval with a smaller oval touching one end to show which way it faces. Each camera position is a small solid dark camera icon with two thin dotted lines opening from its lens to show the field of view. One horizontal black-and-orange segmented scale bar lies along the bottom edge. Uncluttered and diagrammatic. No lettering, no labels, no numbers, no watermark.\n\n{draw}',
   },
-
-  // The beauty pass. This wording is what routes the task to VIDEO EDITING — Seedance
-  // detects it from the prompt, then locks ratio and duration to the source clip
-  // (they must not be sent) while still honouring `resolution`.
-  'previz.beauty': {
+  'previz.plate.character': {
     agent: 'Previz',
-    label: 'Beauty pass — editing task (1080p)',
-    vars: ['{look}', '{replacements}', '{count}'],
-    text: '【Editing Goal】\nEdit @Video1, replacing the clay forms and the clay set with the real scene. {look}\n\n【Role of the Source Video】\n@Video1 is the sole editing master and governs the layout of the space, the camera position, the camera movement, the subjects\' motion paths, occlusion relationships and event order.\n\n【Edit Objects and Scope】\n{replacements}\nRe-render the grey clay set as the real location described above, keeping its exact shape, layout and camera framing. There are exactly {count} subjects throughout; do not add or remove any.\n\n【Timeline Inheritance】\nEach subject inherits the timing, duration, path and speed of the clay form it replaces. The camera movement, shot changes and event order remain exactly as in @Video1.',
+    label: 'Plate — character sheet (pencil)',
+    vars: ['{draw}'],
+    text: 'A CHARACTER PLATE from a film production storyboard, drawn in graphite pencil on off-white paper. Black and white only, no colour. Loose confident contour lines with light cross-hatching for shadow. ONE subject alone on an otherwise blank page, whole body in frame with clear white space around it, standing in a neutral three-quarter stance turned slightly toward the viewer. A four-legged animal stands on four legs in profile-three-quarter; a vehicle is drawn in three-quarter view. No background, no scenery, no other subject, no ground shadow beyond a light contact shadow, no lettering, no caption, no watermark.\n\n{draw}',
   },
 
-  // The Edit-shot editor's STRUCTURE-LOCKED render ("use this frame as reference"):
-  // [Image 1] is the CURRENT frame; the instruction slot is sentinel-injected VERBATIM
-  // (a one-line change or a full prompt — only what it changes, changes). Cast refs ride
-  // as [Image 2..N]. Replaces the cinematic wrapper in edit mode.
   'storyboard.frameEditDraw': {
     agent: 'Storyboard',
     label: 'Edit a frame guided by drawn marks',

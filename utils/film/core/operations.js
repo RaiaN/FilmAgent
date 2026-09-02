@@ -5,6 +5,7 @@
 
 import { renderTemplate, getModel, getRuntime, clampSizeForModel, clampShotSeconds, videoModelKeyOf, videoTraits, defaultImageModelKey } from '../suiteConfig';
 import { withRetry } from './retry';
+import { requireSkillLine } from '../skills';
 
 // Variation "axes" and styles are no longer hardcoded pools — the agentic
 // planner (planPrompts, below) generates distinct, content-aware descriptors.
@@ -60,7 +61,10 @@ const parsePromptSet = (text) => {
   return [];
 };
 
-export const planPrompts = async ({ task, count = 4, idea = '', direction = '', references = [], config } = {}, ctx) => {
+// `imageModel` is what the planned prompts will be RENDERED by, so its skill rides in
+// the planner's system prompt: this call is where the prompts are actually written, and
+// a spec that does not reach the writer is a spec that does nothing.
+export const planPrompts = async ({ task, count = 4, idea = '', direction = '', references = [], imageModel = '', config } = {}, ctx) => {
   const n = clamp(count, 1, 12, 4);
   let items = [];
   let lastErr = null;
@@ -73,11 +77,12 @@ export const planPrompts = async ({ task, count = 4, idea = '', direction = '', 
     count: n,
   };
   const userPrompt = renderTemplate(`creativePlanner.${task}.user`, userVars) || renderTemplate('creativePlanner.user', userVars);
+  const skill = imageModel ? await requireSkillLine(imageModel) : '';
   for (let attempt = 0; attempt < 2 && items.length < n; attempt += 1) {
     try {
       const { content } = await ctx.client.reason({
         prompt: userPrompt,
-        systemPrompt: renderTemplate(`creativePlanner.${task}.system`, { count: n }),
+        systemPrompt: renderTemplate(`creativePlanner.${task}.system`, { count: n, skill }),
         images: references,
         modelId: getModel('reasoner', config),
         reasoningEffort: getRuntime(config).reasoningEffort,
@@ -107,29 +112,62 @@ export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, cou
 };
 
 export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = defaultImageModelKey(), config } = {}, ctx, hooks) => {
-  if (!imageUrl) throw new Error('characterVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
-  const items = await planPrompts({ task: 'characterVariations', count: n, direction, references: [imageUrl], config }, ctx);
+  // NO SOURCE IMAGE: build the identity anchor from the description first, then vary THAT.
+  // A variation preserves an identity, so the answer is to give it one — not to let each
+  // variation invent its own person, which is four strangers, not a range.
+  let source = imageUrl;
+  if (!source) {
+    const brief = String(direction || '').trim();
+    if (!brief) throw new Error('Pick a source image, or describe the character in Direction — with neither there is no identity to vary.');
+    const plate = await ctx.client.generateImage({
+      prompt: renderTemplate('character.anchor', { brief }),
+      size: clampSizeForModel(imageModel, size),
+      model: getModel(imageModel, config),
+      optimizePrompt: false,
+    });
+    if (!plate?.url) throw new Error('The character plate came back empty — try again, or pick a source image.');
+    source = plate.url;
+    if (hooks && typeof hooks.onAnchor === 'function') hooks.onAnchor({ url: plate.url, cacheUrl: plate.cacheUrl || null, label: 'Character plate' });
+  }
+  const items = await planPrompts({ task: 'characterVariations', count: n, direction, references: [source], imageModel, config }, ctx);
   // EDIT-LOCKED variations (the Edit-shot foundation): the source is [Image 1] and each
   // planned item is an INSTRUCTION — the edit grammar keeps identity/geometry pinned and
   // changes only what the instruction names (drift died with the re-compose approach).
   const SLOT = '@@EDIT@@';
   const specs = items.map((it, i) => ({
     prompt: renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(it.prompt || '').slice(0, 2000)),
-    referenceImages: [imageUrl], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label, instruction: it.prompt },
+    referenceImages: [source], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label, instruction: it.prompt },
   }));
   return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, hooks);
 };
 
 export const locationVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = defaultImageModelKey(), config } = {}, ctx, hooks) => {
-  if (!imageUrl) throw new Error('locationVariations requires an imageUrl');
   const n = clamp(count, 1, 8, 4);
-  const items = await planPrompts({ task: 'locationVariations', count: n, direction, references: [imageUrl], config }, ctx);
+  // NO SOURCE IMAGE: build the canonical location out of the description first, then run
+  // the ordinary edit path against it. Coverage here is a REFRAME of one image — that is
+  // what holds the architecture still across angles — so the fix is to supply the image,
+  // not to loosen the coverage into N independently-imagined places.
+  let source = imageUrl;
+  if (!source) {
+    const brief = String(direction || '').trim();
+    if (!brief) throw new Error('Pick a source image, or describe the location in Direction — with neither there is nothing to cover.');
+    const plate = await ctx.client.generateImage({
+      prompt: renderTemplate('location.anchor', { brief }),
+      size: clampSizeForModel(imageModel, size),
+      model: getModel(imageModel, config),
+      optimizePrompt: false,
+    });
+    if (!plate?.url) throw new Error('The location plate came back empty — try again, or pick a source image.');
+    source = plate.url;
+    if (hooks && typeof hooks.onAnchor === 'function') hooks.onAnchor({ url: plate.url, cacheUrl: plate.cacheUrl || null, label: 'Location plate' });
+  }
+  const items = await planPrompts({ task: 'locationVariations', count: n, direction, references: [source], imageModel, config }, ctx);
   // Same edit-locked foundation: coverage = reframe instructions, states = change-only.
   const SLOT = '@@EDIT@@';
   const specs = items.map((it, i) => ({
     prompt: renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(it.prompt || '').slice(0, 2000)),
-    referenceImages: [imageUrl], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label, instruction: it.prompt },
+    referenceImages: [source], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label, instruction: it.prompt },
   }));
   return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, hooks);
 };

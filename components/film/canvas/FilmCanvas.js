@@ -1964,11 +1964,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         ...(isBlockout ? { previzMask: true } : {}),
       },
     }));
-    // Remember which node this plate became, so clicking it again opens THAT one instead
-    // of littering the board with copies.
-    setNodes((ns) => ns.map((n) => (n.id === cardId
-      ? { ...n, data: { ...n.data, plates: Object.assign([], n.data.plates || [], { [index]: { ...(n.data.plates || [])[index], boardNodeId: asset.id } }) } }
-      : n)));
     if (!quiet) Message.success(`"${label}" is on the board — edit it, mask it, tag it into the bible or attach it to any card.`);
     return asset.id;
   }, [freeOrigin, setNodes]);
@@ -2057,6 +2052,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // never overwriting (uploads and plates stay; edits chain). The editor's state
   // persists on the node (editBody/editTemplate/editExpression/editFigures/editPool).
   const [plainPool, setPlainPool] = useState([]);
+  // The previz plate editor targets a PLATE, not a board node: {cardId, index} plus its
+  // own reference pool. Editing a plate must not manufacture board nodes as a side
+  // effect — ↗ is how a plate becomes one, and only when you ask.
+  const [previzEdit, setPrevizEdit] = useState(null);
+  const [previzPool, setPrevizPool] = useState([]);
   const openFrameEditor = useCallback((id) => {
     const n = nodesRef.current.find((x) => x.id === id);
     if (!n) return;
@@ -3118,23 +3118,70 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       else Message.error('The card did not settle in time — press Compose on it to write its prompt.');
     })();
   }, [freeOrigin, onPatchCut]);
-  // CLICKING A PLATE opens the frame editor — the same one every board image uses, with
-  // its reference pool, its structure lock and its pencil-mark editing. Re-rendering is
-  // what ↻ is for; a click that silently spent a generation was the wrong default.
-  //
-  // The editor works on board NODES, so the plate is promoted first (quietly, once) and
-  // the editor opens on that node. A second click reuses it rather than duplicating.
+  // CLICKING A PLATE opens the frame editor ON THE PLATE — the same KeyframeEditor every
+  // board image uses (reference pool, structure lock, red pencil marks), but the render
+  // lands back in data.plates. Re-rendering from scratch is what ↻ is for; a click that
+  // silently spent a generation was the wrong default, and one that quietly added a node
+  // to the board was worse.
   const previzEditPlate = useCallback((cardId, index) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plate = (card?.data?.plates || [])[index];
     if (!plate?.url) { Message.warning('Draw this plate first.'); return; }
-    const existing = plate.boardNodeId && nodesRef.current.find((n) => n.id === plate.boardNodeId);
-    if (existing) { openFrameEditor(existing.id); return; }
-    const id = previzPlateToBoard(cardId, index, { quiet: true });
-    if (!id) return;
-    // The node is one setState away; the editor reads nodesRef, so let it land first.
-    setTimeout(() => openFrameEditor(id), 60);
-  }, [openFrameEditor, previzPlateToBoard]);
+    const src = plate.cacheUrl || plate.url;
+    const saved = Array.isArray(plate.editPool) && plate.editPool.length ? plate.editPool : null;
+    // The plate itself is always [Image 1] and always re-resolves live; only the ADDED
+    // references survive from a previous edit.
+    setPrevizPool(saved ? [src, ...saved.slice(1)] : [src]);
+    setPrevizEdit({ cardId, index });
+  }, []);
+
+  // The plate edit itself: the same op the board editor runs, written back to the plate.
+  const regeneratePrevizPlate = useCallback(async (cardId, index, edits = {}) => {
+    const card = nodesRef.current.find((n) => n.id === cardId);
+    const plan = card?.data?.plan;
+    const sh = (plan?.plates || [])[index];
+    const plate = (card?.data?.plates || [])[index];
+    if (!sh || !plate?.url) return;
+    if (!previzKeyOk()) return;
+    const body = String(edits.body || '').trim();
+    if (!body) { Message.warning('Write what to change first.'); return; }
+    const mark = (patch) => setNodes((ns) => ns.map((n) => (n.id === cardId
+      ? { ...n, data: { ...n.data, plates: Object.assign([], n.data.plates || [], { [index]: { ...(n.data.plates || [])[index], ...patch } }) } }
+      : n)));
+
+    const shot = { beat: sh.title || 'plate', shotTemplate: edits.shotTemplate || 'medium-shot', expression: edits.expression || '', figures: Array.isArray(edits.figures) ? edits.figures : [], body };
+    let { ordered, body: text } = resolveShotRefs(shot, previzPool);
+    const frameSrc = edits.annotatedFrame || plate.cacheUrl || plate.url;
+    const frameEdit = !!(edits.useFrame && frameSrc);
+    if (frameEdit) ({ body: text, refs: ordered } = lockBodyToFrame(text, ordered, frameSrc));
+    if (frameEdit && shot.shotTemplate) {
+      const tpl = SHOT_TEMPLATE_BY_ID[shot.shotTemplate];
+      if (tpl) text = `Reframe to a ${tpl.framing}, ${tpl.angle} — the same scene, subjects and moment. ${text}`;
+    }
+    mark({ editBody: body, editTemplate: shot.shotTemplate, editExpression: shot.expression, editFigures: shot.figures, editPool: previzPool, loading: true, error: '' });
+    setPrevizEdit(null);
+    traceRef.current.startRun({ note: `Agent · Previz · edit plate ${index + 1}` });
+    try {
+      // styleLock re-states the plate's own medium — without it the keyframe wrapper's
+      // photoreal default turns a pencil panel into a photograph on the first edit.
+      const { url, cacheUrl } = await storyboardKeyframe({
+        body: text,
+        shotTemplate: shot.shotTemplate,
+        style: plateStyleLock(sh.kind, plate.style || 'pencil'),
+        expression: shot.expression,
+        refs: ordered,
+        imageModel: 'seedreamPro',
+        frameEdit,
+        frameEditAnnotated: !!edits.annotatedFrame,
+      }, previzCtxOf());
+      if (!url) throw new Error('the model returned no image');
+      mark({ url, cacheUrl: cacheUrl || null, loading: false, error: '' });
+      Message.success(`Plate ${index + 1} updated — ↻ redraws it from the plan instead.`);
+    } catch (e) {
+      mark({ loading: false, error: e.message });
+      Message.error(`Plate ${index + 1} edit failed: ${e.message} — it kept its current image.`);
+    }
+  }, [previzCtxOf, previzKeyOk, previzPool, setNodes]);
 
   previzDispatchRef.current = { toShot: previzToShotCard, edit: previzEditPlate };
 
@@ -5940,6 +5987,30 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
             onSave={(edits) => regeneratePlainFrame(expandedKeyframeId, edits)}
             onRederive={(figures) => rederivePlainBody(expandedKeyframeId, figures)}
             onAddRef={(url) => { const p = plainPool; if (p.includes(url)) return p.indexOf(url) + 1; setPlainPool([...p, url]); return p.length + 1; }}
+          />
+        );
+      })()}
+      {previzEdit && (() => {
+        // The SAME editor the board uses, pointed at a plate. Saving re-renders the plate
+        // in place; nothing lands on the board unless you press ↗.
+        const c = nodes.find((n) => n.id === previzEdit.cardId);
+        const sh = (c?.data?.plan?.plates || [])[previzEdit.index];
+        const pl = (c?.data?.plates || [])[previzEdit.index];
+        const src = pl?.cacheUrl || pl?.url;
+        if (!sh || !src) return null;
+        return (
+          <KeyframeEditor
+            key={`previz-${previzEdit.cardId}-${previzEdit.index}`}
+            mode="frame"
+            shot={{ beat: `${sh.title || `Plate ${previzEdit.index + 1}`} · previz`, body: pl.editBody || '', shotTemplate: pl.editTemplate || 'medium-shot', expression: pl.editExpression || '', figures: Array.isArray(pl.editFigures) && pl.editFigures.length ? pl.editFigures : [1] }}
+            pool={previzPool}
+            preview={src}
+            loading={!!pl.loading}
+            imageAssets={imageAssets}
+            onClose={() => setPrevizEdit(null)}
+            onSave={(edits) => regeneratePrevizPlate(previzEdit.cardId, previzEdit.index, edits)}
+            onAddRef={(url) => { const p = previzPool; if (p.includes(url)) return p.indexOf(url) + 1; setPrevizPool([...p, url]); return p.length + 1; }}
+            promptUsed={pl.prompt}
           />
         );
       })()}

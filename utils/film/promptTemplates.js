@@ -163,16 +163,36 @@ At most 16 plates.`,
   'previz.plate.blockout': {
     agent: 'Previz',
     label: 'Plate — VFX blockout layer (colour blocks)',
-    vars: ['{draw}', '{marks}', '{cast}'],
-    text: 'A VFX BLOCKOUT LAYER render. Every subject is a featureless mass filled with ONE flat solid colour — no face, no hair, no clothing, no features, no texture, no shading, no gradient and no outline. A person is a human-shaped mass; an animal keeps its own real silhouette and stance (a dog stands on four legs); a vehicle is a vehicle-shaped mass. Each mass carries a small raised WEDGE on the front of its head showing which way it faces, so eyelines and screen direction read. The set is plain untextured mid-grey geometry: ground, walls and large objects as simple grey volumes, nothing patterned, no foliage detail, no set dressing. Flat even light, no cast shadows beyond a soft contact shadow, no atmosphere, no haze, no depth of field. No text, no lettering, no watermark.{marks}{cast}\n\nTHE FRAME SHOWS: {draw}',
+    vars: ['{draw}', '{marks}', '{cast}', '{refs}'],
+    text: 'A VFX BLOCKOUT LAYER render — a matte ID pass. EVERY element in the frame is one flat solid colour with a hard clean edge: no texture, no pattern, no shading, no gradient, no highlight, no outline and no detail anywhere in the image.\n\nThe SUBJECTS are featureless coloured masses — no face, no hair, no clothing, no features. A person is a human-shaped mass; an animal keeps its own real silhouette and stance (a dog stands on four legs, in profile it reads as a dog); a vehicle is a vehicle-shaped mass. Each mass carries a small raised WEDGE on the front of its head showing which way it faces, so eyelines and screen direction read.\n\nThe ENVIRONMENT is blocked the same way, each part its own flat colour: the GROUND is flat warm mid-grey, the SKY or far backdrop is flat pale blue-grey, and every piece of set geometry — walls, trees, rocks, furniture, a fallen log — is flat slate grey held as a simple shape. No foliage detail, no bark, no grass, no clouds, no set dressing. Flat even light, no cast shadows beyond a soft contact shadow, no atmosphere, no haze, no depth of field. No text, no lettering, no watermark.{marks}{cast}{refs}\n\nTHE FRAME SHOWS: {draw}',
   },
 
   'previz.plate.map': {
     agent: 'Previz',
-    label: 'Plate — overhead staging map',
+    label: 'Plate — overhead staging map (pencil)',
     vars: ['{draw}'],
-    text: 'A technical OVERHEAD FLOOR PLAN of a film set, drawn as clean thin-line vector art on plain white. Straight top-down orthographic view, no perspective, no shading, no fill except where stated. Set pieces, furniture and vehicles are drawn as accurate outlined shapes seen from directly above. Each person or animal is a plain dark filled oval with a smaller oval touching one end to show which way it faces. Each camera position is a small solid dark camera icon with two thin dotted lines opening from its lens to show the field of view. One horizontal black-and-orange segmented scale bar lies along the bottom edge. Uncluttered and diagrammatic. No lettering, no labels, no numbers, no watermark.\n\n{draw}',
+    text: 'An OVERHEAD FLOOR PLAN of a film set, hand-drawn in graphite pencil on off-white paper — the same hand as the storyboard panels. Black and white only, no colour. Straight top-down view, no perspective, drawn with loose confident ruled-feeling lines and light hatching where a surface needs to read. Set pieces, furniture, trees and vehicles are drawn as their shapes seen from directly above. Each person or animal is a filled dark oval with a smaller oval touching one end to show which way it faces. Each camera position is a small filled camera shape with two light dotted lines opening from its lens to show the field of view. A simple segmented scale bar lies along the bottom edge. Uncluttered and diagrammatic. No lettering, no labels, no numbers, no watermark.\n\n{draw}',
   },
+
+  // The map in blockout form: the same plan seen as a top-down matte ID pass, so the
+  // page reads as one document and the colours mean the same thing from above as they
+  // do in the panels.
+  'previz.plate.mapBlockout': {
+    agent: 'Previz',
+    label: 'Plate — top-down location view (colour blocked)',
+    vars: ['{draw}', '{cast}'],
+    text: 'A VFX BLOCKOUT LAYER render — a matte ID pass seen from DIRECTLY ABOVE, looking straight down at the location. Orthographic top-down view, no perspective. EVERY element is one flat solid colour with a hard clean edge: no texture, no pattern, no shading, no gradient, no highlight, no outline and no detail anywhere in the image.\n\nThe GROUND is flat warm mid-grey covering the whole frame. Every piece of set geometry — walls, trees, rocks, furniture, a fallen log — is a flat slate grey shape seen from above. Each subject is a coloured mass seen from above, keeping its real footprint, with a small wedge on one end showing which way it faces. Each camera position is a small flat dark marker with two thin lines opening from it to show the field of view. A simple segmented scale bar lies along the bottom edge.\n\nNo foliage detail, no bark, no grass, no set dressing, no lettering, no labels, no numbers, no watermark.{cast}\n\nTHE PLAN SHOWS: {draw}',
+  },
+  // The character plate in blockout form: the SHAPE KEY for the page. It shows which
+  // colour a subject is and what silhouette that colour will hold, which is exactly what
+  // a colour-blocked page needs a character plate FOR — identity is not the point here.
+  'previz.plate.characterBlockout': {
+    agent: 'Previz',
+    label: 'Plate — blockout shape key (one coloured mass)',
+    vars: ['{draw}', '{color}'],
+    text: 'A VFX BLOCKOUT LAYER render — a matte ID pass of ONE subject alone. The subject is a single featureless mass filled entirely with flat solid {color}, hard clean edge, no texture, no pattern, no shading, no gradient, no highlight, no outline, no face, no hair, no clothing and no features of any kind. It keeps its own real silhouette and stance — an animal stands on its own legs in a three-quarter profile, a person stands upright facing slightly toward the viewer, a vehicle is drawn in three-quarter view. A small raised WEDGE on the front of its head shows which way it faces. It stands alone on a flat plain light-grey background with a soft contact shadow under it and nothing else in the frame. Flat even light, no atmosphere, no depth of field, no text, no lettering, no watermark.\n\nTHE SUBJECT IS: {draw}',
+  },
+
   'previz.plate.character': {
     agent: 'Previz',
     label: 'Plate — character sheet (pencil)',

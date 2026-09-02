@@ -13,8 +13,7 @@ import { parseJson } from './director';
 // image model holds easily. The camera work moves downstream to Seedance, which is a
 // world model and can actually place a camera.
 
-export const PREVIZ_RESOLUTIONS = ['480p', '720p']; // previz is a decision tool, never a deliverable
-export const PREVIZ_RESOLUTION = '480p';
+export const PREVIZ_RESOLUTION = '480p'; // previz is a decision tool, never a deliverable
 
 export const PLATE_KINDS = ['board', 'map', 'character'];
 
@@ -35,7 +34,21 @@ export const blockoutColorOf = (i) => BLOCKOUT_COLORS[i % BLOCKOUT_COLORS.length
 // styles existed carries no `style` and counts as pencil.
 export const plateIsStale = (planPlate, plate, style = 'pencil') => {
   if (!plate?.url) return true;
-  return planPlate?.kind === 'board' && (plate.style || 'pencil') !== style;
+  // Every kind has a pencil form and a blockout form, the map included — a mixed page
+  // is the one thing a page of plates must never be.
+  return (plate.style || 'pencil') !== style;
+};
+
+// Which subject a character plate stands for. The planner titles those plates with the
+// subject's name, so match on that first; failing that, fall back to this plate's ordinal
+// among the character plates, which is the order the planner emits them in.
+export const subjectIndexOf = (plan, index) => {
+  const sheet = plan?.plates || [];
+  const subs = plan?.subjects || [];
+  const title = String(sheet[index]?.title || '').trim().toLowerCase();
+  const named = subs.findIndex((sub) => String(sub.name || '').trim().toLowerCase() === title);
+  if (named >= 0) return named;
+  return sheet.slice(0, index).filter((p) => p.kind === 'character').length;
 };
 
 // A move drawn as an arrow is the storyboard's own notation for camera motion, and an
@@ -107,11 +120,23 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
   let prompt;
   if (plate.kind === 'map') {
     // The map is the one plate that WANTS the whole space: it exists to show geography.
-    prompt = renderTemplate('previz.plate.map', {
-      draw: [plate.draw, String(plan?.scene || '').trim(), String(plan?.axis || '').trim()].filter(Boolean).join(' '),
-    });
+    const geography = [plate.draw, String(plan?.scene || '').trim(), String(plan?.axis || '').trim()].filter(Boolean).join(' ');
+    const subs = (plan?.subjects || []).filter((sub) => sub.name || sub.description);
+    prompt = style === 'blockout'
+      ? renderTemplate('previz.plate.mapBlockout', {
+        draw: geography,
+        cast: subs.length
+          ? ` The masses are coloured: ${subs.map((sub, i) => `${blockoutColorOf(i)} is ${sub.name || sub.description}`).join('; ')}.`
+          : '',
+      })
+      : renderTemplate('previz.plate.map', { draw: geography });
   } else if (plate.kind === 'character') {
-    prompt = renderTemplate('previz.plate.character', { draw: plate.draw });
+    prompt = style === 'blockout'
+      ? renderTemplate('previz.plate.characterBlockout', {
+        draw: plate.draw,
+        color: blockoutColorOf(subjectIndexOf(plan, index)),
+      })
+      : renderTemplate('previz.plate.character', { draw: plate.draw });
   } else if (style === 'blockout') {
     // A blockout names its subjects by COLOUR, not by identity — that is the whole point
     // of the medium, and it is what makes the plate reusable as a Seedance anchor.
@@ -123,6 +148,11 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
         : '',
       cast: subs.length
         ? ` The masses are coloured: ${subs.map((sub, i) => `${blockoutColorOf(i)} is ${sub.name || sub.description}`).join('; ')}. Exactly ${NUM[subs.length] || subs.length} coloured ${subs.length === 1 ? 'mass appears' : 'masses appear'} and nothing else is alive in the frame — no other figure, no onlooker, nothing moving in the background.`
+        : '',
+      // The shape keys, when they are drawn: the panel copies each mass's SILHOUETTE, not
+      // any detail — there is no detail in a blockout to copy.
+      refs: refs.length
+        ? ` The attached plates are the shape keys: ${refs.map((r, i) => `Image ${i + 1} is ${r.label}`).join('; ')}. Give each coloured mass the same silhouette and stance it has there.`
         : '',
     });
   } else {

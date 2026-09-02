@@ -53,7 +53,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { previzPlan, previzPlate, PREVIZ_RESOLUTIONS, PLATE_STYLES, plateIsStale } from '../../../utils/film/core/previz';
+import { previzPlan, previzPlate, PREVIZ_RESOLUTION, PLATE_STYLES, plateIsStale } from '../../../utils/film/core/previz';
 import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
@@ -1820,9 +1820,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const urlOf = (i) => plates[i]?.cacheUrl || plates[i]?.url || null;
     const sheet = plan.plates || [];
     if (sheet[index]?.kind === 'character') return []; // a character plate is the anchor; it copies no one
-    // A BLOCKOUT has no identity to carry and no hand to match — colour and silhouette
-    // are fully specified by the prompt. References would only drag look back in.
-    if (style === 'blockout' && sheet[index]?.kind === 'board') return [];
+    // A BLOCKOUT panel has no hand to match, but the shape keys are worth carrying: they
+    // hold each colour's silhouette steady across the page. So: character plates yes,
+    // pilot panel no.
+    const blockout = style === 'blockout';
     // LABELLED, not just attached: the plate prompt names each reference by the subject
     // it stands for, so "the wolf" is bound to a drawing instead of to the model's prior.
     const chars = sheet
@@ -1830,6 +1831,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         ? { url: urlOf(i), label: p.title || (plan.subjects || [])[0]?.name || 'this subject' }
         : null))
       .filter(Boolean);
+    if (blockout) return chars.slice(0, 4);
     const firstPanel = sheet.findIndex((p, i) => p.kind === 'board' && i !== index && urlOf(i));
     const hand = firstPanel >= 0 && sheet[index]?.kind === 'board'
       ? [{ url: urlOf(firstPanel), label: 'the pencil hand to match' }]
@@ -3063,7 +3065,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const plate = (card?.data?.plates || [])[index];
     if (!sh || !plate?.url) { Message.warning('Draw this plate first — it is what the card is built on.'); return; }
     const isPanel = sh.kind === 'board';
-    const resolution = PREVIZ_RESOLUTIONS.includes(card.data?.previzResolution) ? card.data.previzResolution : PREVIZ_RESOLUTIONS[0];
     const pos = freeOrigin({ w: 780, h: 360, preferred: { x: (card.position?.x || 0) + 900, y: (card.position?.y || 0) + index * 120 } });
     const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
     const cardId2 = `${idPrefix}-0`;
@@ -3082,7 +3083,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const chip = { nodeId: null, url: plate.cacheUrl || plate.url, label: sh.title || `Previz plate ${index + 1}` };
     onPatchCut(cardId2, {
       assetRefs: [chip],
-      resolution,
+      resolution: PREVIZ_RESOLUTION,
       previzOf: { cardId, index },
       // Only a PANEL is a frame of the film, and only 2.5 honours a first frame.
       ...(isPanel ? { keyframes: [{ ...chip, desc: sh.camera || '', pickedAt: Date.now() }], videoModel: 'seedance25' } : {}),
@@ -3093,8 +3094,8 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // click, one card, one call, and what lands is shootable.
     onPatchCut(cardId2, { composePending: true });
     Message.success(isPanel
-      ? `SHOT card laid from panel ${index + 1} — ${resolution}, the panel pinned as its opening frame. Writing the prompt with the model's skill…`
-      : `SHOT card laid — the ${sh.kind} plate rides as a reference at ${resolution}. Writing the prompt with the model's skill…`);
+      ? `SHOT card laid from panel ${index + 1} — ${PREVIZ_RESOLUTION}, the panel pinned as its opening frame. Writing the prompt with the model's skill…`
+      : `SHOT card laid — the ${sh.kind} plate rides as a reference at ${PREVIZ_RESOLUTION}. Writing the prompt with the model's skill…`);
     (async () => {
       // Wait for the card to settle: compose reads nodesRef, and the lay is two queued
       // setState calls deep. Same wait the Film-strip flow uses.

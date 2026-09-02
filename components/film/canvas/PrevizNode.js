@@ -2,7 +2,7 @@ import { createContext, memo, useContext } from 'react';
 import { Typography, Button, Tag, Select, Message } from '@arco-design/web-react';
 import { IconLoading, IconPlayArrow, IconRefresh, IconCamera, IconVideoCamera, IconLaunch } from '@arco-design/web-react/icon';
 import { DraftText, BLOCK_LABEL } from './cardBlocks';
-import { PREVIZ_RESOLUTIONS, PLATE_STYLES, blockoutColorOf, plateIsStale } from '../../../utils/film/core/previz';
+import { PREVIZ_RESOLUTION, PLATE_STYLES, blockoutColorOf, plateIsStale } from '../../../utils/film/core/previz';
 
 const { Text } = Typography;
 
@@ -38,7 +38,6 @@ const PrevizNodeInner = ({ id, data, selected }) => {
   const sheet = plan?.plates || [];
   const drawn = plates.filter((p) => p?.url).length;
   const anyLoading = plates.some((p) => p?.loading);
-  const resolution = PREVIZ_RESOLUTIONS.includes(data.previzResolution) ? data.previzResolution : PREVIZ_RESOLUTIONS[0];
   const style = PLATE_STYLES.includes(data.plateStyle) ? data.plateStyle : PLATE_STYLES[0];
   const blockout = style === 'blockout';
   // What Draw all would actually do right now: missing plates PLUS panels left behind by
@@ -107,11 +106,6 @@ const PrevizNodeInner = ({ id, data, selected }) => {
                 style={{ width: 108 }}
                 title="Pencil reads like a storyboard. Colour blocks render each subject as a flat coloured mass on grey geometry — no identity, no look, and a far stronger Seedance reference."
               />
-              <Select
-                size="mini" value={resolution} onChange={(v) => patch({ previzResolution: v })}
-                options={PREVIZ_RESOLUTIONS} style={{ width: 78 }}
-                title="What a promoted plate shoots at — previz is a decision, so it stays cheap"
-              />
               <Button
                 size="mini" icon={anyLoading ? <IconLoading /> : <IconCamera />}
                 disabled={!onRenderAll || anyLoading || !sheet.length}
@@ -175,8 +169,8 @@ const PrevizNodeInner = ({ id, data, selected }) => {
                               style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1, padding: 0, fontSize: 9, minWidth: 0 }}
                               onClick={() => (onToShotCard ? onToShotCard(id, i) : Message.warning('not wired'))}
                               title={sh.kind === 'board'
-                                ? `Lay a SHOT card from this panel — ${resolution}, the panel pinned as its opening frame, camera and action pre-filled`
-                                : `Lay a SHOT card with this plate as a reference — ${resolution}`}
+                                ? `Lay a SHOT card from this panel — ${PREVIZ_RESOLUTION}, the panel pinned as its opening frame, camera and action pre-filled`
+                                : `Lay a SHOT card with this plate as a reference — ${PREVIZ_RESOLUTION}`}
                             >SHOT</Button>
                           </>
                         ) : (

@@ -53,7 +53,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { previzPlan, previzPlate, PREVIZ_RESOLUTIONS } from '../../../utils/film/core/previz';
+import { previzPlan, previzPlate, PREVIZ_RESOLUTIONS, PLATE_STYLES, plateIsStale } from '../../../utils/film/core/previz';
 import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
@@ -1816,10 +1816,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // since they pin WHO, then the first drawn panel, which pins the hand. This is the only
   // real lever on consistency: the renderer has no scene memory between calls, so a plate
   // drawn early in the page simply has less to hold onto.
-  const previzPlateRefs = useCallback((plan, plates, index) => {
+  const previzPlateRefs = useCallback((plan, plates, index, style = 'pencil') => {
     const urlOf = (i) => plates[i]?.cacheUrl || plates[i]?.url || null;
     const sheet = plan.plates || [];
     if (sheet[index]?.kind === 'character') return []; // a character plate is the anchor; it copies no one
+    // A BLOCKOUT has no identity to carry and no hand to match — colour and silhouette
+    // are fully specified by the prompt. References would only drag look back in.
+    if (style === 'blockout' && sheet[index]?.kind === 'board') return [];
     // LABELLED, not just attached: the plate prompt names each reference by the subject
     // it stands for, so "the wolf" is bound to a drawing instead of to the model's prior.
     const chars = sheet
@@ -1847,13 +1850,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     mark({ loading: true, error: '' });
     if (!quiet) traceRef.current.startRun({ note: `Agent · Previz · plate ${index + 1}` });
     try {
-      const references = previzPlateRefs(plan, card.data.plates || [], index);
-      const { url, cacheUrl, prompt } = await previzPlate({ plan, index, references, imageModel: 'seedreamPro' }, previzCtxOf());
+      const style = PLATE_STYLES.includes(card.data?.plateStyle) ? card.data.plateStyle : PLATE_STYLES[0];
+      const references = previzPlateRefs(plan, card.data.plates || [], index, style);
+      const { url, cacheUrl, prompt } = await previzPlate({ plan, index, references, style, imageModel: 'seedreamPro' }, previzCtxOf());
       // An empty url is the endpoint answering without an image — a refusal, a filtered
       // result, an unexpected body. Left unchecked it lands as a blank tile with no
       // error and still counts as success.
       if (!url) throw new Error('the model returned no image');
-      mark({ url, cacheUrl: cacheUrl || null, prompt, loading: false, error: '' });
+      mark({ url, cacheUrl: cacheUrl || null, prompt, style, loading: false, error: '' });
     } catch (e) {
       mark({ loading: false, error: e.message });
       // In a batch the tile already shows the reason — ten toasts would bury the page.
@@ -1872,13 +1876,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // Then ONE retry pass over whatever failed. Firing a page in parallel makes transient
   // refusals ordinary, and asking the user to hunt for the ↻ on four tiles is work the
   // run can do itself. Only the second failure is reported.
-  const renderAllPrevizPlates = useCallback(async (cardId) => {
+  const renderAllPrevizPlates = useCallback(async (cardId, { all = false } = {}) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
     if (!plan) { Message.warning('Plan the page first.'); return; }
     const done = card.data.plates || [];
-    const todo = plan.plates.map((p, i) => ({ p, i })).filter(({ i }) => !done[i]?.url);
-    if (!todo.length) { Message.info('Every plate is already drawn.'); return; }
+    const style = PLATE_STYLES.includes(card.data?.plateStyle) ? card.data.plateStyle : PLATE_STYLES[0];
+    // STALE, not just missing: switching the page from pencil to colour blocks leaves
+    // every panel drawn but wrong, and a run that reports "already drawn" there is
+    // answering a question nobody asked. `all` is the explicit redraw.
+    const todo = plan.plates.map((p, i) => ({ p, i }))
+      .filter(({ p, i }) => all || plateIsStale(p, done[i], style));
+    if (!todo.length) { Message.info('Every plate is up to date.'); return; }
 
     let drawn = 0;
     const failed = new Map(); // index → the reason it did not draw
@@ -1897,7 +1906,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     try {
       await wave(todo.filter(({ p }) => p.kind === 'character'));
       const rest = todo.filter(({ p }) => p.kind !== 'character');
-      const pilot = rest.find(({ p }) => p.kind === 'board');
+      // The pilot exists only to set a pencil hand for the panels that follow. A blockout
+      // page has no hand to match, so it fires in one wave.
+      const pilot = card.data?.plateStyle === 'blockout' ? null : rest.find(({ p }) => p.kind === 'board');
       if (pilot) await draw(pilot);
       await wave(rest.filter((x) => x !== pilot));
 
@@ -1944,7 +1955,11 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       },
     });
     const asset = createAssetNode({ kind: 'image', url: plate.url, label, position: pos, layerId: 'previz' });
-    setNodes((ns) => ns.concat({ ...asset, data: { ...asset.data, cacheUrl: plate.cacheUrl || null } }));
+    // A blockout panel is a colour-coded plate by construction, so it lands with the same
+    // flag a masked frame carries — that is what gives it the attach / cast-colours
+    // toolkit and the FULL-plate anchor binding on a SHOT card.
+    const isBlockout = plate.style === 'blockout' && sh.kind === 'board';
+    setNodes((ns) => ns.concat({ ...asset, data: { ...asset.data, cacheUrl: plate.cacheUrl || null, ...(isBlockout ? { previzMask: true } : {}) } }));
     if (!quiet) Message.success(`"${label}" is on the board — edit it, mask it, tag it into the bible or attach it to any card.`);
     return asset.id;
   }, [freeOrigin, setNodes]);

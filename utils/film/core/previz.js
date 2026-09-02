@@ -18,6 +18,26 @@ export const PREVIZ_RESOLUTION = '480p';
 
 export const PLATE_KINDS = ['board', 'map', 'character'];
 
+// How a board panel is DRAWN. Two conventions, one plan: a pencil page reads like a
+// storyboard, a blockout page reads like a VFX layer. The blockout is the stronger
+// Seedance reference — flat colour separates subjects with no identity and no look —
+// so the choice is a real one, not a skin.
+export const PLATE_STYLES = ['pencil', 'blockout'];
+
+// The mask convention's order, so a blockout plate and a masked frame name their
+// subjects the same way and the cast-colour binding line reads either one.
+export const BLOCKOUT_COLORS = ['BLUE', 'GREEN', 'YELLOW', 'RED', 'PURPLE', 'ORANGE'];
+export const blockoutColorOf = (i) => BLOCKOUT_COLORS[i % BLOCKOUT_COLORS.length];
+
+// Is this plate out of date with the page's current style? Only BOARD panels have a
+// style variant — a map is always line art and a character plate always pencil — so a
+// style switch stales exactly the panels and leaves the rest alone. A plate drawn before
+// styles existed carries no `style` and counts as pencil.
+export const plateIsStale = (planPlate, plate, style = 'pencil') => {
+  if (!plate?.url) return true;
+  return planPlate?.kind === 'board' && (plate.style || 'pencil') !== style;
+};
+
 // A move drawn as an arrow is the storyboard's own notation for camera motion, and an
 // arrow is a MARK — something an image model draws well, unlike the words for it.
 const MOVE_RE = /\b(pan|tilt|track|tracking|dolly|push|pull|zoom|crane|boom|whip|handheld|steadicam|orbit|arc)\w*/i;
@@ -78,7 +98,7 @@ export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) 
 // instruction, and only the second stops the wolf turning into a boar.
 const NUM = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
 
-export const previzPlate = async ({ plan, index = 0, references = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
+export const previzPlate = async ({ plan, index = 0, references = [], style = 'pencil', imageModel = defaultImageModelKey(), config } = {}, ctx) => {
   const plate = (plan?.plates || [])[index];
   if (!plate?.draw) throw new Error('That plate is not in the plan.');
   const model = imageModelKeyOf(imageModel);
@@ -92,6 +112,19 @@ export const previzPlate = async ({ plan, index = 0, references = [], imageModel
     });
   } else if (plate.kind === 'character') {
     prompt = renderTemplate('previz.plate.character', { draw: plate.draw });
+  } else if (style === 'blockout') {
+    // A blockout names its subjects by COLOUR, not by identity — that is the whole point
+    // of the medium, and it is what makes the plate reusable as a Seedance anchor.
+    const subs = (plan?.subjects || []).filter((sub) => sub.name || sub.description);
+    prompt = renderTemplate('previz.plate.blockout', {
+      draw: plate.draw,
+      marks: MOVE_RE.test(plate.camera)
+        ? ` Mark the camera move with one bold arrow over the frame showing its direction (${plate.camera.toLowerCase()}) — a plain line and arrowhead, no lettering.`
+        : '',
+      cast: subs.length
+        ? ` The masses are coloured: ${subs.map((sub, i) => `${blockoutColorOf(i)} is ${sub.name || sub.description}`).join('; ')}. Exactly ${NUM[subs.length] || subs.length} coloured ${subs.length === 1 ? 'mass appears' : 'masses appear'} and nothing else is alive in the frame — no other figure, no onlooker, nothing moving in the background.`
+        : '',
+    });
   } else {
     // A board panel gets its OWN words and nothing else. Appending the scene description
     // pushes every panel toward the establishing wide — the whole clearing has to fit —

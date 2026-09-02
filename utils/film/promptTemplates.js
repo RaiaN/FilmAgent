@@ -156,6 +156,17 @@ At most 16 plates.`,
     vars: ['{draw}', '{marks}', '{cast}', '{refs}'],
     text: 'A single hand-drawn STORYBOARD PANEL in graphite pencil on off-white paper. Black and white only, no colour anywhere. Loose confident contour lines, light cross-hatching for shadow, unfinished sketch quality — figures are simplified, but their pose, scale, screen position and eyeline read exactly. A four-legged animal is drawn on four legs; a vehicle keeps its own silhouette. The drawing fills the whole image edge to edge: no paper border, no frame line, no panel number, no lettering, no caption, no watermark.{marks}{cast}{refs}\n\nTHE PANEL SHOWS: {draw}',
   },
+  // THE BLOCKOUT LAYER — the same panel as a VFX pass: flat colour masses, no identity,
+  // no look. A stronger Seedance reference than a drawing, because subject separation and
+  // screen direction are unambiguous and nothing about the finished look is imposed. The
+  // colour order matches previz.mask, so a blockout and a masked frame read the same way.
+  'previz.plate.blockout': {
+    agent: 'Previz',
+    label: 'Plate — VFX blockout layer (colour blocks)',
+    vars: ['{draw}', '{marks}', '{cast}'],
+    text: 'A VFX BLOCKOUT LAYER render. Every subject is a featureless mass filled with ONE flat solid colour — no face, no hair, no clothing, no features, no texture, no shading, no gradient and no outline. A person is a human-shaped mass; an animal keeps its own real silhouette and stance (a dog stands on four legs); a vehicle is a vehicle-shaped mass. Each mass carries a small raised WEDGE on the front of its head showing which way it faces, so eyelines and screen direction read. The set is plain untextured mid-grey geometry: ground, walls and large objects as simple grey volumes, nothing patterned, no foliage detail, no set dressing. Flat even light, no cast shadows beyond a soft contact shadow, no atmosphere, no haze, no depth of field. No text, no lettering, no watermark.{marks}{cast}\n\nTHE FRAME SHOWS: {draw}',
+  },
+
   'previz.plate.map': {
     agent: 'Previz',
     label: 'Plate — overhead staging map',

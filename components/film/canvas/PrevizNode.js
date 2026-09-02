@@ -2,7 +2,7 @@ import { createContext, memo, useContext } from 'react';
 import { Typography, Button, Tag, Select, Message } from '@arco-design/web-react';
 import { IconLoading, IconPlayArrow, IconRefresh, IconCamera, IconVideoCamera, IconLaunch } from '@arco-design/web-react/icon';
 import { DraftText, BLOCK_LABEL } from './cardBlocks';
-import { PREVIZ_RESOLUTIONS } from '../../../utils/film/core/previz';
+import { PREVIZ_RESOLUTIONS, PLATE_STYLES, blockoutColorOf, plateIsStale } from '../../../utils/film/core/previz';
 
 const { Text } = Typography;
 
@@ -17,6 +17,13 @@ export const PrevizContext = createContext({
 // has no 3D scene it must stay faithful to, and panels are supposed to differ from one
 // another. Promote any plate and a SHOT card makes the take — with the skill, the gates,
 // the takes and the Take Library that the card already carries.
+// The blockout palette, keyed by the names previz.plate.blockout uses. Same order and
+// same names as the Mask tool, so a blockout plate and a masked frame read alike.
+const SWATCH = {
+  BLUE: '#3491fa', GREEN: '#00b42a', YELLOW: '#d9a406',
+  RED: '#f53f3f', PURPLE: '#722ed1', ORANGE: '#ff7d00',
+};
+
 const KIND = {
   board: { label: 'PANEL', color: '#1d2129', fit: 'cover' },
   map: { label: 'MAP', color: '#b06f10', fit: 'contain' },
@@ -32,6 +39,12 @@ const PrevizNodeInner = ({ id, data, selected }) => {
   const drawn = plates.filter((p) => p?.url).length;
   const anyLoading = plates.some((p) => p?.loading);
   const resolution = PREVIZ_RESOLUTIONS.includes(data.previzResolution) ? data.previzResolution : PREVIZ_RESOLUTIONS[0];
+  const style = PLATE_STYLES.includes(data.plateStyle) ? data.plateStyle : PLATE_STYLES[0];
+  const blockout = style === 'blockout';
+  // What Draw all would actually do right now: missing plates PLUS panels left behind by
+  // a style switch. When there is nothing pending the button becomes an explicit redraw,
+  // because a dead button on a full page is the wrong answer to "do it again".
+  const pending = sheet.filter((sh, i) => plateIsStale(sh, plates[i], style)).length;
 
   return (
     <div style={{ width: 700, background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#3491fa' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(52,145,250,0.14)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
@@ -67,22 +80,18 @@ const PrevizNodeInner = ({ id, data, selected }) => {
 
         {plan && (
           <>
-            <div>
-              <Text style={{ ...BLOCK_LABEL, color: '#86909c', display: 'block', marginBottom: 3 }}>STAGING</Text>
-              <Text style={{ fontSize: 10, color: '#4e5969', display: 'block' }}>{plan.scene}</Text>
-              {plan.axis && (
-                <Text style={{ fontSize: 10, color: '#b06f10', display: 'block', marginTop: 3 }} title="The line every camera stays on one side of — the geography previz exists to lock">
-                  ⟺ axis · {plan.axis}
-                </Text>
-              )}
-            </div>
-
-            {/* The legend. The plates carry NO lettering — an image model garbles text —
-                so the names that identify who is who live here, beside the drawings. */}
+            {/* The legend, and the only plan text the panel shows. The staging and the
+                axis still govern every plate (the map renders them, the panels are drawn
+                against them) — they are just not something anyone reads off the card. */}
             {(plan.subjects || []).length > 0 && (
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                 {plan.subjects.map((s, i) => (
-                  <Tag key={`${s.name}-${i}`} size="small" style={{ background: '#f2f3f5', color: '#4e5969', border: 'none' }} title={s.description}>
+                  <Tag
+                    key={`${s.name}-${i}`} size="small" title={s.description}
+                    style={blockout
+                      ? { background: SWATCH[blockoutColorOf(i)], color: '#fff', border: 'none' }
+                      : { background: '#f2f3f5', color: '#4e5969', border: 'none' }}
+                  >
                     {s.name || s.description.slice(0, 20)}
                   </Tag>
                 ))}
@@ -93,16 +102,24 @@ const PrevizNodeInner = ({ id, data, selected }) => {
               <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>PLATES</Text>
               <span style={{ flex: 1 }} />
               <Select
+                size="mini" value={style} onChange={(v) => patch({ plateStyle: v })}
+                options={[{ label: 'Pencil', value: 'pencil' }, { label: 'Colour blocks', value: 'blockout' }]}
+                style={{ width: 108 }}
+                title="Pencil reads like a storyboard. Colour blocks render each subject as a flat coloured mass on grey geometry — no identity, no look, and a far stronger Seedance reference."
+              />
+              <Select
                 size="mini" value={resolution} onChange={(v) => patch({ previzResolution: v })}
                 options={PREVIZ_RESOLUTIONS} style={{ width: 78 }}
                 title="What a promoted plate shoots at — previz is a decision, so it stays cheap"
               />
               <Button
                 size="mini" icon={anyLoading ? <IconLoading /> : <IconCamera />}
-                disabled={!onRenderAll || anyLoading}
-                onClick={() => onRenderAll && onRenderAll(id)}
-                title="Draw every plate that has none yet, in page order — character plates first, so the panels can reference them"
-              >Draw all</Button>
+                disabled={!onRenderAll || anyLoading || !sheet.length}
+                onClick={() => onRenderAll && onRenderAll(id, { all: !pending })}
+                title={pending
+                  ? `Draw the ${pending} plate${pending === 1 ? '' : 's'} that ${pending === 1 ? 'is' : 'are'} missing or left behind by the style switch — character plates first, so the panels can reference them`
+                  : 'Every plate is current — draw the whole page again from scratch'}
+              >{pending ? `Draw all (${pending})` : 'Redraw all'}</Button>
               <Button
                 size="mini" icon={<IconLaunch />} disabled={!onAllToBoard || !drawn}
                 onClick={() => onAllToBoard && onAllToBoard(id)}

@@ -219,11 +219,13 @@ THE SPEC BELOW IS THE METHOD. Everything above it is FACT about this particular 
 
 {masterLine}
 
-{refCount} target images are attached as image 1 … image {refCount} — EXACTLY the images, in EXACTLY the order, the model will receive. They are TARGET MATERIAL: what an edit replaces INTO. NEVER cite a number outside 1–{refCount}.
+{refCount} target images are attached. Cite them as @image1 … @image{refCount} — EXACTLY the images, in EXACTLY that order. NEVER cite a number outside 1–{refCount}, and never cite an image when none is attached.
 
-THIS IS AN EDIT, NOT A REGENERATION. The master governs the scene, the camera position, the camera movement, the action trajectories, the occlusion relationships and the event order. Change ONLY what the director's note names. Never describe a new camera angle, a new framing or a different length — the master decides all three.
+THE PROMPT MUST READ AS AN INSTRUCTION TO CHANGE @video1. Name the source, the operation and the target for every change. A prompt that only describes a finished result does not route as an edit — it becomes a new generation, and the source is lost.
 
-Inventory what is visible in the master, name what changes, and name what stays. Then close the scope: state explicitly that everything not named above is unchanged. If you cannot see the master, do NOT claim to have inventoried it — say what changes and close the scope anyway.
+Everything the instruction does not name stays as it is in the source. Say so explicitly when a change could reasonably spread.
+
+Aspect ratio, duration and resolution are inherited or set as parameters — never write them into the prompt.
 
 {skill}
 

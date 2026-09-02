@@ -143,11 +143,11 @@ export const editShotAction = async ({ text = '', master = null, references = []
   if (!material) throw new Error('Say what changes — an edit with no note has nothing to do.');
   const secs = Number(master.duration) || 0;
   if (secs && secs < 4) throw new Error(`The master is ${secs.toFixed(1)}s — an editing task needs a 4–30s source.`);
-  const masterLine = `THE MASTER is the video being edited: ${master.label || 'the attached video'}${secs ? `, ${secs.toFixed(1)}s` : ''}${master.ratio ? `, ${master.ratio}` : ''}. It rides as the sole editing reference and its ratio and duration are NOT sent — the endpoint locks both to it.`;
+  const masterLine = `THE SOURCE VIDEO is attached as @video1: ${master.label || 'the attached clip'}${secs ? `, ${secs.toFixed(1)}s` : ''}${master.ratio ? `, ${master.ratio}` : ''}. Cite it as @video1 in the instruction itself — that citation is what routes this as an edit rather than a new generation.`;
   const SLOT = '@@EDIT@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.edit.user', { refRoster: roster.join('\n') || '(no target images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)),
-    systemPrompt: renderTemplate('cut.edit.system', { refCount: String(references.length), masterLine, skill: await requireSkillLine(modelKey) }),
+    systemPrompt: renderTemplate('cut.edit.system', { refCount: String(references.length), masterLine, skill: await requireSkillLine(modelKey, 'edit') }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,

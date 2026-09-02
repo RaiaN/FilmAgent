@@ -57,6 +57,7 @@ export const allSkills = () => {
     // The user's binding wins (an empty array is a deliberate UNBIND, not "unset");
     // then the file's own frontmatter; then the default map.
     models: Array.isArray(models[s.id]) ? models[s.id] : ((s.models || []).length ? s.models : (DEFAULT_BINDING[s.id] || [])),
+    tasks: (s.tasks || []).length ? s.tasks : ['generate'],
     edited: typeof overrides[s.id] === 'string' || !!models[s.id],
   }));
   return [...fromDisk, ...custom.map((s) => ({ ...s, source: 'custom', edited: false }))];
@@ -67,14 +68,18 @@ export const skillById = (id) => allSkills().find((s) => s.id === id) || null;
 // THE BINDING. EVERY skill that names this slot rides, in library order — a model can
 // have both a methodology and a vendor prompt guide, and dropping one because another
 // matched first would silently lose half the guidance. No match → empty.
-export const skillsFor = (modelKey) => (modelKey
-  ? allSkills().filter((s) => (s.models || []).includes(modelKey) && String(s.text || '').trim())
+// A skill also declares WHICH TASK it governs — generation or editing. Without this an
+// editing spec would ride on every SHOT-card Compose and vice versa. No `tasks:` in the
+// file means generation, the default job.
+const taskOf = (s) => ((s.tasks || []).length ? s.tasks : ['generate']);
+export const skillsFor = (modelKey, task = 'generate') => (modelKey
+  ? allSkills().filter((s) => (s.models || []).includes(modelKey) && taskOf(s).includes(task) && String(s.text || '').trim())
   : []);
 
 // The line a verb sends. The document rides whole, fenced so the model can tell the spec
 // apart from the instruction wrapped around it.
-export const skillLineOf = (modelKey) => {
-  const found = skillsFor(modelKey);
+export const skillLineOf = (modelKey, task = 'generate') => {
+  const found = skillsFor(modelKey, task);
   if (!found.length) return '';
   const body = found.map((s) => `<<<SPEC name: ${s.name}\n${String(s.text).trim()}\nSPEC>>>`).join('\n\n');
   return `THE OFFICIAL PROMPT ${found.length === 1 ? 'SPEC' : 'SPECS'} for this model follow${found.length === 1 ? 's' : ''}, verbatim. ${found.length === 1 ? 'It OUTRANKS' : 'They OUTRANK'} any habit or general practice: where ${found.length === 1 ? 'it and this instruction disagree' : 'they and this instruction disagree'}, the spec wins. Follow ${found.length === 1 ? 'its' : 'their'} formulas, notation and checklists.\n\n${body}`;
@@ -84,10 +89,10 @@ export const skillLineOf = (modelKey) => {
 // stops instead and says which slot is unbound — a silently-degraded prompt is worse
 // than a refused one. Hydrates first, so a call early in the session cannot fail merely
 // because the library had not loaded yet.
-export const requireSkillLine = async (modelKey) => {
+export const requireSkillLine = async (modelKey, task = 'generate') => {
   await hydrateSkills();
-  const line = skillLineOf(modelKey);
-  if (!line) throw new Error(`No skill is bound to "${modelKey}" — open Skills in the toolbar, add that model's prompt spec and bind it to this slot.`);
+  const line = skillLineOf(modelKey, task);
+  if (!line) throw new Error(`No ${task === 'edit' ? 'EDITING ' : ''}skill is bound to "${modelKey}" — open Skills in the toolbar, add that model's prompt spec and bind it to this slot.`);
   return line;
 };
 

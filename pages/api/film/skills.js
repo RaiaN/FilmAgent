@@ -17,8 +17,13 @@ const readFront = (text) => {
   const scalar = (k) => { const r = new RegExp(`^${k}:\\s*(.+)$`, 'm').exec(m[1]); return r ? r[1].trim() : ''; };
   front.name = scalar('name');
   front.description = scalar('description');
-  const list = /^\s*models:\s*\n((?:\s*-\s*.+\n?)+)/m.exec(m[1]);
-  front.models = list ? list[1].split('\n').map((l) => l.replace(/^\s*-\s*/, '').trim()).filter(Boolean) : [];
+  const listOf = (key) => {
+    const r = new RegExp(`^\\s*${key}:\\s*\\n((?:\\s*-\\s*.+\\n?)+)`, 'm').exec(m[1]);
+    return r ? r[1].split('\n').map((l) => l.replace(/^\s*-\s*/, '').trim()).filter(Boolean) : [];
+  };
+  front.models = listOf('models');
+  // `tasks:` says which VERB the spec governs. Absent = generation, the default job.
+  front.tasks = listOf('tasks');
   return { front, body: text };
 };
 
@@ -34,7 +39,7 @@ export default function handler(req, res) {
         // is the paraphrasing failure this library exists to end.
         const text = fs.readFileSync(file, 'utf8');
         const { front } = readFront(text);
-        return { id: d.name, name: front.name || d.name, description: front.description || '', models: front.models, text };
+        return { id: d.name, name: front.name || d.name, description: front.description || '', models: front.models, tasks: front.tasks, text };
       })
       .filter(Boolean);
     return res.status(200).json({ skills });

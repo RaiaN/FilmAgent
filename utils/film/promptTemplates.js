@@ -169,6 +169,34 @@ At most 16 plates.`,
     text: 'A CHARACTER PLATE from a film production storyboard, drawn in graphite pencil on off-white paper. Black and white only, no colour. Loose confident contour lines with light cross-hatching for shadow. ONE subject alone on an otherwise blank page, whole body in frame with clear white space around it, standing in a neutral three-quarter stance turned slightly toward the viewer. A four-legged animal stands on four legs in profile-three-quarter; a vehicle is drawn in three-quarter view. No background, no scenery, no other subject, no ground shadow beyond a light contact shadow, no lettering, no caption, no watermark.\n\n{draw}',
   },
 
+  // The LOCATION PLATE. Location Variations is edit-locked — coverage is a reframe of a
+  // canonical image — so with no source image there is nothing to reframe. This builds
+  // that canonical image from the user's description first; everything after it is the
+  // unchanged edit path, which is what keeps the architecture pinned across angles.
+  'location.anchor': {
+    agent: 'Location Variations',
+    label: 'Location plate — built from the description',
+    vars: ['{brief}'],
+    // {brief} is the user's Direction text, VERBATIM — no rewrite, no compile. What
+    // follows it is the pipeline's CONTRACT, not taste: every variation is a reframe of
+    // this plate, so a person standing in it would appear in all of them.
+    text: '{brief}\n\nOne location, no people and no animals anywhere in the frame. No text, no lettering, no watermark.',
+  },
+
+  // The CHARACTER PLATE, the twin of location.anchor. Character Variations preserves an
+  // identity, so with no source image there is no identity to preserve. This builds one
+  // first — frontal and neutral, the same identity-anchor convention the cast plates use,
+  // because a variation reframes and re-dresses an anchor rather than re-imagining it.
+  'character.anchor': {
+    agent: 'Character Variations',
+    label: 'Character plate — built from the description',
+    vars: ['{brief}'],
+    // {brief} is the user's Direction text, VERBATIM — no rewrite, no compile. The
+    // frontal/neutral tail is the identity-anchor CONTRACT the cast plates also use — a
+    // variation re-dresses this figure, so the anchor must show the figure and nothing else.
+    text: '{brief}\n\nOne person only, whole body in frame, facing camera, frontal, eyes to lens, plain neutral seamless background, no scene and no location. No text, no lettering, no watermark.',
+  },
+
   'storyboard.frameEditDraw': {
     agent: 'Storyboard',
     label: 'Edit a frame guided by drawn marks',
@@ -434,14 +462,14 @@ Return ONLY JSON — no prose, no code fences:
   'creativePlanner.characterVariations.system': {
     agent: 'Creative Planner',
     label: 'Character variations (system)',
-    vars: ['{count}'],
-    text: "You are a character designer. The attached image is the canonical character — it will be EDITED, not re-generated: an image-edit model receives it as [Image 1] and keeps EVERYTHING you do not name. Propose {count} DISTINCT variations as EDIT INSTRUCTIONS. Each \"prompt\" is ONE short instruction naming ONLY what changes — wardrobe, age, expression, lighting, or a re-pose/reframe phrased as 'Reframe to …, the same person' — never a re-description of the character (the image carries identity). Vary what the user asks for; if nothing is specified pick the most interesting dimensions. Return ONLY a JSON array of {count} objects {\"label\": 2–5 words, \"prompt\": the edit instruction}. Substantially different options. No prose, no code fences.",
+    vars: ['{count}', '{skill}'],
+    text: "{skill}\n\nYou are a character designer. The attached image is the canonical character — it will be EDITED, not re-generated: an image-edit model receives it as [Image 1] and keeps EVERYTHING you do not name. Propose {count} DISTINCT variations as EDIT INSTRUCTIONS. Each \"prompt\" is ONE short instruction naming ONLY what changes — wardrobe, age, expression, lighting, or a re-pose/reframe phrased as 'Reframe to …, the same person' — never a re-description of the character (the image carries identity). Vary what the user asks for; if nothing is specified pick the most interesting dimensions. Return ONLY a JSON array of {count} objects {\"label\": 2–5 words, \"prompt\": the edit instruction}. Substantially different options. No prose, no code fences.",
   },
   'creativePlanner.locationVariations.system': {
     agent: 'Creative Planner',
     label: 'Location variations (system)',
-    vars: ['{count}'],
-    text: "You are a location scout and DP. The attached image is the canonical location — it will be EDITED, not re-generated: an image-edit model receives it as [Image 1] and keeps EVERYTHING you do not name (architecture, layout, materials, set dressing; no people appear unless named). Propose {count} DISTINCT variations as EDIT INSTRUCTIONS. Each \"prompt\" is ONE short instruction naming ONLY what changes: COVERAGE ('Reframe to a low wide from the opposite end — the same location', 'Reframe to a high aerial — the same location') or STATE ('it is night, heavy rain, the windows lit warm'). Never re-describe the location — the image carries it. Vary what the user asks for; else pick the most interesting mix of angles, time of day, weather, season. Return ONLY a JSON array of {count} objects {\"label\": 2–5 words, \"prompt\": the edit instruction}. Substantially different options. No prose, no code fences.",
+    vars: ['{count}', '{skill}'],
+    text: "{skill}\n\nYou are a location scout and DP. The attached image is the canonical location — it will be EDITED, not re-generated: an image-edit model receives it as [Image 1] and keeps EVERYTHING you do not name (architecture, layout, materials, set dressing; no people appear unless named). Propose {count} DISTINCT variations as EDIT INSTRUCTIONS. Each \"prompt\" is ONE short instruction naming ONLY what changes: COVERAGE ('Reframe to a low wide from the opposite end — the same location', 'Reframe to a high aerial — the same location') or STATE ('it is night, heavy rain, the windows lit warm'). Never re-describe the location — the image carries it. Vary what the user asks for; else pick the most interesting mix of angles, time of day, weather, season. Return ONLY a JSON array of {count} objects {\"label\": 2–5 words, \"prompt\": the edit instruction}. Substantially different options. No prose, no code fences.",
   },
 
   // ---- Director chat router + board classify ----

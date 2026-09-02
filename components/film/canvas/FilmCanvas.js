@@ -1895,10 +1895,47 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     }
   }, [patchPreviz, renderPrevizPlate]);
 
+  // PROMOTE A PLATE TO THE BOARD. On the panel a plate is a decision aid; as a board
+  // image it becomes an ordinary asset — editable, maskable, taggable into the bible,
+  // attachable to any card, in the reference drawer, saved with the project. Promoting
+  // COPIES: the plate stays on the panel, so the page still reads as a page.
+  const previzPlateToBoard = useCallback((cardId, index, { quiet = false } = {}) => {
+    const card = nodesRef.current.find((n) => n.id === cardId);
+    const sh = (card?.data?.plan?.plates || [])[index];
+    const plate = (card?.data?.plates || [])[index];
+    if (!sh || !plate?.url) { if (!quiet) Message.warning('Draw this plate first.'); return null; }
+    const label = `${sh.title || `Plate ${index + 1}`}${sh.kind === 'board' ? '' : ` (${sh.kind})`}`;
+    const col = index % 4;
+    const row = Math.floor(index / 4);
+    const pos = freeOrigin({
+      w: 230,
+      h: 240,
+      preferred: {
+        x: (card.position?.x || 0) + (Number(card.style?.width) || 700) + 60 + col * 250,
+        y: (card.position?.y || 0) + row * 260,
+      },
+    });
+    const asset = createAssetNode({ kind: 'image', url: plate.url, label, position: pos, layerId: 'previz' });
+    setNodes((ns) => ns.concat({ ...asset, data: { ...asset.data, cacheUrl: plate.cacheUrl || null } }));
+    if (!quiet) Message.success(`"${label}" is on the board — edit it, mask it, tag it into the bible or attach it to any card.`);
+    return asset.id;
+  }, [freeOrigin, setNodes]);
+
+  const previzPlatesToBoard = useCallback((cardId) => {
+    const card = nodesRef.current.find((n) => n.id === cardId);
+    const drawn = (card?.data?.plan?.plates || [])
+      .map((_, i) => i)
+      .filter((i) => (card?.data?.plates || [])[i]?.url);
+    if (!drawn.length) { Message.warning('Nothing drawn yet.'); return; }
+    drawn.forEach((i) => previzPlateToBoard(cardId, i, { quiet: true }));
+    Message.success(`${drawn.length} plate${drawn.length === 1 ? '' : 's'} on the board.`);
+  }, [previzPlateToBoard]);
+
   const previzCtx = useMemo(() => ({
     onPlan: runPrevizPlan, onRenderPlate: renderPrevizPlate, onRenderAll: renderAllPrevizPlates, onPatchPreviz: patchPreviz,
+    onToBoard: previzPlateToBoard, onAllToBoard: previzPlatesToBoard,
     onToShotCard: (a, b) => previzDispatchRef.current.toShot(a, b),
-  }), [runPrevizPlan, renderPrevizPlate, renderAllPrevizPlates, patchPreviz]);
+  }), [runPrevizPlan, renderPrevizPlate, renderAllPrevizPlates, patchPreviz, previzPlateToBoard, previzPlatesToBoard]);
 
   // MASK — reproduce ANY board image (storyboard frames, uploads, plates) with every
   // person as a flat color silhouette: identities are scrubbed, the plate is pure

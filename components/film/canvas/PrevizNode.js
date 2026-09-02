@@ -1,13 +1,13 @@
 import { createContext, memo, useContext } from 'react';
 import { Typography, Button, Tag, Select, Message } from '@arco-design/web-react';
-import { IconLoading, IconPlayArrow, IconRefresh, IconCamera, IconVideoCamera } from '@arco-design/web-react/icon';
+import { IconLoading, IconPlayArrow, IconRefresh, IconCamera, IconVideoCamera, IconLaunch } from '@arco-design/web-react/icon';
 import { DraftText, BLOCK_LABEL } from './cardBlocks';
 import { PREVIZ_RESOLUTIONS } from '../../../utils/film/core/previz';
 
 const { Text } = Typography;
 
 export const PrevizContext = createContext({
-  onPlan: null, onRenderPlate: null, onRenderAll: null, onToShotCard: null, onPatchPreviz: null,
+  onPlan: null, onRenderPlate: null, onRenderAll: null, onToShotCard: null, onToBoard: null, onAllToBoard: null, onPatchPreviz: null,
 });
 
 // THE PREVIZ PANEL — a page of plates, then dispatch. Previz decides STAGING, GEOGRAPHY,
@@ -24,7 +24,7 @@ const KIND = {
 };
 
 const PrevizNodeInner = ({ id, data, selected }) => {
-  const { onPlan, onRenderPlate, onRenderAll, onToShotCard, onPatchPreviz } = useContext(PrevizContext);
+  const { onPlan, onRenderPlate, onRenderAll, onToShotCard, onToBoard, onAllToBoard, onPatchPreviz } = useContext(PrevizContext);
   const patch = (p) => onPatchPreviz && onPatchPreviz(id, p);
   const plan = data.plan || null;
   const plates = data.plates || [];
@@ -103,6 +103,11 @@ const PrevizNodeInner = ({ id, data, selected }) => {
                 onClick={() => onRenderAll && onRenderAll(id)}
                 title="Draw every plate that has none yet, in page order — character plates first, so the panels can reference them"
               >Draw all</Button>
+              <Button
+                size="mini" icon={<IconLaunch />} disabled={!onAllToBoard || !drawn}
+                onClick={() => onAllToBoard && onAllToBoard(id)}
+                title="Copy every drawn plate onto the board as an ordinary image — editable, maskable, taggable into the bible, attachable to any card"
+              >To board</Button>
             </div>
 
             {/* THE PAGE — read left to right, top to bottom, like a storyboard sheet. */}
@@ -138,13 +143,19 @@ const PrevizNodeInner = ({ id, data, selected }) => {
                             <Button
                               size="mini" icon={<IconRefresh />} loading={!!plate.loading} disabled={!onRenderPlate}
                               onClick={() => onRenderPlate && onRenderPlate(id, i)}
-                              style={{ padding: '0 5px', minWidth: 0 }}
+                              style={{ padding: '0 4px', minWidth: 0 }}
                               title="Draw it again"
+                            />
+                            <Button
+                              size="mini" icon={<IconLaunch />} disabled={!onToBoard}
+                              onClick={() => onToBoard && onToBoard(id, i)}
+                              style={{ padding: '0 4px', minWidth: 0 }}
+                              title="Copy this plate onto the board as an ordinary image — the plate stays on the page"
                             />
                             <Button
                               size="mini" type="primary" icon={<IconVideoCamera />}
                               disabled={!onToShotCard}
-                              style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1, padding: 0, fontSize: 9 }}
+                              style={{ background: '#b06f10', borderColor: '#b06f10', flex: 1, padding: 0, fontSize: 9, minWidth: 0 }}
                               onClick={() => (onToShotCard ? onToShotCard(id, i) : Message.warning('not wired'))}
                               title={sh.kind === 'board'
                                 ? `Lay a SHOT card from this panel — ${resolution}, the panel pinned as its opening frame, camera and action pre-filled`

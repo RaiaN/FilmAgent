@@ -4606,8 +4606,16 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         await runAudioClip({ text: s.prompt, imageRef: s.imageRef || '', audioRefs: s.audioRefs || [], near: beside });
       } else if (agentId === 'characterVariations' || agentId === 'locationVariations') {
         const anchor = nodesRef.current.find((n) => n.id === s.anchorId && n.data?.kind === 'image' && refUrl(n));
-        if (!anchor) { Message.warning('Pick the source image on the card first.'); return; }
-        const { result } = await runAgent({ agentId, settings: s, selectionNodes: [anchor], origin: groupOrigin() });
+        // Either agent can run on words alone — it builds its own source plate from
+        // Direction (a location to cover, an identity to vary) and works from that.
+        const byWords = !!String(s.direction || '').trim();
+        if (!anchor && !byWords) {
+          Message.warning(agentId === 'locationVariations'
+            ? 'Pick a source image, or describe the location in Direction.'
+            : 'Pick a source image, or describe the character in Direction.');
+          return;
+        }
+        const { result } = await runAgent({ agentId, settings: s, selectionNodes: anchor ? [anchor] : [], origin: groupOrigin() });
         Message.success(result?.async ? `${layer.label} started` : `${layer.label} finished`);
       } else if (agentId === 'inspiration') {
         const picked = (s.refs || []).map((rid) => nodesRef.current.find((x) => x.id === rid))

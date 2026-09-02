@@ -296,18 +296,20 @@ const InspirationFields = ({ s, up, imageAssets, onOpenRefDrawer }) => (
 const VariationsFields = ({ agentId, s, up, imageAssets, onOpenRefDrawer }) => (
   <>
     <div>
-      <Text style={FIELD_LABEL}>Source image — the {agentId === 'locationVariations' ? 'location' : 'character'} to vary</Text>
+      <Text style={FIELD_LABEL}>
+        Source image — the {agentId === 'locationVariations' ? 'location to cover' : 'character to vary'} (optional)
+      </Text>
       <BoardImagePicker imageAssets={imageAssets} value={s.anchorId || ''} onPick={(anchorId) => up({ anchorId })}
         onBrowse={onOpenRefDrawer ? () => onOpenRefDrawer('anchorId') : undefined}
-        emptyHint="No source picked yet." />
+        emptyHint={`No source picked — the agent will build the ${agentId === 'locationVariations' ? 'location' : 'character'} from your description below.`} />
     </div>
     <div>
       <Text style={FIELD_LABEL}>Direction (optional)</Text>
       <Input.TextArea
         value={s.direction || ''} onChange={(v) => up({ direction: v })}
         placeholder={agentId === 'locationVariations'
-          ? "what to explore… e.g. 'different times of day', 'tighter angles', 'in winter' — or leave blank and the agent decides"
-          : "what to explore… e.g. 'different wardrobes', 'across ages', 'range of expressions' — or leave blank and the agent decides"}
+          ? "with a source image: what to explore, e.g. 'different times of day', 'tighter angles', 'in winter'. Without one: describe the location itself — that becomes the plate everything is covered from."
+          : "with a source image: what to explore, e.g. 'different wardrobes', 'across ages', 'range of expressions'. Without one: describe the character itself — that becomes the plate everything is varied from."}
         autoSize={{ minRows: 2, maxRows: 4 }}
       />
     </div>

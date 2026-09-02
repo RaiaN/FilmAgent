@@ -31,7 +31,10 @@ const summarize = (agentId, s, imageAssets) => {
       return `Seed Audio 1.0${prompt ? ` · ${prompt}` : ' · no prompt yet'}`;
     case 'characterVariations':
     case 'locationVariations': {
-      const anchor = s.anchorId ? (label(s.anchorId) || 'source picked') : 'no source image yet';
+      // Either agent runs on words alone — saying "no source image yet" on a card that
+      // is ready to run would read as a blocker it is not.
+      const noSrc = (s.direction || '').trim() ? 'plate built from the description' : 'no source image yet';
+      const anchor = s.anchorId ? (label(s.anchorId) || 'source picked') : noSrc;
       return `${anchor} · ${s.count || 4} variations${s.direction ? ` · ${s.direction}` : ''}`;
     }
     case 'inspiration':

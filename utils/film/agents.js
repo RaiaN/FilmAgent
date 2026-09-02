@@ -74,17 +74,28 @@ const firstImageNode = (selection) =>
 // lands, lay ONE pending placeholder per planned spec (so the panel fills with loading cards
 // immediately), then resolve each in place as the parallel batch returns. Falls back to dropping
 // finished cards via onAsset when the canvas pending callbacks aren't supplied (headless/SDK).
+// `anchor` is null when the agent built its own plate from a description — there was no
+// board node to anchor to. onAnchor lands that plate as the first asset of the group, so
+// the thing every variation was derived from is visible and reusable too.
 const variationHooks = (layerId, anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset } = {}) => {
+  const anchorId = anchor ? anchor.id : null;
   const streaming = typeof onPendingAsset === 'function' && typeof onResolveAsset === 'function';
   if (!streaming) {
-    return (item) => onAsset && onAsset({ kind: 'image', url: item.url, label: item.label, layerId, sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId: anchor.id } });
+    const land = (item) => onAsset && onAsset({ kind: 'image', url: item.url, label: item.label, layerId, sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId } });
+    land.onAnchor = (a) => onAsset && onAsset({ kind: 'image', url: a.url, label: a.label || 'Source plate', layerId, sourceRefs: [], meta: { anchorPlate: true } });
+    return land;
   }
   const ids = [];
   return {
+    onAnchor: (a) => {
+      const label = a.label || 'Source plate';
+      const id = onPendingAsset({ kind: 'image', label, layerId, sourceRefs: [], meta: { anchorPlate: true } });
+      if (id) onResolveAsset(id, { url: a.url, cacheUrl: a.cacheUrl || null, loading: false, label, meta: { anchorPlate: true } });
+    },
     onPlanned: (specs) => specs.forEach((s, i) => {
-      ids[i] = onPendingAsset({ kind: 'image', label: s.label, layerId, sourceRefs: [src], meta: { anchorId: anchor.id, planLabel: s.label } });
+      ids[i] = onPendingAsset({ kind: 'image', label: s.label, layerId, sourceRefs: src ? [src] : [], meta: { anchorId, planLabel: s.label } });
     }),
-    onItem: (item, i) => { if (ids[i]) onResolveAsset(ids[i], { url: item.url, loading: false, label: item.label, sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId: anchor.id } }); },
+    onItem: (item, i) => { if (ids[i]) onResolveAsset(ids[i], { url: item.url, loading: false, label: item.label, sourceRefs: item.referenceImages, meta: { ...item.meta, anchorId } }); },
     onFail: (i, msg) => { if (onFailAsset && ids[i]) onFailAsset(ids[i], msg); },
   };
 };
@@ -136,11 +147,13 @@ export const characterVariationsAgent = {
   needsSelection: false,
   grouped: true,
   defaultSettings: { count: 4, size: '2K', direction: '', imageModel: '', anchorId: '' },
-  describe: 'Plans distinct variations of a character, identity preserved — pick the source image below.',
+  describe: 'Plans distinct variations of a character, identity preserved — pick a source image, or just describe the character and the agent builds the plate first.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
+    // No source image is a legitimate run: the op builds the identity anchor from the
+    // Direction text and varies THAT. Only a run with neither is refused.
     const anchor = firstImageNode(selection);
-    if (!anchor) throw new Error('Select one character image first');
-    const src = refUrl(anchor);
+    const src = anchor ? refUrl(anchor) : '';
+    if (!src && !String(settings.direction || '').trim()) throw new Error('Pick a character image, or describe the character in Direction.');
     const result = await ops.characterVariations(
       { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: imageModelKeyOf(settings.imageModel) },
       ctx || browserCtx(apiKey),
@@ -161,11 +174,13 @@ export const locationVariationsAgent = {
   needsSelection: false,
   grouped: true,
   defaultSettings: { count: 4, size: '2K', direction: '', imageModel: '', anchorId: '' },
-  describe: 'Plans distinct coverage of a location, architecture preserved — pick the source image below.',
+  describe: 'Plans distinct coverage of a location, architecture preserved — pick a source image, or just describe the location and the agent builds the plate first.',
   async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
+    // No source image is a legitimate run: the op builds the canonical plate from the
+    // Direction text and covers THAT. Only a run with neither is refused.
     const anchor = firstImageNode(selection);
-    if (!anchor) throw new Error('Select one location image first');
-    const src = refUrl(anchor);
+    const src = anchor ? refUrl(anchor) : '';
+    if (!src && !String(settings.direction || '').trim()) throw new Error('Pick a location image, or describe the location in Direction.');
     const result = await ops.locationVariations(
       { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: imageModelKeyOf(settings.imageModel) },
       ctx || browserCtx(apiKey),

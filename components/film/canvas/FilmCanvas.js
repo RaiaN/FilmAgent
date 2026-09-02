@@ -1837,16 +1837,22 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const renderPrevizPlate = useCallback(async (cardId, index, { quiet = false } = {}) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
-    if (!plan) { Message.warning('Plan the page first.'); return; }
-    if (!previzKeyOk()) return;
+    // These guards THROW rather than return: a batch counts a silent return as a drawn
+    // plate, which is how a run reports twelve drawn and shows six.
+    if (!plan) { if (!quiet) Message.warning('Plan the page first.'); throw new Error('no plan on this card'); }
+    if (!previzKeyOk()) throw new Error('no API key');
     const mark = (patch) => setNodes((ns) => ns.map((n) => (n.id === cardId
       ? { ...n, data: { ...n.data, plates: Object.assign([], n.data.plates || [], { [index]: { ...(n.data.plates || [])[index], ...patch } }) } }
       : n)));
     mark({ loading: true, error: '' });
-    traceRef.current.startRun({ note: `Agent · Previz · plate ${index + 1}` });
+    if (!quiet) traceRef.current.startRun({ note: `Agent · Previz · plate ${index + 1}` });
     try {
       const references = previzPlateRefs(plan, card.data.plates || [], index);
       const { url, cacheUrl, prompt } = await previzPlate({ plan, index, references, imageModel: 'seedreamPro' }, previzCtxOf());
+      // An empty url is the endpoint answering without an image — a refusal, a filtered
+      // result, an unexpected body. Left unchecked it lands as a blank tile with no
+      // error and still counts as success.
+      if (!url) throw new Error('the model returned no image');
       mark({ url, cacheUrl: cacheUrl || null, prompt, loading: false, error: '' });
     } catch (e) {
       mark({ loading: false, error: e.message });
@@ -1862,6 +1868,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // hand, then every remaining plate AT ONCE against both. Twelve round trips become
   // three. Nothing throttles a wave — the waves exist for the references, not for the
   // endpoint, which is happy to draw the whole page in parallel.
+  //
+  // Then ONE retry pass over whatever failed. Firing a page in parallel makes transient
+  // refusals ordinary, and asking the user to hunt for the ↻ on four tiles is work the
+  // run can do itself. Only the second failure is reported.
   const renderAllPrevizPlates = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
@@ -1871,16 +1881,18 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!todo.length) { Message.info('Every plate is already drawn.'); return; }
 
     let drawn = 0;
-    let failed = 0;
-    const step = () => patchPreviz(cardId, { busy: true, step: `drawing ${drawn + failed}/${todo.length}` });
-    // A plate that fails takes only itself down: the reason lands on its own tile, the
-    // rest of the wave keeps drawing, and one summary reports the tally at the end.
+    const failed = new Map(); // index → the reason it did not draw
+    const step = () => patchPreviz(cardId, { busy: true, step: `drawing ${drawn + failed.size}/${todo.length}` });
     const draw = async ({ i }) => {
-      try { await renderPrevizPlate(cardId, i, { quiet: true }); drawn += 1; } catch { failed += 1; }
+      try { await renderPrevizPlate(cardId, i, { quiet: true }); drawn += 1; failed.delete(i); }
+      catch (e) { failed.set(i, e.message); }
       step();
     };
     const wave = (items) => Promise.all(items.map(draw));
 
+    // ONE run for the batch, not one per plate: parallel startRun calls overwrite each
+    // other's context, so per-plate runs scramble the trace they were meant to explain.
+    traceRef.current.startRun({ note: `Agent · Previz · draw ${todo.length} plate${todo.length === 1 ? '' : 's'}` });
     step();
     try {
       await wave(todo.filter(({ p }) => p.kind === 'character'));
@@ -1888,8 +1900,24 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const pilot = rest.find(({ p }) => p.kind === 'board');
       if (pilot) await draw(pilot);
       await wave(rest.filter((x) => x !== pilot));
-      if (failed) Message.warning(`${drawn} plate${drawn === 1 ? '' : 's'} drawn, ${failed} failed — the reason is on each tile; press ↻ to retry.`);
-      else Message.success(`${drawn} plate${drawn === 1 ? '' : 's'} drawn.`);
+
+      if (failed.size) {
+        const again = [...failed.keys()];
+        traceRef.current.log({ level: 'run', kind: 'warning', note: `Previz · retrying ${again.length} failed plate${again.length === 1 ? '' : 's'}: ${again.map((i) => i + 1).join(', ')}` });
+        patchPreviz(cardId, { busy: true, step: `retrying ${again.length}` });
+        await wave(again.map((i) => ({ i, p: plan.plates[i] })));
+      }
+
+      if (failed.size) {
+        const lines = [...failed.entries()].map(([i, why]) => `${i + 1}: ${why}`);
+        traceRef.current.log({ level: 'run', kind: 'warning', note: `Previz · ${failed.size} plate${failed.size === 1 ? '' : 's'} failed twice — ${lines.join(' · ')}` });
+        Message.error({
+          content: `${drawn} drawn, ${failed.size} failed twice — plate${failed.size === 1 ? '' : 's'} ${lines.join('; ')}`,
+          duration: 12000,
+        });
+      } else {
+        Message.success(`${drawn} plate${drawn === 1 ? '' : 's'} drawn.`);
+      }
     } finally {
       patchPreviz(cardId, { busy: false, step: '' });
     }

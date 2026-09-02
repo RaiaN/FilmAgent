@@ -1859,10 +1859,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // DRAW ALL. The plates have exactly two ordering dependencies, so the page draws in
   // three WAVES rather than one-at-a-time: the character plates first (they reference
   // nothing — they ARE the identity anchors), then ONE pilot panel that sets the pencil
-  // hand, then everything else at once against both. Twelve round trips become three.
-  // Concurrency is capped so a wide page does not fire a dozen Seedream calls at once.
-  const PLATE_CONCURRENCY = 4;
-
+  // hand, then every remaining plate AT ONCE against both. Twelve round trips become
+  // three. Nothing throttles a wave — the waves exist for the references, not for the
+  // endpoint, which is happy to draw the whole page in parallel.
   const renderAllPrevizPlates = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
@@ -1874,30 +1873,21 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     let drawn = 0;
     let failed = 0;
     const step = () => patchPreviz(cardId, { busy: true, step: `drawing ${drawn + failed}/${todo.length}` });
+    // A plate that fails takes only itself down: the reason lands on its own tile, the
+    // rest of the wave keeps drawing, and one summary reports the tally at the end.
     const draw = async ({ i }) => {
       try { await renderPrevizPlate(cardId, i, { quiet: true }); drawn += 1; } catch { failed += 1; }
       step();
     };
-    // A worker pool, not Promise.all: the page keeps a steady few in flight instead of
-    // opening every request at once.
-    const pool = async (items) => {
-      const queue = [...items];
-      await Promise.all(Array.from({ length: Math.min(PLATE_CONCURRENCY, items.length) }, async () => {
-        while (queue.length) {
-          const next = queue.shift();
-          // eslint-disable-next-line no-await-in-loop
-          await draw(next);
-        }
-      }));
-    };
+    const wave = (items) => Promise.all(items.map(draw));
 
     step();
     try {
-      await pool(todo.filter(({ p }) => p.kind === 'character'));
+      await wave(todo.filter(({ p }) => p.kind === 'character'));
       const rest = todo.filter(({ p }) => p.kind !== 'character');
       const pilot = rest.find(({ p }) => p.kind === 'board');
       if (pilot) await draw(pilot);
-      await pool(rest.filter((x) => x !== pilot));
+      await wave(rest.filter((x) => x !== pilot));
       if (failed) Message.warning(`${drawn} plate${drawn === 1 ? '' : 's'} drawn, ${failed} failed — the reason is on each tile; press ↻ to retry.`);
       else Message.success(`${drawn} plate${drawn === 1 ? '' : 's'} drawn.`);
     } finally {

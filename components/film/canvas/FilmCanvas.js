@@ -1834,7 +1834,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     return [...chars.slice(0, 3), ...hand].slice(0, 4);
   }, []);
 
-  const renderPrevizPlate = useCallback(async (cardId, index) => {
+  const renderPrevizPlate = useCallback(async (cardId, index, { quiet = false } = {}) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
     if (!plan) { Message.warning('Plan the page first.'); return; }
@@ -1850,33 +1850,56 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       mark({ url, cacheUrl: cacheUrl || null, prompt, loading: false, error: '' });
     } catch (e) {
       mark({ loading: false, error: e.message });
-      Message.error(`Plate ${index + 1} failed: ${e.message}`);
+      // In a batch the tile already shows the reason — ten toasts would bury the page.
+      if (!quiet) Message.error(`Plate ${index + 1} failed: ${e.message}`);
       throw e;
     }
   }, [previzCtxOf, previzKeyOk, previzPlateRefs, setNodes]);
 
-  // DRAW ALL, in a deliberate order: character plates first so the panels can reference
-  // them, then the rest in page order. Sequential on purpose — each plate wants to see
-  // what the ones before it drew. A failure stops the run rather than burning the page.
+  // DRAW ALL. The plates have exactly two ordering dependencies, so the page draws in
+  // three WAVES rather than one-at-a-time: the character plates first (they reference
+  // nothing — they ARE the identity anchors), then ONE pilot panel that sets the pencil
+  // hand, then everything else at once against both. Twelve round trips become three.
+  // Concurrency is capped so a wide page does not fire a dozen Seedream calls at once.
+  const PLATE_CONCURRENCY = 4;
+
   const renderAllPrevizPlates = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
     if (!plan) { Message.warning('Plan the page first.'); return; }
     const done = card.data.plates || [];
-    const todo = plan.plates
-      .map((p, i) => ({ p, i }))
-      .filter(({ i }) => !done[i]?.url)
-      .sort((a, b) => (a.p.kind === 'character' ? 0 : 1) - (b.p.kind === 'character' ? 0 : 1));
+    const todo = plan.plates.map((p, i) => ({ p, i })).filter(({ i }) => !done[i]?.url);
     if (!todo.length) { Message.info('Every plate is already drawn.'); return; }
-    patchPreviz(cardId, { busy: true, step: 'drawing' });
+
+    let drawn = 0;
+    let failed = 0;
+    const step = () => patchPreviz(cardId, { busy: true, step: `drawing ${drawn + failed}/${todo.length}` });
+    const draw = async ({ i }) => {
+      try { await renderPrevizPlate(cardId, i, { quiet: true }); drawn += 1; } catch { failed += 1; }
+      step();
+    };
+    // A worker pool, not Promise.all: the page keeps a steady few in flight instead of
+    // opening every request at once.
+    const pool = async (items) => {
+      const queue = [...items];
+      await Promise.all(Array.from({ length: Math.min(PLATE_CONCURRENCY, items.length) }, async () => {
+        while (queue.length) {
+          const next = queue.shift();
+          // eslint-disable-next-line no-await-in-loop
+          await draw(next);
+        }
+      }));
+    };
+
+    step();
     try {
-      for (const { i } of todo) {
-        // eslint-disable-next-line no-await-in-loop
-        await renderPrevizPlate(cardId, i);
-      }
-      Message.success(`${todo.length} plate${todo.length === 1 ? '' : 's'} drawn.`);
-    } catch {
-      Message.error('Stopped — fix the failed plate and draw again.');
+      await pool(todo.filter(({ p }) => p.kind === 'character'));
+      const rest = todo.filter(({ p }) => p.kind !== 'character');
+      const pilot = rest.find(({ p }) => p.kind === 'board');
+      if (pilot) await draw(pilot);
+      await pool(rest.filter((x) => x !== pilot));
+      if (failed) Message.warning(`${drawn} plate${drawn === 1 ? '' : 's'} drawn, ${failed} failed — the reason is on each tile; press ↻ to retry.`);
+      else Message.success(`${drawn} plate${drawn === 1 ? '' : 's'} drawn.`);
     } finally {
       patchPreviz(cardId, { busy: false, step: '' });
     }

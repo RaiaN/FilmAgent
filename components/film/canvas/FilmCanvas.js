@@ -1816,14 +1816,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // since they pin WHO, then the first drawn panel, which pins the hand. This is the only
   // real lever on consistency: the renderer has no scene memory between calls, so a plate
   // drawn early in the page simply has less to hold onto.
-  const previzPlateRefs = useCallback((plan, plates, index, style = 'pencil') => {
+  const previzPlateRefs = useCallback((plan, plates, index) => {
     const urlOf = (i) => plates[i]?.cacheUrl || plates[i]?.url || null;
     const sheet = plan.plates || [];
     if (sheet[index]?.kind === 'character') return []; // a character plate is the anchor; it copies no one
-    // A BLOCKOUT panel has no hand to match, but the shape keys are worth carrying: they
-    // hold each colour's silhouette steady across the page. So: character plates yes,
-    // pilot panel no.
-    const blockout = style === 'blockout';
+    // Character plates ONLY. They are the identity/shape anchors and they exist by the
+    // time anything else draws; no plate references another panel, which is what lets
+    // the whole rest of the page fire in one wave.
     // LABELLED, not just attached: the plate prompt names each reference by the subject
     // it stands for, so "the wolf" is bound to a drawing instead of to the model's prior.
     const chars = sheet
@@ -1831,12 +1830,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         ? { url: urlOf(i), label: p.title || (plan.subjects || [])[0]?.name || 'this subject' }
         : null))
       .filter(Boolean);
-    if (blockout) return chars.slice(0, 4);
-    const firstPanel = sheet.findIndex((p, i) => p.kind === 'board' && i !== index && urlOf(i));
-    const hand = firstPanel >= 0 && sheet[index]?.kind === 'board'
-      ? [{ url: urlOf(firstPanel), label: 'the pencil hand to match' }]
-      : [];
-    return [...chars.slice(0, 3), ...hand].slice(0, 4);
+    return chars.slice(0, 4);
   }, []);
 
   const renderPrevizPlate = useCallback(async (cardId, index, { quiet = false } = {}) => {
@@ -1853,7 +1847,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (!quiet) traceRef.current.startRun({ note: `Agent · Previz · plate ${index + 1}` });
     try {
       const style = PLATE_STYLES.includes(card.data?.plateStyle) ? card.data.plateStyle : PLATE_STYLES[0];
-      const references = previzPlateRefs(plan, card.data.plates || [], index, style);
+      const references = previzPlateRefs(plan, card.data.plates || [], index);
       const { url, cacheUrl, prompt } = await previzPlate({ plan, index, references, style, imageModel: 'seedreamPro' }, previzCtxOf());
       // An empty url is the endpoint answering without an image — a refusal, a filtered
       // result, an unexpected body. Left unchecked it lands as a blank tile with no
@@ -1868,12 +1862,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     }
   }, [previzCtxOf, previzKeyOk, previzPlateRefs, setNodes]);
 
-  // DRAW ALL. The plates have exactly two ordering dependencies, so the page draws in
-  // three WAVES rather than one-at-a-time: the character plates first (they reference
-  // nothing — they ARE the identity anchors), then ONE pilot panel that sets the pencil
-  // hand, then every remaining plate AT ONCE against both. Twelve round trips become
-  // three. Nothing throttles a wave — the waves exist for the references, not for the
-  // endpoint, which is happy to draw the whole page in parallel.
+  // DRAW ALL. TWO waves, and only because of one real dependency: the character plates
+  // are the identity anchors every other plate references, so they must exist first.
+  // Everything else — the map and every panel — goes at once in wave two.
+  //
+  // There WAS a third stage: one pilot panel drawn alone to set the hand the rest would
+  // match. It cost a full serialized round trip to add very little (the pencil and clay
+  // conventions are already pinned hard in their templates) and it made a page of eleven
+  // plates read as a trickle. Gone.
   //
   // Then ONE retry pass over whatever failed. Firing a page in parallel makes transient
   // refusals ordinary, and asking the user to hunt for the ↻ on four tiles is work the
@@ -1906,13 +1902,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: `Agent · Previz · draw ${todo.length} plate${todo.length === 1 ? '' : 's'}` });
     step();
     try {
-      await wave(todo.filter(({ p }) => p.kind === 'character'));
-      const rest = todo.filter(({ p }) => p.kind !== 'character');
-      // The pilot exists only to set a pencil hand for the panels that follow. A blockout
-      // page has no hand to match, so it fires in one wave.
-      const pilot = card.data?.plateStyle === 'blockout' ? null : rest.find(({ p }) => p.kind === 'board');
-      if (pilot) await draw(pilot);
-      await wave(rest.filter((x) => x !== pilot));
+      const anchors = todo.filter(({ p }) => p.kind === 'character');
+      if (anchors.length) await wave(anchors);
+      await wave(todo.filter(({ p }) => p.kind !== 'character'));
 
       if (failed.size) {
         const again = [...failed.keys()];

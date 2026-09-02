@@ -127,16 +127,14 @@ COVERAGE — how you choose the board panels. Be a director, not a camera operat
   - Play the scene from BOTH sides of the axis: a single on one subject is answered by the reverse on the other. A scene of two parties shot entirely from one bearing is a failure.
   - Vary SIZE deliberately. Go tight for what the story turns on — a face, a hand, an object — and only there. Never go tight while the audience still needs to know where everyone is.
   - Cover REACTION, not only action. The shot of someone watching is usually the shot that makes the moment land.
-  - Give the panels RHYTHM. Duration follows tension: hold a wide, cut fast through an exchange. Never give every shot the same length.
   - As few panels as the scene truly needs and no fewer — usually 6 to 12.
-  - If the description states a total RUNTIME for the scene, the panel durations must add up to it. Reach it by covering more of the scene, never by stretching every shot.
 
 Every board panel shows ONLY the subjects you listed, and never a person unless a person is one of them. A forest, a street or a crowd scene invites the artist to add bystanders and extra animals — write each panel so there is nothing for them to fill in.
 
 DRAWING each plate. The artist is an image model with NO 3D scene and no memory between plates, so "4m north of the dog, 0.8m height, tight single" draws nothing at all. Write every "draw" as WHAT THE FINISHED DRAWING SHOWS: which subject sits where in the frame (left / centre / right, high / low), how big each one is (fills the frame, half the frame height, a small figure in the distance), which way each faces and where it looks, what is in the foreground and what is behind, and where the horizon or eye level falls. State camera height only as what it does to the picture — "seen from below, the horizon low behind them", never a measurement. Name subjects by the name you gave them so the same one recurs across plates.
 
 Return ONLY JSON — no prose, no code fences:
-{"scene":"<2-3 sentences: the space and its features, in drawable terms>","axis":"<one sentence: the action axis named against two fixed features, and which side the cameras stay on>","subjects":[{"name":"<short name, reused on every plate>","description":"<what this subject IS — its KIND first and exactly: a dog, a wolf, a car, a man, a woman. Never assume a person: if the description says an animal, an animal it stays. Then appearance; clothing only if it is a person.>"}],"look":"<one sentence: the photoreal look of the finished scene — place, time of day, light, atmosphere, in the description's own words. Rides to the SHOT card, never drawn on a plate.>","plates":[{"kind":"map","title":"<3-6 words>","draw":"<what the overhead plan shows: the set pieces and their positions seen from above, each subject's marker and which way it faces, and every camera position with the direction it points. Describe placement — there are no labels to read.>"},{"kind":"character","title":"<the subject's name>","draw":"<the figure alone: kind, build, stance, coat or clothing, markings, anything carried>"},{"kind":"board","title":"<3-6 words>","draw":"<what this panel shows, by the drawing rule above>","caption":"<one line: what happens in this shot — the words that go under the panel>","camera":"<the shot in film terms: size, angle, and any move. Rides to the SHOT card.>","motion":"<what happens during this shot, present tense, in the description's own words>","durationSec":5}]}
+{"scene":"<2-3 sentences: the space and its features, in drawable terms>","axis":"<one sentence: the action axis named against two fixed features, and which side the cameras stay on>","subjects":[{"name":"<short name, reused on every plate>","description":"<what this subject IS — its KIND first and exactly: a dog, a wolf, a car, a man, a woman. Never assume a person: if the description says an animal, an animal it stays. Then appearance; clothing only if it is a person.>"}],"look":"<one sentence: the photoreal look of the finished scene — place, time of day, light, atmosphere, in the description's own words. Rides to the SHOT card, never drawn on a plate.>","plates":[{"kind":"map","title":"<3-6 words>","draw":"<what the overhead plan shows: the set pieces and their positions seen from above, each subject's marker and which way it faces, and every camera position with the direction it points. Describe placement — there are no labels to read.>"},{"kind":"character","title":"<the subject's name>","draw":"<the figure alone: kind, build, stance, coat or clothing, markings, anything carried>"},{"kind":"board","title":"<3-6 words>","draw":"<what this panel shows, by the drawing rule above>","caption":"<one line: what happens in this shot — the words that go under the panel>","camera":"<the shot in film terms: size, angle, and any move. Rides to the SHOT card.>","motion":"<what happens during this shot, present tense, in the description's own words>"}]}
 
 At most 16 plates.`,
   },
@@ -198,6 +196,30 @@ At most 16 plates.`,
     label: 'Plate — character sheet (pencil)',
     vars: ['{draw}'],
     text: 'A CHARACTER PLATE from a film production storyboard, drawn in graphite pencil on off-white paper. Black and white only, no colour. Loose confident contour lines with light cross-hatching for shadow. ONE subject alone on an otherwise blank page, whole body in frame with clear white space around it, standing in a neutral three-quarter stance turned slightly toward the viewer. A four-legged animal stands on four legs in profile-three-quarter; a vehicle is drawn in three-quarter view. No background, no scenery, no other subject, no ground shadow beyond a light contact shadow, no lettering, no caption, no watermark.\n\n{draw}',
+  },
+
+  // THE CLAY RENDER — the third convention, and the only one that shows LIGHT. Pencil
+  // implies lighting, the blockout deliberately kills it; a grey clay maquette render is
+  // where a previz department actually blocks the key, the shadows and the falloff. It
+  // stays inside the charter because it decides light as STRUCTURE — direction, quality,
+  // what is in shadow — and never as colour grade, texture or finish.
+  'previz.plate.clay': {
+    agent: 'Previz',
+    label: 'Plate — 3D clay render (lighting block)',
+    vars: ['{draw}', '{marks}', '{cast}', '{refs}', '{light}'],
+    text: 'A 3D PREVIZ CLAY RENDER: an untextured grey maquette of the scene, rendered like a physical clay model photographed on a modelmaker bench. Every surface is the SAME matte grey clay — no colour, no texture, no pattern, no material detail, no set dressing. Subjects are featureless clay figures with no face, no hair and no clothing, each keeping its own real silhouette and stance (an animal stands on its own legs, a vehicle keeps its shape). Each figure carries a small raised WEDGE on the front of its head showing which way it faces.\n\nLIGHTING IS THE POINT OF THIS RENDER and must read unmistakably: one clear key with a stated direction, visible falloff across the clay, hard-edged cast shadows on the ground and across the forms, soft fill holding the shadow side open, and rim separation where a figure would otherwise merge with what is behind it. Ambient occlusion darkens the contact points and the creases. Depth reads through light, not through haze.{light}{marks}{cast}{refs}\n\nTHE FRAME SHOWS: {draw}',
+  },
+  'previz.plate.clayCharacter': {
+    agent: 'Previz',
+    label: 'Plate — clay figure study (lighting on one subject)',
+    vars: ['{draw}'],
+    text: 'A 3D PREVIZ CLAY RENDER of ONE subject alone: an untextured matte grey clay maquette, no face, no hair, no clothing, no texture and no colour, keeping its own real silhouette and stance — an animal stands on its own legs in three-quarter profile, a person stands upright turned slightly toward the viewer, a vehicle is seen in three-quarter view. A small raised WEDGE on the front of its head shows which way it faces. It stands alone on a plain grey clay ground with nothing else in the frame.\n\nLight it to show FORM: one clear key from the upper front-left with visible falloff, a soft fill opening the shadow side, a rim from behind separating it from the background, a grounded cast shadow, and ambient occlusion in the creases and at the contact points. No text, no lettering, no watermark.\n\nTHE SUBJECT IS: {draw}',
+  },
+  'previz.plate.clayMap': {
+    agent: 'Previz',
+    label: 'Plate — clay set from above (lighting plan)',
+    vars: ['{draw}', '{light}'],
+    text: 'A 3D PREVIZ CLAY RENDER seen from DIRECTLY ABOVE, looking straight down at the set: an untextured matte grey clay maquette of the whole location, every surface the same grey clay, no colour, no texture, no set dressing. Set geometry — walls, trees, rocks, furniture, a fallen log — is modelled as simple clay volumes. Each subject is a featureless clay figure seen from above keeping its real footprint, with a small wedge on one end showing which way it faces. Each camera position is a small clay camera form with two thin lines opening from it to show the field of view.\n\nLIGHT THE SET so the plan reads: one clear key with a stated direction throwing long hard cast shadows across the ground, so every figure and every set piece lays a shadow that says where the light comes from. Soft fill, ambient occlusion at the contact points.{light}\n\nNo lettering, no labels, no numbers, no watermark.\n\nTHE PLAN SHOWS: {draw}',
   },
 
   // The LOCATION PLATE. Location Variations is edit-locked — coverage is a reframe of a

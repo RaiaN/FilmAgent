@@ -7,7 +7,7 @@ import { PREVIZ_RESOLUTION, PLATE_STYLES, blockoutColorOf, plateIsStale } from '
 const { Text } = Typography;
 
 export const PrevizContext = createContext({
-  onPlan: null, onRenderPlate: null, onRenderAll: null, onToShotCard: null, onToBoard: null, onAllToBoard: null, onPatchPreviz: null,
+  onPlan: null, onRenderPlate: null, onRenderAll: null, onToShotCard: null, onToBoard: null, onAllToBoard: null, onEditPlate: null, onPatchPreviz: null,
 });
 
 // THE PREVIZ PANEL — a page of plates, then dispatch. Previz decides STAGING, GEOGRAPHY,
@@ -31,7 +31,7 @@ const KIND = {
 };
 
 const PrevizNodeInner = ({ id, data, selected }) => {
-  const { onPlan, onRenderPlate, onRenderAll, onToShotCard, onToBoard, onAllToBoard, onPatchPreviz } = useContext(PrevizContext);
+  const { onPlan, onRenderPlate, onRenderAll, onToShotCard, onToBoard, onAllToBoard, onEditPlate, onPatchPreviz } = useContext(PrevizContext);
   const patch = (p) => onPatchPreviz && onPatchPreviz(id, p);
   const plan = data.plan || null;
   const plates = data.plates || [];
@@ -102,9 +102,13 @@ const PrevizNodeInner = ({ id, data, selected }) => {
               <span style={{ flex: 1 }} />
               <Select
                 size="mini" value={style} onChange={(v) => patch({ plateStyle: v })}
-                options={[{ label: 'Pencil', value: 'pencil' }, { label: 'Colour blocks', value: 'blockout' }]}
-                style={{ width: 108 }}
-                title="Pencil reads like a storyboard. Colour blocks render each subject as a flat coloured mass on grey geometry — no identity, no look, and a far stronger Seedance reference."
+                options={[
+                  { label: 'Pencil', value: 'pencil' },
+                  { label: 'Colour blocks', value: 'blockout' },
+                  { label: 'Clay render', value: 'clay' },
+                ]}
+                style={{ width: 118 }}
+                title="Three ways to draw the same plan. Pencil reads like a storyboard — composition. Colour blocks are flat coloured masses on grey geometry — the strongest Seedance reference, and no light at all. Clay is an untextured grey maquette render, and the only style that shows the LIGHTING: key direction, cast shadows, falloff and form."
               />
               <Button
                 size="mini" icon={anyLoading ? <IconLoading /> : <IconCamera />}
@@ -129,15 +133,18 @@ const PrevizNodeInner = ({ id, data, selected }) => {
                 return (
                   <div key={i} style={{ border: '1px solid #e5e6eb', borderRadius: 6, background: '#fcfcfd', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                     <div
-                      onClick={() => !plate.loading && onRenderPlate && onRenderPlate(id, i)}
-                      title={plate.url ? sh.draw : 'Click to draw this plate'}
-                      style={{ position: 'relative', height: 88, background: '#eff1f4', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: onRenderPlate ? 'pointer' : 'default' }}
+                      onClick={() => {
+                        if (plate.loading) return;
+                        if (plate.url) { if (onEditPlate) onEditPlate(id, i); return; }
+                        if (onRenderPlate) onRenderPlate(id, i);
+                      }}
+                      title={plate.url ? 'Click to edit this plate — the full frame editor, with references and pencil marks. ↻ redraws it from scratch.' : 'Click to draw this plate'}
+                      style={{ position: 'relative', height: 88, background: '#eff1f4', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                     >
                       {plate.loading ? <IconLoading style={{ color: '#3491fa' }} />
                         : plate.url ? <img src={plate.cacheUrl || plate.url} alt="" style={{ width: '100%', height: '100%', objectFit: kind.fit }} />
                           : <Text style={{ fontSize: 9, color: '#a9aeb8' }}>draw</Text>}
                       <span style={{ position: 'absolute', top: 3, left: 3, fontSize: 8, fontWeight: 700, letterSpacing: 0.4, padding: '0 4px', borderRadius: 3, background: kind.color, color: '#fff' }}>{kind.label}</span>
-                      {sh.durationSec ? <span style={{ position: 'absolute', bottom: 3, right: 3, fontSize: 8, padding: '0 4px', borderRadius: 3, background: 'rgba(0,0,0,0.55)', color: '#fff' }}>{sh.durationSec}s</span> : null}
                     </div>
                     <div style={{ padding: '4px 5px', display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
                       <Text style={{ fontSize: 9.5, fontWeight: 700, color: '#1d2129' }} ellipsis={{ rows: 1 }}>{i + 1}. {sh.title || sh.kind}</Text>

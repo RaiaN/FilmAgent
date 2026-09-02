@@ -53,7 +53,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
-import { previzPlan, previzPlate, PREVIZ_RESOLUTION, PLATE_STYLES, plateIsStale } from '../../../utils/film/core/previz';
+import { previzPlan, previzPlate, PREVIZ_RESOLUTION, PLATE_STYLES, plateIsStale, plateStyleLock } from '../../../utils/film/core/previz';
 import { writeFilmPrompt, describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
@@ -1435,7 +1435,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const storyboardPanelRef = useRef(null);
   // Previz DISPATCH lives far below (it needs onPatchCut and the panel layer), while the
   // previz context is built above it — the ref is the seam.
-  const previzDispatchRef = useRef({ toShot: () => {} });
+  const previzDispatchRef = useRef({ toShot: () => {}, edit: () => {} });
   // Compose is declared far below (it closes over the bible, the trace and the client);
   // previz dispatch needs to CALL it. Same seam as previzDispatchRef, other direction.
   const composeCutRef = useRef(null);
@@ -1961,7 +1961,22 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // flag a masked frame carries — that is what gives it the attach / cast-colours
     // toolkit and the FULL-plate anchor binding on a SHOT card.
     const isBlockout = plate.style === 'blockout' && sh.kind === 'board';
-    setNodes((ns) => ns.concat({ ...asset, data: { ...asset.data, cacheUrl: plate.cacheUrl || null, ...(isBlockout ? { previzMask: true } : {}) } }));
+    setNodes((ns) => ns.concat({
+      ...asset,
+      data: {
+        ...asset.data,
+        cacheUrl: plate.cacheUrl || null,
+        // styleLock is what the frame editor re-states on every edit — without it the
+        // editor's photoreal default converts a pencil panel into a photograph.
+        styleLock: plateStyleLock(sh.kind, plate.style || 'pencil'),
+        ...(isBlockout ? { previzMask: true } : {}),
+      },
+    }));
+    // Remember which node this plate became, so clicking it again opens THAT one instead
+    // of littering the board with copies.
+    setNodes((ns) => ns.map((n) => (n.id === cardId
+      ? { ...n, data: { ...n.data, plates: Object.assign([], n.data.plates || [], { [index]: { ...(n.data.plates || [])[index], boardNodeId: asset.id } }) } }
+      : n)));
     if (!quiet) Message.success(`"${label}" is on the board — edit it, mask it, tag it into the bible or attach it to any card.`);
     return asset.id;
   }, [freeOrigin, setNodes]);
@@ -1979,6 +1994,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const previzCtx = useMemo(() => ({
     onPlan: runPrevizPlan, onRenderPlate: renderPrevizPlate, onRenderAll: renderAllPrevizPlates, onPatchPreviz: patchPreviz,
     onToBoard: previzPlateToBoard, onAllToBoard: previzPlatesToBoard,
+    onEditPlate: (a, b) => previzDispatchRef.current.edit(a, b),
     onToShotCard: (a, b) => previzDispatchRef.current.toShot(a, b),
   }), [runPrevizPlan, renderPrevizPlate, renderAllPrevizPlates, patchPreviz, previzPlateToBoard, previzPlatesToBoard]);
 
@@ -3077,7 +3093,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         ? [sh.camera, sh.motion, plan.look]
         : [plan.scene, plan.look]).filter(Boolean).join('. '),
       framing: '', shotTemplate: '',
-      durationSec: sh.durationSec || 5,
+      durationSec: AUTO_SECONDS,
       refEntryIds: [], audio: '',
     }, pos);
     const chip = { nodeId: null, url: plate.cacheUrl || plate.url, label: sh.title || `Previz plate ${index + 1}` };
@@ -3110,7 +3126,25 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       else Message.error('The card did not settle in time — press Compose on it to write its prompt.');
     })();
   }, [freeOrigin, onPatchCut]);
-  previzDispatchRef.current = { toShot: previzToShotCard };
+  // CLICKING A PLATE opens the frame editor — the same one every board image uses, with
+  // its reference pool, its structure lock and its pencil-mark editing. Re-rendering is
+  // what ↻ is for; a click that silently spent a generation was the wrong default.
+  //
+  // The editor works on board NODES, so the plate is promoted first (quietly, once) and
+  // the editor opens on that node. A second click reuses it rather than duplicating.
+  const previzEditPlate = useCallback((cardId, index) => {
+    const card = nodesRef.current.find((n) => n.id === cardId);
+    const plate = (card?.data?.plates || [])[index];
+    if (!plate?.url) { Message.warning('Draw this plate first.'); return; }
+    const existing = plate.boardNodeId && nodesRef.current.find((n) => n.id === plate.boardNodeId);
+    if (existing) { openFrameEditor(existing.id); return; }
+    const id = previzPlateToBoard(cardId, index, { quiet: true });
+    if (!id) return;
+    // The node is one setState away; the editor reads nodesRef, so let it land first.
+    setTimeout(() => openFrameEditor(id), 60);
+  }, [openFrameEditor, previzPlateToBoard]);
+
+  previzDispatchRef.current = { toShot: previzToShotCard, edit: previzEditPlate };
 
   // Lay one SHOT card per split segment, tiled 3-wide next to the anchor node (a Brief
   // or the card being split). Cut numbers: `startCut` when the caller renumbers around

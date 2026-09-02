@@ -17,11 +17,11 @@ export const PREVIZ_RESOLUTION = '480p'; // previz is a decision tool, never a d
 
 export const PLATE_KINDS = ['board', 'map', 'character'];
 
-// How a board panel is DRAWN. Two conventions, one plan: a pencil page reads like a
-// storyboard, a blockout page reads like a VFX layer. The blockout is the stronger
-// Seedance reference — flat colour separates subjects with no identity and no look —
-// so the choice is a real one, not a skin.
-export const PLATE_STYLES = ['pencil', 'blockout'];
+// How the page is DRAWN. Three conventions, one plan, and each answers a different
+// question: PENCIL reads like a storyboard (composition), BLOCKOUT is the strongest
+// Seedance reference (subject separation and screen direction, flat, no light at all),
+// CLAY is the only one that shows LIGHT (key direction, shadow, falloff, form).
+export const PLATE_STYLES = ['pencil', 'blockout', 'clay'];
 
 // The mask convention's order, so a blockout plate and a masked frame name their
 // subjects the same way and the cast-colour binding line reads either one.
@@ -42,6 +42,35 @@ export const plateIsStale = (planPlate, plate, style = 'pencil') => {
 // Which subject a character plate stands for. The planner titles those plates with the
 // subject's name, so match on that first; failing that, fall back to this plate's ordinal
 // among the character plates, which is the order the planner emits them in.
+// The planned look, handed to a clay render as LIGHT ONLY. This is the seam that keeps
+// the clay pass inside previz's charter: the look sentence carries time of day, weather
+// and light quality, and the clay render is told to take the light out of it and leave
+// the grade, the colour and the texture behind.
+const lightLineOf = (plan) => {
+  const look = String(plan?.look || '').trim();
+  return look
+    ? ` The scene's planned light is: ${look} — render the LIGHT of that and nothing else: its direction, its hardness or softness, and where it leaves shadow. Ignore every word in it about colour, grade, texture, fur, material or finish; the clay stays grey.`
+    : '';
+};
+
+// What a promoted plate must RE-STATE if it is ever edited. Without it the frame
+// editor's photoreal default silently converts a pencil panel into a photograph.
+export const plateStyleLock = (kind, style = 'pencil') => {
+  if (style === 'clay') {
+    return kind === 'map'
+      ? 'top-down 3D previz clay render — untextured matte grey clay maquette seen from above, lit with one clear key throwing hard cast shadows, no colour and no texture'
+      : '3D previz clay render — untextured matte grey clay maquette, featureless clay figures, lit with a clear key, visible falloff, cast shadows and rim separation, no colour and no texture';
+  }
+  if (style === 'blockout') {
+    return kind === 'map'
+      ? 'top-down VFX blockout matte ID pass — orthographic straight down, every element one flat solid colour with hard edges, no texture, no shading, no gradient'
+      : 'VFX blockout matte ID pass — every element one flat solid colour with hard edges, featureless coloured masses, grey ground and set geometry, no texture, no shading, no gradient';
+  }
+  return kind === 'map'
+    ? 'hand-drawn graphite pencil overhead floor plan on off-white paper, black and white only, no colour'
+    : 'hand-drawn graphite pencil storyboard panel on off-white paper, loose contour lines and light hatching, black and white only, no colour';
+};
+
 export const subjectIndexOf = (plan, index) => {
   const sheet = plan?.plates || [];
   const subs = plan?.subjects || [];
@@ -88,7 +117,6 @@ export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) 
         caption: kind === 'board' ? clean(p?.caption, 300) : '',
         camera: kind === 'board' ? clean(p?.camera, 300) : '',
         motion: kind === 'board' ? clean(p?.motion, 800) : '',
-        durationSec: kind === 'board' ? Math.max(3, Math.min(15, Math.round(Number(p?.durationSec) || 5))) : null,
       };
     })
     .filter((p) => p.draw)
@@ -122,7 +150,9 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
     // The map is the one plate that WANTS the whole space: it exists to show geography.
     const geography = [plate.draw, String(plan?.scene || '').trim(), String(plan?.axis || '').trim()].filter(Boolean).join(' ');
     const subs = (plan?.subjects || []).filter((sub) => sub.name || sub.description);
-    prompt = style === 'blockout'
+    prompt = style === 'clay'
+      ? renderTemplate('previz.plate.clayMap', { draw: geography, light: lightLineOf(plan) })
+      : style === 'blockout'
       ? renderTemplate('previz.plate.mapBlockout', {
         draw: geography,
         cast: subs.length
@@ -131,12 +161,29 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
       })
       : renderTemplate('previz.plate.map', { draw: geography });
   } else if (plate.kind === 'character') {
-    prompt = style === 'blockout'
+    prompt = style === 'clay'
+      ? renderTemplate('previz.plate.clayCharacter', { draw: plate.draw })
+      : style === 'blockout'
       ? renderTemplate('previz.plate.characterBlockout', {
         draw: plate.draw,
         color: blockoutColorOf(subjectIndexOf(plan, index)),
       })
       : renderTemplate('previz.plate.character', { draw: plate.draw });
+  } else if (style === 'clay') {
+    const names = (plan?.subjects || []).map((sub) => sub.name || sub.description).filter(Boolean);
+    prompt = renderTemplate('previz.plate.clay', {
+      draw: plate.draw,
+      light: lightLineOf(plan),
+      marks: MOVE_RE.test(plate.camera)
+        ? ` Mark the camera move with one bold arrow over the frame showing its direction (${plate.camera.toLowerCase()}) — a plain line and arrowhead, no lettering.`
+        : '',
+      cast: names.length
+        ? ` Exactly ${NUM[names.length] || names.length} clay ${names.length === 1 ? 'figure appears' : 'figures appear'} in this frame — ${names.join(' and ')} — and nothing else is alive: no other figure, no onlooker, nothing moving in the background.`
+        : '',
+      refs: refs.length
+        ? ` The attached plates are the form keys: ${refs.map((r, i) => `Image ${i + 1} is ${r.label}`).join('; ')}. Give each clay figure the same silhouette and stance it has there.`
+        : '',
+    });
   } else if (style === 'blockout') {
     // A blockout names its subjects by COLOUR, not by identity — that is the whole point
     // of the medium, and it is what makes the plate reusable as a Seedance anchor.

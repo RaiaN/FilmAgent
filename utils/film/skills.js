@@ -96,6 +96,18 @@ export const requireSkillLine = async (modelKey, task = 'generate') => {
   return line;
 };
 
+// THE PLANNER SKILL. Skills normally bind to a RENDER model — the image or video slot a
+// card shoots on. This binds one to the LLM SLOT instead, so a non-standard reasoner can
+// carry its own operating spec on every planning call while a standard one carries none.
+//
+// Deliberately NOT requireSkillLine: the default reasoner has no skill and must keep
+// working. An unbound planner slot returns '' and nothing changes.
+export const plannerSkillLine = async (slot) => {
+  if (!slot) return '';
+  await hydrateSkills();
+  return skillLineOf(slot);
+};
+
 export const setSkillText = (id, text) => {
   const store = readStore();
   const custom = store.custom.find((c) => c.id === id);

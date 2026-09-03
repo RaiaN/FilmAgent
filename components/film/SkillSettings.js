@@ -11,7 +11,7 @@ import {
   removeSkill,
   skillTokens,
 } from '../../utils/film/skills';
-import { VIDEO_MODEL_OPTIONS, IMAGE_MODEL_OPTIONS } from '../../utils/film/suiteConfig';
+import { VIDEO_MODEL_OPTIONS, IMAGE_MODEL_OPTIONS, REASONER_OPTIONS } from '../../utils/film/suiteConfig';
 
 const { Text, Paragraph } = Typography;
 const CollapseItem = Collapse.Item;
@@ -30,9 +30,13 @@ const SkillSettings = ({ visible, onClose }) => {
   useEffect(() => { if (visible) hydrateSkills().then(() => setReady(true)); }, [visible]);
 
   const skills = ready ? allSkills() : [];
+  // Slots a skill can bind to. The PLANNER slots are the odd ones: a skill bound there
+  // rides on every reasoning call while that LLM is the selected planner, instead of on
+  // the calls that render with a particular image or video model.
   const slotOptions = [
     ...VIDEO_MODEL_OPTIONS.map((o) => ({ label: `${o.label} · video`, value: o.key })),
     ...IMAGE_MODEL_OPTIONS.map((o) => ({ label: `${o.label} · image`, value: o.key })),
+    ...REASONER_OPTIONS.map((o) => ({ label: `${o.label} · planner`, value: o.key })),
   ];
 
   const onAdd = () => {
@@ -52,6 +56,9 @@ const SkillSettings = ({ visible, onClose }) => {
           A skill is a model vendor&apos;s prompt spec. Bind it to a model slot and the whole document rides
           VERBATIM in every prompt call that model makes — no summary, no paraphrase. Skills in{' '}
           <Text code>skills/</Text> load automatically; drop a folder in and it appears here.
+          A skill bound to a <b>planner</b> slot works differently: it rides ahead of the system
+          prompt on <i>every</i> reasoning call, but only while that LLM is the one selected in
+          Project settings.
         </Paragraph>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>

@@ -34,7 +34,7 @@ import {
   saveProjectAny,
 } from '../../utils/film/projectStore';
 import { saveProjectToCloud, listCloudProjects, loadCloudProject, deleteCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
-import { applyDeployModels } from '../../utils/film/suiteConfig';
+import { applyDeployModels, REASONER_OPTIONS, reasonerSlotOf, resolveModelId, setClientConfig } from '../../utils/film/suiteConfig';
 
 const { Title, Text } = Typography;
 
@@ -66,7 +66,11 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // WHICH LLM PLANS. App-level, not per-project (it lives in the client config beside
+  // the model table); the state here exists only so the Select re-renders on change.
+  const [plannerSlot, setPlannerSlot] = useState('reasoner');
   const [lastSavedAt, setLastSavedAt] = useState(null);
+  useEffect(() => { setPlannerSlot(reasonerSlotOf()); }, [settingsOpen]);
 
   // Opening the canvas mints a WORKING TITLE (a film-flavoured word pair from
   // randomFilmTitle) instead of another "Untitled" — rename any time in the header.
@@ -474,6 +478,22 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
               <Text type="secondary">Title</Text>
               <Input value={project.title} onChange={(v) => patchProject({ title: v })} />
             </div>
+            <div>
+              <Text type="secondary" style={{ marginRight: 8 }}>Planner model</Text>
+              <Select
+                value={plannerSlot}
+                onChange={(v) => { setClientConfig({ runtime: { reasonerSlot: v } }); setPlannerSlot(v); }}
+                style={{ width: 220 }}
+                options={REASONER_OPTIONS.map((o) => ({
+                  label: resolveModelId(o.key) ? o.label : `${o.label} — not configured`,
+                  value: o.key,
+                  disabled: !resolveModelId(o.key),
+                }))}
+              />
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                The LLM behind EVERY reasoning call in the suite
+              </Text>
+            </div>
             <Space wrap>
               <div>
                 <Text type="secondary" style={{ marginRight: 8 }}>Language</Text>
@@ -498,9 +518,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
               {serverKeyed ? (
                 <>
                   <Text style={{ fontWeight: 600, display: 'block', marginBottom: 2 }}>API key: configured on the server</Text>
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    This deployment provides its own key — everything works without entering one, and no key is ever stored in your browser.
-                  </Text>
                 </>
               ) : (
                 <>

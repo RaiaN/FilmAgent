@@ -26,6 +26,7 @@ export const ROOT_CONFIG = {
     seedanceMini: null,  // Seedance 2.0 Mini                 (MODELARK_MODEL_SEEDANCE_MINI)
     seedance25: null,    // Seedance 2.5 — 30s takes, 50 refs  (MODELARK_MODEL_SEEDANCE_25)
     reasoner: null,      // Seed 2.0 Pro reasoner             (MODELARK_MODEL_REASONER)
+    reasonerSC: null,    // Seed-SC reasoner                  (MODELARK_MODEL_REASONER_SC)
   },
   runtime: {
     pollIntervalMs: 4000,    // Seedance task polling cadence
@@ -35,6 +36,10 @@ export const ROOT_CONFIG = {
                              // calls (plan, QC, style curation, brief). 'low' |
                              // 'medium' | 'high' | null (off). One-liner helpers
                              // override to 'low'.
+    // WHICH LLM every planner calls. One switch, because every agent asks for the
+    // 'reasoner' slot by name and getModel redirects — 19 call sites, none of which
+    // should have to know there is a choice.
+    reasonerSlot: 'reasoner',
   },
   // Per-agent default parameters (the headless equivalent of the UI's defaultSettings).
   defaults: {
@@ -100,6 +105,7 @@ export const MODEL_ENV_VARS = {
   seedanceMini: 'MODELARK_MODEL_SEEDANCE_MINI',
   seedance25: 'MODELARK_MODEL_SEEDANCE_25',
   reasoner: 'MODELARK_MODEL_REASONER',
+  reasonerSC: 'MODELARK_MODEL_REASONER_SC',
 };
 
 let hydratedDeployModels = null; // client-side: set once from /api/film/config
@@ -128,12 +134,31 @@ export const resolveConfig = (perCall = {}) => deepMerge(deepMerge(deepMerge(ROO
 // Non-throwing resolver (enumeration/config-route use): id or null.
 export const resolveModelId = (key, perCall) => resolveConfig(perCall).models[key] || null;
 
+// The LLM slots a planner can run on. Every agent asks for 'reasoner'; runtime
+// .reasonerSlot decides which of these that resolves to.
+export const REASONER_OPTIONS = [
+  { key: 'reasoner', label: 'Seed 2.0 Pro' },
+  { key: 'reasonerSC', label: 'Seed-SC' },
+];
+const REASONER_KEYS = REASONER_OPTIONS.map((o) => o.key);
+
+// Which LLM slot 'reasoner' currently means. Falls back to the default slot when the
+// stored choice is unknown — a stale localStorage value must not brick every agent.
+export const reasonerSlotOf = (perCall) => {
+  const chosen = resolveConfig(perCall).runtime?.reasonerSlot;
+  return REASONER_KEYS.includes(chosen) ? chosen : 'reasoner';
+};
+
 // STRICT resolver: configured id or a clear error naming the env var. No fallbacks —
 // an unconfigured slot must never silently ride another account's endpoint.
+//
+// 'reasoner' is the one INDIRECT key: it means "whichever LLM the project is set to
+// plan with". Resolving it here keeps every call site writing getModel('reasoner').
 export const getModel = (key, perCall) => {
-  const id = resolveModelId(key, perCall);
+  const slot = key === 'reasoner' ? reasonerSlotOf(perCall) : key;
+  const id = resolveModelId(slot, perCall);
   if (!id) {
-    throw new Error(`Model '${key}' is not configured — set ${MODEL_ENV_VARS[key] || 'its MODELARK_MODEL_* variable'} in .env.local (see .env.example).`);
+    throw new Error(`Model '${slot}' is not configured — set ${MODEL_ENV_VARS[slot] || 'its MODELARK_MODEL_* variable'} in .env.local (see .env.example).`);
   }
   return id;
 };

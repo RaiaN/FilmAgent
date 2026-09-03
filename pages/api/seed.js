@@ -67,12 +67,23 @@ async function seedHandler(req, res) {
 
   try {
     const inlinedImages = await Promise.all(imageList.map(inlineImage));
-    // Seed 2.0 Pro family uses the /responses API + input formatting. The name-prefix
-    // heuristic can't sniff an account-scoped ep-… reasoner id, so
-    // MODELARK_REASONER_PROTOCOL=responses|chat overrides it explicitly per deployment.
-    const isPro260328 = process.env.MODELARK_REASONER_PROTOCOL
-      ? process.env.MODELARK_REASONER_PROTOCOL === 'responses'
-      : resolvedModelId.startsWith('seed-2-0-pro');
+    // WHICH API SHAPE: /responses + input formatting, or chat completions.
+    //
+    // The SLOT decides, never the id string. Every reasoner slot in this app is Seed 2.0
+    // Pro family and speaks /responses — Seed-SC included — but an account-scoped ep-…
+    // endpoint id says nothing about the model behind it, so a name-prefix guess gets
+    // Seed-SC wrong every time. Matching the id against the configured reasoner slots is
+    // the only thing that actually knows.
+    const reasonerIds = [process.env.MODELARK_MODEL_REASONER, process.env.MODELARK_MODEL_REASONER_SC]
+      .map((v) => String(v || '').trim())
+      .filter(Boolean);
+    // The escape hatch stays for a deployment that points a reasoner slot at something
+    // genuinely chat-shaped; the prefix check is the last resort, for a model id that
+    // was passed in without being one of the configured slots.
+    const override = String(process.env.MODELARK_REASONER_PROTOCOL || '').trim();
+    const isPro260328 = override
+      ? override === 'responses'
+      : (reasonerIds.includes(resolvedModelId) || resolvedModelId.startsWith('seed-2-0-pro'));
     
     // For seed-2-0-pro-260328, we use /responses and input formatting
     if (isPro260328) {

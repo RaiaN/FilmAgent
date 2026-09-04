@@ -51,7 +51,7 @@ const PrevizNodeInner = ({ id, data, selected }) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: '1px solid #e5e6eb' }}>
         <Text bold style={{ fontSize: 12 }}>Previz</Text>
         <Text type="secondary" style={{ fontSize: 10 }}>
-          {sheet.length ? `${sheet.length} plate${sheet.length === 1 ? '' : 's'} · ${drawn} drawn` : 'staging, geography, coverage, timing — never look'}
+          {sheet.length ? `${sheet.length} plate${sheet.length === 1 ? '' : 's'} · ${drawn} drawn` : 'staging, geography, coverage, timing'}
         </Text>
         <span style={{ flex: 1 }} />
         {data.busy && <Tag size="small" color="blue"><IconLoading style={{ marginRight: 3 }} />{data.step || 'working'}…</Tag>}

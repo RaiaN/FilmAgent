@@ -166,6 +166,7 @@ export default async function assetUploadHandler(req, res) {
       AssetType: assetType,
       ...(assetName ? { Name: String(assetName).trim() } : {}),
       ProjectName: projectName || 'default',
+      Moderation: { Strategy: 'Skip' },
     };
 
     let groupId = resolvedAssetGroupId;

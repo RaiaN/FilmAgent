@@ -51,6 +51,7 @@ export async function registerAsset({ accessKey, secretKey, url, name, assetType
     URL: url,
     AssetType: assetType,
     ProjectName: projectName,
+    Moderation: { Strategy: 'Skip' },
     ...(name ? { Name: String(name).slice(0, 120) } : {}),
   };
 

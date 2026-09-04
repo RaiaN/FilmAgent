@@ -11,6 +11,8 @@
 // startRun/setStep stamp run+step context onto every entry so the panel can nest them.
 // subscribe(fn) drives a live-updating UI. No React, no network.
 
+import { modelLabelOf } from '../suiteConfig';
+
 const now = () => Date.now();
 const CAP = 72;
 
@@ -110,7 +112,15 @@ export const createTrace = () => {
         rec.status = 'ok';
         rec.ms = now() - started;
         if (kind === 'generateImage') rec.result = abbrevUrl(out && out.url);
-        else if (kind === 'reason') rec.result = oneLine(out && out.content, 360);
+        else if (kind === 'reason') {
+          // The one-line result is the row's PREVIEW; resultFull is what the model
+          // actually said, whole and unflattened. A reasoner answer is the thing you
+          // most need to read when a shot comes back wrong, and a 360-char slice with
+          // its newlines collapsed is exactly where JSON and screenplays stop being
+          // readable. The panel prints the full text; the preview keeps the row short.
+          rec.result = oneLine(out && out.content, 360);
+          rec.resultFull = String((out && out.content) || '');
+        }
         else if (kind === 'startVideo') rec.result = `task ${(out && out.taskId) || '?'}`;
         else if (kind === 'pollVideo') rec.result = abbrevUrl(out && out.videoUrl);
         else if (kind === 'generateSpeech') rec.result = `${(out && out.bytes) || 0} bytes · ${(out && out.format) || 'mp3'}`;
@@ -126,9 +136,9 @@ export const createTrace = () => {
     };
     return {
       ...client,
-      reason: (args = {}) => timed('reason', { prompt: oneLine(args.prompt), system: oneLine(args.systemPrompt, 90), skill: skillOf(args.systemPrompt), refs: refsWithRoles(args.images), model: args.modelId }, () => client.reason(args)),
-      generateImage: (args = {}) => timed('generateImage', { prompt: oneLine(args.prompt), refs: refsWithRoles(args.referenceImages), model: args.model, size: args.size }, () => client.generateImage(args)),
-      startVideo: (args = {}) => timed('startVideo', { prompt: oneLine((args.content || []).map((c) => c && c.text).filter(Boolean).join(' ')), model: args.model, duration: args.duration, resolution: args.resolution }, () => client.startVideo(args)),
+      reason: (args = {}) => timed('reason', { prompt: oneLine(args.prompt), system: oneLine(args.systemPrompt, 90), skill: skillOf(args.systemPrompt), refs: refsWithRoles(args.images), model: modelLabelOf(args.modelId), modelId: args.modelId }, () => client.reason(args)),
+      generateImage: (args = {}) => timed('generateImage', { prompt: oneLine(args.prompt), refs: refsWithRoles(args.referenceImages), model: modelLabelOf(args.model), modelId: args.model, size: args.size }, () => client.generateImage(args)),
+      startVideo: (args = {}) => timed('startVideo', { prompt: oneLine((args.content || []).map((c) => c && c.text).filter(Boolean).join(' ')), model: modelLabelOf(args.model), modelId: args.model, duration: args.duration, resolution: args.resolution }, () => client.startVideo(args)),
       pollVideo: (args = {}) => timed('pollVideo', { task: args.taskId }, () => client.pollVideo(args)),
       ...(client.generateSpeech ? { generateSpeech: (args = {}) => timed('generateSpeech', { prompt: oneLine(args.text) }, () => client.generateSpeech(args)) } : {}),
     };
@@ -241,7 +251,12 @@ export const createTrace = () => {
       if (e.skill) out.push(`${pad}    skill:  ${e.skill}`);
       if (e.refs && e.refs.length) out.push(`${pad}    refs:   ${e.refs.join(', ')}`);
       if (e.assignments) out.push(`${pad}    → ${e.assignments}`);
-      if (e.result) out.push(`${pad}    → ${e.result}`);
+      // The export is what gets pasted into a bug report, so the reasoner's answer
+      // rides WHOLE here — the one-line preview is a UI affordance, not the record.
+      if (e.resultFull && e.resultFull.length > String(e.result || '').length) {
+        out.push(`${pad}    → output (${e.resultFull.length} chars):`);
+        e.resultFull.split('\n').forEach((ln) => out.push(`${pad}      | ${ln}`));
+      } else if (e.result) out.push(`${pad}    → ${e.result}`);
       if (e.error) out.push(`${pad}    ✗ ${e.error}`);
     };
     groups().forEach((run) => {

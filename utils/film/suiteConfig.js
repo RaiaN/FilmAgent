@@ -149,6 +149,32 @@ export const reasonerSlotOf = (perCall) => {
   return REASONER_KEYS.includes(chosen) ? chosen : 'reasoner';
 };
 
+// WHAT AN ENDPOINT ID IS. Account-scoped ids (ep-…) carry no meaning on their face, so
+// a log line that prints one cannot tell you which model actually ran — and with the
+// planner slot selectable, "which reasoner was this?" is a question the History panel
+// has to answer. Reverse-map a resolved id back to the slot that owns it.
+// Built lazily: the option lists are declared further down this module, so reading them
+// at module scope here is a temporal-dead-zone crash at import.
+const slotLabels = () => ({
+  ...Object.fromEntries(VIDEO_MODEL_OPTIONS.map((o) => [o.key, o.label])),
+  ...Object.fromEntries(IMAGE_MODEL_OPTIONS.map((o) => [o.key, o.label])),
+  ...Object.fromEntries(REASONER_OPTIONS.map((o) => [o.key, o.label])),
+  seedanceFast: 'Seedance 2.0 Fast',
+  seedAudio: 'Seed Audio 1.0',
+});
+
+// 'Seed-SC · …292sg' — the slot that owns this id, plus enough of the id to tell two
+// endpoints apart. An id no slot claims prints as itself.
+export const modelLabelOf = (id) => {
+  const raw = String(id || '').trim();
+  if (!raw) return '';
+  const models = resolveConfig().models || {};
+  const slot = Object.keys(models).find((k) => models[k] === raw);
+  if (!slot) return raw;
+  const label = slotLabels()[slot] || slot;
+  return raw.startsWith('ep-') ? `${label} · …${raw.slice(-6)}` : label;
+};
+
 // STRICT resolver: configured id or a clear error naming the env var. No fallbacks —
 // an unconfigured slot must never silently ride another account's endpoint.
 //

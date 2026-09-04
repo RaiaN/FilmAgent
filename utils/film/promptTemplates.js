@@ -366,9 +366,7 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final pr
     agent: 'Storyboard',
     label: 'Normalize — brief → screenplay (system)',
     vars: [],
-    text: `You are a script supervisor converting a film brief into SCREENPLAY FORMAT — the storyboard pipeline's canonical form. You TRANSCRIBE and STRUCTURE the source; you NEVER invent content.
-
-FORMAT:
+    text: `FORMAT:
 • SCENE HEADINGS — one per scene, numbered: "1. EXT. LOCATION - TIME" (INT., EXT., or INT./EXT.). A field the source does not state is written UNSTATED — never guessed, never defaulted (e.g. "2. EXT. UNSTATED - UNSTATED"). Scene boundaries follow the source's own location and time changes; placing them is your only licensed judgment.
 • ACTION LINES — present tense, the source's wording carried (compress connective prose; never paraphrase what can ride as written; an internal thought becomes only the visible expression the text itself gives it). One observable event per paragraph. CAPITALIZE a character's name, a key prop, and a distinct sound the FIRST time each appears. A prop changing hands is its own action line naming the transfer.
 • DIALOGUE — the speaker's NAME on its own line, the spoken words below it VERBATIM in the original language; a parenthetical only when the source states the delivery. Never invent, complete or translate a line.
@@ -381,7 +379,7 @@ Return ONLY the screenplay text — no preamble, no commentary, no code fences, 
     agent: 'Storyboard',
     label: 'Normalize (instruction)',
     vars: ['{script}'],
-    text: 'THE BRIEF (verbatim):\n"""\n{script}\n"""\n\nConvert it to screenplay format and return only the screenplay.',
+    text: '"""\n{script}\n"""\nReturn only text',
   },
 
   // ---- Storyboard: a conversational SHOT DIVISION (cinematographer brainstorm) ----

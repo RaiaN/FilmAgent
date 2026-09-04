@@ -25,6 +25,11 @@ const isIdentityRef = (r) => /^character:/.test(r);
 
 const ActionRow = ({ e }) => {
   const color = STATUS_COLOR[e.status] || '#86909c';
+  // A reasoner answer is read, not glanced at — collapsed by default so the log stays
+  // scannable, but the WHOLE text is here, with its line breaks, one click away.
+  const [showFull, setShowFull] = useState(false);
+  const full = String(e.resultFull || '');
+  const truncated = full && full.length > (e.result || '').length;
   return (
     <div style={{ padding: '3px 0 3px 8px', borderLeft: `2px solid ${color}`, marginBottom: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -54,7 +59,34 @@ const ActionRow = ({ e }) => {
         </div>
       )}
       {e.assignments && <Text style={{ fontSize: 10, color: '#0fc6c2', display: 'block' }}>→ {e.assignments}</Text>}
-      {e.result && <Text style={{ fontSize: 10, color: '#00b42a', display: 'block', wordBreak: 'break-word' }}>→ {e.result}</Text>}
+      {e.result && !showFull && (
+        <Text style={{ fontSize: 10, color: '#00b42a', display: 'block', wordBreak: 'break-word' }}>
+          → {e.result}
+          {truncated && (
+            <Text
+              className="nodrag"
+              onClick={(ev) => { ev.stopPropagation(); setShowFull(true); }}
+              style={{ fontSize: 10, color: '#165dff', cursor: 'pointer', marginLeft: 6 }}
+            >
+              show all ({full.length.toLocaleString()} chars)
+            </Text>
+          )}
+        </Text>
+      )}
+      {showFull && (
+        <div style={{ margin: '2px 0' }}>
+          <Text
+            className="nodrag"
+            onClick={(ev) => { ev.stopPropagation(); setShowFull(false); }}
+            style={{ fontSize: 10, color: '#165dff', cursor: 'pointer', display: 'block' }}
+          >
+            ▾ full output ({full.length.toLocaleString()} chars) — click to collapse
+          </Text>
+          <div style={{ fontSize: 10, color: '#00593f', background: '#f2fbf6', border: '1px solid #cfeede', borderRadius: 4, padding: '4px 6px', marginTop: 2, whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 420, overflowY: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+            {full}
+          </div>
+        </div>
+      )}
       {e.error && <Text style={{ fontSize: 10, color: '#f53f3f', display: 'block' }}>✗ {e.error}</Text>}
     </div>
   );

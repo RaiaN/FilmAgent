@@ -7,7 +7,7 @@
 
 import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, defaultImageModelKey, imageTraits } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
-import { composeSeedancePrompt, composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, shotTemplateCinematography, SHOT_TEMPLATE_BY_ID, storyArcCatalog, STORY_ARC_BY_ID } from '../recipes';
+import { composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, SHOT_TEMPLATE_BY_ID } from '../recipes';
 import { parseJson } from './director';
 import { withRetry, isTransient } from './retry';
 import { isImagePolicyError } from './operations';

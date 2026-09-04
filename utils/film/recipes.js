@@ -1,11 +1,5 @@
 import { videoTraits, videoModelKeyOf } from './suiteConfig';
 
-// Recipes — the agentic answer to "what's the best recipe for use case XYZ?". A
-// recipe maps a use case → the bible roles it needs, the shot grammar (by duration),
-// the cinematic look packages, and which bible roles each shot pulls. Pure data +
-// helpers; no network, no React. The Concierge picks a recipe, builds the bible from
-// the user's assets, asks for gaps, then produces the film from this structure.
-
 // ---- bible roles (the Short Film's cast & world) ---------------------------------
 // The bible IS the board: a tagged image node carries data.bibleRole. These are the
 // roles the user tags assets into (or Cast & World auto-tags), and that every shot
@@ -62,22 +56,6 @@ export const shotTemplateCatalog = () => SHOT_TEMPLATES.map((t) => `${t.id} — 
 // (the LOOK line simply doesn't ride; no fallback taste is ever injected).
 export const shotTemplateCinematography = (id) => (SHOT_TEMPLATE_BY_ID[id] && SHOT_TEMPLATE_BY_ID[id].cinematography) || '';
 
-// ---- the story-arc library (the Story agent's structural vocabulary) -------------
-// The structural analogue of SHOT_TEMPLATES: a curated set of narrative shapes the
-// Storyboard (Story) agent SELECTS from per FILM — it auto-maps the premise/tone
-// onto the best-fit arc, then breaks the shots across that arc's stages. This replaces
-// the old hardcoded Freytag prompt so a mood/observational/tragic premise isn't
-// forced into a conflict climax it doesn't have. `fit` = the selection cue the model
-// reads; `stages` = the beat sequence; `ending` = the ending mood that arc calls for.
-export const STORY_ARCS = [
-  { id: 'three-act', name: 'Three-Act / Freytag', category: 'Conflict', fit: 'a plotted story with a clear protagonist and a conflict that resolves', stages: 'setup · inciting incident · rising action · climax · falling action · resolution', ending: 'closure — the conflict resolved, a reflective button' },
-  { id: 'man-in-a-hole', name: 'Man in a Hole', category: 'Conflict', fit: 'someone hits trouble and claws their way back (fall → rise)', stages: 'stable normal · trouble strikes · descent · lowest point · climb out · better than before', ending: 'relief / earned uplift' },
-  { id: 'tragedy', name: 'Tragedy / The Fall', category: 'Dark', fit: 'a dark, doomed premise where the bad outcome must LAND — a loss, not a win', stages: 'a height · the flaw or threat · struggle · point of no return · downfall · bleak aftermath', ending: 'loss — bleak, ironic, or unresolved' }
-];
-export const STORY_ARC_BY_ID = STORY_ARCS.reduce((m, a) => { m[a.id] = a; return m; }, {});
-// The catalog the Story agent reads to auto-pick the arc: `id — name (category): fit. Shape: …. Ends on ….`
-export const storyArcCatalog = () => STORY_ARCS.map((a) => `${a.id} — ${a.name} (${a.category}): ${a.fit}. Shape: ${a.stages}. Ends on ${a.ending}.`).join('\n');
-
 // Resolve a SHOT card's references into the ordered [{url, assetId, desc}] list that
 // becomes [Image1..N]: the bible cast/location plates + per-shot attached assets.
 export const shotReferences = (data = {}, bibleEntries = []) => {
@@ -93,9 +71,6 @@ export const shotReferences = (data = {}, bibleEntries = []) => {
   return refs.slice(0, videoTraits(videoModelKeyOf(data.videoModel)).refCap);
 };
 
-// THE PROMPT COMPILER IS GONE. Compose writes the FINAL prompt — image roles, keyframe
-// grammar, look and sound included — and it rides verbatim to the model. One text, one
-// place to read it, one place to fix it. Only the IMAGE side still composes below.
 
 // The KEYFRAME prompt (Seedream 5.0, one still per shot). The reference-aware shot division writes
 // the figure-addressed BODY (subject via [Image N] + what to keep from each, secondary subjects,

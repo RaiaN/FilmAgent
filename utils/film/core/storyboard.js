@@ -37,39 +37,6 @@ const PRESERVE_SCRIPT = 'PRESERVE: this is the director\'s own script — keep e
 // timestamps are PRESERVED per segment; durations come from timestamp deltas when present,
 // else the model's estimate (clamped 5s–model max here). Used by the Brief node's "Split into
 // Shots", the SHOT card's ✂ and the director-chat `split` action.
-const MAX_SPLIT_SEGMENTS = 24;
-export const splitIntoShots = async ({ text, count, config } = {}, ctx) => {
-  const brief = String(text || '').trim();
-  if (!brief) throw new Error('The split needs a brief or a shot prompt first.');
-  // `count` is a GOAL, not a hard number: the per-segment duration physics always wins
-  // (a 60s brief cannot fit 3 segments), so the model aims for it and the duration
-  // rule breaks ties. Absent → fewest possible.
-  const goal = Number.isFinite(Number(count)) && Number(count) >= 2 ? Math.min(MAX_SPLIT_SEGMENTS, Math.round(Number(count))) : null;
-  // The brief is injected AFTER the template render via a sentinel: renderTemplate's
-  // whitespace collapse would mangle screenplay indentation / aligned timestamp columns,
-  // and the split's whole contract is that the user's text survives byte-for-byte.
-  const SLOT = '@@BRIEF@@';
-  const maxSec = maxShotSeconds(defaultVideoModelKey());
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('split.user', { brief: SLOT }).split(SLOT).join(brief.slice(0, 12000)),
-    systemPrompt: renderTemplate('split.system', {
-      maxShots: String(MAX_SPLIT_SEGMENTS),
-      maxSec: String(maxSec),
-      countGoal: goal ? `The director asked for ${goal} segments — aim for exactly ${goal} when the 5-${maxSec} second rule allows it; the duration rule always wins, so otherwise get as close to ${goal} as possible.` : '',
-    }),
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const raw = parseJson(content) || {};
-  const arr = Array.isArray(raw.segments) ? raw.segments : (Array.isArray(raw) ? raw : []);
-  const segments = arr.map((s, i) => ({
-    beat: String(s?.beat || s?.title || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
-    text: String(s?.text || s?.content || '').trim(),
-    durationSec: clampDuration(s?.durationSec),
-  })).filter((s) => s.text).slice(0, MAX_SPLIT_SEGMENTS);
-  if (!segments.length) throw new Error('The split came back empty — try rephrasing the brief.');
-  return { segments };
-};
 
 // ---- Mask: scrub identity out of ANY board image into a flat colour plate -------------
 export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => {

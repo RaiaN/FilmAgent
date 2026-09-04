@@ -52,7 +52,7 @@ import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } 
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
 import { previzPlan, previzPlate, PREVIZ_RESOLUTION, PLATE_STYLES, plateIsStale, plateStyleLock } from '../../../utils/film/core/previz';
-import { describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, splitIntoShots, maskFrame } from '../../../utils/film/core/storyboard';
+import { describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -3235,70 +3235,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
   previzDispatchRef.current = { toShot: previzToShotCard, edit: previzEditPlate };
 
-  // Lay one SHOT card per split segment, tiled 3-wide next to the anchor node (a Brief
-  // or the card being split). Cut numbers: `startCut` when the caller renumbers around
-  // a replaced card, else max(existing cut)+1 — Action shoots cards in cut order, so a
-  // split lands already sequenced. Returns { idPrefix } (null when nothing laid).
-  const layShotSegments = useCallback((segments, anchorNode, { startCut } = {}) => {
-    if (!storyboardPanelRef.current || !segments.length) return null;
-    const w = Math.round(anchorNode?.measured?.width || anchorNode?.width || 560);
-    const pref = anchorNode
-      ? { x: (anchorNode.position?.x || 0) + w + 60, y: anchorNode.position?.y || 0 }
-      : (rfInstance ? rfInstance.screenToFlowPosition({ x: 320, y: 220 }) : { x: 220, y: 220 });
-    const cols = Math.min(3, segments.length);
-    const rows = Math.ceil(segments.length / cols);
-    const base = freeOrigin({ w: cols * CUT_COL_W, h: rows * CUT_ROW_H, preferred: pref });
-    const cutBase = startCut ?? (nodesRef.current
-      .filter((n) => n.type === 'cut')
-      .reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1);
-    const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
-    segments.forEach((s, i) => {
-      storyboardPanelRef.current({
-        index: i, cut: cutBase + i, idPrefix, title: s.beat,
-        action: s.text, promptOverride: s.text, framing: '',
-        shotTemplate: 'medium-shot', durationSec: s.durationSec,
-        refEntryIds: [], audio: '',
-      }, base);
-    });
-    return { idPrefix };
-  }, [rfInstance, freeOrigin]);
-
-  // ✂ on a SHOT card: the same segmentation (splitIntoShots — wording + timestamps
-  // preserved) on the card's prompt. The SOURCE CARD STAYS — Split ADDS, never
-  // replaces; the original wording, refs, takes and grid remain untouched;
-  // the segment cards slot in right AFTER it (later cards shift by len to make room).
-  // Delete the original yourself if the pieces supersede it. Explicit tap only.
-  const splitCardToShots = useCallback(async (id) => {
-    if (splitFlightRef.current.has(id)) return;
-    const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
-    if (!card || card.data?.splitting || card.data?.developing) return;
-    const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
-    if (!text) { Message.warning('Write the shot prompt first — Split needs content to divide.'); return; }
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
-    splitFlightRef.current.add(id);
-    onPatchCut(id, { splitting: true });
-    traceRef.current.startRun({ note: 'Agent · Split shot' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
-    try {
-      const { segments } = await splitIntoShots({ text }, ctx);
-      if (segments.length < 2) { Message.info('This shot already fits one take — nothing to split.'); return; }
-      traceRef.current.log({ level: 'run', kind: 'decision', note: `Split shot · ${segments.length} pieces (${segments.map((s) => s.durationSec).join('+')}s)` });
-      // Re-read the card: it may have been dragged while the LLM ran.
-      const fresh = nodesRef.current.find((n) => n.id === id) || card;
-      const origCut = fresh.data?.cut ?? 0;
-      const laid = layShotSegments(segments, fresh, { startCut: origCut + 1 });
-      if (!laid) return; // nothing laid → nothing changes
-      // Source card, grid and takes stay exactly as they are — only make room in the
-      // film order: every later card shifts by len so the segments follow the original.
-      setNodes((ns) => ns.map((n) => (
-        n.type === 'cut' && n.id !== id && !String(n.id).startsWith(laid.idPrefix) && (n.data?.cut ?? 0) > origCut
-          ? { ...n, data: { ...n.data, cut: (n.data.cut ?? 0) + segments.length } }
-          : n)));
-      Message.success(`Shot split into ${segments.length} cards after the original — the original card and its takes stay; delete it if the pieces supersede it.`);
-    } catch (e) { Message.error(`Split failed: ${e.message}`); }
-    finally { splitFlightRef.current.delete(id); onPatchCut(id, { splitting: false }); }
-  }, [apiKey, onPatchCut, layShotSegments, setNodes]);
-
   // Develop on a SHOT card (opt-in, the Brief's Develop at shot grain): rewrite the
   // card's prompt into one cinematic Seedance prompt at LIGHT depth ('preserve' keeps
   // every stated event). Source rule: a HAND-EDITED prompt (differs from the last
@@ -3313,7 +3249,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const composeCutPrompt = useCallback(async (id) => {
     if (splitFlightRef.current.has(`dev-${id}`)) return;
     const card = nodesRef.current.find((n) => n.id === id && isShotCard(n));
-    if (!card || card.data?.developing || card.data?.splitting) return;
+    if (!card || card.data?.developing) return;
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const baseRefs = shotReferences(card.data, bibleRef.current);
     const kfPairs = cardKfPairs(card.data, baseRefs);
@@ -3377,7 +3313,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const directCutPrompt = useCallback(async (id, note = '') => {
     if (splitFlightRef.current.has(`dev-${id}`)) return;
     const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
-    if (!card || card.data?.developing || card.data?.splitting) return;
+    if (!card || card.data?.developing) return;
     if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
     if (!text) { Message.warning('Direct re-shapes the existing prompt — write it, or Compose first.'); return; }
@@ -3573,7 +3509,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     .filter((n) => (n.data?.kind === 'audio' || n.data?.kind === 'video') && n.data?.mediaRef && (n.data?.cacheUrl || n.data?.url))
     .map((n) => ({ nodeId: n.id, kind: n.data.kind, url: n.data.cacheUrl || n.data.url, label: n.data.label || n.data.kind, duration: Number(n.data.duration) || null })), [nodes]);
 
-  // The card context: patching, shooting, attaching, splitting and developing.
+  // The card context: patching, shooting, attaching and developing.
   // Last-frame handoffs are always EXPLICIT: when a card has an
   // incoming sequence bond whose source already has a take, its START picker offers
   // that take's last frame FIRST — one visible tap instead of a hidden handoff.
@@ -3604,14 +3540,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onAttachAsset: attachRefToCut,
     onPickMaster: pickMasterFor,
     onDetachRef: detachCardRef,
-    onSplitCut: splitCardToShots,
     onComposeCut: composeCutPrompt,
     onDirectCut: directCutPrompt,
     onOpenTakes: openTakesForCard,
     boardImages,
     prevTakeFrames,
     onOpenRefDrawer: openRefDrawer,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, pickMasterFor, detachCardRef, splitCardToShots, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, pickMasterFor, detachCardRef, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
   composeCutRef.current = composeCutPrompt;
 
   const filmMode = true; // Short-Film-only suite.

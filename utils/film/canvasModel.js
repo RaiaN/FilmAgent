@@ -44,7 +44,11 @@ export const stageLocalAsset = async (dataUrl, name) => {
   if (!response.ok) {
     throw new Error(data?.details || data?.error || `Upload failed (HTTP ${response.status})`);
   }
-  return { url: data.url, cacheUrl: data.cacheUrl || null, assetId: data.assetId || null };
+  // assetError: the upload SUCCEEDED but the Assets-API registration did not — a spec
+  // limit or an API failure. The node still works by URL; it just cannot ride as a
+  // trusted asset:// reference, and the caller should say why rather than leave a
+  // silent null the user only discovers at shoot time.
+  return { url: data.url, cacheUrl: data.cacheUrl || null, assetId: data.assetId || null, assetError: data.assetError || null };
 };
 
 // Downscale a (potentially huge) image data URL to a small JPEG data URL for the

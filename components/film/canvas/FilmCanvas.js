@@ -1032,12 +1032,16 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const stageNode = useCallback(async (nodeId, dataUrl, name, kind) => {
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true } } : n)));
     try {
-      const { url, cacheUrl, assetId } = await stageLocalAsset(dataUrl, name);
+      const { url, cacheUrl, assetId, assetError } = await stageLocalAsset(dataUrl, name);
       setNodes((ns) => ns.map((n) => (n.id === nodeId
         // cacheUrl (the durable store url) is the REFERENCE from here on; localUrl keeps
         //   the original bytes only as the instant preview. tosUrl + assetId = Seedance path.
         ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || undefined, tosUrl: url, localUrl: dataUrl, assetId, staged: true, preserved: !!assetId, loading: false } }
         : n)));
+      // A registration that did not happen is worth one line NOW — at shoot time it
+      // shows up as the content screen dropping the reference, which reads like a
+      // different problem entirely.
+      if (assetError) Message.warning(`${name} uploaded, but not registered as an asset — ${assetError} It still works as a reference by URL.`);
       // Uploaded images join the cross-project Library. Store a small embedded
       // thumbnail so the Library grid can preview it (the TOS url would 403).
       if (kind === 'image') {

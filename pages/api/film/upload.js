@@ -1,6 +1,7 @@
 import { uploadLocalMediaToTos, parseDataUrl } from '../../../utils/server/tosUpload';
 import { registerAsset } from '../../../utils/film/server/registerAsset';
 import { checkInBytes } from '../../../utils/server/mediaStore';
+import { assetTypeOf, checkAssetBytes } from '../../../utils/film/assetSpec';
 
 // Stage a locally-dropped/uploaded file (base64 data URL) into the user's TOS
 // bucket and return a stable public URL + an Assets-library id. Dropped assets go
@@ -59,8 +60,10 @@ export default async function uploadHandler(req, res) {
     // else 7-day presigned) remains the fallback + the Assets-API ingest source.
     let url = staged.fetchUrl || staged.objectUrl;
     let cacheUrl = null;
+    let bytes = 0;
     try {
       const parsed = parseDataUrl(dataUrl, 'Uploaded asset');
+      bytes = parsed.buffer?.length || 0;
       cacheUrl = (await checkInBytes(parsed.buffer, parsed.contentType)).url;
       url = cacheUrl;
     } catch (e) { console.warn('[film/upload] source check-in failed — serving the staged url:', e.message); }
@@ -68,26 +71,33 @@ export default async function uploadHandler(req, res) {
     // Catalogue it in the Assets library so the upload is usable as an asset://
     // reference in Seedance / Animate. The Assets backend DOWNLOADS the URL to
     // ingest it, so we pass the PRESIGNED url (works on a private bucket; the
-    // unsigned objectUrl would 403). Wait for it to go Active so it's animatable
-    // immediately. Images AND videos (AssetType:'Video' live-probed → Active);
-    // audio has no proven asset type and stays store-only.
+    // unsigned objectUrl would 403). Wait for it to go Active so it's usable
+    // immediately. Image, Video AND Audio — all three are live-probed to Active.
+    const assetType = assetTypeOf(contentType);
+    // What the bytes alone can settle: format and size. Reported, never fatal — a file
+    // that breaks a limit still uploads and still works by URL; it just cannot be a
+    // trusted asset:// reference, and the caller is told which limit stopped it rather
+    // than being left with a silent null.
+    const specError = assetType ? checkAssetBytes({ contentType, byteLength: bytes }) : '';
     let assetId = null;
-    if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
+    let assetError = specError;
+    if (assetType && !specError) {
       try {
         assetId = await registerAsset({
           accessKey,
           secretKey,
           url: staged.signedUrl || url,
           name,
-          assetType: contentType.startsWith('video/') ? 'Video' : 'Image',
+          assetType,
           waitForActive: true,
         });
       } catch (err) {
+        assetError = err.message;
         console.warn('[film/upload] Assets API registration skipped:', err.message);
       }
     }
 
-    return res.status(200).json({ url, cacheUrl, assetId, contentType });
+    return res.status(200).json({ url, cacheUrl, assetId, contentType, assetError: assetError || undefined });
   } catch (error) {
     return res.status(500).json({ error: 'Upload failed', details: error.message });
   }

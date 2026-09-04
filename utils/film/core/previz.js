@@ -139,6 +139,26 @@ export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) 
 // instruction, and only the second stops the wolf turning into a boar.
 const NUM = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
 
+// WHO IS IN THE FRAME, DESCRIBED. The planner already decided this — name AND
+// description — and sending only the name asks the image model to know what the word
+// means. "Malinois" is a guess; "Malinois (a Belgian Malinois, tan with a black mask)"
+// is a drawing. The description is also what makes the kind-agnostic silhouette rule
+// usable: it is the only place a plate learns what shape the thing actually has.
+const describedCast = (plan) => (plan?.subjects || [])
+  .map((sub) => {
+    const name = String(sub?.name || '').trim();
+    const desc = String(sub?.description || '').trim();
+    if (name && desc && desc.toLowerCase() !== name.toLowerCase()) return `${name} (${desc})`;
+    return name || desc;
+  })
+  .filter(Boolean);
+
+// The closure sentence: how many are alive, exactly which, and that there is nothing
+// else. Kind-agnostic — it never enumerates what sort of thing might intrude.
+const closureLine = (cast, noun = 'living subject') => (cast.length
+  ? ` Exactly ${NUM[cast.length] || cast.length} ${noun}${cast.length === 1 ? '' : 's'} appear${cast.length === 1 ? 's' : ''} in this frame — ${cast.join(' and ')} — and nothing else that is alive: no other figure, no onlooker, nothing moving in the background.`
+  : '');
+
 export const previzPlate = async ({ plan, index = 0, references = [], style = 'pencil', imageModel = defaultImageModelKey(), config } = {}, ctx) => {
   const plate = (plan?.plates || [])[index];
   if (!plate?.draw) throw new Error('That plate is not in the plan.');
@@ -156,7 +176,7 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
       ? renderTemplate('previz.plate.mapBlockout', {
         draw: geography,
         cast: subs.length
-          ? ` The masses are coloured: ${subs.map((sub, i) => `${blockoutColorOf(i)} is ${sub.name || sub.description}`).join('; ')}.`
+          ? ` The masses are coloured: ${describedCast(plan).map((c, i) => `${blockoutColorOf(i)} is ${c}`).join('; ')}.`
           : '',
       })
       : renderTemplate('previz.plate.map', { draw: geography });
@@ -170,16 +190,14 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
       })
       : renderTemplate('previz.plate.character', { draw: plate.draw });
   } else if (style === 'clay') {
-    const names = (plan?.subjects || []).map((sub) => sub.name || sub.description).filter(Boolean);
+    const cast = describedCast(plan);
     prompt = renderTemplate('previz.plate.clay', {
       draw: plate.draw,
       light: lightLineOf(plan),
       marks: MOVE_RE.test(plate.camera)
         ? ` Mark the camera move with one bold arrow over the frame showing its direction (${plate.camera.toLowerCase()}) — a plain line and arrowhead, no lettering.`
         : '',
-      cast: names.length
-        ? ` Exactly ${NUM[names.length] || names.length} clay ${names.length === 1 ? 'figure appears' : 'figures appear'} in this frame — ${names.join(' and ')} — and nothing else is alive: no other figure, no onlooker, nothing moving in the background.`
-        : '',
+      cast: closureLine(cast, 'clay figure'),
       refs: refs.length
         ? ` The attached plates are the form keys: ${refs.map((r, i) => `Image ${i + 1} is ${r.label}`).join('; ')}. Give each clay figure the same silhouette and stance it has there.`
         : '',
@@ -194,7 +212,7 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
         ? ` Mark the camera move with one bold arrow over the frame showing its direction (${plate.camera.toLowerCase()}) — a plain line and arrowhead, no lettering.`
         : '',
       cast: subs.length
-        ? ` The masses are coloured: ${subs.map((sub, i) => `${blockoutColorOf(i)} is ${sub.name || sub.description}`).join('; ')}. Exactly ${NUM[subs.length] || subs.length} coloured ${subs.length === 1 ? 'mass appears' : 'masses appear'} and nothing else is alive in the frame — no other figure, no onlooker, nothing moving in the background.`
+        ? ` The masses are coloured: ${describedCast(plan).map((c, i) => `${blockoutColorOf(i)} is ${c}`).join('; ')}.${closureLine(describedCast(plan), 'coloured mass')}`
         : '',
       // The shape keys, when they are drawn: the panel copies each mass's SILHOUETTE, not
       // any detail — there is no detail in a blockout to copy.
@@ -206,7 +224,7 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
     // A board panel gets its OWN words and nothing else. Appending the scene description
     // pushes every panel toward the establishing wide — the whole clearing has to fit —
     // which is exactly how a tight single ends up a wide two-shot.
-    const names = (plan?.subjects || []).map((sub) => sub.name || sub.description).filter(Boolean);
+    const cast = describedCast(plan);
     prompt = renderTemplate('previz.plate.board', {
       draw: plate.draw,
       marks: MOVE_RE.test(plate.camera)
@@ -215,9 +233,7 @@ export const previzPlate = async ({ plan, index = 0, references = [], style = 'p
       // CAST CLOSURE. An image model asked for two animals in a forest draws a pack,
       // because that is what forests contain in its training data. The count has to be
       // stated and the absence has to be stated with it.
-      cast: names.length
-        ? ` Exactly ${NUM[names.length] || names.length} living ${names.length === 1 ? 'subject appears' : 'subjects appear'} in this panel — ${names.join(' and ')} — and nothing else that is alive: no other animal, no third figure, no person, no onlooker, nothing moving in the background.`
-        : '',
+      cast: closureLine(cast),
       refs: refs.length
         ? ` Use the attached drawings for identity: ${refs.map((r, i) => `Image ${i + 1} is ${r.label}`).join('; ')}. Draw those exact subjects — same build, same coat, same markings.`
         : '',

@@ -54,23 +54,6 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: 'Film idea: {idea}\nCharacter ethnicity (apply to every HUMAN character\'s facePrompt/bodyPrompt unless the idea itself dictates otherwise): {ethnicity}\n{refNote}\nDerive the shared visual style FROM the idea (and the reference art, when attached) — never impose a genre or mood the material itself does not state. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
   },
 
-  // ---- Story agent: an idea/script → ONE long cinematic prompt (Seed 2.0 Pro rewrite) -
-  // No JSON, no key events, no appearances — a direct rewrite to a single continuous
-  // cinematic narrative: clear subjects + story arc, structured into shots with explicit
-  // CUT markers (kept in the output — they let Deconstruct read the Take's cuts), no
-  // characters facing camera, explicit eyelines. The prompt feeds a New Shot.
-  'story.prompt.system': {
-    agent: 'Story',
-    label: 'Rewrite to a cinematic prompt (system)',
-    vars: [],
-    text: 'Convert the story below into a cinematic narrative with clear subjects and story arc. Structure it into shots separated by explicit CUT markers (e.g. "CUT TO:") and KEEP those markers in the output — but never use the word "cut" in the action wording itself. Don\'t make characters face the camera. Always specify what characters are looking at. Output single long prompt only.',
-  },
-  'story.prompt.user': {
-    agent: 'Story',
-    label: 'Rewrite to a cinematic prompt (instruction)',
-    vars: ['{story}', '{depth}', '{preserve}'],
-    text: '{story}\n\n{depth}\n{preserve}',
-  },
 
   // ---- Split: a brief (or an oversized shot prompt) → sequential SHOT segments, each ----
   // capped at the default video model's max length (maxSec rides in from traits).
@@ -525,19 +508,6 @@ Return ONLY JSON — no prose, no code fences:
     text: "{skill}\n\nYou are a location scout and DP. The attached image is the canonical location — it will be EDITED, not re-generated: an image-edit model receives it as [Image 1] and keeps EVERYTHING you do not name (architecture, layout, materials, set dressing; no people appear unless named). Propose {count} DISTINCT variations as EDIT INSTRUCTIONS. Each \"prompt\" is ONE short instruction naming ONLY what changes: COVERAGE ('Reframe to a low wide from the opposite end — the same location', 'Reframe to a high aerial — the same location') or STATE ('it is night, heavy rain, the windows lit warm'). Never re-describe the location — the image carries it. Vary what the user asks for; else pick the most interesting mix of angles, time of day, weather, season. Return ONLY a JSON array of {count} objects {\"label\": 2–5 words, \"prompt\": the edit instruction}. Substantially different options. No prose, no code fences.",
   },
 
-  // ---- Director chat router + board classify ----
-  'concierge.route.system': {
-    agent: 'Director',
-    label: 'Director Assistant — route a message to an agent, or answer it (system)',
-    vars: ['{actions}'],
-    text: 'You are the user\'s FILM DIRECTOR — a creative assistant for THIS short-film project. Handle ONE chat message: either route it to exactly ONE action, or — when it is a question or asks for advice — answer it yourself. Available actions: {actions}. Rules: when the message ASKS something (a question, a "which/what/how/why", a request for advice), pick "answer" and put the answer in "say" — 1 to 4 plain sentences, IN CHARACTER as their director, about THIS film, the craft, or the next step, grounded in the studio context provided. If the message is OFF-TOPIC or general-knowledge (not about this film or filmmaking), still pick "answer" but keep it to ONE sentence that politely steers them back to the film — do NOT answer general trivia at length. When the message ASKS FOR WORK, pick the one action that does it, and extract the user\'s own wording into the fields VERBATIM — never rewrite or embellish their words. Pick "unknown" only when nothing fits and it isn\'t answerable. Return ONLY a JSON object — no prose, no code fences: {"action": one id, "beat": for filmChunk — ONE vivid sentence of what happens on screen, "prompt": for inspiration / story / storyboard / castDraft — the user\'s premise, description or pasted script, VERBATIM in their words (when the message contains one; a bare command like "continue" or "draft the cast" leaves it empty), "direction": for characterVariations/locationVariations — what to vary, in their words, "note": for correctChunk — the critique as a retake note, "say": for "answer" the answer itself; for actions ONE short plain sentence proposing it back, e.g. "I\'ll make 4 night versions of your downtown street." Plain language; name actual things; never the words "hero" or "star".}',
-  },
-  'concierge.route.user': {
-    agent: 'Director',
-    label: 'Director Assistant — route a message (instruction)',
-    vars: ['{context}', '{message}'],
-    text: 'Studio context: {context}\n\nThe user says: {message}\n\nRoute it (or answer it) as the specified JSON object.',
-  },
   'concierge.classify.system': {
     agent: 'Concierge',
     label: 'Classify uploaded assets (system)',

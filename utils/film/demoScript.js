@@ -1,6 +1,6 @@
 // DEMO REPLAY — turn a loaded board into a self-playing guided tour. No generation,
 // no LLM: the steps only REVEAL nodes that already exist, in the order the pipeline
-// tells its story (Brief → Cast & World → Storyboard → SHOT cards → takes → final cut),
+// tells its story (Cast & World → Storyboard → SHOT cards → takes → final cut),
 // with the camera following. Within each phase, board array order = creation order
 // (nodes append at birth), so the replay keeps the session's authentic rhythm.
 //
@@ -9,7 +9,6 @@
 // that never appear in a step still land at the end: the finale reveals the whole board.
 
 const DWELL = {
-  brief: 3000,
   material: 2000,
   cast: 1200,
   sbchat: 2200,
@@ -47,12 +46,6 @@ export const buildDemoSteps = (nodes, project) => {
   const steps = [];
   const claimed = new Set();
   const claim = (n) => claimed.add(n.id);
-
-  const stories = list.filter((n) => n.type === 'story');
-  stories.forEach((n) => {
-    claim(n);
-    steps.push({ ids: [n.id], caption: 'The Brief — the director’s words, verbatim', dwellMs: DWELL.brief });
-  });
 
   const isAsset = (n) => n.type === 'asset' || ['image', 'video', 'audio'].includes(n.data?.kind);
   const isTake = (n) => n.data?.kind === 'video' && /^grid-/.test(n.parentId || '');

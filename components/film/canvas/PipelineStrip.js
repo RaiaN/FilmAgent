@@ -19,9 +19,8 @@ const Item = ({ label, done }) => (
 
 const Sep = () => <span style={{ color: '#c9cdd4', fontSize: 11, flexShrink: 0 }}>·</span>;
 
-const PipelineStrip = ({ hasStory = false, hasCast = false, hasFilm = false, shots = 0, takes = 0 }) => (
+const PipelineStrip = ({ hasCast = false, hasFilm = false, shots = 0, takes = 0 }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-    <Item label="Brief" done={hasStory} /><Sep />
     <Item label="Cast & world" done={hasCast} /><Sep />
     <Item label="Storyboard" /><Sep />
     <span style={{ fontSize: 12, color: MUTE, flexShrink: 0 }}>

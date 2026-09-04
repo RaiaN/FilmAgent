@@ -8,7 +8,7 @@ import { maxShotSeconds, defaultVideoModelKey, imageModelKeyOf } from './suiteCo
 import * as ops from './core/operations';
 import * as director from './core/director';
 import { buildAnimatePrompt } from './core/operations';
-import { castFromIdea, writeFilmPrompt } from './core/storyboard';
+import { castFromIdea } from './core/storyboard';
 import { SIZE_TIERS as IMAGE_RESOLUTIONS, ASPECT_RATIOS as IMAGE_RATIOS } from './imageSizes';
 
 // Re-exported so the canvas panels can reuse them.
@@ -265,33 +265,6 @@ export const castAgent = {
   },
 };
 
-// The BRIEF agent: a container for the user's OWN words — an idea, a description or a full
-// script — held VERBATIM (no automatic rewrite). On the canvas the rail Run is intercepted
-// (rail tap → createStoryNode: the card lands instantly); Cast & World and Storyboard read
-// the brief verbatim, and Develop (opt-in, runStory) rewrites it into ONE long cinematic
-// prompt (clear subjects + arc, explicit CUT markers, no facing-camera, explicit eyelines)
-// which only New Shot consumes. This run() is the headless/SDK entry to that same rewrite.
-export const storyAgent = {
-  id: 'story',
-  label: 'Brief',
-  railHidden: true, // off the rail: briefs land via the intro card, Storyboard's scene box, or chat
-  icon: 'story',
-  color: AGENT_COLORS.story,
-  consumes: [],
-  needsSelection: false,
-  defaultSettings: { prompt: '' },
-  describe: 'Your idea, description or script — held VERBATIM on a Brief card; Develop, Cast & World, Storyboard and New Shot run from the card.',
-  async run({ prompt, settings = {}, apiKey, ctx }) {
-    const story = await writeFilmPrompt(
-      {
-        idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(),
-        source: settings.source || '',
-      },
-      ctx || browserCtx(apiKey),
-    );
-    return { created: [], errors: [], story };
-  },
-};
 
 // The STORYBOARD agent: the STORY → a visual storyboard, frame by frame. One Seedream
 // frame per story element (CUT-marked), rendered SEQUENTIALLY — each frame uses the
@@ -391,7 +364,6 @@ export const audioAgent = {
 };
 
 export const AGENTS = [
-  storyAgent,
   storyboardAgent,
   shotAgent,
   editAgent,

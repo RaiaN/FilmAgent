@@ -1,8 +1,7 @@
-// Storyboard core. The AD-PLANNER DIVISION (storyboardCarve → storyboardAuthor) is the one storyboard
-// brain: brief/script → shot list (body · motion · audio per shot), turn by
-// turn with the director; storyboardKeyframe renders each shot's still. Also home to the Story
-// agent (writeFilmPrompt → idea/script → one long cinematic prompt) and the
-// pre-production draft (castFromIdea).
+// Storyboard core. The AD-PLANNER DIVISION (storyboardCarve → storyboardAuthor) is the one
+// storyboard brain: brief/script → shot list (body · motion · audio per shot);
+// storyboardKeyframe renders each shot's still. Also home to the pre-production draft
+// (castFromIdea).
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
@@ -20,7 +19,7 @@ const clampDuration = (v) => Math.max(5, Math.min(maxShotSeconds(defaultVideoMod
 // ---- Develop (the Brief node's OPT-IN rewrite): idea or script → ONE cinematic prompt --
 // A direct rewrite (no JSON, no key events, no appearances): the brief becomes a single
 // continuous cinematic narrative with clear subjects + a clear story arc, split by explicit
-// CUT markers (see story.prompt.system — Deconstruct reads them), no characters facing
+// CUT markers, no characters facing
 // camera, and explicit eyelines (what each character is looking at). Only New Shot consumes
 // this — Cast & World and Storyboard read the brief VERBATIM, never the rewrite.
 // `complexity` (light | medium | deep) tunes HOW MUCH the rewrite expands the source.
@@ -31,21 +30,6 @@ const REWRITE_DEPTH = {
 };
 // 'preserve' must be REAL, not a label: a pasted script is the director's OWN text.
 const PRESERVE_SCRIPT = 'PRESERVE: this is the director\'s own script — keep every stated event, in the stated order, and keep EVERY line of dialogue VERBATIM: word-for-word, in quotes, in its original language (never translate, paraphrase or drop a line). Do not invent, drop or reorder events. Only add cinematic staging, eyelines and atmosphere.';
-export const writeFilmPrompt = async ({ idea, source = '', complexity = 'medium', config } = {}, ctx) => {
-  const t = String(idea || '').trim();
-  const src = String(source || '').trim();
-  if (!t && !src) throw new Error('The story needs an idea or a script first.');
-  const depth = REWRITE_DEPTH[complexity] || REWRITE_DEPTH.medium;
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('story.prompt.user', { story: (src || t).slice(0, 6000), depth, preserve: src ? PRESERVE_SCRIPT : '' }),
-    systemPrompt: renderTemplate('story.prompt.system'),
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const prompt = String(content || '').replace(/```/g, '').trim();
-  if (!prompt) throw new Error('The rewrite came back empty — try rephrasing the idea.');
-  return { mode: src ? 'preserve' : 'expand', prompt };
-};
 
 // ---- Split: a brief (or an oversized shot prompt) → sequential SHOT segments capped ------
 // at the default video model's max shot length.

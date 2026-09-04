@@ -179,7 +179,13 @@ export const ReferencesRow = ({ id, data, patch, bibleEntries = [], label = null
 // The endpoint params shared by every card that shoots. `lockFrame` is what an EDIT
 // card passes: an editing task inherits ratio AND duration from its master, so those
 // controls become read-only facts instead of choices — and the shoot never sends them.
-export const SeedanceParams = ({ data, patch, videoModel, resolution, resOptions, lockFrame = false, lockNote = '' }) => (
+// keyframeModes: shown whenever this model HAS keyframe control — NOT only once a
+// keyframe is pinned, or the mode is undiscoverable until you have already guessed it
+// exists. With none pinned the locked option is simply disabled and says why.
+// 'reference' designates the frames in the prompt (approximate, ratio stays yours);
+// 'locked' sends them as role first_frame/last_frame (exact, and the first frame's
+// aspect becomes the take's).
+export const SeedanceParams = ({ data, patch, videoModel, resolution, resOptions, lockFrame = false, lockNote = '', keyframeModes = false, kfCount = 0 }) => (
   <div>
     <Text style={{ ...BLOCK_LABEL, display: 'block', marginBottom: 3 }}>SEEDANCE PARAMS</Text>
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -200,12 +206,37 @@ export const SeedanceParams = ({ data, patch, videoModel, resolution, resOptions
         <Tag size="small" style={{ background: '#101418', color: '#f7ba1e', border: '1px solid #3a3226', fontWeight: 600 }} title={lockNote}>
           ratio · duration locked
         </Tag>
+      ) : data.keyframeMode === 'locked' && kfCount > 0 ? (
+        <Tag size="small" style={{ background: '#101418', color: '#f7ba1e', border: '1px solid #3a3226', fontWeight: 600 }} title="A role-locked first frame dictates the output aspect ratio, so ratio is not sent — the take comes back in the opening plate's shape.">
+          ratio ← first frame
+        </Tag>
       ) : (
         <Select
           className="nodrag" size="mini" value={data.ratio || '21:9'} onChange={(v) => patch({ ratio: v })}
           options={['21:9', 'adaptive', '16:9', '9:16', '1:1', '4:3'].map((o) => ({ label: o, value: o }))}
           style={{ width: 92 }} triggerProps={{ autoAlignPopupWidth: false }}
         />
+      )}
+      {keyframeModes && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Text style={{ fontSize: 10, color: '#6e7b8b' }}>Mode</Text>
+        <Select
+          className="nodrag" size="mini" value={data.keyframeMode || 'reference'}
+          onChange={(v) => patch({ keyframeMode: v })}
+          options={[
+            { label: 'reference', value: 'reference' },
+            {
+              label: kfCount > 1 ? 'locked first+last' : 'locked first',
+              value: 'locked',
+              disabled: kfCount === 0,
+            },
+          ]}
+          style={{ width: 124 }} triggerProps={{ autoAlignPopupWidth: false }}
+          title={kfCount === 0
+            ? 'How keyframes are pinned. Pin one below (＋ K1) to enable LOCKED — with none attached there is no frame to lock.'
+            : 'How the keyframes are pinned. REFERENCE (default): they ride as reference images and the prompt names which is the first and last — approximate, and you keep the ratio. LOCKED: the outer keyframes ride as role first_frame / last_frame — exact, but the first frame\'s aspect becomes the take\'s and ratio is not sent.'}
+        />
+        </span>
       )}
       <Checkbox className="nodrag" checked={data.generateAudio !== false} onChange={(c) => patch({ generateAudio: c })}>
         <Text style={{ fontSize: 10, color: '#9fb4d0' }}>audio</Text>

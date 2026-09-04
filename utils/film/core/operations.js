@@ -204,7 +204,7 @@ export const isImagePolicyError = (err) => /image may contain sensitive/i.test((
 // Two source modes: a single imageUrl/assetId (the classic keyframe → first frame),
 // or `refUrls` — SEVERAL real reference images (direct-to-video: the storyboard's
 // cast/place assets, untouched, so the video model preserves the subjects itself).
-export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], firstFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, modelKey = null, config } = {}, ctx) => {
+export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], refRoles = [], firstFrameUrl = null, lastFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, modelKey = null, config } = {}, ctx) => {
   modelKey = videoModelKeyOf(modelKey); // env-driven default — first CONFIGURED video slot, never a literal
   // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
   // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
@@ -215,21 +215,27 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   duration = clampShotSeconds(modelKey, duration);
   const prompt = buildAnimatePrompt({ motion, camera, lens, focalLength, aperture });
   const content = [{ type: 'text', text: prompt }];
-  // CONTINUITY: the previous shot's FINAL FRAME becomes the literal FIRST FRAME of this
-  // video (role 'first_frame' — Seedance's "consecutive videos" pattern), so the shot
-  // picks up EXACTLY where the last ended. Sent first, before the subject references.
+  // A STANDALONE opening/closing frame — an image that is NOT one of the references.
+  // Continuity uses this: the previous shot's final frame becomes this shot's literal
+  // first frame. Sent ahead of the references, so callers offset their index math.
   if (firstFrameUrl) content.push({ type: 'image_url', image_url: { url: firstFrameUrl }, role: 'first_frame' });
+  if (lastFrameUrl) content.push({ type: 'image_url', image_url: { url: lastFrameUrl }, role: 'last_frame' });
   // Reference images cap at the model's refCap trait — slice, never fail. A ref
   // WITH a portrait-library id
   // (refAssetIds, aligned by index) rides as image_asset_id (the TRUSTED asset://
   // path) so a photoreal person plate isn't screened as a raw url ("input image may
   // contain real person"); refs without an id (the clay frame, anything un-preserved)
   // stay image_url.
+  // refRoles (parallel to refUrls) re-roles a reference IN PLACE — 'first_frame' or
+  // 'last_frame' instead of 'reference_image'. In place, because a role sent as an extra
+  // leading item would be the same picture twice AND would shift what "Image N" counts
+  // to in the prompt; changing the role of the item already there moves nothing.
   if (refUrls.length) {
     refUrls.slice(0, videoTraits(modelKey).refCap).forEach((u, i) => {
       const aid = refAssetIds[i];
-      if (aid) content.push({ type: 'image_asset_id', asset_id: aid, role: 'reference_image' });
-      else content.push({ type: 'image_url', image_url: { url: u }, role: 'reference_image' });
+      const role = refRoles[i] || 'reference_image';
+      if (aid) content.push({ type: 'image_asset_id', asset_id: aid, role });
+      else content.push({ type: 'image_url', image_url: { url: u }, role });
     });
   } else if (assetId) content.push({ type: 'image_asset_id', asset_id: assetId, role: 'reference_image' });
   else if (imageUrl) content.push({ type: 'image_url', image_url: { url: imageUrl }, role: 'reference_image' });

@@ -60,7 +60,10 @@ const SLOT_CAPABILITIES = {
         supports_first_frame: false,
     },
     // Seedance 2.5 — 30s single takes, up to 1080p, 30 image + 10 video + 10
-    // audio refs, native first_frame/last_frame tasks (ratio must be adaptive there).
+    // audio refs. It DOES take role first_frame/last_frame: that form is exact and LOCKS
+    // the output ratio to the first-frame image, while designating a reference_image in
+    // the prompt ("Image 1 is the first frame") is approximate and leaves ratio alone.
+    // The SHOT card offers both — see data.keyframeMode.
     seedance25: {
         resolutions: ['480p', '720p', '1080p'],
         ratios: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
@@ -70,6 +73,8 @@ const SLOT_CAPABILITIES = {
         supports_ref_images: true,
         supports_ref_videos: true,
         supports_ref_audios: true,
+        supports_first_frame: true,
+        supports_last_frame: true,
     },
     // Seedance 2.0 Mini — cheaper/faster; resolution caps at 720p.
     seedanceMini: {

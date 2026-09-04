@@ -321,13 +321,17 @@ const applyVisibility = (nodes, visibility) =>
 // photoreal cast plates trip it EVEN as fully-registered asset:// refs (this endpoint has no
 // consented-identity bypass). It names the FIRST offender as `content[N].image_url`, so drop
 // that ref and retry, looping until the take renders; also drops audio on the output-audio
-// screen. content order is [motion, (first_frame?), …refs], so refIndex = N − 1 − firstFrame.
+// screen. content order is [motion, (first_frame?), (last_frame?), …refs], so a complaint
+// index maps back through however many ROLE-locked frames lead the array.
 // Returns { taskId, droppedRefs } — the caller surfaces droppedRefs (consistency impact).
 const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
   const inputScreened = (m) => /may contain (sensitive|real person)/i.test(m) && !/audio/i.test(m);
-  const refIndexOf = (m) => { const x = /content\[(\d+)\]\.image_url/i.exec(m); return x ? Number(x[1]) - 1 - (shot.firstFrameUrl ? 1 : 0) : -1; };
+  // Only STANDALONE frames lead the array; a re-roled reference sits at its own index.
+  const roleFrames = (shot.firstFrameUrl ? 1 : 0) + (shot.lastFrameUrl ? 1 : 0);
+  const refIndexOf = (m) => { const x = /content\[(\d+)\]\.image_url/i.exec(m); return x ? Number(x[1]) - 1 - roleFrames : -1; };
   const urls = [...(shot.refUrls || [])];
   const ids = [...(refAssetIds || [])];
+  const roles = [...(shot.refRoles || [])]; // parallel to urls — spliced with them below
   let genAudio = shot.generateAudio !== false;
   const audioUrls = [...(shot.audioRefUrls || [])]; // the card's clips → reference audio (each droppable if screened)
   const videoUrls = [...(shot.videoRefUrls || [])]; // the card's videos → reference video
@@ -336,7 +340,7 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
   const healedAssets = []; // stale asset:// ids re-registered mid-shoot — caller persists the fresh ids
   // Each video may burn TWO tries (asset:// upgrade attempt, then drop).
   const maxTries = urls.length + audioUrls.length + videoUrls.length * 2 + 3;
-  // content order the engine builds: [text, first_frame?, …images, …audios, …videos] —
+  // content order the engine builds: [text, first_frame?, last_frame?, …images, …audios, …videos] —
   // so a `content[N].audio_url/video_url` complaint maps back to one droppable item.
   const mediaIndexOf = (m, key, base, len) => {
     const x = new RegExp(`content\\[(\\d+)\\]\\.${key}`, 'i').exec(m);
@@ -347,8 +351,9 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
   for (let t = 0; t < maxTries; t += 1) {
     try {
       const out = await animateOp({ // eslint-disable-line no-await-in-loop
-        motion: shot.motion, camera: 'auto', refUrls: urls, refAssetIds: ids,
-        firstFrameUrl: shot.firstFrameUrl, audioRefUrls: audioUrls, videoRefUrls: videoUrls,
+        motion: shot.motion, camera: 'auto', refUrls: urls, refAssetIds: ids, refRoles: roles,
+        firstFrameUrl: shot.firstFrameUrl, lastFrameUrl: shot.lastFrameUrl,
+        audioRefUrls: audioUrls, videoRefUrls: videoUrls,
         duration: shot.durationSec, resolution: shot.resolution, ratio: shot.ratio,
         generateAudio: genAudio, seed: shot.seed, modelKey: shot.modelKey,
       }, ctx);
@@ -375,7 +380,7 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
       }
       // The INPUT screen flagged an attached clip / video — retake without JUST that
       // item rather than lose the whole take.
-      const mediaBase = 1 + (shot.firstFrameUrl ? 1 : 0) + urls.length;
+      const mediaBase = 1 + roleFrames + urls.length;
       if (audioUrls.length && /audio_url|input audio/i.test(m)) {
         const i = mediaIndexOf(m, 'audio_url', mediaBase, audioUrls.length);
         if (i >= 0) { audioUrls.splice(i, 1); continue; }
@@ -395,7 +400,7 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
         }
       }
       const i = inputScreened(m) ? refIndexOf(m) : -1;
-      if (i >= 0 && i < urls.length) { urls.splice(i, 1); ids.splice(i, 1); droppedRefs += 1; continue; }
+      if (i >= 0 && i < urls.length) { urls.splice(i, 1); ids.splice(i, 1); roles.splice(i, 1); droppedRefs += 1; continue; }
       throw e;
     }
   }
@@ -2734,6 +2739,17 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // appended, wrapped or renumbered here: what you read on the card is what the model
     // is asked for, which is the only version of this that anyone can debug.
     const references = baseRefs;
+    // LOCKED KEYFRAMES re-role the references they point at, in place. A keyframe is a
+    // POINTER into the reference chips, so locking one is a change of role on a reference
+    // that is already in the array — not a new item. That keeps the prompt's [Image N]
+    // numbering, which Compose already wrote, meaning exactly what it meant before.
+    const locking = videoTraits(videoModelKeyOf(c.data.videoModel)).keyframes && c.data.keyframeMode === 'locked';
+    const kfIdx = locking ? cardKfPairs(c.data, references).map((x) => x.idx) : [];
+    const refRoles = [];
+    if (kfIdx.length) {
+      refRoles[kfIdx[0] - 1] = 'first_frame';
+      if (kfIdx.length > 1) refRoles[kfIdx[kfIdx.length - 1] - 1] = 'last_frame';
+    }
     return {
       beat: c.data.beat,
       direct: true,
@@ -2745,9 +2761,16 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       // Parallel to refUrls: a registered portrait-library id (or null) per ref, so the
       // shoot sends person/place plates as image_asset_id (trusted) instead of a screened url.
       refAssetIds: references.map((r) => r.assetId || null),
+      // KEYFRAME MODE. 'reference' (default) leaves every keyframe an ordinary reference
+      // that the composed prompt designates by index — approximate, and the card keeps
+      // its ratio. 'locked' re-roles the OUTER keyframes to first_frame / last_frame in
+      // place: exact, and the first frame's aspect becomes the take's.
+      refRoles,
       firstFrameUrl: null,
       resolution: clampResolution(videoModelKeyOf(c.data.videoModel), c.data.resolution),
-      ratio: master ? null : (c.data.ratio || '21:9'), // an editing task inherits the master's
+      // A role-locked first frame DICTATES the output ratio, so sending one is either
+      // ignored or a conflict — same contract as an editing task inheriting its master's.
+      ratio: (master || refRoles.includes('first_frame')) ? null : (c.data.ratio || '21:9'),
       generateAudio: c.data.generateAudio,
       seed: c.data.seed,
       modelKey: videoModelKeyOf(c.data.videoModel),

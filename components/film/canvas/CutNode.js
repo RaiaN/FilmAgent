@@ -359,7 +359,7 @@ const CutNodeInner = ({ id, data, selected }) => {
           <DraftText textarea className="nodrag nowheel" value={data.audio} onCommit={(v) => patch({ audio: v })} placeholder="dialogue · ambient · foley · score" autoSize={{ minRows: 1, maxRows: 3 }} style={promptArea} />
         </div>
 
-        <SeedanceParams data={data} patch={patch} videoModel={videoModel} resolution={resolution} resOptions={resOptions} />
+        <SeedanceParams data={data} patch={patch} videoModel={videoModel} resolution={resolution} resOptions={resOptions} keyframeModes={videoTraits(videoModel).keyframes} kfCount={(data.keyframes || []).length} />
         {/* KEYFRAMES — visual grounding: an ORDERED list of pointers into the enabled
             ref chips. K1 = the composition the shot opens on, Kn = where it lands,
             middles are passed through in order. Empty list → the classic path, untouched. */}

@@ -50,6 +50,11 @@ export default function VideoPlayground() {
   const [library, setLibrary] = useState([]);
   const [libBusy, setLibBusy] = useState(false);
   const [picked, setPicked] = useState([]); // library entries, in attach order
+  // KEYFRAME MODE — the same choice the SHOT card offers. 'reference': every image is a
+  // reference and the PROMPT says which is the first/last frame (approximate, your ratio
+  // stands). 'locked': the first and last picked IMAGES are re-roled first_frame /
+  // last_frame (exact, and the first one's aspect becomes the video's).
+  const [keyframeMode, setKeyframeMode] = useState('reference');
 
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState('');
@@ -139,16 +144,27 @@ export default function VideoPlayground() {
     // means what the strip shows. A registered asset goes as image_asset_id (trusted);
     // anything else goes as its url.
     const content = [{ type: 'text', text: String(prompt).trim() }];
-    picked.forEach((it) => {
+    // Locking re-roles the outer IMAGES in place rather than adding items: the same
+    // picture twice would burn a reference slot, and an extra leading item would shift
+    // what "Image N" counts to in the prompt you just wrote.
+    const imgIdx = picked.map((it, i) => (it.kind === 'video' ? -1 : i)).filter((i) => i >= 0);
+    const roleAt = {};
+    if (locking && imgIdx.length) {
+      roleAt[imgIdx[0]] = 'first_frame';
+      if (imgIdx.length > 1) roleAt[imgIdx[imgIdx.length - 1]] = 'last_frame';
+    }
+    picked.forEach((it, i) => {
       if (it.kind === 'video') content.push({ type: 'video_url', video_url: { url: it.url }, role: 'reference_video' });
-      else if (it.assetId) content.push({ type: 'image_asset_id', asset_id: it.assetId, role: 'reference_image' });
-      else content.push({ type: 'image_url', image_url: { url: it.url }, role: 'reference_image' });
+      else if (it.assetId) content.push({ type: 'image_asset_id', asset_id: it.assetId, role: roleAt[i] || 'reference_image' });
+      else content.push({ type: 'image_url', image_url: { url: it.url }, role: roleAt[i] || 'reference_image' });
     });
 
     const body = {
       model: modelId, content, resolution, generate_audio: !!generateAudio, watermark: false,
     };
-    if (ratio && ratio !== 'adaptive') body.ratio = ratio;
+    // A role-locked first frame DICTATES the output ratio — sending one is ignored at
+    // best, a conflict at worst.
+    if (ratio && ratio !== 'adaptive' && !roleAt[imgIdx[0]]) body.ratio = ratio;
     if (duration && duration !== 'auto') body.duration = Number(duration);
     if (seed != null && seed !== '') body.seed = Number(seed);
 
@@ -185,6 +201,10 @@ export default function VideoPlayground() {
   };
 
   const maxSec = MAX_SECONDS[modelKey] || 15;
+  // Only 2.5 has first/last-frame roles — 2.0 treats every image as a reference, full stop.
+  const kfCapable = modelKey === 'seedance25';
+  const imageCount = picked.filter((it) => it.kind !== 'video').length;
+  const locking = kfCapable && keyframeMode === 'locked' && imageCount > 0;
   const durOptions = ['auto', ...Array.from({ length: Math.floor(maxSec / 5) }, (_, i) => String((i + 1) * 5))];
 
   return (
@@ -262,9 +282,28 @@ export default function VideoPlayground() {
           <Select value={resolution} onChange={setResolution} style={{ width: 110 }}>
             {(RES_BY_MODEL[modelKey] || []).map((r) => <Select.Option key={r} value={r}>{r}</Select.Option>)}
           </Select>
+          {kfCapable && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>keyframes</Text>
+              <Select value={keyframeMode} onChange={setKeyframeMode} style={{ width: 150 }}
+                title="How the attached images are pinned. REFERENCE: all of them ride as references and your PROMPT says which is the first/last frame (approximate — the ratio below stands). LOCKED: the first and last images you picked ride as role first_frame / last_frame — exact, but the first one's aspect becomes the video's and ratio is not sent."
+              >
+                <Select.Option value="reference">reference</Select.Option>
+                <Select.Option value="locked" disabled={imageCount === 0}>
+                  {imageCount > 1 ? 'locked first+last' : 'locked first'}
+                </Select.Option>
+              </Select>
+            </span>
+          )}
+          {locking ? (
+            <Tag color="orange" title="A role-locked first frame dictates the output aspect ratio, so ratio is not sent — the video comes back in the first image's shape.">
+              ratio ← first image
+            </Tag>
+          ) : (
           <Select value={ratio} onChange={setRatio} style={{ width: 120 }}>
             {RATIOS.map((r) => <Select.Option key={r} value={r}>{r}</Select.Option>)}
           </Select>
+          )}
           <Select value={duration} onChange={setDuration} style={{ width: 110 }}>
             {durOptions.map((d) => <Select.Option key={d} value={d}>{d === 'auto' ? 'Auto' : `${d}s`}</Select.Option>)}
           </Select>

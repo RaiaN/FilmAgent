@@ -24,8 +24,8 @@ import {
   IconVideoCamera, IconCamera,
 } from '@arco-design/web-react/icon';
 import AssetNode, { AssetNodeContext } from './AssetNode';
-import EditNode from './EditNode';
-import { composeShotAction, directShotAction, editShotAction } from '../../../utils/film/core/shot';
+import EditNode, { EDIT_OPENER } from './EditNode';
+import { composeShotAction, directShotAction, editShotAction, analyzeEditMaster } from '../../../utils/film/core/shot';
 import CutNode, { CutContext } from './CutNode';
 import GroupNode from './GroupNode';
 import StoryboardChatNode, { StoryboardChatContext } from './StoryboardChatNode';
@@ -2306,8 +2306,10 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // per-cut attached board assets. Edges are SEQUENCE-only — references show as chips,
   // never as permanent edges.
 
+  // `p` is a patch object, or a function of the card's LATEST data returning one — for a
+  // change that must build on a value another pending update may have just written.
   const onPatchCut = useCallback((id, p) => {
-    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...p } } : n)));
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...(typeof p === 'function' ? p(n.data) : p) } } : n)));
   }, [setNodes]);
 
   // Attach one asset (a board node drop, or a Library item) to a cut. Bible-tagged
@@ -3235,6 +3237,33 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
   previzDispatchRef.current = { toShot: previzToShotCard, edit: previzEditPlate };
 
+  // ANALYZE an EDIT card's master: the reasoner watches the video itself and describes
+  // the shot — the footage only, never THE EDIT — and that description goes on the card
+  // to read and correct. The analysis is tied to the master
+  // it was made from; Compose uses it only while that master is still the card's master.
+  const analyzeEditCard = useCallback(async (id) => {
+    const card = nodesRef.current.find((n) => n.id === id && n.type === 'edit');
+    const master = card?.data?.master;
+    if (!master?.url) { Message.warning('Pick a master first — Analyze describes that video.'); return; }
+    if (card.data?.analyzing) return;
+    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
+    onPatchCut(id, { analyzing: true });
+    traceRef.current.startRun({ note: 'Agent · Edit analyze (video · 1 call)' });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    try {
+      const out = await analyzeEditMaster({
+        videoUrl: durableVideoUrl(master.url),
+        seconds: Number(master.duration) || 0,
+      }, ctx);
+      onPatchCut(id, { analysis: out.text, analysisSubjects: out.subjects, analyzedMasterUrl: master.url });
+      Message.success('Analyzed — read it, correct anything it got wrong, then Compose.');
+    } catch (e) {
+      Message.error(`Analyze failed: ${e.message}`);
+    } finally {
+      onPatchCut(id, { analyzing: false });
+    }
+  }, [apiKey, onPatchCut, durableVideoUrl]);
+
   // Develop on a SHOT card (opt-in, the Brief's Develop at shot grain): rewrite the
   // card's prompt into one cinematic Seedance prompt at LIGHT depth ('preserve' keeps
   // every stated event). Source rule: a HAND-EDITED prompt (differs from the last
@@ -3277,7 +3306,12 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         .filter(Boolean).join(' · ');
       const out = card.type === 'edit'
         ? await editShotAction({
-          text, master: card.data?.master, references: baseRefs.map((r) => r.url), roster, modelKey,
+          text,
+          master: card.data?.master,
+          analysis: card.data?.master?.url && card.data?.analyzedMasterUrl === card.data.master.url ? card.data?.analysis || '' : '',
+          references: baseRefs.map((r) => r.url),
+          roster,
+          modelKey,
         }, ctx)
         : await composeShotAction({
         text, references: baseRefs.map((r) => r.url), roster, kfIndices, modelKey,
@@ -3541,12 +3575,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     onPickMaster: pickMasterFor,
     onDetachRef: detachCardRef,
     onComposeCut: composeCutPrompt,
+    onAnalyzeCut: analyzeEditCard,
     onDirectCut: directCutPrompt,
     onOpenTakes: openTakesForCard,
     boardImages,
     prevTakeFrames,
     onOpenRefDrawer: openRefDrawer,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, pickMasterFor, detachCardRef, composeCutPrompt, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, pickMasterFor, detachCardRef, composeCutPrompt, analyzeEditCard, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
   composeCutRef.current = composeCutPrompt;
 
   const filmMode = true; // Short-Film-only suite.
@@ -4513,7 +4548,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         style: { width: 780 },
         data: {
           layerId: 'shot', beat: (d.beat || '').trim() || 'Edit', master: null,
-          promptOverride: '', assetRefs: [], refIds: [],
+          // Opens as an edit instruction: naming the source video is what routes the
+          // request as an edit rather than a new generation.
+          promptOverride: EDIT_OPENER, assetRefs: [], refIds: [],
           videoModel: d.videoModel || '', resolution: d.resolution || '1080p', seed: d.seed ?? null,
         },
       }));

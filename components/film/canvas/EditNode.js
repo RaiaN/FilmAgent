@@ -1,7 +1,7 @@
 import { memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { Typography, Button, Tag, Message } from '@arco-design/web-react';
-import { IconLoading, IconExpand, IconSync, IconVideoCamera } from '@arco-design/web-react/icon';
+import { IconLoading, IconExpand, IconSync, IconVideoCamera, IconEye } from '@arco-design/web-react/icon';
 import { RES_BY_MODEL, resDefault, videoModelKeyOf, videoTraits, imageTagOf } from '../../../utils/film/suiteConfig';
 import { shotReferences } from '../../../utils/film/recipes';
 import { CutContext } from './CutNode';
@@ -22,13 +22,18 @@ const { Text } = Typography;
 // sites fail loudly until someone decides, which is the failure mode we want.
 export const MIN_MASTER_SECONDS = 4; // Ark: editing tasks need a 4–30s source
 
+// How an edit instruction opens. Naming the source video is what routes the request as
+// an EDIT rather than a new generation, so a card starts with this and an insert into an
+// empty field restores it — a bare noun would read as a description of a shot to make.
+export const EDIT_OPENER = 'Edit @Video1';
+
 const promptArea = {
   width: '100%', background: '#0f1318', color: '#e5e6eb',
   border: '1px solid #2a313a', borderRadius: 4, fontSize: 11, lineHeight: 1.45, padding: 8,
 };
 
 const EditNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onComposeCut, onOpenTakes, onPickMaster, onDetachRef, onOpenRefDrawer } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onComposeCut, onAnalyzeCut, onOpenTakes, onPickMaster, onDetachRef, onOpenRefDrawer } = useContext(CutContext);
   const [editorOpen, setEditorOpen] = useState(false);
   const patch = (p) => onPatchCut && onPatchCut(id, p);
 
@@ -44,6 +49,17 @@ const EditNodeInner = ({ id, data, selected }) => {
   // references, different job — the spec calls them the target material.
   const targets = shotReferences(data, bibleEntries);
   const busy = !!(data.developing || data.composePending);
+  // An analysis describes ONE master. Picking a different master leaves it on the card but
+  // marks it stale, and Compose stops using it until the new master is analyzed.
+  const analysis = String(data.analysis || '').trim();
+  const analysisStale = !!analysis && !!master && data.analyzedMasterUrl !== master.url;
+  const subjects = Array.isArray(data.analysisSubjects) ? data.analysisSubjects.filter((x) => x && x.name) : [];
+  // Clicking a subject types its name into THE EDIT, built on the card's LATEST text: the
+  // click blurs THE EDIT first, and that commit must survive the insert.
+  const insertSubject = (name) => patch((d) => {
+    const cur = String(d.promptOverride || '').trim() ? String(d.promptOverride) : EDIT_OPENER;
+    return { promptOverride: `${cur}${/\s$/.test(cur) ? '' : ' '}${name}` };
+  });
   // Only IN PROGRESS earns a chip. A landed take is already announced by the take
   // count; a failure speaks in the body, where its reason fits.
   const status = data.status === 'running' ? { label: 'shooting…', color: '#f7ba1e' } : null;
@@ -130,6 +146,63 @@ const EditNodeInner = ({ id, data, selected }) => {
             >＋ Pick a master — any take, or a video on the board</Button>
           )}
         </div>
+
+        {/* SHOT ANALYSIS — what is actually in the master, described by a model watching it.
+            Read it before Compose: Compose grounds the edit in this text, so a wrong subject
+            or side corrected here is corrected in the prompt too. */}
+        {master && (
+          <div>
+            <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={BLOCK_LABEL}>SHOT ANALYSIS</Text>
+              <Button
+                className="nodrag" size="mini" type="text"
+                icon={data.analyzing ? <IconLoading /> : <IconEye />}
+                disabled={!onAnalyzeCut || !!data.analyzing}
+                onClick={() => onAnalyzeCut && onAnalyzeCut(id)}
+                style={{ color: '#9fb4d0' }}
+                title="Analyze — the reasoner watches the master and describes the shot: setting and light, every subject and when it is visible, the action and the camera. It describes the footage only. You can edit the result."
+              >{analysis ? 'Re-analyze' : 'Analyze'}</Button>
+            </div>
+            {data.analyzing ? (
+              <div className="nodrag" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 10px', background: '#0d1117', border: '1px solid #21262d', borderRadius: 4, minHeight: 62 }}>
+                <IconLoading style={{ fontSize: 16, color: '#5DCAA5' }} />
+                <Text style={{ color: '#5DCAA5', fontSize: 11, fontWeight: 700 }}>Watching the master…</Text>
+              </div>
+            ) : analysis ? (
+              <>
+                {analysisStale && (
+                  <Text style={{ fontSize: 10, color: '#f7ba1e', display: 'block', marginBottom: 3 }}>
+                    This describes a different master — Compose ignores it until you Re-analyze.
+                  </Text>
+                )}
+                <DraftText
+                  textarea className="nodrag nowheel" value={data.analysis}
+                  onCommit={(v) => patch({ analysis: v })}
+                  autoSize={{ minRows: 3, maxRows: 14 }}
+                  style={{ ...promptArea, color: '#c9d1d9', opacity: analysisStale ? 0.55 : 1 }}
+                />
+                {!analysisStale && subjects.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                    {subjects.map((sub) => (
+                      <Tag
+                        key={sub.name} size="small" className="nodrag"
+                        onClick={(e) => { e.stopPropagation(); if (!busy) insertSubject(sub.name); }}
+                        title={`Insert "${sub.name}" into THE EDIT`}
+                        style={{ cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, background: '#16241f', color: '#5DCAA5', border: '1px solid #24473b' }}
+                      >
+                        ＋ {sub.name}{sub.visible ? <span style={{ color: '#6e7b8b' }}> · {sub.visible}</span> : null}
+                      </Tag>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <Text style={{ fontSize: 10, color: '#6e7b8b', display: 'block' }}>
+                Not analyzed yet. Analyze watches the master and describes the shot.
+              </Text>
+            )}
+          </div>
+        )}
 
         <div>
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

@@ -16,7 +16,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onComposeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onOpenRefDrawer: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onOpenRefDrawer: null,
 });
 
 // One keyframe slot tile: shows its picked still, or a dashed ＋ tile. Clicking opens

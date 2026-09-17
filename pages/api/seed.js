@@ -1,6 +1,7 @@
 import { CONFIG } from '../../utils/config';
 import { getModel } from '../../utils/film/suiteConfig';
 import { storeKeyFromUrl, readStoreBytes } from '../../utils/server/mediaStore';
+import { presignStoreUrl } from '../../utils/server/presignStore';
 
 export const config = {
   api: {
@@ -67,6 +68,12 @@ async function seedHandler(req, res) {
 
   try {
     const inlinedImages = await Promise.all(imageList.map(inlineImage));
+    // A VIDEO rides by URL, never inline, so the backend must be able to fetch it. A
+    // media-store url points at this server — presign its TOS copy first.
+    const videoUrl = video ? await presignStoreUrl(video, { expires: 3600 }) : null;
+    if (video && !videoUrl) {
+      return res.status(400).json({ error: 'The video could not be presigned for the reasoner — check TOS credentials in .env.local, or re-check-in the clip.' });
+    }
     // WHICH API SHAPE: /responses + input formatting, or chat completions.
     //
     // The SLOT decides, never the id string. Every reasoner slot in this app is Seed 2.0
@@ -91,10 +98,10 @@ async function seedHandler(req, res) {
       inlinedImages.forEach(img => {
           inputContent.push({ type: 'input_image', image_url: img });
       });
-      if (video) {
+      if (videoUrl) {
           inputContent.push({
               type: 'input_video',
-              video_url: video
+              video_url: videoUrl
           });
       }
 
@@ -188,13 +195,13 @@ async function seedHandler(req, res) {
       { role: 'system', content: systemPrompt || 'You are a helpful assistant.' }
     ];
 
-    if (imageList.length > 0 || video) {
+    if (imageList.length > 0 || videoUrl) {
       const content = [{ type: 'text', text: prompt }];
       inlinedImages.forEach(img => {
         content.push({ type: 'image_url', image_url: { url: img } });
       });
-      if (video) {
-        content.push({ type: 'video_url', video_url: { url: video } });
+      if (videoUrl) {
+        content.push({ type: 'video_url', video_url: { url: videoUrl } });
       }
       messages.push({ role: 'user', content });
     } else {

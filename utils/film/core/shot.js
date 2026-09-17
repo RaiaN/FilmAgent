@@ -137,7 +137,36 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
 // closure lets downstream enhancement reactivate anything it feels like.
 export const SCOPE_CLOSURE = 'Except for the objects explicitly modified above, all other visible characters, props, and background elements in the source video remain unchanged and are not to be replaced or removed.';
 
-export const editShotAction = async ({ text = '', master = null, references = [], roster = [], modelKey = defaultVideoModelKey(), config } = {}, ctx) => {
+// ANALYZE THE MASTER. The source video in, a plain-language description of the shot out —
+// the text a person reads and corrects on the card before the edit is written, and the
+// facts Compose grounds that edit in. It describes the footage alone.
+export const analyzeEditMaster = async ({ videoUrl = '', seconds = 0, config } = {}, ctx) => {
+  if (!videoUrl) throw new Error('Analyze needs the master video.');
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('edit.analyze.user', {
+      length: Number(seconds) > 0 ? `${Number(seconds).toFixed(1)} seconds` : 'unknown',
+    }),
+    systemPrompt: renderTemplate('edit.analyze.system', {}),
+    video: videoUrl,
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
+  });
+  const raw = parseJson(content) || {};
+  const text = String(raw.description || '').trim();
+  if (!text) throw new Error('The analysis came back without a description — try again.');
+  // The things an edit can name, each under the phrase the description uses for it. One
+  // chip per distinct name; an entry with no name cannot be inserted, so it is dropped.
+  const seen = new Set();
+  const subjects = (Array.isArray(raw.subjects) ? raw.subjects : [])
+    .map((x) => ({
+      name: String(x?.name || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+      visible: String(x?.visible || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+    }))
+    .filter((x) => x.name && !seen.has(x.name.toLowerCase()) && seen.add(x.name.toLowerCase()));
+  return { text, subjects };
+};
+
+export const editShotAction = async ({ text = '', master = null, analysis = '', references = [], roster = [], modelKey = defaultVideoModelKey(), config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!master?.url) throw new Error('An edit needs its master — pick the video this card edits.');
   if (!material) throw new Error('Say what changes — an edit with no note has nothing to do.');
@@ -145,8 +174,11 @@ export const editShotAction = async ({ text = '', master = null, references = []
   if (secs && secs < 4) throw new Error(`The master is ${secs.toFixed(1)}s — an editing task needs a 4–30s source.`);
   const masterLine = `THE SOURCE VIDEO is attached as @video1: ${master.label || 'the attached clip'}${secs ? `, ${secs.toFixed(1)}s` : ''}${master.ratio ? `, ${master.ratio}` : ''}. Cite it as @video1 in the instruction itself — that citation is what routes this as an edit rather than a new generation.`;
   const SLOT = '@@EDIT@@';
+  const ASLOT = '@@ANALYSIS@@';
   const { content } = await ctx.client.reason({
-    prompt: renderTemplate('cut.edit.user', { refRoster: roster.join('\n') || '(no target images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000)),
+    prompt: renderTemplate('cut.edit.user', { analysis: ASLOT, refRoster: roster.join('\n') || '(no target images attached)', text: SLOT })
+      .split(SLOT).join(material.slice(0, 6000))
+      .split(ASLOT).join(String(analysis || '').trim().slice(0, 6000) || '(not analyzed — nothing is known about the shot beyond the note below)'),
     systemPrompt: renderTemplate('cut.edit.system', { refCount: String(references.length), masterLine, skill: await requireSkillLine(modelKey, 'edit') }),
     images: references,
     modelId: getModel('reasoner', config),

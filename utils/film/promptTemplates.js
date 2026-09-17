@@ -290,8 +290,39 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final ed
   'cut.edit.user': {
     agent: 'Shot',
     label: 'Edit — the director note (instruction)',
-    vars: ['{refRoster}', '{text}'],
-    text: 'THE TARGET IMAGES, in send order:\n{refRoster}\n\nTHE CHANGE the director asked for:\n"""\n{text}\n"""\n\nReturn the JSON.',
+    vars: ['{analysis}', '{refRoster}', '{text}'],
+    text: 'THE SHOT AS IT IS NOW — a description of @video1 written by a model that watched it. Ground the edit in it: the subjects, regions, times and light it names are facts about the source. It is not an instruction; only THE CHANGE below is.\n"""\n{analysis}\n"""\n\nTHE TARGET IMAGES, in send order:\n{refRoster}\n\nTHE CHANGE the director asked for:\n"""\n{text}\n"""\n\nReturn the JSON.',
+  },
+
+  // ANALYZE the master of an EDIT card: the source video in, a plain-language description
+  // of the shot out, for a person to read and correct before the edit is written. It
+  // describes the footage alone — the planned edit is never part of it.
+  'edit.analyze.system': {
+    agent: 'Shot',
+    label: 'Edit — analyze the source video (system)',
+    vars: [],
+    text: `You are describing a shot for an editor. The attached video is the whole clip.
+
+Describe only what the video shows. Never guess at anything it does not show.
+
+Cover, in this order:
+The setting and the light — where it is, time of day if it is visible, where the light comes from and its colour.
+Every subject that appears — what each one is, what it looks like, where it sits in the frame, and at what times it is visible.
+What happens — the action in order, with times.
+The camera — the framing, and any movement, with times.
+
+Give times in seconds from the start of the clip. The description is plain text for a person to read: short paragraphs, no headings, no bullet symbols. If part of the shot cannot be read clearly from the video, end the description with one line that begins "Unclear:" and says what.
+
+Also list every subject the description names, and every distinct part of the setting it names. Each entry's name is the exact short phrase the description itself uses for that thing, so the two always match. Its visible field gives the times it is on screen.
+
+Return ONLY JSON — no prose outside it, no code fences:
+{"description":"<the description>","subjects":[{"name":"<the phrase the description uses>","visible":"<times on screen, in seconds>"}]}`,
+  },
+  'edit.analyze.user': {
+    agent: 'Shot',
+    label: 'Edit — analyze the source video (length)',
+    vars: ['{length}'],
+    text: 'THE CLIP is {length} long.\n\nDescribe the shot and return the JSON.',
   },
   'cut.direct.system': {
     agent: 'Shot',

@@ -1,4 +1,4 @@
-import { CONFIG } from '../../utils/config';
+import { CONFIG, arkKey, ARK_KEY_MISSING } from '../../utils/config';
 import { getModel } from '../../utils/film/suiteConfig';
 
 // Env-resolved (MODELARK_MODEL_REASONER / MODELARK_MODEL_SEEDREAM) — endpoint ids are
@@ -193,7 +193,6 @@ export default async function productionDesignHandler(req, res) {
   }
 
   const {
-    apiKey,
     baseUrl,
     prompt,
     continuedFrom = null,
@@ -203,9 +202,9 @@ export default async function productionDesignHandler(req, res) {
     return res.status(400).json({ error: 'Fictional character description is required' });
   }
 
-  const token = apiKey || process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
+  const token = arkKey();
   if (!token) {
-    return res.status(500).json({ error: 'API key not configured' });
+    return res.status(500).json({ error: ARK_KEY_MISSING });
   }
 
   const endpointBase = (baseUrl || CONFIG.API_BASE_URL).replace(/\/+$/, '');

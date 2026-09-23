@@ -22,3 +22,9 @@ export const getEndpointUrl = (type) => {
     if (!path) return base;
     return `${base}${path}`;
 };
+
+// THE ARK KEY. It comes from the server's environment (.env.local) and nowhere else — a
+// key a request carries is never used, so a key the browser has stored cannot override it.
+export const arkKey = () => process.env.MODELARK_API_KEY || process.env.ARK_API_KEY || '';
+
+export const ARK_KEY_MISSING = 'MODELARK_API_KEY is not set — add it to .env.local (see .env.example).';

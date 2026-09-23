@@ -1,4 +1,4 @@
-import { getEndpointUrl } from '../../utils/config';
+import { getEndpointUrl, arkKey, ARK_KEY_MISSING } from '../../utils/config';
 
 // Seedream 5.0 Lite endpoint — the fallback when a request doesn't name a model.
 // The Image tab now sends the selected endpoint (Lite or Pro) in the request body.
@@ -19,7 +19,7 @@ async function seedreamHandler(req, res) {
   }
 
   const {
-    model, prompt, apiKey, baseUrl, size, watermark, responseFormat, image,
+    model, prompt, baseUrl, size, watermark, responseFormat, image,
     sequential_image_generation, sequential_image_generation_options,
     optimize_prompt_options, output_format, guidance_scale, seed
   } = req.body;
@@ -28,9 +28,9 @@ async function seedreamHandler(req, res) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  const token = apiKey || process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
+  const token = arkKey();
   if (!token) {
-    return res.status(500).json({ error: 'API key not configured' });
+    return res.status(500).json({ error: ARK_KEY_MISSING });
   }
 
   // NO fallbacks: model + base URL come from the request or .env — else a clear error.

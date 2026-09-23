@@ -1,4 +1,4 @@
-import { CONFIG } from '../../utils/config';
+import { CONFIG, arkKey, ARK_KEY_MISSING } from '../../utils/config';
 import { getModel } from '../../utils/film/suiteConfig';
 import { storeKeyFromUrl, readStoreBytes } from '../../utils/server/mediaStore';
 import { presignStoreUrl } from '../../utils/server/presignStore';
@@ -17,16 +17,16 @@ async function seedHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { prompt, apiKey, modelId, baseUrl, systemPrompt, images, video, reasoningEffort } = req.body;
+  const { prompt, modelId, baseUrl, systemPrompt, images, video, reasoningEffort } = req.body;
   const imageList = Array.isArray(images) ? images : (images ? [images] : []);
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  const token = apiKey || process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
+  const token = arkKey();
   if (!token) {
-    return res.status(500).json({ error: 'API key not configured' });
+    return res.status(500).json({ error: ARK_KEY_MISSING });
   }
 
   // Use config-defined base URL, fallback to passed baseUrl if provided

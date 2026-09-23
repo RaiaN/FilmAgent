@@ -1,4 +1,4 @@
-import { CONFIG } from '../../../utils/config';
+import { CONFIG, arkKey, ARK_KEY_MISSING } from '../../../utils/config';
 import { getModel } from '../../../utils/film/suiteConfig';
 import { checkInBytes, storeKeyFromUrl, readStoreBytes } from '../../../utils/server/mediaStore';
 
@@ -34,7 +34,6 @@ export default async function imagineHandler(req, res) {
   }
 
   const {
-    apiKey,
     baseUrl,
     prompt,
     referenceImage,        // single URL/base64, or...
@@ -53,9 +52,9 @@ export default async function imagineHandler(req, res) {
     return res.status(400).json({ error: 'prompt is required' });
   }
 
-  const token = apiKey || process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
+  const token = arkKey();
   if (!token) {
-    return res.status(500).json({ error: 'API key not configured' });
+    return res.status(500).json({ error: ARK_KEY_MISSING });
   }
   if (!baseUrl && !CONFIG.API_BASE_URL) return res.status(500).json({ error: 'MODELARK_API_BASE_URL is not configured — set it in .env.local (see .env.example).' });
   const endpointBase = (baseUrl || CONFIG.API_BASE_URL).replace(/\/+$/, '');

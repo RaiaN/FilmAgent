@@ -3,6 +3,7 @@ name: sd-editing
 description: Seedance video editing — instruction editing, editing with reference images, and audio editing. Adds, removes or modifies visual and audio elements in an existing video, with timestamps to say when an edit takes effect.
 models:
   - seedance25
+  - seedance25Premium
   - seedance
   - seedanceFast
   - seedanceMini

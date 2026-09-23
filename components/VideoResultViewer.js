@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Tag, Typography, Button } from '@arco-design/web-react';
 import { IconCheckCircleFill, IconCloseCircleFill, IconClockCircle, IconSync } from '@arco-design/web-react/icon';
 import CopyButton from './CopyButton';
-import { getApiKey } from '../utils/apiKeyStore';
 
 const getStatusIcon = (status) => {
   switch (status) {
@@ -34,6 +33,8 @@ const VideoTaskResultCard = ({ result, title }) => {
   const [videoStatus, setVideoStatus] = useState(null);
   const [videoResult, setVideoResult] = useState(null);
   const [pollInterval, setPollInterval] = useState(null);
+  // A poll that fails says why, instead of leaving the badge on INITIALIZING forever.
+  const [pollError, setPollError] = useState(null);
 
   useEffect(() => {
     if (result?.id && !videoResult) {
@@ -41,17 +42,15 @@ const VideoTaskResultCard = ({ result, title }) => {
       
       const poll = async () => {
         try {
-          const storedKey = getApiKey();
-          const headers = {};
-          if (storedKey) {
-              headers['Authorization'] = `Bearer ${storedKey}`;
-          }
-
-          const response = await fetch(`/api/seedance-status?taskId=${taskId}`, {
-              headers: headers
-          });
+          // The server uses its own .env.local key — the browser sends none.
+          const response = await fetch(`/api/seedance-status?taskId=${taskId}`);
           const data = await response.json();
-          
+          if (!response.ok || !data.status) {
+            setPollError(data?.details?.error?.message || data?.error || `Status check failed (HTTP ${response.status})`);
+            return;
+          }
+          setPollError(null);
+
           if (data.status === 'succeeded') {
             setVideoResult(data);
             setVideoStatus('succeeded');
@@ -110,6 +109,11 @@ const VideoTaskResultCard = ({ result, title }) => {
                           {(videoStatus || 'INITIALIZING').toUpperCase()}
                       </Tag>
                   </div>
+                  {pollError && (
+                      <Typography.Text style={{ display: 'block', marginTop: 8, fontSize: 12, color: '#f53f3f' }}>
+                          Status check failed — {pollError}. Still retrying.
+                      </Typography.Text>
+                  )}
               </div>
 
               {videoResult?.video_url && (

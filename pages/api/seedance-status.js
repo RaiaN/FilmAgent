@@ -1,4 +1,4 @@
-import { CONFIG, getEndpointUrl } from '../../utils/config';
+import { CONFIG, getEndpointUrl, arkKey, ARK_KEY_MISSING } from '../../utils/config';
 import { checkInUrl as storeCheckInUrl } from '../../utils/server/mediaStore';
 
 // Check a finished output into the two-tier store (local + TOS mirror) SERVER-SIDE, the
@@ -15,29 +15,17 @@ async function seedanceStatusHandler(req, res) {
       return res.status(405).end(`Method ${req.method} Not Allowed`);
     }
   
-    const { taskId, apiKey, baseUrl } = req.query;
+    const { taskId, baseUrl } = req.query;
   
     if (!taskId) {
         return res.status(400).json({ error: 'Missing taskId' });
     }
 
-    // In a real app, apiKey should probably come from a secure session or similar, 
-    // but for this starter kit, we'll use the env var or the one passed (though passing sensitive info in query is not ideal).
-    // Better: Rely on server-side env var for API key if possible, or pass via header if client stores it.
-    // Here we'll default to env var.
-    const token = process.env.MODELARK_API_KEY || process.env.ARK_API_KEY;
-    
-    // NOTE: If the user is using a custom API key entered in the UI, we need to pass it securely.
-    // For now, let's assume the user has set the env var or we can't poll easily without passing it back.
-    // Since the original design stores key in localStorage, the client should pass it.
-    // Let's check headers first.
-    // Robust parse: 'Bearer <key>' → key; a bare/empty 'Bearer' (key-less client)
-    // falls back to the server-configured key instead of forwarding garbage to Ark.
-    const headerToken = String(req.headers.authorization || '').replace(/^Bearer\s*/i, '').trim();
-    const bearerToken = headerToken || token;
-
+    // The key comes from .env.local only — never from the request, so a key the browser
+    // still has stored cannot make every status poll fail with 401.
+    const bearerToken = arkKey();
     if (!bearerToken) {
-      return res.status(500).json({ error: 'API key not configured' });
+      return res.status(500).json({ error: ARK_KEY_MISSING });
     }
   
     // Use config-defined base URL, fallback to passed baseUrl if provided

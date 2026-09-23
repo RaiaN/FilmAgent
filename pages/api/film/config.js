@@ -1,5 +1,5 @@
 import { ROOT_CONFIG, resolveModelId } from '../../../utils/film/suiteConfig';
-import { CONFIG } from '../../../utils/config';
+import { CONFIG, arkKey } from '../../../utils/config';
 
 // Deployment config for the canvas — IDENTIFIERS AND BOOLEANS ONLY, never key
 // material. The browser hydrates its model table from this (env overrides are
@@ -21,6 +21,6 @@ export default function configHandler(req, res) {
     arkBaseUrl: CONFIG.API_BASE_URL || '',
     voiceBaseUrl: process.env.BYTEPLUSVOICE_BASE_URL || '',
     tosRegion: process.env.MODELARK_TOS_REGION || '', // region name only — never key material
-    hasServerKey: !!(process.env.MODELARK_API_KEY || process.env.ARK_API_KEY),
+    hasServerKey: !!arkKey(),
   });
 }

@@ -118,7 +118,8 @@ export const constructSeedancePayload = (formValues) => {
     }
 
     if (caps.supports_ref_audios && formValues.reference_audios && formValues.reference_audios.length > 0) {
-        assertSupportedSeedanceMediaInputs(formValues.reference_audios, 'Reference audio files');
+        // An asset:// entry is a registered Audio asset (Asset Upload → Use in Video).
+        assertSupportedSeedanceMediaInputs(formValues.reference_audios.filter((a) => !isAssetUrl(a)), 'Reference audio files');
         formValues.reference_audios.forEach(aud => {
             images.push({
                 type: 'audio_url',
@@ -141,23 +142,6 @@ export const constructProductionDesignPayload = (formValues) => {
         prompt: formValues.prompt,
         size: formValues.size,
         continuedFrom: formValues.continuedFrom || null,
-    };
-};
-
-export const constructAssetUploadPayload = (formValues) => {
-    const assetType = formValues.assetType || 'Image';
-    const isVideo = assetType === 'Video';
-    return {
-        assetGroupId: formValues.assetGroupId,
-        assetType,
-        imageUrl: isVideo ? '' : (formValues.imageUrl || ''),
-        videoUrl: isVideo ? (formValues.videoUrl || '') : '',
-        assetName: formValues.assetName,
-        localImageData: isVideo ? '' : (formValues.localImageData || ''),
-        localImageName: isVideo ? '' : (formValues.localImageName || ''),
-        localVideoData: isVideo ? (formValues.localVideoData || '') : '',
-        localVideoName: isVideo ? (formValues.localVideoName || '') : '',
-        pollUntilReady: formValues.pollUntilReady !== false,
     };
 };
 

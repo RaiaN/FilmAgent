@@ -1,12 +1,11 @@
 import Head from 'next/head';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Layout, Button, Drawer, Input, Message, Card, Typography } from '@arco-design/web-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Layout, Button, Card, Typography } from '@arco-design/web-react';
 import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
-import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, constructAssetUploadPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
+import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
 import { getModelCapabilities } from '../utils/modelCapabilities';
-import { clearPersistedApiKey, getApiKey, setApiKey as setApiKeyInStore, isBundledDesktopApp } from '../utils/apiKeyStore';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
@@ -36,13 +35,8 @@ const buildInitialResultState = () =>
 const TOOL_TABS = ['seedream', 'seedance', 'asset-upload', 'llm'];
 
 export default function Home() {
-  const [apiKey, setApiKey] = useState('');
   const [activeModelId, setActiveModelId] = useState('film-agent');
   const [lastToolId, setLastToolId] = useState('seedream');
-  // Server-key mode: a deployment-configured API key exists — every tab works with no
-  // key entered, and the Settings key field is replaced by an informational note (no
-  // key UI at all on customer deployments). Detected once via the non-secret config route.
-  const [hasServerKey, setHasServerKey] = useState(false);
   useEffect(() => {
     let cancelled = false;
     fetch('/api/film/config')
@@ -53,7 +47,6 @@ export default function Home() {
         // hydrate the registry, then back-fill any tab whose model is still unset
         // (its initial form state was built before the ids existed).
         applyDeployModels(j.models || null);
-        setHasServerKey(!!j.hasServerKey);
         setFormStateByModel((prev) => {
           const next = { ...prev };
           Object.keys(next).forEach((k) => {
@@ -93,7 +86,6 @@ export default function Home() {
   const [lastResponsePayload, setLastResponsePayload] = useState(null);
 
   const [seedreamLoading, setSeedreamLoading] = useState(false);
-  const [assetTosStagingLoading, setAssetTosStagingLoading] = useState(false);
   const [resultStateByModel, setResultStateByModel] = useState(() => buildInitialResultState());
   const seedreamResult = resultStateByModel[activeModelId] || null;
   const setSeedreamResult = useCallback((updater) => {
@@ -127,24 +119,10 @@ export default function Home() {
   }, []);
 
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (isBundledDesktopApp()) {
-      clearPersistedApiKey();
-      return;
-    }
-    const savedKey = getApiKey();
-    if (savedKey) {
-        setApiKey(savedKey);
-    }
-  }, []);
-  
   // Remember the most recently used tool so the "Tools" meta tab returns to it.
   useEffect(() => {
     if (TOOL_TABS.includes(activeModelId)) setLastToolId(activeModelId);
   }, [activeModelId]);
-
-  const canRun = useMemo(() => apiKey.trim().length > 0 || hasServerKey, [apiKey, hasServerKey]);
 
   useEffect(() => {
     // Reactive visibility logic
@@ -153,13 +131,38 @@ export default function Home() {
 
   const handleModelFamilyChange = (newFamily) => {
       setActiveModelId(newFamily);
-      const newBaseSchema = baseSchemas[newFamily];
+      const newBaseSchema = baseSchemas[newFamily] || {}; // film-agent and asset-upload have no form schema
       setUiSchema({
-        title: newBaseSchema.name,
-        description: newBaseSchema.description,
-        fields: newBaseSchema.fields,
-        defaults: newBaseSchema.defaults,
+        title: newBaseSchema.name || '',
+        description: newBaseSchema.description || '',
+        fields: newBaseSchema.fields || [],
+        defaults: newBaseSchema.defaults || {},
       });
+  };
+
+  // Asset Upload → Video: append the registered assets to the Video tab's references
+  // (deduped, upload order kept) and open it. Audio has no asset-typed slot, so it
+  // rides as an asset:// entry in the audio list.
+  const handleUseAssetsInVideo = (assets) => {
+    setFormStateByModel((prev) => {
+      const cur = prev.seedance || getSchemaDefaults('seedance');
+      const addRefs = (list, kind) => {
+        const have = new Set(list.map((r) => r.value));
+        return [...list, ...assets.filter((a) => a.kind === kind && !have.has(a.assetId)).map((a) => ({ type: 'asset', value: a.assetId }))];
+      };
+      const audios = cur.reference_audios || [];
+      return {
+        ...prev,
+        seedance: {
+          ...cur,
+          reference_image_refs: addRefs(cur.reference_image_refs || [], 'image'),
+          reference_video_refs: addRefs(cur.reference_video_refs || [], 'video'),
+          reference_audios: [...audios, ...assets.filter((a) => a.kind === 'audio').map((a) => `asset://${a.assetId}`).filter((u) => !audios.includes(u))],
+        },
+      };
+    });
+    setLastToolId('seedance');
+    handleModelFamilyChange('seedance');
   };
 
   const handleModelChange = (e) => {
@@ -191,69 +194,6 @@ export default function Home() {
           };
         })() : {}),
     }));
-  };
-
-  const handleSaveApiKey = () => {
-    if (!apiKey.trim()) {
-      Message.error('Please enter an API key');
-      return;
-    }
-    const result = setApiKeyInStore(apiKey);
-    if (result.bundled) {
-      Message.success('API key set for this session');
-    } else {
-      Message.success('API key saved');
-    }
-  };
-
-  const handleStageAssetImageToTos = async () => {
-    if (activeModelId !== 'asset-upload') return;
-    const isVideo = (formValues.assetType || 'Image') === 'Video';
-
-    if (isVideo && !formValues.localVideoData) {
-      Message.warning('Choose a local video first.');
-      return;
-    }
-    if (!isVideo && !formValues.localImageData) {
-      Message.warning('Choose a local image first.');
-      return;
-    }
-
-    setAssetTosStagingLoading(true);
-    try {
-      const requestBody = isVideo
-        ? { localVideoData: formValues.localVideoData, localVideoName: formValues.localVideoName || '', stageOnly: true }
-        : { localImageData: formValues.localImageData, localImageName: formValues.localImageName || '', stageOnly: true };
-
-      const response = await fetch('/api/asset-upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-      const data = await response.json();
-
-      if (!response.ok || data?.error) {
-        throw new Error(data?.details || data?.error || 'TOS upload failed');
-      }
-
-      setFormValues((prev) => ({
-        ...prev,
-        [isVideo ? 'videoUrl' : 'imageUrl']: data.imageUrl || (isVideo ? prev.videoUrl : prev.imageUrl) || '',
-      }));
-      Message.success(`Uploaded to TOS and filled the ${isVideo ? 'Video' : 'Image'} URL field.`);
-
-      if (showRequestOutput) {
-        setLastRequestPayload({
-          endpoint: '/api/asset-upload',
-          body: requestBody,
-        });
-        setLastResponsePayload(data);
-      }
-    } catch (error) {
-      Message.error(error.message || 'TOS upload failed');
-    } finally {
-      setAssetTosStagingLoading(false);
-    }
   };
 
   const handleImageUpload = async (e, fieldKey) => {
@@ -289,11 +229,6 @@ export default function Home() {
 
   const handleSeedreamSubmit = async (event) => {
     event.preventDefault();
-    if (activeModelId !== 'asset-upload' && !canRun) {
-      setSeedreamResult({ error: 'Please add your API key first.' });
-      setIsSettingsOpen(true);
-      return;
-    }
     setSeedreamLoading(true);
     setSeedreamResult(null);
     
@@ -309,9 +244,6 @@ export default function Home() {
           endpoint = '/api/seedance';
           requestBody = constructSeedancePayload(formValues);
           parallelCount = Math.min(Math.max(Number(formValues.parallelCount) || 1, 1), 15);
-      } else if (activeModelId === 'asset-upload') {
-          endpoint = '/api/asset-upload';
-          requestBody = constructAssetUploadPayload(formValues);
       } else if (activeModelId === 'llm') {
           endpoint = '/api/seed';
           const llmPayload = constructLLMPayload(formValues);
@@ -332,9 +264,7 @@ export default function Home() {
           requestBody = constructWorkflowSeedreamPayload(formValues);
       }
 
-      const requestPayload = (activeModelId === 'asset-upload')
-        ? requestBody
-        : { ...requestBody, apiKey: apiKey.trim() };
+      const requestPayload = requestBody;
 
       const executeRequest = async (requestIndex) => {
         try {
@@ -391,7 +321,7 @@ export default function Home() {
 
       setSeedreamResult(nextResult);
       if (showRequestOutput) {
-        const debugBody = { ...requestBody, apiKey: 'REDACTED' };
+        const debugBody = { ...requestBody };
         setLastRequestPayload({
           endpoint,
           body: (activeModelId === 'seedance' || activeModelId === 'seedream') && parallelCount > 1
@@ -424,7 +354,7 @@ export default function Home() {
 
 
                 <header style={{ marginBottom: isCanvasTool ? 8 : 10, textAlign: 'center' }}>
-                    {!isCanvasTool && (
+                    {!isCanvasTool && uiSchema.title && (
                         <Title heading={6} style={{ margin: '0 0 6px' }}>{uiSchema.title}</Title>
                     )}
 
@@ -509,22 +439,10 @@ export default function Home() {
                     <FilmAgentPlayground
                         formValues={formValues}
                         setFormValues={setFormValues}
-                        apiKey={apiKey}
-                        onChangeApiKey={setApiKey}
-                        onSaveApiKey={handleSaveApiKey}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'asset-upload' ? 'block' : 'none' }}>
-                    <AssetUploadPlayground
-                        schema={uiSchema}
-                        formValues={formValues}
-                        setFormValues={setFormValues}
-                        onSubmit={handleSeedreamSubmit}
-                        loading={seedreamLoading}
-                        onStageToTos={handleStageAssetImageToTos}
-                        stagingLoading={assetTosStagingLoading}
-                        result={seedreamResult}
-                    />
+                    <AssetUploadPlayground onUseInVideo={handleUseAssetsInVideo} />
                 </div>
                 <div style={{ display: activeModelId === 'llm' ? 'block' : 'none' }}>
                     <LLMPlayground
@@ -541,7 +459,7 @@ export default function Home() {
                     />
                 </div>
                 <div style={{ marginTop: 24 }}>
-                     {activeModelId !== 'llm' && activeModelId !== 'film-agent' && (
+                     {activeModelId !== 'llm' && activeModelId !== 'film-agent' && activeModelId !== 'asset-upload' && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}
@@ -550,7 +468,7 @@ export default function Home() {
                       )}
                 </div>
                 
-                {TOOL_TABS.includes(activeModelId) && (
+                {TOOL_TABS.includes(activeModelId) && activeModelId !== 'asset-upload' && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 12, color: '#86909c', cursor: 'pointer' }}>
                         <input
                             type="checkbox"

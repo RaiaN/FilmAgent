@@ -14,10 +14,11 @@ import { getStableAssetGroupId, persistAssetGroupId } from '../../server/assetGr
 // Shared by /api/film/upload (local uploads) and /api/film/preserve (check-in).
 
 // Poll GetAsset until the asset finishes ingesting, so a freshly-registered
-// asset:// is actually resolvable by Seedance. Best-effort + bounded.
+// asset:// is actually resolvable by Seedance. Bounded; returns the last status seen
+// ('Active' | 'Failed' | anything else = still ingesting or unknown).
 async function waitForAssetActive({ accessKey, secretKey, assetId, projectName }) {
   let cfg;
-  try { cfg = getAssetApiConfig(); } catch { return false; }
+  try { cfg = getAssetApiConfig(); } catch { return null; }
   const attempts = Math.min(cfg.pollMaxAttempts || 10, 15);
   const interval = cfg.pollIntervalMs || 2000;
   for (let i = 0; i < attempts; i += 1) {
@@ -30,14 +31,13 @@ async function waitForAssetActive({ accessKey, secretKey, assetId, projectName }
         secretKey,
       });
     } catch {
-      return false;
+      return null;
     }
     const status = resp?.Result?.Status;
-    if (status === 'Active') return true;
-    if (status === 'Failed') return false;
+    if (status === 'Active' || status === 'Failed') return status;
     await sleep(interval); // eslint-disable-line no-await-in-loop
   }
-  return false;
+  return null;
 }
 
 export async function registerAsset({ accessKey, secretKey, url, name, assetType = 'Image', waitForActive = false }) {
@@ -84,8 +84,10 @@ export async function registerAsset({ accessKey, secretKey, url, name, assetType
 
   const assetId = response?.Result?.Id || null;
   if (assetId) persistAssetGroupId(usedGroupId); // the group that WORKED is the stable one
+  // A Failed asset's id resolves to nothing, so it is an error, never a return value.
   if (assetId && waitForActive) {
-    await waitForAssetActive({ accessKey, secretKey, assetId, projectName });
+    const status = await waitForAssetActive({ accessKey, secretKey, assetId, projectName });
+    if (status === 'Failed') throw new Error(`Asset ${assetId} failed ingestion — the Assets API rejected the file.`);
   }
   return assetId;
 }

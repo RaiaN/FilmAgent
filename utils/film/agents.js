@@ -28,14 +28,14 @@ export const AGENT_COLORS = {
   audio: '#7816ff',                // violet (spoken word: VO / line reads)
 };
 
-const browserCtx = (apiKey) => ({ client: createBrowserClient(apiKey) });
+const browserCtx = () => ({ client: createBrowserClient() });
 
 // A full browser transport for the interactive production session (createProduction):
 // the app-route client plus a stitch that posts to /api/film/stitch (server ffmpeg +
 // TOS) and resolves to a hosted, playable URL. The canvas drives the shared engine
 // through this instead of reimplementing the loop.
-export const createBrowserTransport = (apiKey) => ({
-  client: createBrowserClient(apiKey),
+export const createBrowserTransport = () => ({
+  client: createBrowserClient(),
   stitch: async (shots, o = {}) => {
     const res = await fetch('/api/film/stitch', {
       method: 'POST',
@@ -103,8 +103,8 @@ const variationHooks = (layerId, anchor, src, { onAsset, onPendingAsset, onResol
 // Concierge intake: classify a pile of uploaded images into recipe bible roles, and
 // report which required roles are still missing ("do you have XYZ?"). An injected
 // `client` (e.g. trace-wrapped) wins over the plain browser one.
-export const classifyAssets = ({ apiKey, client, images = [], idea = '', roles = [], requiredRoles = [] }) =>
-  director.classifyAssets({ images, idea, roles, requiredRoles }, client ? { client } : browserCtx(apiKey));
+export const classifyAssets = ({ client, images = [], idea = '', roles = [], requiredRoles = [] }) =>
+  director.classifyAssets({ images, idea, roles, requiredRoles }, client ? { client } : browserCtx());
 
 // ---- agents -------------------------------------------------------------------
 
@@ -120,15 +120,15 @@ export const inspirationAgent = {
   describe: 'Generates a grid of distinct style/mood references from a prompt and any board images you pick.',
   // Every agent run accepts an optional injected `ctx` (the canvas passes a
   // trace-wrapped client so rail runs land in the decision history); without one
-  // it builds the plain browser ctx from the apiKey as before.
-  async run({ prompt, selection, settings, apiKey, ctx, onAsset, onError }) {
+  // it builds the plain browser ctx.
+  async run({ prompt, selection, settings, ctx, onAsset, onError }) {
     // All selected images are read by the planner (describe + mix); the checkbox
     // also feeds them to the image model as visual references.
     const refs = selectedImageUrls(selection);
     const effectivePrompt = (prompt || '').trim();
     const result = await ops.inspiration(
       { prompt: effectivePrompt, refs, useRefsInGen: !!settings.useSelectionAsRefs, count: settings.count, size: settings.size },
-      ctx || browserCtx(apiKey),
+      ctx || browserCtx(),
       (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'inspiration', sourceRefs: item.referenceImages, meta: { prompt: item.prompt, ...item.meta } }),
     );
     if (result.errors.length && onError) onError(result.errors);
@@ -148,7 +148,7 @@ export const characterVariationsAgent = {
   grouped: true,
   defaultSettings: { count: 4, size: '2K', direction: '', imageModel: '', anchorId: '' },
   describe: 'Plans distinct variations of a character, identity preserved — pick a source image, or just describe the character and the agent builds the plate first.',
-  async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
+  async run({ selection, settings, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     // No source image is a legitimate run: the op builds the identity anchor from the
     // Direction text and varies THAT. Only a run with neither is refused.
     const anchor = firstImageNode(selection);
@@ -156,7 +156,7 @@ export const characterVariationsAgent = {
     if (!src && !String(settings.direction || '').trim()) throw new Error('Pick a character image, or describe the character in Direction.');
     const result = await ops.characterVariations(
       { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: imageModelKeyOf(settings.imageModel) },
-      ctx || browserCtx(apiKey),
+      ctx || browserCtx(),
       variationHooks('characterVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
     if (result.errors.length && onError) onError(result.errors);
@@ -175,7 +175,7 @@ export const locationVariationsAgent = {
   grouped: true,
   defaultSettings: { count: 4, size: '2K', direction: '', imageModel: '', anchorId: '' },
   describe: 'Plans distinct coverage of a location, architecture preserved — pick a source image, or just describe the location and the agent builds the plate first.',
-  async run({ selection, settings, apiKey, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
+  async run({ selection, settings, ctx, onAsset, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     // No source image is a legitimate run: the op builds the canonical plate from the
     // Direction text and covers THAT. Only a run with neither is refused.
     const anchor = firstImageNode(selection);
@@ -183,7 +183,7 @@ export const locationVariationsAgent = {
     if (!src && !String(settings.direction || '').trim()) throw new Error('Pick a location image, or describe the location in Direction.');
     const result = await ops.locationVariations(
       { imageUrl: src, direction: settings.direction, count: settings.count, size: settings.size, imageModel: imageModelKeyOf(settings.imageModel) },
-      ctx || browserCtx(apiKey),
+      ctx || browserCtx(),
       variationHooks('locationVariations', anchor, src, { onAsset, onPendingAsset, onResolveAsset, onFailAsset }),
     );
     if (result.errors.length && onError) onError(result.errors);
@@ -206,10 +206,10 @@ export const animateAgent = {
     duration: 5, resolution: '720p', ratio: 'adaptive', generateAudio: true,
   },
   describe: 'Renders a keyframe into a video shot — Seedance, ~1–3 min in the background.',
-  async run({ selection, settings, apiKey, ctx: injectedCtx, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
+  async run({ selection, settings, ctx: injectedCtx, onPendingAsset, onResolveAsset, onFailAsset, onError }) {
     const anchor = firstImageNode(selection);
     if (!anchor) throw new Error('Select one image to animate');
-    const ctx = injectedCtx || browserCtx(apiKey);
+    const ctx = injectedCtx || browserCtx();
 
     // Drop the loading node immediately, then kick off the async task.
     const prompt = buildAnimatePrompt(settings);
@@ -255,10 +255,10 @@ export const castAgent = {
   needsSelection: false,
   defaultSettings: { prompt: '', imageModel: '', imageThinking: false, ethnicity: '', refs: [] },
   describe: 'Drafts the film\'s recurring assets — characters, creatures, locations and key props/vehicles — in one shared look, as bible candidates.',
-  async run({ prompt, settings = {}, apiKey, ctx, onPlan, onEntry, onError }) {
+  async run({ prompt, settings = {}, ctx, onPlan, onEntry, onError }) {
     const entries = await castFromIdea(
       { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), ethnicity: settings.ethnicity || '', imageModel: imageModelKeyOf(settings.imageModel), thinking: !!settings.imageThinking, references: settings.references || [] },
-      ctx || browserCtx(apiKey),
+      ctx || browserCtx(),
       { onPlan, onEntry, onError: (msg) => { if (onError) onError([msg]); } },
     );
     return { created: entries, errors: [] };
@@ -354,10 +354,10 @@ export const audioAgent = {
   needsSelection: false,
   defaultSettings: { prompt: '', imageRef: '', audioRefs: [] },
   describe: 'Your words, word for word → a playable clip: line reads, narration, ambience, SFX — optionally board clips as @Audio1..N voice/sound references, or one board image for scene mood. Nothing is mixed into the film.',
-  async run({ prompt, settings = {}, apiKey, ctx }) {
+  async run({ prompt, settings = {}, ctx }) {
     const out = await ops.generateFilmAudio(
       { text: (prompt && String(prompt)) || settings.prompt || '', imageData: settings.imageData, audioRefs: settings.audioRefs },
-      ctx || browserCtx(apiKey),
+      ctx || browserCtx(),
     );
     return { created: [{ kind: 'audio', url: out.url, label: String(prompt || settings.prompt || 'Audio').slice(0, 40) }], errors: [] };
   },

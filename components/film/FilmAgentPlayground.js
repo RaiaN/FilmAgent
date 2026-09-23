@@ -53,7 +53,7 @@ const randomId = () =>
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     : Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey, onSaveApiKey }) => {
+const FilmAgentPlayground = ({ formValues, setFormValues }) => {
   const [project, setProject] = useState(null);
   // storage === null  => in-memory scratch project (not yet persisted)
   //   { kind: 'path', path }      => Electron / fallback text path
@@ -90,9 +90,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
 
   // DEPLOYMENT CONFIG hydration: env-configured model/endpoint ids live server-side —
   // fetch the resolved (non-secret) table once and feed the suite's runtime layer, so
-  // every getModel consumer resolves the deployment's ids. hasServerKey flips the
-  // canvas into key-less mode (requests omit the key; routes use the server env key).
-  const [serverKeyed, setServerKeyed] = useState(false);
+  // every getModel consumer resolves the deployment's ids.
   useEffect(() => {
     let cancelled = false;
     fetch('/api/film/config')
@@ -100,7 +98,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
       .then((j) => {
         if (cancelled || !j) return;
         applyDeployModels(j.models);
-        setServerKeyed(!!j.hasServerKey);
       })
       .catch(() => { /* defaults keep working */ });
     return () => { cancelled = true; };
@@ -512,23 +509,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
                 </Text>
               </div>
             )}
-            {/* API key lives HERE now (the separate ⚙ drawer is gone). Server-keyed
-                deployments show only the info line — no key UI at all. */}
-            <div style={{ borderTop: '1px solid #f2f3f5', paddingTop: 12 }}>
-              {serverKeyed ? (
-                <>
-                  <Text style={{ fontWeight: 600, display: 'block', marginBottom: 2 }}>API key: configured on the server</Text>
-                </>
-              ) : (
-                <>
-                  <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>API key</Text>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Input.Password value={apiKey} onChange={(v) => onChangeApiKey && onChangeApiKey(v)} placeholder="Paste your Ark API key…" style={{ flex: 1 }} />
-                    <Button type="primary" onClick={() => onSaveApiKey && onSaveApiKey()}>Save</Button>
-                  </div>
-                </>
-              )}
-            </div>
           </Space>
         )}
       </Modal>
@@ -593,17 +573,9 @@ const FilmAgentPlayground = ({ formValues, setFormValues, apiKey, onChangeApiKey
 
       <FilmCanvas
         project={project}
-        apiKey={apiKey}
-        serverKeyed={serverKeyed}
         onUpdateProject={setProject}
         demoNonce={demoNonce}
       />
-
-      {serverKeyed && !apiKey?.trim() && (
-        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 6 }}>
-          Using the server-configured API key — no key entry needed.
-        </Text>
-      )}
 
       {dialogs}
     </div>

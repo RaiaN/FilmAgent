@@ -34,12 +34,12 @@ const POLL_TIMEOUT_MS = 1800000;
 // ---- Browser client: talks to the app's own Next.js API routes ----------------
 // Used by the canvas (L4). Keeps the existing request shapes unchanged.
 
-export const createBrowserClient = (apiKey) => ({
+export const createBrowserClient = () => ({
   async generateImage({ prompt, referenceImages, size, model, seed, optimizePrompt }) {
     const res = await fetch('/api/film/imagine', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiKey, prompt, referenceImages, size, model, seed, optimizePrompt }),
+      body: JSON.stringify({ prompt, referenceImages, size, model, seed, optimizePrompt }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(errMsg(data, `Image generation failed (HTTP ${res.status})`));
@@ -56,7 +56,6 @@ export const createBrowserClient = (apiKey) => ({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        apiKey,
         modelId,
         prompt,
         systemPrompt: planner ? `${planner}\n\n${String(systemPrompt || '')}`.trim() : systemPrompt,
@@ -74,7 +73,7 @@ export const createBrowserClient = (apiKey) => ({
     // ratio and duration are OMITTED when falsy: a Seedance EDITING task (routed by the
     // prompt's wording) locks both to the source clip and REJECTS the request outright if
     // either is sent — `InvalidParameter.TaskTypeConstraint`.
-    const body = { apiKey, model, content, resolution, generate_audio: !!generateAudio, watermark: false, return_last_frame: true };
+    const body = { model, content, resolution, generate_audio: !!generateAudio, watermark: false, return_last_frame: true };
     if (ratio) body.ratio = ratio;
     if (duration && duration !== 'auto') body.duration = Number(duration);
     if (seed != null && seed !== '') body.seed = Number(seed);
@@ -99,7 +98,6 @@ export const createBrowserClient = (apiKey) => ({
       // Server-key mode: NO auth header at all (an empty `Bearer ` header reaches the
       // route as the literal string "Bearer" and got forwarded to Ark → 401 loop).
       const res = await fetch(`/api/seedance-status?taskId=${encodeURIComponent(taskId)}`, {
-        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
       });
       const data = await res.json();
       if (data.status === 'succeeded' && data.video_url) return { videoUrl: data.video_url, lastFrameUrl: data.last_frame_url || null, videoCacheUrl: data.video_cache_url || null, lastFrameCacheUrl: data.last_frame_cache_url || null };
@@ -109,7 +107,7 @@ export const createBrowserClient = (apiKey) => ({
 
   // Audio via the app's film audio route — Seed Audio 1.0 (prompt-driven; references =
   // up to 3 audio clips (@Audio1..N) OR one image). The BytePlus voice key lives
-  // server-side (BYTEPLUSVOICE_API_KEY) — no apiKey rides along.
+  // server-side (BYTEPLUSVOICE_API_KEY) — no key rides along.
   async generateSpeech({ text, imageData, audioRefs, format, sampleRate }) {
     const res = await fetch('/api/film/audio', {
       method: 'POST',

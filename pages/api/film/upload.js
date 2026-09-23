@@ -13,7 +13,8 @@ import { assetTypeOf, checkAssetBytes } from '../../../utils/film/assetSpec';
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '60mb',
+      // Base64 of the largest asset the Assets API takes (200 MB video) plus headroom.
+      sizeLimit: '280mb',
     },
   },
 };

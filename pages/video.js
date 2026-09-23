@@ -40,7 +40,6 @@ const readAsDataUrl = (file) => new Promise((resolve, reject) => {
 
 export default function VideoPlayground() {
   const [models, setModels] = useState({});
-  const [hasServerKey, setHasServerKey] = useState(false);
   const [modelKey, setModelKey] = useState('seedance25');
   const [prompt, setPrompt] = useState('');
   const [resolution, setResolution] = useState('720p');
@@ -74,7 +73,6 @@ export default function VideoPlayground() {
   useEffect(() => {
     fetch('/api/film/config').then((r) => r.json()).then((j) => {
       setModels(j.models || {});
-      setHasServerKey(!!j.hasServerKey);
       const first = Object.keys(MODEL_LABELS).find((k) => (j.models || {})[k]);
       if (first) setModelKey(first);
     }).catch(() => {});
@@ -214,7 +212,6 @@ export default function VideoPlayground() {
         <Title heading={5} style={{ marginTop: 0 }}>Seedance video playground</Title>
         <Text type="secondary" style={{ fontSize: 13 }}>
           Pick reference assets from your library, write a prompt, generate.
-          {hasServerKey ? ' Using the server-configured API key.' : ' Set MODELARK_API_KEY in .env.local.'}
         </Text>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '22px 0 8px' }}>

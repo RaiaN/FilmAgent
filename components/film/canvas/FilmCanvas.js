@@ -429,15 +429,13 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
   return { body: text, refs: [frameSrc, ...keep] };
 };
 
-const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject, demoNonce }) => {
+const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
   const wrapperRef = useRef(null);
   const fileInputRef = useRef(null);
   const [rfInstance, setRfInstance] = useState(null);
   // Key-less deployments: a server-configured API key exists, so generation guards
   // pass without a client key and requests omit the key (routes fall back to env).
   // A ref so the ~20 guards inside callbacks need no dependency churn.
-  const serverKeyedRef = useRef(serverKeyed);
-  useEffect(() => { serverKeyedRef.current = serverKeyed; }, [serverKeyed]);
 
   const initialLayerState = useMemo(() => buildInitialLayerState(project), [project.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [layerSettings, setLayerSettings] = useState(initialLayerState.settings);
@@ -636,7 +634,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     sessionStateRef.current = project.auto || null;
     // Silently rehydrate the cached production session so per-shot iteration
     // (regenerate-with-note) survives a reload — no panel, the timeline is the surface.
-    if (project.auto && (project.auto.plan || project.auto.steps || []).length && (apiKey?.trim() || serverKeyedRef.current)) {
+    if (project.auto && (project.auto.plan || project.auto.steps || []).length) {
       buildSession([], project.auto);
     }
     // Every project opens quiet — agents are picked from the rail, not auto-armed.
@@ -1339,7 +1337,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // "Build brand kit": classify the board's UNTAGGED image nodes into AD roles and
   // tag each (role + lock) → they flow into project.bible via the reconciler.
   const classifyBoardAssets = useCallback(async () => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return []; }
     const targets = nodesRef.current.filter((n) => n.data?.kind === 'image' && (n.data?.localUrl || n.data?.url)
       && !n.data?.bibleRole && !n.id.startsWith('shot-') && !n.id.startsWith('film-'));
     if (!targets.length) { Message.warning('No untagged board images to sort — drop a few brand assets on the board first.'); return []; }
@@ -1347,7 +1344,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: 'Build brand kit' });
     const rec = traceRef.current.log({ kind: 'bible.classify', note: `${images.length} board image${images.length === 1 ? '' : 's'}`, status: 'running' });
     try {
-      const { assets } = await classifyAssets({ apiKey: apiKey.trim(), client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())), images, idea: '', roles: BIBLE_ROLES, requiredRoles: ['character', 'location'] });
+      const { assets } = await classifyAssets({ client: traceRef.current.wrapClient(createBrowserClient()), images, idea: '', roles: BIBLE_ROLES, requiredRoles: ['character', 'location'] });
       rec.status = 'ok';
       rec.assignments = assets.map((c) => `${c.role || '?'}(${c.confidence != null ? c.confidence.toFixed(2) : '?'})`).join(', ');
       let tagged = 0;
@@ -1365,7 +1362,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       Message.error(err.message);
       return [];
     }
-  }, [apiKey, tagNode, setNodes]);
+  }, [tagNode, setNodes]);
 
 
   // Delete is keyboard-driven (deleteKeyCode) — ReactFlow removes the node AND its
@@ -1655,7 +1652,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       level: 'run', kind: 'inputs',
       note: `${steer ? `input="${steer.slice(0, 160)}" · ` : ''}selection: ${selectionNodes.length} node(s)`,
     });
-    const tracedCtx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const tracedCtx = { client: traceRef.current.wrapClient(createBrowserClient()) };
 
     let result;
     try {
@@ -1663,7 +1660,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       prompt: settings.prompt,
       selection: selectionNodes,
       settings,
-      apiKey,
       ctx: tracedCtx,
       onGroup,
       // A panel-streaming agent (if any) lays its SHOT cards as the panels arrive.
@@ -1715,7 +1711,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
 
     const done = pending.length ? Promise.all(pending) : Promise.resolve([]);
     return { groupId, outputIds: outputs.map((o) => o.id), outputs, result, done };
-  }, [rfInstance, apiKey, layerVisibility, setNodes, setEdges, freeOrigin]);
+  }, [rfInstance, layerVisibility, setNodes, setEdges, freeOrigin]);
 
   // (The clip-scoped agent runs — the side panel's "fill this clip" mode — left with
   // the panel. The timeline's own Auto-fill / per-event regenerate still cover clips.)
@@ -1766,7 +1762,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     node.data.audioText = line;
     setNodes((ns) => ns.concat(node));
     traceRef.current.startRun({ note: 'Agent · Audio (Seed Audio 1.0)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const { url, duration } = await generateFilmAudio({ text: line, imageData, audioRefs: audioRefData }, ctx);
       // duration persists on the clip — the SHOT-card attach path shows it and warns
@@ -1777,7 +1773,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       Message.error(`Audio failed: ${e.message}`);
       setNodes((ns) => ns.filter((n) => n.id !== node.id));
     }
-  }, [apiKey, rfInstance, freeOrigin, setNodes]);
+  }, [rfInstance, freeOrigin, setNodes]);
 
 
   // ---- PREVIZ: plan the page → draw the plates → dispatch any plate to a SHOT card --
@@ -1787,12 +1783,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)));
   }, [setNodes]);
 
-  const previzCtxOf = useCallback(() => ({ client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) }), [apiKey]);
-
-  const previzKeyOk = useCallback(() => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return false; }
-    return true;
-  }, [apiKey]);
+  const previzCtxOf = useCallback(() => ({ client: traceRef.current.wrapClient(createBrowserClient()) }), []);
 
   // A PLATE is a drawing that lives ON the panel (data.plates), never a loose board node:
   // the panel is the one surface for them, exactly as the Take Library is for takes.
@@ -1806,7 +1797,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const card = nodesRef.current.find((n) => n.id === cardId);
     const script = String(card?.data?.brief || '').trim();
     if (!script) { Message.warning('Write the scene description first.'); return; }
-    if (card?.data?.busy || !previzKeyOk()) return;
+    if (card?.data?.busy) return;
     patchPreviz(cardId, { busy: true, step: 'normalize', error: '' });
     traceRef.current.startRun({ note: 'Agent · Previz · normalize' });
     try {
@@ -1819,7 +1810,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       patchPreviz(cardId, { busy: false, step: '', error: e.message });
       Message.error(`Normalize failed: ${e.message}`);
     }
-  }, [patchPreviz, previzCtxOf, previzKeyOk]);
+  }, [patchPreviz, previzCtxOf]);
 
   // PREVIZ PLAN — one reasoner call: the staging, the axis, the subjects and the whole
   // plate page. No pixels, no video. Re-plan freely.
@@ -1827,7 +1818,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const card = nodesRef.current.find((n) => n.id === cardId);
     const brief = String(card?.data?.brief || '').trim();
     if (!brief) { Message.warning('Write the scene description first.'); return; }
-    if (card?.data?.busy || !previzKeyOk()) return;
+    if (card?.data?.busy) return;
     patchPreviz(cardId, { busy: true, step: 'plan', error: '' });
     traceRef.current.startRun({ note: 'Agent · Previz · plan' });
     try {
@@ -1843,7 +1834,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       patchPreviz(cardId, { busy: false, step: '', error: e.message });
       Message.error(`Previz plan failed: ${e.message}`);
     }
-  }, [patchPreviz, previzCtxOf, previzKeyOk]);
+  }, [patchPreviz, previzCtxOf]);
 
   // ONE PLATE. The plates already drawn ride as references — the character plates first,
   // since they pin WHO, then the first drawn panel, which pins the hand. This is the only
@@ -1872,7 +1863,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // These guards THROW rather than return: a batch counts a silent return as a drawn
     // plate, which is how a run reports twelve drawn and shows six.
     if (!plan) { if (!quiet) Message.warning('Plan the page first.'); throw new Error('no plan on this card'); }
-    if (!previzKeyOk()) throw new Error('no API key');
     const mark = (patch) => setNodes((ns) => ns.map((n) => (n.id === cardId
       ? { ...n, data: { ...n.data, plates: Object.assign([], n.data.plates || [], { [index]: { ...(n.data.plates || [])[index], ...patch } }) } }
       : n)));
@@ -1893,7 +1883,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       if (!quiet) Message.error(`Plate ${index + 1} failed: ${e.message}`);
       throw e;
     }
-  }, [previzCtxOf, previzKeyOk, previzPlateRefs, setNodes]);
+  }, [previzCtxOf, previzPlateRefs, setNodes]);
 
   // DRAW ALL. TWO waves, and only because of one real dependency: the character plates
   // are the identity anchors every other plate references, so they must exist first.
@@ -2027,7 +2017,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const src = nodesRef.current.find((n) => n.id === id);
     const srcUrl = absLocalMediaUrl(src?.data?.url || src?.data?.cacheUrl || '');
     if (!srcUrl) { Message.warning('The image is still rendering — mask it once it lands.'); return; }
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     maskFlightRef.current.add(id);
     const position = freeOrigin({ w: 360, h: 260, preferred: { x: (src.position?.x || 0) + 400, y: src.position?.y || 0 } });
     const node = createAssetNode({ kind: 'image', url: '', label: 'Blocking plate', position, layerId: 'storyboard' });
@@ -2037,7 +2026,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (src.data?.sourceCutId) node.data.sourceCutId = src.data.sourceCutId;
     setNodes((ns) => ns.concat(node));
     traceRef.current.startRun({ note: 'Mask · blocking plate' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const { url, cacheUrl } = await maskFrame({ url: srcUrl, instruction }, ctx);
       traceRef.current.log({ level: 'run', kind: 'decision', note: 'Mask · blocking plate rendered' });
@@ -2047,7 +2036,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       Message.error(`Mask failed: ${e.message}`);
       setNodes((ns) => ns.filter((n) => n.id !== node.id));
     } finally { maskFlightRef.current.delete(id); }
-  }, [apiKey, freeOrigin, setNodes]);
+  }, [freeOrigin, setNodes]);
 
   // MASK any board image — the button opens a small modal: leave it empty for the
   // classic every-person scrub, or say EXACTLY what to mask (rides VERBATIM into the
@@ -2104,7 +2093,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const regeneratePlainFrame = useCallback(async (id, edits = {}) => {
     const src = nodesRef.current.find((n) => n.id === id);
     if (!src) return;
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const shot = { beat: src.data?.label || 'frame', shotTemplate: edits.shotTemplate || 'medium-shot', expression: edits.expression || '', figures: Array.isArray(edits.figures) ? edits.figures : [], body: String(edits.body || '').trim() };
     if (!shot.body) { Message.warning('Write the body first — or Re-derive it from the ticked references.'); return; }
     let { ordered, body } = resolveShotRefs(shot, plainPool);
@@ -2123,7 +2111,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, editBody: shot.body, editTemplate: shot.shotTemplate, editExpression: shot.expression, editFigures: shot.figures, editPool: plainPool, loading: true, error: undefined } } : n)));
     setExpandedKeyframeId(null);
     traceRef.current.startRun({ note: 'Agent · Frame edit (shot editor)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       // A node that carries its own RENDER CONVENTION (a clay blockout, any styled
       // plate) re-states it on every edit — otherwise the keyframe wrapper's photoreal
@@ -2138,14 +2126,13 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       Message.error(`Frame edit failed: ${e.message} — the card kept its current image.`);
       setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, loading: false } } : n)));
     }
-  }, [apiKey, plainPool, setNodes]);
+  }, [plainPool, setNodes]);
   const rederivePlainBody = useCallback(async (id, figures) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return null; }
     const src = nodesRef.current.find((n) => n.id === id);
     traceRef.current.startRun({ note: 'Agent · Frame edit (re-derive body)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     return await storyboardShotBody({ script: '', beat: src?.data?.label || 'this frame', figures, style: '', references: plainPool }, ctx);
-  }, [apiKey, plainPool]);
+  }, [plainPool]);
 
   // (handleRun — the side panel's Run dispatcher — is gone: every agent is a board
   // element now. Cards run themselves via runAgentNode; the rail is a palette.)
@@ -2238,7 +2225,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const buildSession = useCallback((sources, initialState, blueprintOverride, sessionOpts = {}) => {
     // Trace-wrap the transport so every model call the producer makes (prompt, refs,
     // model, result) lands in the run log — without touching the shared engine.
-    const transport = createBrowserTransport((apiKey || '').trim());
+    const transport = createBrowserTransport();
     const traced = { ...transport, client: traceRef.current.wrapClient(transport.client), stitch: traceRef.current.wrapStitch(transport.stitch) };
     // The blueprint (the user-reviewed SHOT cards) drives the producer verbatim — the
     // Storyboard / Story Builder / SHOT cards do all the planning; no auto shot-grammar.
@@ -2256,7 +2243,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     );
     sessionRef.current = session;
     return session;
-  }, [apiKey, project.recipe, timeline.targetSeconds, handleSessionEvent, cutAssetEntries]);
+  }, [project.recipe, timeline.targetSeconds, handleSessionEvent, cutAssetEntries]);
 
   // ---- Timeline + Bible actions (the spine the whole UX hangs on) -------------
 
@@ -2912,10 +2899,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // nobody was watching). Failures mark the take honestly instead of spinning forever.
   const resumedTakesRef = useRef(new Set());
   useEffect(() => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) return;
     const pending = nodes.filter((n) => n.data?.kind === 'video' && n.data?.taskId && !n.data?.url && !resumedTakesRef.current.has(n.id));
     if (!pending.length) return;
-    const client = createBrowserClient((apiKey || '').trim());
+    const client = createBrowserClient();
     pending.forEach((take) => {
       resumedTakesRef.current.add(take.id);
       setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, loading: true, error: undefined } } : n)));
@@ -2931,10 +2917,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         }
       })();
     });
-  }, [nodes, apiKey, setNodes, onPatchCut]);
+  }, [nodes, setNodes, onPatchCut]);
 
   const handleShootCut = useCallback(async (cutId) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const card = nodesRef.current.find((n) => n.id === cutId && isShotCard(n));
     if (!card) return;
     // Continuity: a CHAIN EDGE into this card is authoritative — its source's last
@@ -2975,7 +2960,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     });
     onPatchCut(cutId, { status: 'running' });
     traceRef.current.startRun({ note: `Shoot · ${card.data.beat || `cut ${(card.data.cut ?? 0) + 1}`} (take ${takeNo})` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     // Fire-and-forget so the 🎬 button NEVER blocks — every click is an independent take.
     (async () => {
       try {
@@ -3033,7 +3018,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         Message.error(`Shot failed: ${err.message}`);
       }
     })();
-  }, [apiKey, shotFromCard, onPatchCut, setNodes, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
+  }, [shotFromCard, onPatchCut, setNodes, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
   handleShootCutRef.current = handleShootCut;
 
 
@@ -3047,7 +3032,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     // alone, order lives in the cut numbers and sequence bonds.
     const cards = nodesRef.current.filter((n) => n.type === 'cut').sort((a, b) => (a.data?.cut ?? 0) - (b.data?.cut ?? 0));
     if (!cards.length) { Message.warning('No SHOT cards on the board — break the story into shots first.'); return; }
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const oldStepIds = new Set(cards.map((c) => c.data?.lastAnimStepId).filter(Boolean));
     if (oldStepIds.size) updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => !oldStepIds.has(e.stepId)) }));
     const kept = cards.filter((c) => c.data?.shotUrl).length;
@@ -3055,7 +3039,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     setTimelineCollapsed(false);
     setAutoFillBusy(true);
     cutShootActiveRef.current = true; // dock-only: suppress the loose session→board copy
-    const transport = createBrowserTransport((apiKey || '').trim());
+    const transport = createBrowserTransport();
     const lastFrameOf = async (url) => { try { return (await transport.lastFrame(durableVideoUrl(url))).url || null; } catch { return null; } };
     // One card's shoot, shared by both walks below. Returns { ok, lastFrameUrl }.
     const shootCardInAction = async (card) => {
@@ -3101,7 +3085,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       setAutoFillBusy(false);
       cutShootActiveRef.current = false;
     }
-  }, [apiKey, buildSession, shotFromCard, wireCutSession, onPatchCut, updateTimeline, upsertShotNodeForCard, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
+  }, [buildSession, shotFromCard, wireCutSession, onPatchCut, updateTimeline, upsertShotNodeForCard, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
 
   // In-flight guard for split/develop by node id — the data flags drive the spinners,
   // but a setState flag can't stop a same-frame double-click (it commits AFTER the
@@ -3194,7 +3178,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const sh = (plan?.plates || [])[index];
     const plate = (card?.data?.plates || [])[index];
     if (!sh || !plate?.url) return;
-    if (!previzKeyOk()) return;
     const body = String(edits.body || '').trim();
     if (!body) { Message.warning('Write what to change first.'); return; }
     const mark = (patch) => setNodes((ns) => ns.map((n) => (n.id === cardId
@@ -3233,7 +3216,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       mark({ loading: false, error: e.message });
       Message.error(`Plate ${index + 1} edit failed: ${e.message} — it kept its current image.`);
     }
-  }, [previzCtxOf, previzKeyOk, previzPool, setNodes]);
+  }, [previzCtxOf, previzPool, setNodes]);
 
   previzDispatchRef.current = { toShot: previzToShotCard, edit: previzEditPlate };
 
@@ -3246,10 +3229,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const master = card?.data?.master;
     if (!master?.url) { Message.warning('Pick a master first — Analyze describes that video.'); return; }
     if (card.data?.analyzing) return;
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     onPatchCut(id, { analyzing: true });
     traceRef.current.startRun({ note: 'Agent · Edit analyze (video · 1 call)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const out = await analyzeEditMaster({
         videoUrl: durableVideoUrl(master.url),
@@ -3262,7 +3244,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally {
       onPatchCut(id, { analyzing: false });
     }
-  }, [apiKey, onPatchCut, durableVideoUrl]);
+  }, [onPatchCut, durableVideoUrl]);
 
   // Develop on a SHOT card (opt-in, the Brief's Develop at shot grain): rewrite the
   // card's prompt into one cinematic Seedance prompt at LIGHT depth ('preserve' keeps
@@ -3279,7 +3261,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (splitFlightRef.current.has(`dev-${id}`)) return;
     const card = nodesRef.current.find((n) => n.id === id && isShotCard(n));
     if (!card || card.data?.developing) return;
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const baseRefs = shotReferences(card.data, bibleRef.current);
     const kfPairs = cardKfPairs(card.data, baseRefs);
     const kfIndices = kfPairs.map((x) => x.idx);
@@ -3296,7 +3277,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     traceRef.current.startRun({ note: kfIndices.length
       ? `Agent · Shot compose (derive from ${kfIndices.length} keyframe${kfIndices.length === 1 ? '' : 's'} → write with ${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 2 calls)`
       : `Agent · Shot compose (${baseRefs.length} ref${baseRefs.length === 1 ? '' : 's'} · 1 call)` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const tpl = SHOT_TEMPLATE_BY_ID[card.data?.shotTemplate];
       // The card's DP layer (＋ cinematography) + its look/sound now reach the MODEL
@@ -3340,7 +3321,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         : 'Composed against the references — wording carried.');
     } catch (e) { Message.error(`Compose failed: ${e.message}`); }
     finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
-  }, [apiKey, onPatchCut]);
+  }, [onPatchCut]);
 
   // DIRECT — apply one director's note to the card's prompt: the note shapes how the
   // shot feels/reads; events, [Image N] tags, dialogue, refs and keyframes all stay.
@@ -3348,7 +3329,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     if (splitFlightRef.current.has(`dev-${id}`)) return;
     const card = nodesRef.current.find((n) => n.id === id && n.type === 'cut');
     if (!card || card.data?.developing) return;
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const text = String(card.data?.promptOverride || card.data?.beat || '').trim();
     if (!text) { Message.warning('Direct re-shapes the existing prompt — write it, or Compose first.'); return; }
     const baseRefs = shotReferences(card.data, bibleRef.current);
@@ -3362,7 +3342,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     splitFlightRef.current.add(`dev-${id}`);
     onPatchCut(id, { developing: true });
     traceRef.current.startRun({ note: 'Agent · Shot direct (note · 1 call)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const tpl = SHOT_TEMPLATE_BY_ID[card.data?.shotTemplate];
       const out = await directShotAction({
@@ -3381,7 +3361,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       else Message.success('Note applied — the shot reads as directed; references, dialogue and keyframes untouched.');
     } catch (e) { Message.error(`Direct failed: ${e.message}`); }
     finally { splitFlightRef.current.delete(`dev-${id}`); onPatchCut(id, { developing: false }); }
-  }, [apiKey, onPatchCut]);
+  }, [onPatchCut]);
 
 
   // PROMOTE an approved storyboard keyframe to a production SHOT card — the boards →
@@ -3689,10 +3669,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       Message.success(`The brief is already a screenplay — carried verbatim, ${parseScenes(script).length} scene${parseScenes(script).length === 1 ? '' : 's'}, no calls spent.`);
       return;
     }
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     patch({ busy: true });
     traceRef.current.startRun({ note: 'Agent · Storyboard normalize (screenplay)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const { screenplay } = await normalizeBrief({ script }, ctx);
       const nScenes = parseScenes(screenplay).length;
@@ -3701,10 +3680,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       Message.success(`Screenplay drafted — ${nScenes} scene${nScenes === 1 ? '' : 's'}. Review and edit it, then Create shot list.`);
     } catch (e) { Message.error(`Normalize failed: ${e.message}`); }
     finally { patch({ busy: false }); }
-  }, [apiKey, setNodes]);
+  }, [setNodes]);
 
   const runDivide = useCallback(async (nodeId, { fresh = false } = {}) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node) return;
     const panelId = node.data?.panelId;
@@ -3737,7 +3715,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const imageModel = imageModelKeyOf(node.data?.imageModel);
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true, stripHidden: false } } : n)));
     traceRef.current.startRun({ note: 'Agent · Storyboard (shot division)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       // CARVE structure + verbatim spans, then AUTHOR each shot in parallel; rows land
       // instantly showing their span, author calls fill them as they return.
@@ -3794,7 +3772,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: false } } : n)));
       Message.error(`Division failed: ${err.message}`);
     }
-  }, [apiKey, applyShotCards, setNodes]);
+  }, [applyShotCards, setNodes]);
 
   // Snapshot each row's render stash (index order) BEFORE a surgery permutes the list.
   const captureRowStash = useCallback((panelId, count) => Array.from({ length: count }, (_, i) => {
@@ -3990,7 +3968,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // chat's shot list AND the node, then render. This is the per-card "Render still", the
   // Expand editor's Regenerate, AND the fresh path behind ↻ on a text-edited card.
   const saveKeyframeShot = useCallback(async (nodeId, edits = {}) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node?.data?.keyframe) return;
     const { panelId, index } = node.data;
@@ -4021,7 +3998,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       return n;
     }));
     traceRef.current.startRun({ note: `Agent · Storyboard (${frameEdit ? 'edit in place' : 'render still'})` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style, expression: shot.expression, ethnicity, refs: ordered, imageModel, frameEdit, frameEditAnnotated: !!annotatedFrame }, ctx);
       // renderedFrameEdit rides with bodyRendered/shotRefs so a tile ↻ re-rolls the SAME
@@ -4031,7 +4008,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
     }
-  }, [apiKey, setNodes]);
+  }, [setNodes]);
 
   // Render EVERY card in a storyboard panel that doesn't have its still yet — the panel's
   // one-tap batch. Renders stream in parallel; cards with stills are left alone.
@@ -4040,7 +4017,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // is a render-time choice, not a spawn-time mode — stills and the page coexist
   // from one division.
   const renderSheetFromChat = useCallback(async (chatId) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const shots = chat?.data?.shots || [];
     const preDivision = !shots.length; // no rows yet → one page straight from the script
@@ -4071,7 +4047,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     setNodes((ns) => ns.concat({ ...base, id: nodeId, data: { ...base.data, loading: true } }));
     const quickPanels = target || 6;
     traceRef.current.startRun({ note: 'Agent · Storyboard (Quick Storyboard · ' + (preDivision ? quickPanels + ' panels from script' : pageShots.length + ' panels') + ')' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const out = preDivision
         ? await storyboardQuickPage({ script: chat.data?.script || '', panels: quickPanels, style: chat.data?.style || '', references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx)
@@ -4081,7 +4057,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
       Message.error(`Page render failed: ${err.message}`);
     }
-  }, [apiKey, setNodes, freeOrigin]);
+  }, [setNodes, freeOrigin]);
 
   const renderAllStills = useCallback(async (chatId) => {
     const chat = nodesRef.current.find((n) => n.id === chatId);
@@ -4100,7 +4076,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // the tailored change-only instruction) + 1 structure-locked edit. Works on a row's
   // START still or its END frame; the text is untouched so nothing goes stale.
   const enhanceRowStill = useCallback(async (nodeId) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node?.data?.keyframe) return;
     const src = node.data.cacheUrl || node.data.url;
@@ -4112,7 +4087,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const setPhase = (ph) => setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, enhancePhase: ph } } : n)));
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true, enhancePhase: 'look', error: undefined } } : n)));
     traceRef.current.startRun({ note: `Agent · Enhance still (${String(node.data.beat || '').slice(0, 24)} · 1 VLM + 1 image)` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const out = await enhanceStill({ imageUrl: src, context: node.data.body || '', imageModel, onPhase: setPhase }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? {
@@ -4131,7 +4106,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, enhancePhase: undefined } } : n)));
       Message.error(`Enhance failed: ${e.message}`);
     }
-  }, [apiKey, setNodes]);
+  }, [setNodes]);
 
 
   // TEXT-ONLY row patch (free, nothing renders): the inline double-click body edit or a
@@ -4161,7 +4136,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // shot's OWN rendered body + its assigned figures (stashed on the node), so the same [Image N]
   // references hold. `patch` is {shotTemplate}/{expression} or {} for a plain ↻ regenerate.
   const editKeyframe = useCallback(async (nodeId, patch = {}) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node?.data?.keyframe) return;
     // A never-rendered card, or one whose TEXT moved since its last render, has no valid
@@ -4183,14 +4157,14 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       return n;
     }));
     traceRef.current.startRun({ note: 'Agent · Storyboard (keyframe edit)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: merged.shotTemplate, style, expression: merged.expression, refs: shotRefs, imageModel, frameEdit: !!node.data.renderedFrameEdit }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, promptUsed, loading: false } } : n)));
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
     }
-  }, [apiKey, setNodes, saveKeyframeShot]);
+  }, [setNodes, saveKeyframeShot]);
 
   // ---- Keyframe Expand editor: see/edit the whole shot (body + references + camera/expression) ----
   // (Its Regenerate = saveKeyframeShot above — same fresh-render path as the card's Render still.)
@@ -4201,7 +4175,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   // its chain to the pre-edit composition (locked edits hold framing) — END ↻ pulls
   // the improvement across when wanted.
   const applyStartFrameEdit = useCallback(async (nodeId, edits = {}) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
     const src = node?.data?.cacheUrl || node?.data?.url;
     if (!src) return;
@@ -4222,7 +4195,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const refsToSend = [annotatedFrame || ordered[0] || src, ...ordered.slice(1)];
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true, error: undefined } } : n)));
     traceRef.current.startRun({ note: `Agent · Storyboard (START frame edit · ${String(node.data.beat || '').slice(0, 24)})` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const out = await storyboardKeyframe({ body: instruction, refs: refsToSend, imageModel, frameEdit: true, frameEditAnnotated: !!annotatedFrame }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt, localUrl: undefined, assetId: undefined, preserved: undefined, loading: false } } : n)));
@@ -4231,21 +4204,20 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: e.message } } : n)));
       Message.error(`START edit failed: ${e.message}`);
     }
-  }, [apiKey, setNodes]);
+  }, [setNodes]);
 
   // Re-derive ONE shot's [Image N] body for a chosen figure set (the editor's "Re-derive from
   // references" — run after toggling/adding references). Returns { body, expression }; the editor
   // shows it for review before Regenerate. Does NOT save on its own.
   const rederiveKeyframeBody = useCallback(async (nodeId, figures) => {
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return null; }
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node?.data?.keyframe) return null;
     const chatId = node.data.panelId ? node.data.panelId.replace('sbpanel', 'sbchat') : null;
     const chat = chatId && nodesRef.current.find((n) => n.id === chatId);
     traceRef.current.startRun({ note: 'Agent · Storyboard (re-derive shot)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     return await storyboardShotBody({ script: chat?.data?.script || '', beat: node.data.beat, figures, style: chat?.data?.style || node.data.style || '', references: freshPoolUrls(chat?.data?.refs) }, ctx);
-  }, [apiKey]);
+  }, []);
 
   // Add a board image to a storyboard's reference POOL (the editor's "Add reference"). Downscales fat
   // data: urls (like every ref path), appends to the chat node's data.refs → it becomes [Image N+1].
@@ -4274,7 +4246,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
       const idea = String(params.prompt || '').trim();
       if (!idea && !(params.refs || []).length) { Message.warning('Give me the film idea — or pick reference art on the Cast & World panel; a storyboard alone is enough.'); return; }
       traceRef.current.startRun({ note: `Agent · ${castAgent.label}` });
-      const castCtx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+      const castCtx = { client: traceRef.current.wrapClient(createBrowserClient()) };
       // Lay the "Cast & World" PANEL the moment the run starts — BEFORE the
       // cast read — so the tap answers instantly (the storyboard panel behaves the same
       // way). It opens as a slim frame with a status line; when the read returns, onPlan
@@ -4358,7 +4330,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
         throw err;
       }
     
-  }, [apiKey, onUpdateProject, rfInstance, setNodes, freeOrigin, preserveNode]);
+  }, [onUpdateProject, rfInstance, setNodes, freeOrigin, preserveNode]);
 
   // handleRenderMovie is declared below (it reads live timeline state); the
   // dispatch above reaches it through this ref to avoid a declaration-order knot.
@@ -4398,7 +4370,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const layer = AGENT_MAP[agentId];
     const s = node.data.settings || {};
     if (!layer) return;
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     const beside = { x: (node.position?.x || 0) + Math.round(node.measured?.width || 300) + 60, y: node.position?.y || 0 };
     // Grouped agents lay a titled panel — estimate its box so the pinned origin is open space.
     const groupOrigin = () => {
@@ -4446,7 +4417,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally {
       setAgentRunning((r) => r.filter((x) => x !== nodeId));
     }
-  }, [agentRunning, apiKey, runCastDraft, runAudioClip, runAgent, freeOrigin]);
+  }, [agentRunning, runCastDraft, runAudioClip, runAgent, freeOrigin]);
 
   // Drop a fresh SHOT card carrying the draft panel's preset (prompt verbatim, camera,
   // duration) — everything stays editable ON the card afterwards. The live board
@@ -4586,10 +4557,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
   const handleRenderMovie = useCallback(async () => {
     const shots = orderedEvents(timelineEvents).filter((e) => e.shotUrl).map((e) => durableVideoUrl(e.shotUrl));
     if (!shots.length) { Message.warning('No rendered shots yet — Auto-fill or animate the keyframes first.'); return; }
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     setRenderBusy(true);
     try {
-      const out = await createBrowserTransport((apiKey || '').trim()).stitch(shots, { name: (project.title || 'film').slice(0, 40) });
+      const out = await createBrowserTransport().stitch(shots, { name: (project.title || 'film').slice(0, 40) });
       updateTimeline((cur) => ({ ...cur, film: { url: out.url, assetId: out.assetId || null, builtAt: new Date().toISOString() } }));
       Message.success('Final cut assembled');
     } catch (err) {
@@ -4597,7 +4567,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } finally {
       setRenderBusy(false);
     }
-  }, [timelineEvents, apiKey, project.title, updateTimeline, durableVideoUrl]);
+  }, [timelineEvents, project.title, updateTimeline, durableVideoUrl]);
   renderMovieRef.current = handleRenderMovie;
 
   // Drag a board asset / Library item onto the spine → a new manual keyframe event.
@@ -4994,10 +4964,9 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     const node = viewerSrcNode();
     const src = node && absLocalMediaUrl(node.data?.cacheUrl || node.data?.url || '');
     if (!src || viewerBusy) return;
-    if (!apiKey?.trim() && !serverKeyedRef.current) { Message.error('Add your API key first (Project → API key)'); return; }
     setViewerBusy('describe');
     traceRef.current.startRun({ note: 'Agent · Frame describe (Take Viewer)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient((apiKey || '').trim())) };
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const tt = Math.max(0, Number(t) || 0);
       const rf = await fetch('/api/film/frames', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: src, timestamps: [tt] }) });
@@ -5010,7 +4979,7 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
     } catch (e) {
       Message.error(`Describe failed: ${e.message}`);
     } finally { setViewerBusy(null); }
-  }, [viewerSrcNode, viewerBusy, apiKey, addToExtractPanel]);
+  }, [viewerSrcNode, viewerBusy, addToExtractPanel]);
 
   // 🎧 — the take's audio track → a playable clip node beside it (ffmpeg, free).
   // duration comes from the viewer's <video> metadata — it IS the track's length —
@@ -5450,7 +5419,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           collapsed={timelineCollapsed}
           onToggle={() => setTimelineCollapsed((v) => !v)}
           selectedEventId={selectedEventId || selectedNodes[0]?.id}
-          apiKeyPresent={!!apiKey?.trim() || serverKeyed}
           canAddSelected={canAddSelected}
           busy={{ autoFill: autoFillBusy, render: renderBusy }}
           onSelectEvent={selectEventOnBoard}
@@ -5525,7 +5493,6 @@ const FilmCanvasInner = ({ project, apiKey, serverKeyed = false, onUpdateProject
           onClose={selectedAgentNode
             ? () => setNodes((ns) => ns.map((n) => (n.id === selectedAgentNode.id ? { ...n, selected: false } : n)))
             : () => { setPanelAgentId(null); panelAtRef.current = null; }}
-          apiKeyPresent={!!apiKey?.trim() || serverKeyed}
         />
       ) : null}
 

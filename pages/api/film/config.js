@@ -1,11 +1,10 @@
 import { ROOT_CONFIG, resolveModelId } from '../../../utils/film/suiteConfig';
-import { CONFIG, arkKey } from '../../../utils/config';
+import { CONFIG } from '../../../utils/config';
 
 // Deployment config for the canvas — IDENTIFIERS AND BOOLEANS ONLY, never key
 // material. The browser hydrates its model table from this (env overrides are
-// server-side; the client can't read them any other way), and `hasServerKey`
-// switches the canvas into key-less mode (requests omit apiKey; routes fall back
-// to the server-configured key).
+// server-side; the client can't read them any other way). The API key never
+// reaches the browser: every route reads it from .env.local.
 export default function configHandler(req, res) {
   // NO fallbacks: only env-configured slots appear; the rest are listed in `missing`
   // so the client can say exactly which MODELARK_MODEL_* variable to set.
@@ -21,6 +20,5 @@ export default function configHandler(req, res) {
     arkBaseUrl: CONFIG.API_BASE_URL || '',
     voiceBaseUrl: process.env.BYTEPLUSVOICE_BASE_URL || '',
     tosRegion: process.env.MODELARK_TOS_REGION || '', // region name only — never key material
-    hasServerKey: !!arkKey(),
   });
 }

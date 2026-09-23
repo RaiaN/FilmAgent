@@ -6,7 +6,6 @@ import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructWorkflowSeedreamPayload } from '../utils/apiHelpers';
 import { getModelCapabilities } from '../utils/modelCapabilities';
-import { getApiKey } from '../utils/apiKeyStore';
 import { getEndpointUrl } from '../utils/config';
 
 const SeedreamPlayground = ({ 
@@ -34,12 +33,6 @@ const SeedreamPlayground = ({
           return;
       }
 
-      const apiKey = getApiKey();
-      if (!apiKey) {
-          Message.error('API key not found. Please set it in Settings.');
-          return;
-      }
-
       setEnhancing(true);
       try {
           const response = await fetch('/api/seed', {
@@ -47,7 +40,6 @@ const SeedreamPlayground = ({
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                   prompt: currentPrompt,
-                  apiKey: apiKey,
                   systemPrompt: "Refine and enhance this image generation prompt to be more descriptive and artistic. Keep the core intent but add details about lighting, texture, and style. Return ONLY the enhanced prompt text.",
                   modelId: resolveModelId('reasoner') // env slot — the old literal went stale and 404'd 
               })

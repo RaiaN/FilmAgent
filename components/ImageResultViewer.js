@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { IconSync } from '@arco-design/web-react/icon';
 import CopyButton from './CopyButton';
-import { getApiKey } from '../utils/apiKeyStore';
 
 const isRemoteUrl = (value) => typeof value === 'string' && /^https?:\/\//.test(value);
 
@@ -101,7 +100,7 @@ const ImageTaskResultCard = ({ request, title, initial, onStarted, onSettled }) 
         const response = await fetch('/api/seedream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...request, apiKey: getApiKey() }),
+          body: JSON.stringify(request),
         });
         const json = await response.json();
         if (onSettled) onSettled(response.ok ? { ...json, settled: true } : { error: json?.error || 'Request failed', details: json?.details, settled: true });

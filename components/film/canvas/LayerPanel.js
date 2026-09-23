@@ -372,13 +372,13 @@ export const AGENT_FIELDS = {
 // configured, INERT element; generation is always a tap on the element itself
 // (the storyboard's division runs from its node's Divide button / first message).
 const DRAFT_PRIMARY = {
-  story: { label: 'Add Brief card', needsKey: false },
-  shot: { label: 'Add SHOT card', needsKey: false },
-  storyboard: { label: 'Add storyboard', needsKey: false },
-  previz: { label: 'Add Previz card', needsKey: false },
+  story: { label: 'Add Brief card' },
+  shot: { label: 'Add SHOT card' },
+  storyboard: { label: 'Add storyboard' },
+  previz: { label: 'Add Previz card' },
 };
 
-const LayerPanel = ({ agentId, values, onChange, imageAssets = [], audioAssets = [], onOpenRefDrawer, running, draft, onPrimary, onClose, apiKeyPresent }) => {
+const LayerPanel = ({ agentId, values, onChange, imageAssets = [], audioAssets = [], onOpenRefDrawer, running, draft, onPrimary, onClose }) => {
   const agent = AGENT_MAP[agentId];
   if (!agent) return null;
   const s = values || {};
@@ -386,9 +386,9 @@ const LayerPanel = ({ agentId, values, onChange, imageAssets = [], audioAssets =
   const Icon = agentIcon(agent.icon);
 
 
-  const primary = draft ? (DRAFT_PRIMARY[agentId] || { label: 'Add to board', needsKey: false }) : { label: `Run ${agent.label}`, needsKey: true };
-  const canPrimary = !running && (!primary.needsKey || apiKeyPresent);
-  const addType = draft && !primary.needsKey;
+  const primary = draft ? (DRAFT_PRIMARY[agentId] || { label: 'Add to board' }) : { label: `Run ${agent.label}` };
+  const canPrimary = !running;
+  const addType = !!draft;
 
   return (
     <div style={{ width: 300, borderLeft: '1px solid #e5e6eb', background: '#fff', display: 'flex', flexDirection: 'column' }}>
@@ -405,9 +405,6 @@ const LayerPanel = ({ agentId, values, onChange, imageAssets = [], audioAssets =
         {Body ? <Body agentId={agentId} s={s} up={onChange} imageAssets={imageAssets} audioAssets={audioAssets} onOpenRefDrawer={onOpenRefDrawer} /> : null}
       </div>
       <div style={{ padding: 12, borderTop: '1px solid #f2f3f5' }}>
-        {primary.needsKey && !apiKeyPresent && (
-          <Text type="error" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>Add your API key first — Project (header) → API key.</Text>
-        )}
         <Button
           type="primary"
           long

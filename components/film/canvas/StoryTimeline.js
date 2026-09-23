@@ -210,7 +210,7 @@ const Inspector = ({ event, index, total, onSetDuration, onToggleLock, onMove, o
 // ============================================================================
 const StoryTimeline = ({
   events = [], targetSeconds = 30, film = null,
-  collapsed, onToggle, selectedEventId, apiKeyPresent,
+  collapsed, onToggle, selectedEventId,
   onSelectEvent, onSetDuration, onToggleEventLock, onMoveEvent, onRegenerate, onRemoveEvent,
   onAddAsset, onAutoFill, onRenderMovie, onAddSelectedToTimeline,
   busy = {}, canAddSelected = false,
@@ -345,7 +345,7 @@ const StoryTimeline = ({
           {!filmMode && !empty && (
             <>
               <Tooltip content={sel && selWidth >= 0.75 ? `Fill just the selected ${Math.round(selWidth)}s — contextual to your idea and tagged assets` : 'Build a first cut autonomously from your idea and tagged assets'}>
-                <Button size="mini" type="primary" icon={busy.autoFill ? <IconLoading /> : <IconThunderbolt />} loading={busy.autoFill} disabled={!apiKeyPresent} style={{ background: apiKeyPresent ? COLOR : undefined, borderColor: apiKeyPresent ? COLOR : undefined }} onClick={runAutoFill}>
+                <Button size="mini" type="primary" icon={busy.autoFill ? <IconLoading /> : <IconThunderbolt />} loading={busy.autoFill} style={{ background: COLOR, borderColor: COLOR }} onClick={runAutoFill}>
                   {sel && selWidth >= 0.75 ? `Auto-fill ${Math.round(sel.start)}–${Math.round(sel.end)}s` : 'Auto-fill'}
                 </Button>
               </Tooltip>
@@ -379,7 +379,7 @@ const StoryTimeline = ({
                 (Film mode's empty state is nothing at all: the inspector below leads.) */}
             {empty ? (filmMode ? null : (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
-                <Button size="mini" type="primary" icon={busy.autoFill ? <IconLoading /> : <IconThunderbolt />} loading={busy.autoFill} disabled={!apiKeyPresent} style={{ background: apiKeyPresent ? COLOR : undefined, borderColor: apiKeyPresent ? COLOR : undefined }} onClick={runAutoFill}>Auto-fill a first cut</Button>
+                <Button size="mini" type="primary" icon={busy.autoFill ? <IconLoading /> : <IconThunderbolt />} loading={busy.autoFill} style={{ background: COLOR, borderColor: COLOR }} onClick={runAutoFill}>Auto-fill a first cut</Button>
                 <Text type="secondary" style={{ fontSize: 12 }}>{dragOver ? 'Drop to add the first shot.' : 'or drag an asset here.'}</Text>
               </div>
             )) : (

@@ -158,8 +158,7 @@ async function seedanceHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  // apiKey is pulled out so it never rides in the payload forwarded to Seedance.
-  const { apiKey: _ignoredClientKey, baseUrl, ...payload } = req.body;
+  const { baseUrl, ...payload } = req.body;
 
   const token = arkKey();
   if (!token) {

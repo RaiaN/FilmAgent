@@ -1,335 +1,181 @@
-import { useEffect, useState } from 'react';
-import { Button, Card, Checkbox, Collapse, Input, Message, Radio, Space, Tag, Typography, Upload } from '@arco-design/web-react';
-import { IconBook, IconDelete, IconImage, IconUpload, IconVideoCamera } from '@arco-design/web-react/icon';
+import { useRef, useState } from 'react';
+import { Button, Message, Typography } from '@arco-design/web-react';
+import { IconCopy, IconLoading, IconSound, IconUpload, IconVideoCamera } from '@arco-design/web-react/icon';
 import styles from '../styles/Playground.module.css';
 
-const FieldBlock = ({ label, value, placeholder, onChange }) => {
+// Drop (or pick) any number of images, videos and audio files. Every file uploads at
+// once through /api/film/upload — TOS + Assets-API registration — and lands in the
+// shared library, the same path the Video tab and the board use.
+
+const ACCEPT = 'image/*,video/*,audio/*';
+const kindOf = (type) => (type.startsWith('video/') ? 'video' : type.startsWith('audio/') ? 'audio' : 'image');
+const isMedia = (file) => /^(image|video|audio)\//.test(file.type || '');
+
+const readAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+  reader.readAsDataURL(file);
+});
+
+const copy = (text) => {
+  navigator.clipboard.writeText(text).then(
+    () => Message.success('Copied'),
+    () => Message.error('Clipboard is blocked'),
+  );
+};
+
+const Preview = ({ item }) => {
+  const box = { width: '100%', aspectRatio: '16 / 10', objectFit: 'contain', background: '#f2f3f5', borderRadius: 6, display: 'block' };
+  if (item.kind === 'image') return <img src={item.preview} alt={item.name} style={box} />;
+  if (item.kind === 'video') return <video src={item.preview} muted controls preload="metadata" style={box} />;
   return (
-    <div style={{ marginBottom: 16 }}>
-      <Typography.Text bold>{label}</Typography.Text>
-      <Input
-        value={value}
-        placeholder={placeholder}
-        onChange={onChange}
-        style={{ marginTop: 8 }}
-      />
+    <div style={{ ...box, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+      <IconSound style={{ fontSize: 28, color: '#86909c' }} />
+      <audio src={item.preview} controls preload="metadata" style={{ width: '92%', height: 28 }} />
     </div>
   );
 };
 
-const AssetUploadPlayground = ({
-  formValues,
-  setFormValues,
-  onSubmit,
-  loading,
-  onStageToTos,
-  stagingLoading,
-}) => {
-  // The deployment's TOS region, for the info chip — a hardcoded literal here lied
-  // on any deployment outside ap-southeast-1. Display only; nothing secret.
-  const [tosRegion, setTosRegion] = useState('');
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/film/config')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (!cancelled && j?.tosRegion) setTosRegion(j.tosRegion); })
-      .catch(() => { /* chip just stays hidden */ });
-    return () => { cancelled = true; };
-  }, []);
+const Status = ({ item }) => {
+  if (item.status === 'uploading') {
+    return <Typography.Text type="secondary" style={{ fontSize: 12 }}><IconLoading /> Uploading…</Typography.Text>;
+  }
+  if (item.assetId) {
+    return (
+      <button
+        type="button"
+        onClick={() => copy(item.assetId)}
+        title="Copy asset id"
+        style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'monospace', fontSize: 11, color: '#1d2129', wordBreak: 'break-all' }}
+      >
+        <IconCopy style={{ flexShrink: 0, color: '#86909c' }} />{item.assetId}
+      </button>
+    );
+  }
+  return <Typography.Text type="error" style={{ fontSize: 12, wordBreak: 'break-word' }}>{item.error}</Typography.Text>;
+};
 
-  const handleInputChange = (key, value) => {
-    setFormValues((prev) => ({ ...prev, [key]: value }));
+const AssetUploadPlayground = ({ onUseInVideo }) => {
+  const [items, setItems] = useState([]);
+  const [over, setOver] = useState(false);
+  const inputRef = useRef(null);
+  const seqRef = useRef(0); // drop order across batches — the order references go out in
+
+  const patch = (key, p) => setItems((xs) => xs.map((x) => (x.key === key ? { ...x, ...p } : x)));
+
+  const uploadOne = async (file, key, kind) => {
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      const r = await fetch('/api/film/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataUrl, name: file.name }),
+      });
+      const up = await r.json().catch(() => ({ error: `Upload failed (HTTP ${r.status})` }));
+      if (!r.ok || up.error) throw new Error(up.details || up.error || `Upload failed (HTTP ${r.status})`);
+      await fetch('/api/film/library?action=add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: up.url, assetId: up.assetId || null, name: file.name, kind }),
+      });
+      patch(key, up.assetId
+        ? { status: 'done', assetId: up.assetId }
+        : { status: 'error', error: `Stored in the library, but not registered as an asset: ${up.assetError || 'no asset id returned'}` });
+    } catch (e) {
+      patch(key, { status: 'error', error: e.message });
+    }
   };
 
-  const assetType = formValues.assetType || 'Image';
-  const isVideo = assetType === 'Video';
-
-  const handleLocalImageUpload = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setFormValues((prev) => ({
-          ...prev,
-          localImageData: reader.result,
-          localImageName: file.name,
-          imageUrl: prev.imageUrl || '',
-        }));
-        resolve(false);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  const addFiles = (fileList) => {
+    const files = Array.from(fileList || []);
+    const media = files.filter(isMedia);
+    if (media.length < files.length) Message.warning(`${files.length - media.length} file(s) skipped — only images, videos and audio upload.`);
+    if (!media.length) return;
+    const batch = media.map((file) => ({
+      key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      name: file.name,
+      kind: kindOf(file.type),
+      seq: seqRef.current++,
+      preview: URL.createObjectURL(file),
+      status: 'uploading',
+      assetId: null,
+      error: '',
+    }));
+    setItems((xs) => [...batch, ...xs]);
+    batch.forEach((it) => uploadOne(it.file, it.key, it.kind));
   };
 
-  const handleLocalVideoUpload = (file) => {
-    return new Promise((resolve) => {
-      const objectUrl = URL.createObjectURL(file);
-      const videoEl = document.createElement('video');
-      videoEl.preload = 'metadata';
-      videoEl.onloadedmetadata = () => {
-        URL.revokeObjectURL(objectUrl);
-        // Ark's reference-video window: [2, 30]s for generation, [4, 30]s for editing.
-        // The library holds the asset; the TASK decides which floor applies.
-        if (videoEl.duration > 30 || videoEl.duration < 2) {
-          Message.error(`Video is ${Math.round(videoEl.duration)}s — reference videos must be 2–30 seconds (video editing needs at least 4s).`);
-          resolve(false);
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-          setFormValues((prev) => ({
-            ...prev,
-            localVideoData: reader.result,
-            localVideoName: file.name,
-            videoUrl: prev.videoUrl || '',
-          }));
-          resolve(false);
-        };
-        reader.onerror = () => resolve(false);
-        reader.readAsDataURL(file);
-      };
-      videoEl.onerror = () => {
-        URL.revokeObjectURL(objectUrl);
-        Message.error('Could not read video file.');
-        resolve(false);
-      };
-      videoEl.src = objectUrl;
-    });
+  const clear = () => {
+    items.forEach((it) => { if (it.status !== 'uploading') URL.revokeObjectURL(it.preview); });
+    setItems((xs) => xs.filter((x) => x.status === 'uploading'));
   };
 
-  const clearLocalImage = () => {
-    setFormValues((prev) => ({ ...prev, localImageData: '', localImageName: '' }));
-  };
-
-  const clearLocalVideo = () => {
-    setFormValues((prev) => ({ ...prev, localVideoData: '', localVideoName: '' }));
-  };
+  const ids = items.filter((x) => x.assetId).map((x) => x.assetId);
+  const pending = items.filter((x) => x.status === 'uploading').length;
 
   return (
     <div className={styles.playgroundContainer}>
-      <div className={styles.header}>
-        <div className={styles.modelSelector}>
-          <IconUpload style={{ fontSize: '1.2rem', marginRight: '0.5rem' }} />
-          <Typography.Text bold>Private Asset Library</Typography.Text>
-          <Button
-            icon={<IconBook />}
-            shape="circle"
-            type="text"
-            onClick={() => window.open('https://docs.byteplus.com/en/docs/ModelArk/2333565', '_blank')}
-            style={{ marginLeft: 8 }}
-          />
-        </div>
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => { e.preventDefault(); setOver(false); addFiles(e.dataTransfer.files); }}
+        style={{
+          border: `2px dashed ${over ? '#165dff' : '#c9cdd4'}`,
+          background: over ? '#e8f3ff' : '#fafafa',
+          borderRadius: 10,
+          padding: '36px 16px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          transition: 'background .15s, border-color .15s',
+        }}
+      >
+        <IconUpload style={{ fontSize: 28, color: over ? '#165dff' : '#86909c' }} />
+        <div style={{ marginTop: 8, fontSize: 14 }}>Drop images, videos or audio — or click to choose</div>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept={ACCEPT}
+          style={{ display: 'none' }}
+          onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
+        />
       </div>
 
-      <form onSubmit={onSubmit}>
-        <Card title="Upload Flow" style={{ marginBottom: 16 }}>
-          <Space wrap size="medium">
-            <Tag color="arcoblue">AK/SK auth</Tag>
-            <Tag color="green">Use fixed asset group</Tag>
-            <Tag color="purple">Create {isVideo ? 'video' : 'image'} asset</Tag>
-            <Tag color="orange">Poll GetAsset</Tag>
-          </Space>
-        </Card>
-
-        <Collapse style={{ marginBottom: 16 }} bordered={false}>
-          <Collapse.Item
-            header={
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                Asset Group ID: <span style={{ fontFamily: 'monospace' }}>{formValues.assetGroupId || '(not set)'}</span>
-              </Typography.Text>
-            }
-            name="assetGroup"
-          >
-            <FieldBlock
-              label="Asset Group ID"
-              value={formValues.assetGroupId || ''}
-              placeholder="Format: group-{timestamp}-{random}"
-              onChange={(value) => handleInputChange('assetGroupId', value)}
-            />
+      {items.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 10px' }}>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              Falls back to <code>MODELARK_ASSET_GROUP_ID</code> in <code>.env.local</code> if left as-is.
+              {ids.length} of {items.length} registered{pending ? ` · ${pending} uploading` : ''}
             </Typography.Text>
-          </Collapse.Item>
-        </Collapse>
-
-        <Card
-          title={
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>Asset</span>
-              <Radio.Group
-                value={assetType}
-                onChange={(val) => handleInputChange('assetType', val)}
-                type="button"
-                size="small"
+            <span style={{ flex: 1 }} />
+            {ids.length > 1 && <Button size="mini" icon={<IconCopy />} onClick={() => copy(ids.join('\n'))}>Copy all ids</Button>}
+            {ids.length > 0 && onUseInVideo && (
+              <Button
+                size="mini"
+                type="primary"
+                icon={<IconVideoCamera />}
+                // References go in drop order, so [Image 1] is the first image dropped.
+                onClick={() => onUseInVideo(items.filter((x) => x.assetId).sort((a, b) => a.seq - b.seq).map(({ kind, assetId }) => ({ kind, assetId })))}
               >
-                <Radio value="Image">Image</Radio>
-                <Radio value="Video">Video (2–30s)</Radio>
-              </Radio.Group>
-            </div>
-          }
-          style={{ marginBottom: 16 }}
-        >
-          {/* Image mode */}
-          {!isVideo && (
-            <>
-              <Typography.Text bold>Local Image</Typography.Text>
-              <div style={{ marginTop: 8, marginBottom: 16 }}>
-                {!formValues.localImageData ? (
-                  <Upload
-                    accept="image/*"
-                    showUploadList={false}
-                    beforeUpload={(file) => {
-                      handleLocalImageUpload(file);
-                      return false;
-                    }}
-                  >
-                    <Button icon={<IconImage />}>Choose Local Image</Button>
-                  </Upload>
-                ) : (
-                  <div>
-                    <img
-                      src={formValues.localImageData}
-                      alt={formValues.localImageName || 'Local asset'}
-                      style={{ maxWidth: 280, borderRadius: 8, border: '1px solid #e5e6eb' }}
-                    />
-                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <Typography.Text>{formValues.localImageName || 'Selected image'}</Typography.Text>
-                      <Button size="small" icon={<IconDelete />} onClick={clearLocalImage}>Remove</Button>
-                      <Button size="small" type="secondary" onClick={onStageToTos} loading={stagingLoading}>
-                        {stagingLoading ? 'Uploading To TOS...' : 'Upload To TOS'}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <FieldBlock
-                label="Image URL"
-                value={formValues.imageUrl || ''}
-                placeholder="Optional when using a local image. Example: https://example.com/portrait.png"
-                onChange={(value) => handleInputChange('imageUrl', value)}
-              />
-
-              {formValues.imageUrl && !formValues.localImageData && (
-                <div style={{ marginTop: 8 }}>
-                  <Typography.Text type="secondary">Preview</Typography.Text>
-                  <div style={{ marginTop: 8 }}>
-                    <img
-                      src={formValues.imageUrl}
-                      alt="Asset preview"
-                      style={{ maxWidth: 280, borderRadius: 8, border: '1px solid #e5e6eb' }}
-                    />
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Video mode */}
-          {isVideo && (
-            <>
-              <Typography.Text bold>Local Video</Typography.Text>
-              <div style={{ marginTop: 8, marginBottom: 16 }}>
-                {!formValues.localVideoData ? (
-                  <Upload
-                    accept="video/*"
-                    showUploadList={false}
-                    beforeUpload={(file) => {
-                      handleLocalVideoUpload(file);
-                      return false;
-                    }}
-                  >
-                    <Button icon={<IconVideoCamera />}>Choose Local Video</Button>
-                  </Upload>
-                ) : (
-                  <div>
-                    <video
-                      src={formValues.localVideoData}
-                      controls
-                      style={{ maxWidth: 280, borderRadius: 8, border: '1px solid #e5e6eb', display: 'block' }}
-                    />
-                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <Typography.Text>{formValues.localVideoName || 'Selected video'}</Typography.Text>
-                      <Button size="small" icon={<IconDelete />} onClick={clearLocalVideo}>Remove</Button>
-                      <Button size="small" type="secondary" onClick={onStageToTos} loading={stagingLoading}>
-                        {stagingLoading ? 'Uploading To TOS...' : 'Upload To TOS'}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <FieldBlock
-                label="Video URL"
-                value={formValues.videoUrl || ''}
-                placeholder="Optional when using a local video. Example: https://example.com/clip.mp4"
-                onChange={(value) => handleInputChange('videoUrl', value)}
-              />
-
-              {formValues.videoUrl && !formValues.localVideoData && (
-                <div style={{ marginTop: 8 }}>
-                  <Typography.Text type="secondary">Preview</Typography.Text>
-                  <div style={{ marginTop: 8 }}>
-                    <video
-                      src={formValues.videoUrl}
-                      controls
-                      style={{ maxWidth: 280, borderRadius: 8, border: '1px solid #e5e6eb', display: 'block' }}
-                    />
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          <FieldBlock
-            label="Asset Name"
-            value={formValues.assetName || ''}
-            placeholder="Optional human-readable name"
-            onChange={(value) => handleInputChange('assetName', value)}
-          />
-        </Card>
-
-        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 16 }}>
-          {isVideo
-            ? 'If you choose a local video, you can upload it to TOS first with the button above. Reference videos must be 2–30 seconds; video-editing tasks need at least 4 seconds.'
-            : 'If you choose a local image, you can upload it to TOS first with the button above. The backend can also stage it automatically during CreateAsset using server-side .env.local settings.'}
-        </Typography.Paragraph>
-
-        <div style={{ marginTop: 16 }}>
-          <Checkbox
-            checked={formValues.pollUntilReady !== false}
-            onChange={(checked) => handleInputChange('pollUntilReady', checked)}
-          >
-            Poll until the asset becomes Active or Failed
-          </Checkbox>
-        </div>
-
-        <div className={styles.toolbar}>
-          {tosRegion && (
-            <div className={styles.toolChip}>
-              <span>Region: {tosRegion}</span>
-            </div>
-          )}
-          <div className={styles.toolChip}>
-            <span>Action: CreateAsset</span>
+                Use in Video
+              </Button>
+            )}
+            <Button size="mini" onClick={clear} disabled={items.length === pending}>Clear</Button>
           </div>
-          <div className={styles.toolChip}>
-            <span>AssetType: {assetType}</span>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
+            {items.map((it) => (
+              <div key={it.key} style={{ border: '1px solid #e5e6eb', borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+                <Preview item={it} />
+                <Typography.Text style={{ fontSize: 12 }} ellipsis={{ showTooltip: true }}>{it.name}</Typography.Text>
+                <Status item={it} />
+              </div>
+            ))}
           </div>
-
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            className={styles.submitBtn}
-            shape="round"
-            size="large"
-            style={{ marginLeft: 'auto' }}
-          >
-            {loading ? 'Uploading Asset...' : `Create ${assetType} Asset`}
-          </Button>
-        </div>
-      </form>
+        </>
+      )}
     </div>
   );
 };

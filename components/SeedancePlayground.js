@@ -5,7 +5,6 @@ import { IconCode, IconDown, IconRight, IconStar, IconRefresh, IconBook } from '
 import styles from '../styles/Playground.module.css';
 import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../utils/codeGenerators';
 import { constructSeedancePayload } from '../utils/apiHelpers';
-import { getApiKey } from '../utils/apiKeyStore';
 import { getEndpointUrl } from '../utils/config';
 import DurationSlider from './DurationSlider';
 
@@ -168,12 +167,6 @@ const SeedancePlayground = ({
           return;
       }
 
-      const apiKey = getApiKey();
-      if (!apiKey) {
-          Message.error('API key not found. Please set it in Settings.');
-          return;
-      }
-
       setEnhancing(true);
       try {
           const response = await fetch('/api/seed', {
@@ -181,7 +174,6 @@ const SeedancePlayground = ({
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                   prompt: currentPrompt,
-                  apiKey: apiKey,
                   systemPrompt: "Refine and enhance this video generation prompt. Focus on describing motion, camera angles, and temporal consistency. Keep the core intent. Return ONLY the enhanced prompt text.",
                   modelId: resolveModelId('reasoner') // env slot — the old literal went stale and 404'd 
               })
@@ -208,7 +200,8 @@ const SeedancePlayground = ({
         ...(formValues.reference_audios || []),
       ].some((value) => typeof value === 'string' && value.startsWith('data:'));
       const hasAssetIds = (formValues.reference_image_refs || []).some(r => r.type === 'asset')
-        || (formValues.reference_video_refs || []).some(r => r.type === 'asset');
+        || (formValues.reference_video_refs || []).some(r => r.type === 'asset')
+        || (formValues.reference_audios || []).some((a) => /^asset:\/\//i.test(String(a)));
       if (parallelCount > 1) {
           Message.warning('Copy code exports a single direct API request only. Multi-run mode is handled by this app with parallel requests.');
           return;
@@ -525,7 +518,7 @@ const SeedancePlayground = ({
                         fileList={(formValues.reference_audios || []).map((url, index) => ({
                             uid: `refaud-${index}`,
                             url: url,
-                            name: `audio-${index}.mp3`
+                            name: /^asset:\/\//i.test(url) ? url : `audio-${index}.mp3`
                         }))}
                         beforeUpload={(file) => {
                             const mockEvent = { target: { files: [file] } };

@@ -1,4 +1,3 @@
-import { generateAssetGroupId } from './assetGroupId';
 import { resolveModelId } from './film/suiteConfig';
 
 // Seedream (image) endpoints for the Tools → Image dropdown — Lite + Pro. Endpoint ids
@@ -261,50 +260,5 @@ export const baseSchemas = {
       projectId: null,
     },
   },
-  'asset-upload': {
-    id: 'asset-upload',
-    name: 'Asset Upload',
-    description: 'Upload image assets into the ModelArk private virtual portrait library using AK/SK authentication and the Assets APIs.',
-    fields: [
-      {
-        key: 'assetGroupId',
-        label: 'Asset Group ID',
-        type: 'text',
-        description: 'The upload always uses this existing asset group id.',
-      },
-      {
-        key: 'imageUrl',
-        label: 'Image URL',
-        type: 'text',
-        description: 'Optional. If provided, the Assets API uses this public image URL directly. Leave it empty when staging a local image to TOS first.',
-      },
-      {
-        key: 'assetName',
-        label: 'Asset Name',
-        type: 'text',
-        description: 'Optional asset label used for management and fuzzy search.',
-      },
-      {
-        key: 'pollUntilReady',
-        label: 'Poll Until Ready',
-        type: 'boolean',
-        defaultValue: true,
-        description: 'Poll GetAsset until the asset becomes Active or Failed.',
-      },
-    ],
-    defaults: {
-      assetGroupId: generateAssetGroupId(),
-      assetType: 'Image',
-      imageUrl: '',
-      videoUrl: '',
-      assetName: '',
-      localImageData: '',
-      localImageName: '',
-      localVideoData: '',
-      localVideoName: '',
-      pollUntilReady: true,
-    },
-  },
 };
 
-export const apiKeyStorageKey = 'modelark_api_key';

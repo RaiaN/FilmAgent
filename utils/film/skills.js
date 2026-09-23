@@ -14,7 +14,7 @@ const STORAGE_KEY = 'film-agent-skills';
 // docs shouldn't have to be edited to work here. A skill that declares its own models,
 // or that the user has bound in the drawer, ignores this.
 const DEFAULT_BINDING = {
-  'sd25-pe': ['seedance25'],
+  'sd25-pe': ['seedance25', 'seedance25Premium'],
 };
 
 // Disk skills, fetched once per session. Empty until hydrate() lands — a verb that runs

@@ -37,7 +37,6 @@ const SLOT_CAPABILITIES = {
     seedance: {
         resolutions: ['720p', '1080p', '4k'],
         ratios: ['16:9', '9:16', '1:1', '21:9'],
-        durations: ['auto', 5, 10, 15],
         supports_audio: true,
         supports_draft: false,
         supports_ref_images: true,
@@ -50,7 +49,6 @@ const SLOT_CAPABILITIES = {
     seedanceFast: {
         resolutions: ['720p', '1080p'],
         ratios: ['16:9', '9:16', '1:1', '21:9'],
-        durations: ['auto', 5, 10, 15],
         supports_audio: true,
         supports_draft: false,
         supports_ref_images: true,
@@ -67,7 +65,18 @@ const SLOT_CAPABILITIES = {
     seedance25: {
         resolutions: ['480p', '720p', '1080p'],
         ratios: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
-        durations: ['auto', 5, 10, 15, 20, 30],
+        supports_audio: true,
+        supports_draft: false,
+        supports_ref_images: true,
+        supports_ref_videos: true,
+        supports_ref_audios: true,
+        supports_first_frame: true,
+        supports_last_frame: true,
+    },
+    // Seedance 2.5 Premium — 2.5's capability set, plus 4K output.
+    seedance25Premium: {
+        resolutions: ['480p', '720p', '1080p', '4K'],
+        ratios: ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
         supports_audio: true,
         supports_draft: false,
         supports_ref_images: true,
@@ -80,7 +89,6 @@ const SLOT_CAPABILITIES = {
     seedanceMini: {
         resolutions: ['480p', '720p'],
         ratios: ['16:9', '9:16', '1:1', '21:9'],
-        durations: ['auto', 5, 10, 15],
         supports_audio: true,
         supports_draft: false,
         supports_ref_images: true,
@@ -141,7 +149,6 @@ export const DEFAULT_CAPABILITIES = {
     // Seedance defaults
     resolutions: ['480p', '720p', '1080p', '4k'],
     ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
-    durations: ['auto', 5, 10, 15],
     supports_audio: true,
     supports_draft: false,
     supports_ref_images: true,

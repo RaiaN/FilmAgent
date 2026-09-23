@@ -7,6 +7,7 @@ import { generateCurlCommand, generatePythonCode, generateNodeCode } from '../ut
 import { constructSeedancePayload } from '../utils/apiHelpers';
 import { getApiKey } from '../utils/apiKeyStore';
 import { getEndpointUrl } from '../utils/config';
+import DurationSlider from './DurationSlider';
 
 const { Row, Col } = Grid;
 
@@ -618,14 +619,12 @@ const SeedancePlayground = ({
           {!isFieldHidden('duration') && (
             <div className={styles.toolChip}>
                 <span style={{ marginRight: 8 }}>⏱️</span>
-                <Select 
-                    value={formValues.duration} 
+                <DurationSlider
+                    value={formValues.duration}
                     onChange={(val) => handleInputChange('duration', val)}
-                    style={{ width: 80 }}
-                    size="small"
-                >
-                    {(getFieldOptions('duration') || [2,3,4,5,6,7,8,9,10,11,12]).map(opt => <Select.Option key={opt} value={opt}>{typeof opt === 'number' ? `${opt}s` : 'Auto'}</Select.Option>)}
-                </Select>
+                    width={180}
+                    title="Duration, 0–30 s. 0 is Auto: no duration is sent and the model sets the length."
+                />
             </div>
           )}
 

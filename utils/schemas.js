@@ -19,6 +19,7 @@ const defaultSeedreamModel = () => seedreamEndpointsLive()[0]?.value || null; //
 // is the human name shown in the dropdown. `.filter` drops any id not configured yet.
 const seedanceEndpointsLive = () => [
     { value: resolveModelId('seedance25'), label: 'Seedance 2.5 · 30s' },
+    { value: resolveModelId('seedance25Premium'), label: 'Seedance 2.5 Premium · 30s' },
     { value: resolveModelId('seedance'), label: 'Seedance 2.0' },
     { value: resolveModelId('seedanceFast'), label: 'Seedance 2.0 Fast' },
     { value: resolveModelId('seedanceMini'), label: 'Seedance 2.0 Mini' },
@@ -180,10 +181,11 @@ export const baseSchemas = {
       {
         key: 'duration',
         label: 'Duration (seconds)',
-        type: 'enum',
-        options: ['auto', 2, 4, 5, 10, 11, 12, 15, 20, 25, 30],
+        type: 'number',
+        min: 0,
+        max: 30,
         defaultValue: 'auto',
-        description: 'Video duration in seconds, or auto to let the model decide. 16-30s requires Seedance 2.5 (the 2.0 family caps at 15s).',
+        description: 'Video duration, 0–30 s. 0 is Auto: no duration is sent and the model sets the length.',
       },
       {
         key: 'seed',

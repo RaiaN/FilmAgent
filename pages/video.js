@@ -4,6 +4,7 @@ import {
   Button, Input, InputNumber, Select, Checkbox, Message, Typography, Tag, Upload, Spin,
 } from '@arco-design/web-react';
 import { IconPlus, IconRefresh, IconDelete } from '@arco-design/web-react/icon';
+import DurationSlider from '../components/DurationSlider';
 
 const { Text, Title } = Typography;
 
@@ -15,17 +16,18 @@ const { Text, Title } = Typography;
 
 const MODEL_LABELS = {
   seedance25: 'Seedance 2.5 · up to 30s',
+  seedance25Premium: 'Seedance 2.5 Premium · up to 30s',
   seedance: 'Seedance 2.0',
   seedanceFast: 'Seedance 2.0 Fast',
   seedanceMini: 'Seedance 2.0 Mini',
 };
 const RES_BY_MODEL = {
   seedance25: ['480p', '720p', '1080p'],
+  seedance25Premium: ['480p', '720p', '1080p', '4K'],
   seedance: ['480p', '720p', '1080p', '4K'],
   seedanceFast: ['480p', '720p', '1080p', '4K'],
   seedanceMini: ['480p', '720p'],
 };
-const MAX_SECONDS = { seedance25: 30, seedance: 15, seedanceFast: 15, seedanceMini: 15 };
 const RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', 'adaptive'];
 const POLL_MS = 4000;
 
@@ -200,12 +202,10 @@ export default function VideoPlayground() {
     }
   };
 
-  const maxSec = MAX_SECONDS[modelKey] || 15;
   // Only 2.5 has first/last-frame roles — 2.0 treats every image as a reference, full stop.
-  const kfCapable = modelKey === 'seedance25';
+  const kfCapable = modelKey === 'seedance25' || modelKey === 'seedance25Premium';
   const imageCount = picked.filter((it) => it.kind !== 'video').length;
   const locking = kfCapable && keyframeMode === 'locked' && imageCount > 0;
-  const durOptions = ['auto', ...Array.from({ length: Math.floor(maxSec / 5) }, (_, i) => String((i + 1) * 5))];
 
   return (
     <>
@@ -304,9 +304,7 @@ export default function VideoPlayground() {
             {RATIOS.map((r) => <Select.Option key={r} value={r}>{r}</Select.Option>)}
           </Select>
           )}
-          <Select value={duration} onChange={setDuration} style={{ width: 110 }}>
-            {durOptions.map((d) => <Select.Option key={d} value={d}>{d === 'auto' ? 'Auto' : `${d}s`}</Select.Option>)}
-          </Select>
+          <DurationSlider value={duration} onChange={setDuration} width={200} title="Duration, 0–30 s. 0 is Auto: no duration is sent and the model sets the length." />
           <InputNumber placeholder="seed" value={seed} onChange={setSeed} style={{ width: 100 }} />
           <Checkbox checked={generateAudio} onChange={setGenerateAudio}>audio</Checkbox>
           <span style={{ flex: 1 }} />

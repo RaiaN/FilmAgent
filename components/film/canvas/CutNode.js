@@ -3,9 +3,10 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
-import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, maxShotSeconds, imageTagOf, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, imageTagOf, clampShotSeconds, videoModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
+import DurationSlider from '../../DurationSlider';
 import EditableLabel from './EditableLabel';
 import { SeedanceParams, DraftText, ReferencesRow } from './cardBlocks';
 
@@ -157,9 +158,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   // AUTO is its own value — no duration on the wire, the model runs the events as long
   // as they take. Cards born from the Film button start there.
   const videoModel = videoModelKeyOf(data.videoModel);
-  const maxDur = maxShotSeconds(videoModel);
   const durationSec = clampShotSeconds(videoModel, data.durationSec);
-  const durOptions = [AUTO_SECONDS, ...Array.from({ length: Math.floor(maxDur / 5) }, (_, i) => (i + 1) * 5)];
   const resOptions = RES_BY_MODEL[videoModel] || RES_BY_MODEL.seedance;
   const maxRefs = videoTraits(videoModel).refCap; // the CARD's model decides how many image refs ride
   const resolution = resOptions.includes(data.resolution) ? data.resolution : resDefault(videoModel);
@@ -253,18 +252,14 @@ const CutNodeInner = ({ id, data, selected }) => {
         <span style={{ flex: 1 }} />
         {/* The SHOT's length — Auto (no duration sent: the events set it) or a fixed
             ceiling in seconds. The single source of truth for shotFromCard. */}
-        <Select
-          className="nodrag"
-          size="mini"
+        <DurationSlider
+          className="nodrag nowheel"
           value={durationSec}
           onChange={(v) => patch({ durationSec: v })}
-          style={{ width: 84 }}
-          title="How long this shot runs. Auto sends no duration at all — the model plays the events out as long as they honestly take (what the Film button sets). A number caps it."
-        >
-          {durOptions.map((d) => (
-            <Select.Option key={String(d)} value={d}>{d === AUTO_SECONDS ? 'Auto' : `${d}s`}</Select.Option>
-          ))}
-        </Select>
+          width={150}
+          labelColor="#cdd3dc"
+          title="How long this shot runs, 0–30 s. 0 is Auto: no duration is sent and the model plays the events out as long as they take (what the Film button sets)."
+        />
         <Button
           className="nodrag"
           size="mini"
@@ -333,7 +328,7 @@ const CutNodeInner = ({ id, data, selected }) => {
               <IconLoading style={{ fontSize: 16, color: '#f7ba1e' }} />
               <div style={{ minWidth: 0 }}>
                 <Text style={{ color: '#f7ba1e', fontSize: 11, fontWeight: 700, display: 'block' }}>Writing the prompt…</Text>
-                <Text style={{ color: '#6e7b8b', fontSize: 10 }} ellipsis>under the skill bound to {VIDEO_MODEL_OPTIONS.find((o) => o.key === videoModel)?.label || videoModel} — the rows are the material</Text>
+                <Text style={{ color: '#6e7b8b', fontSize: 10 }} ellipsis>under the skill bound to {VIDEO_MODEL_OPTIONS.find((o) => o.key === videoModel)?.label || videoModel}</Text>
               </div>
             </div>
           ) : (

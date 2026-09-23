@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { getEndpointUrl } from '../../utils/config';
+import { getEndpointUrl, arkKey, ARK_KEY_MISSING } from '../../utils/config';
 import { uploadLocalMediaToTos, getServerTosConfig, presignTosObject, headTosObject } from '../../utils/server/tosUpload';
 import { CLOUD_MEDIA_PREFIX, mediaFilePath, mediaFileExists, mirrorKeyToTos } from '../../utils/server/mediaStore';
 
@@ -158,11 +158,12 @@ async function seedanceHandler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { apiKey, baseUrl, ...payload } = req.body;
+  // apiKey is pulled out so it never rides in the payload forwarded to Seedance.
+  const { apiKey: _ignoredClientKey, baseUrl, ...payload } = req.body;
 
-  const token = apiKey || process.env.MODELARK_API_KEY;
+  const token = arkKey();
   if (!token) {
-    return res.status(500).json({ error: 'API key not configured' });
+    return res.status(500).json({ error: ARK_KEY_MISSING });
   }
 
   let endpoint;

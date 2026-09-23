@@ -208,9 +208,6 @@ export const updateUiSchemaVisibility = (prevSchema, formValues, activeModelId) 
             if (f.key === 'ratio' && caps.ratios) {
                 return { ...f, options: caps.ratios };
             }
-            if (f.key === 'duration' && caps.durations) {
-                return { ...f, options: caps.durations };
-            }
 
             // Visibility Logic
             if (f.key === 'generate_audio') {

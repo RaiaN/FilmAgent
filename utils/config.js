@@ -28,3 +28,9 @@ export const getEndpointUrl = (type) => {
 export const arkKey = () => process.env.MODELARK_API_KEY || process.env.ARK_API_KEY || '';
 
 export const ARK_KEY_MISSING = 'MODELARK_API_KEY is not set — add it to .env.local (see .env.example).';
+
+// AI MEDIAKIT (video enhancement) — its own API key and region endpoint, both from
+// .env.local only. No defaults: a missing value is reported, never guessed.
+export const mediakitKey = () => process.env.MODELARK_MEDIAKIT_API_KEY || '';
+export const mediakitBase = () => String(process.env.MODELARK_MEDIAKIT_BASE_URL || '').replace(/\/+$/, '');
+export const MEDIAKIT_MISSING = 'MODELARK_MEDIAKIT_API_KEY and MODELARK_MEDIAKIT_BASE_URL must both be set in .env.local (see .env.example).';

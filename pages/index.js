@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useState } from 'react';
 import { Layout, Button, Card, Typography } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
@@ -11,6 +11,7 @@ import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
 import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
 import AssetUploadPlayground from '../components/AssetUploadPlayground';
+import VideoEnhancePlayground from '../components/VideoEnhancePlayground';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
@@ -32,7 +33,7 @@ const buildInitialResultState = () =>
   }, {});
 
 // Raw model playgrounds grouped under the "Tools" meta tab.
-const TOOL_TABS = ['seedream', 'seedance', 'asset-upload', 'llm'];
+const TOOL_TABS = ['seedream', 'seedance', 'video-enhance', 'asset-upload', 'llm'];
 
 export default function Home() {
   const [activeModelId, setActiveModelId] = useState('film-agent');
@@ -393,6 +394,10 @@ export default function Home() {
                                                 <IconVideoCamera style={{ marginRight: 8 }} />
                                                 Video (Seedance)
                                             </Button>
+                                            <Button type={activeModelId === 'video-enhance' ? 'primary' : 'secondary'} onClick={() => selectTool('video-enhance')}>
+                                                <IconThunderbolt style={{ marginRight: 8 }} />
+                                                Video Enhance
+                                            </Button>
                                             <Button type={activeModelId === 'asset-upload' ? 'primary' : 'secondary'} onClick={() => selectTool('asset-upload')}>
                                                 <IconPlus style={{ marginRight: 8 }} />
                                                 Asset Upload
@@ -441,6 +446,9 @@ export default function Home() {
                         setFormValues={setFormValues}
                     />
                 </div>
+                <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
+                    <VideoEnhancePlayground />
+                </div>
                 <div style={{ display: activeModelId === 'asset-upload' ? 'block' : 'none' }}>
                     <AssetUploadPlayground onUseInVideo={handleUseAssetsInVideo} />
                 </div>
@@ -459,7 +467,7 @@ export default function Home() {
                     />
                 </div>
                 <div style={{ marginTop: 24 }}>
-                     {activeModelId !== 'llm' && activeModelId !== 'film-agent' && activeModelId !== 'asset-upload' && (
+                     {!['llm', 'film-agent', 'asset-upload', 'video-enhance'].includes(activeModelId) && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}
@@ -468,7 +476,7 @@ export default function Home() {
                       )}
                 </div>
                 
-                {TOOL_TABS.includes(activeModelId) && activeModelId !== 'asset-upload' && (
+                {TOOL_TABS.includes(activeModelId) && !['asset-upload', 'video-enhance'].includes(activeModelId) && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 12, color: '#86909c', cursor: 'pointer' }}>
                         <input
                             type="checkbox"

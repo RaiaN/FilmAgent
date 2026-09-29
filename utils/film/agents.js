@@ -110,6 +110,7 @@ export const classifyAssets = ({ client, images = [], idea = '', roles = [], req
 
 export const inspirationAgent = {
   id: 'inspiration',
+  phase: 'development',
   label: 'Inspiration Board',
   icon: 'bulb',
   color: AGENT_COLORS.inspiration,
@@ -138,6 +139,7 @@ export const inspirationAgent = {
 
 export const characterVariationsAgent = {
   id: 'characterVariations',
+  phase: 'pre',
   label: 'Character Variations',
   icon: 'user',
   color: AGENT_COLORS.characterVariations,
@@ -166,6 +168,7 @@ export const characterVariationsAgent = {
 
 export const locationVariationsAgent = {
   id: 'locationVariations',
+  phase: 'pre',
   label: 'Location Variations & Coverage',
   icon: 'location',
   color: AGENT_COLORS.locationVariations,
@@ -248,6 +251,7 @@ export const animateAgent = {
 // not the rail's onAsset; the canvas routes the rail Run through the castDraft path.)
 export const castAgent = {
   id: 'cast',
+  phase: 'pre',
   label: 'Cast & World',
   icon: 'cast',
   color: AGENT_COLORS.cast,
@@ -275,6 +279,7 @@ export const castAgent = {
 // the run() guards the headless/SDK path like cast/shot/breakdown.
 export const storyboardAgent = {
   id: 'storyboard',
+  phase: 'pre',
   label: 'Storyboard',
   icon: 'board',
   color: AGENT_COLORS.storyboard,
@@ -298,6 +303,7 @@ export const storyboardAgent = {
 // standalone card, like Previz: the rail tap lays it, everything happens on the card.
 export const editAgent = {
   id: 'edit',
+  phase: 'production', // hybrid: an AI edit of shot footage belongs with the shoot
   label: 'Video Edit',
   icon: 'edit',
   color: AGENT_COLORS.edit,
@@ -312,6 +318,7 @@ export const editAgent = {
 
 export const previzAgent = {
   id: 'previz',
+  phase: 'pre',
   label: 'Previz',
   icon: 'previz',
   color: AGENT_COLORS.previz,
@@ -329,6 +336,7 @@ export const previzAgent = {
 // run() guards the headless/SDK path, since laying a board node is a canvas-only action.
 export const shotAgent = {
   id: 'shot',
+  phase: 'production',
   label: 'Shot',
   icon: 'shot',
   color: AGENT_COLORS.shot,
@@ -347,6 +355,7 @@ export const shotAgent = {
 // One explicit tap = one call; nothing is mixed into any film.
 export const audioAgent = {
   id: 'audio',
+  phase: 'post',
   label: 'Audio',
   icon: 'audio',
   color: AGENT_COLORS.audio,
@@ -373,6 +382,15 @@ export const AGENTS = [
   audioAgent,
   inspirationAgent,
   previzAgent,
+];
+
+// The rail groups agents by PRODUCTION PHASE, in this order (the shoot leads). Every
+// agent declares one.
+export const AGENT_PHASES = [
+  { id: 'production', label: 'Production' },
+  { id: 'pre', label: 'Pre-production' },
+  { id: 'development', label: 'Development' },
+  { id: 'post', label: 'Post-production' },
 ];
 
 export const AGENT_MAP = AGENTS.reduce((acc, a) => {

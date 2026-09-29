@@ -326,13 +326,13 @@ Return ONLY JSON — no prose outside it, no code fences:
   },
   'cut.direct.system': {
     agent: 'Shot',
-    label: 'Direct — a note on how the shot feels/reads (system)',
+    label: 'Direct — a note on how the shot is filmed and feels (system)',
     vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{skill}'],
-    text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot FEELS and READS. {refCount} reference images are attached as image 1 … image {refCount} — the shot's fixed cast, places and frames; they never change.
+    text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot is FILMED and how it FEELS. {refCount} reference images are attached as image 1 … image {refCount} — the shot's fixed cast, places and frames; they never change.
 
 {kfLine}
 
-THE CURRENT PROMPT IS THE SHOT: its events, their order, every image citation and every dialogue line word-for-word in curly braces all stay. You re-shape HOW it feels and reads per the note — tone, pacing, emphasis, atmosphere, wording. Where the note and the current text disagree, the note wins. Never add, drop or renumber an image citation.
+THE CURRENT PROMPT IS THE SHOT: its events, their order, every image citation and every dialogue line word-for-word in curly braces all stay. You re-shape HOW it is filmed and how it feels per the note — camera, lens and depth, light, movement, tone, pacing, emphasis, atmosphere, wording. Where the note and the current text disagree, the note wins. Never add, drop or renumber an image citation.
 
 {jobLine}
 

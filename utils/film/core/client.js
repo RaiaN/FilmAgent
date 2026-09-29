@@ -74,8 +74,8 @@ export const createBrowserClient = () => ({
     if (draftTaskId) {
       // FINAL FROM A DRAFT: the task REUSES the draft's prompt, references, duration,
       // ratio, seed and audio setting — resending any of them is rejected even with equal
-      // values. Only the draft's model and the fixed final resolution go.
-      body = { model, content: [{ type: 'draft_task', draft_task: { id: draftTaskId } }], resolution: DRAFT_MODE.finalResolution, watermark: false, return_last_frame: true };
+      // values. Only the draft's model and the final resolution go.
+      body = { model, content: [{ type: 'draft_task', draft_task: { id: draftTaskId } }], resolution, watermark: false, return_last_frame: true };
     } else {
       // ratio and duration are OMITTED when falsy: a Seedance EDITING task (routed by the
       // prompt's wording) locks both to the source clip and REJECTS the request outright if

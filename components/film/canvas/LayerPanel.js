@@ -147,10 +147,6 @@ const ShotFields = ({ s, up }) => (
       />
     </div>
     <div>
-      <Text style={FIELD_LABEL}>Camera preset</Text>
-      <ShotTemplateSelect value={s.shotTemplate} onChange={(v) => up({ shotTemplate: v })} placeholder="cinematography…" />
-    </div>
-    <div>
       <Text style={FIELD_LABEL}>Duration</Text>
       <Select size="small" value={s.durationSec} onChange={(v) => up({ durationSec: v })} style={{ width: 96 }}>
         {[AUTO_SECONDS, ...Array.from({ length: Math.floor(maxShotSeconds(defaultVideoModelKey()) / 5) }, (_, i) => (i + 1) * 5)].map((d) => (

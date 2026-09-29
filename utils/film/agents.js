@@ -334,8 +334,8 @@ export const shotAgent = {
   color: AGENT_COLORS.shot,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { prompt: '', shotTemplate: 'medium-shot', durationSec: maxShotSeconds(defaultVideoModelKey()) },
-  describe: 'A SHOT card carrying your description and camera preset — edit on the card, attach references, then 🎬 to shoot.',
+  defaultSettings: { prompt: '', durationSec: maxShotSeconds(defaultVideoModelKey()) },
+  describe: 'A SHOT card carrying your description — edit on the card, attach references, then 🎬 to shoot.',
   async run() {
     throw new Error('The Shot agent lays a SHOT card on the canvas — run it from the board.');
   },

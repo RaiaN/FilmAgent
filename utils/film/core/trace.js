@@ -138,7 +138,7 @@ export const createTrace = () => {
       ...client,
       reason: (args = {}) => timed('reason', { prompt: oneLine(args.prompt), system: oneLine(args.systemPrompt, 90), skill: skillOf(args.systemPrompt), refs: refsWithRoles(args.images), model: modelLabelOf(args.modelId), modelId: args.modelId }, () => client.reason(args)),
       generateImage: (args = {}) => timed('generateImage', { prompt: oneLine(args.prompt), refs: refsWithRoles(args.referenceImages), model: modelLabelOf(args.model), modelId: args.model, size: args.size }, () => client.generateImage(args)),
-      startVideo: (args = {}) => timed('startVideo', { prompt: args.draftTaskId ? `final from draft ${args.draftTaskId}` : oneLine((args.content || []).map((c) => c && c.text).filter(Boolean).join(' ')), model: modelLabelOf(args.model), modelId: args.model, duration: args.duration, resolution: args.draftTaskId ? 'final' : (args.draft ? 'draft' : args.resolution) }, () => client.startVideo(args)),
+      startVideo: (args = {}) => timed('startVideo', { prompt: args.draftTaskId ? `final from draft ${args.draftTaskId}` : oneLine((args.content || []).map((c) => c && c.text).filter(Boolean).join(' ')), model: modelLabelOf(args.model), modelId: args.model, duration: args.duration, resolution: args.draftTaskId ? `final ${args.resolution}` : (args.draft ? 'draft' : args.resolution) }, () => client.startVideo(args)),
       pollVideo: (args = {}) => timed('pollVideo', { task: args.taskId }, () => client.pollVideo(args)),
       ...(client.generateSpeech ? { generateSpeech: (args = {}) => timed('generateSpeech', { prompt: oneLine(args.text) }, () => client.generateSpeech(args)) } : {}),
     };

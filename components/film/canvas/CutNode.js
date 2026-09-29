@@ -1,9 +1,9 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover } from '@arco-design/web-react';
+import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Dropdown, Menu } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
-import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
-import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, imageTagOf, clampShotSeconds, videoModelKeyOf, videoTraits, DRAFT_MODE } from '../../../utils/film/suiteConfig';
+import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, imageTagOf, clampShotSeconds, videoModelKeyOf, videoTraits, DRAFT_MODE, draftFinalsOf } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import DurationSlider from '../../DurationSlider';
@@ -13,8 +13,8 @@ import { SeedanceParams, DraftText, ReferencesRow } from './cardBlocks';
 const { Text } = Typography;
 
 // A SHOT card — the shot's SPEC on the board before generation (5–15s). The Story agent's
-// prompt rides verbatim in the editable PROMPT field; CINEMATOGRAPHY (a 50-template picker
-// or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
+// prompt rides verbatim in the editable PROMPT field — the only look/camera state; Direct
+// rewrites it to carry a camera setup, lens, light or movement. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
   onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onFinalizeDraft: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onOpenRefDrawer: null,
@@ -132,8 +132,6 @@ const CutNodeInner = ({ id, data, selected }) => {
   const anyKfBroken = kfs.length > 0 && kfIdxs.some((i) => !i);
   const startKfIdx = kfIdxs[0] || 0;
   const patch = (p) => onPatchCut && onPatchCut(id, p);
-  const hasLook = Object.values(data.cine || {}).some((v) => String(v || '').trim())
-    || (data.cinePreset === 'Custom' && !!String(data.cinematography || '').trim());
   // Seedance media references (plural — e.g. a camera-track video + a motion video +
   // music + two voice clips). Reads the earlier single-ref fields as a one-item array.
   const audioRefs = data.audioRefs || (data.audioRef ? [data.audioRef] : []);
@@ -150,6 +148,9 @@ const CutNodeInner = ({ id, data, selected }) => {
   const removeVideoRef = (url) => patch({ videoRefs: videoRefs.filter((a) => a.url !== url), videoRef: null });
   const [dragOver, setDragOver] = useState(false);
   const [directNote, setDirectNote] = useState('');
+  const [directLook, setDirectLook] = useState({}); // one-shot look picks for the next Direct call — never stored on the card
+  const lookPicked = Object.values(directLook).some((v) => String(v || '').trim());
+  const applyDirect = () => { onDirectCut && onDirectCut(id, directNote.trim(), directLook); setDirectNote(''); setDirectLook({}); };
 
   // The SHOT's title (data.beat) is inline-renamed via the shared EditableLabel. The beat
   // is the card's NAME; it only feeds the shoot prompt as a FALLBACK when PROMPT is empty.
@@ -162,26 +163,11 @@ const CutNodeInner = ({ id, data, selected }) => {
   const resOptions = RES_BY_MODEL[videoModel] || RES_BY_MODEL.seedance;
   const maxRefs = videoTraits(videoModel).refCap; // the CARD's model decides how many image refs ride
   const resolution = resOptions.includes(data.resolution) ? data.resolution : resDefault(videoModel);
-  // DRAFT MODE (2.5 only): Draft shoots at 480p; Final renders 1080p from the card's last
-  // draft, on the draft's own model, while its task id is still valid (7 days).
-  const canDraft = !!videoTraits(videoModel).draft;
-  const draftExpiresAt = data.draft?.taskId ? (data.draft.createdAt || 0) + DRAFT_MODE.ttlMs : 0;
-  const hasLiveDraft = draftExpiresAt > Date.now();
-  // CINEMATOGRAPHY pin = pick one of the 50 shot templates (sets the whole line) OR
-  // hand-type. Picking stores the template id (so the dropdown highlights it) + its
-  // name (cinePreset, for display) + the cinematography line.
-  // Switching the preset under a WRITTEN prompt leaves camera wording in the text that
-  // contradicts the new pick — flag it; any prompt verb (Compose/Direct) restages
-  // the action for the locked camera and clears the flag.
-  const pickTemplate = (tid) => {
-    const t = SHOT_TEMPLATE_BY_ID[tid];
-    if (!t) return;
-    patch({
-      shotTemplate: t.id, cinePreset: t.name, cinematography: t.cinematography,
-      ...(String(data.promptOverride || '').trim() && t.id !== data.shotTemplate ? { cameraStale: true } : {}),
-    });
-  };
-
+  // DRAFT MODE (2.5 models): Draft shoots at 480p; Final renders any of the card's drafts
+  // that is still valid (7 days), on that draft's own model, at a resolution it allows.
+  const canDraft = draftFinalsOf(videoModel).length > 0;
+  const liveDrafts = (data.drafts || []).filter((d) => (d.createdAt || 0) + DRAFT_MODE.ttlMs > Date.now()).reverse();
+  const finalizing = liveDrafts.some((d) => d.finalizing);
   // Edit/extend TRIGGER phrases + attached media refs silently flip the request into
   // an EDIT/EXTEND task (ratio + duration lock). Advisory only — intentional edits are
   // a legitimate future path, but a surprise flip ruins the take.
@@ -287,17 +273,34 @@ const CutNodeInner = ({ id, data, selected }) => {
             Draft
           </Button>
         )}
-        {hasLiveDraft && (
-          <Button
-            className="nodrag"
-            size="mini"
-            title={`Render the ${DRAFT_MODE.finalResolution} Final from the last Draft — same prompt, references, duration, ratio, seed and audio; the draft id is valid until ${new Date(draftExpiresAt).toLocaleString()}.`}
-            disabled={!onFinalizeDraft || data.draft.finalizing}
-            onClick={() => onFinalizeDraft && onFinalizeDraft(id)}
-            style={{ background: '#f7ba1e', color: '#101418', border: '1px solid #f7ba1e', fontWeight: 700, padding: '0 6px' }}
+        {liveDrafts.length > 0 && (
+          <Dropdown
+            trigger="click"
+            position="br"
+            droplist={(
+              <Menu onClickMenuItem={(key) => { const [taskId, res] = key.split('|'); onFinalizeDraft && onFinalizeDraft(id, taskId, res); }}>
+                {liveDrafts.flatMap((d) => draftFinalsOf(d.modelKey).map((res) => (
+                  <Menu.Item key={`${d.taskId}|${res}`} disabled={d.finalizing}>
+                    {d.finalizing ? <IconLoading style={{ marginRight: 4 }} /> : null}
+                    {d.label} → {res}
+                    <span style={{ color: '#86909c', fontSize: 11, marginLeft: 8 }}>
+                      valid until {new Date((d.createdAt || 0) + DRAFT_MODE.ttlMs).toLocaleDateString()}
+                    </span>
+                  </Menu.Item>
+                )))}
+              </Menu>
+            )}
           >
-            {data.draft.finalizing ? <IconLoading /> : null} Final {DRAFT_MODE.finalResolution}
-          </Button>
+            <Button
+              className="nodrag"
+              size="mini"
+              title="Render a Final from one of this card's drafts — same prompt, references, duration, ratio, seed and audio as that draft. Pick the draft and the resolution."
+              disabled={!onFinalizeDraft}
+              style={{ background: '#f7ba1e', color: '#101418', border: '1px solid #f7ba1e', fontWeight: 700, padding: '0 6px' }}
+            >
+              {finalizing ? <IconLoading style={{ marginRight: 3 }} /> : null}Final ▾
+            </Button>
+          </Dropdown>
         )}
       </div>
 
@@ -330,22 +333,46 @@ const CutNodeInner = ({ id, data, selected }) => {
               <Popover
                 trigger="click" position="bl" color="#161b22"
                 content={(
-                  <div className="nodrag" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 2, width: 260 }}>
-                    <Text style={{ fontSize: 9, fontWeight: 700, color: '#9fb4d0' }}>DIRECTOR'S NOTE — how should this shot feel or read?</Text>
+                  <div className="nodrag" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 2, width: 280 }}>
+                    <Text style={{ fontSize: 9, fontWeight: 700, color: '#9fb4d0' }}>DIRECTOR — the prompt will be modified to carry what you fill</Text>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ width: 64, flexShrink: 0, color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>Shot</Text>
+                      <Select
+                        size="mini" allowClear showSearch placeholder="camera setup ▾" style={{ flex: 1 }}
+                        value={directLook.shotTemplate || undefined}
+                        onChange={(v) => setDirectLook((l) => ({ ...l, shotTemplate: v || '' }))}
+                        triggerProps={{ autoAlignPopupWidth: false }}
+                        filterOption={(input, option) => String(option.props.children).toLowerCase().includes(input.toLowerCase())}
+                      >
+                        {SHOT_TEMPLATES_BY_CATEGORY.map(({ category, templates }) => (
+                          <Select.OptGroup key={category} label={category}>
+                            {templates.map((t) => <Select.Option key={t.id} value={t.id}>{t.name}</Select.Option>)}
+                          </Select.OptGroup>
+                        ))}
+                      </Select>
+                    </div>
+                    {[['lens', 'Lens', '35mm, shallow focus'],
+                      ['light', 'Light', 'hard backlight, silhouette'],
+                      ['move', 'Movement', 'slow push in, slight sway']].map(([k, label, ph]) => (
+                        <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ width: 64, flexShrink: 0, color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>{label}</Text>
+                          <Input size="mini" value={directLook[k] || ''} onChange={(v) => setDirectLook((l) => ({ ...l, [k]: v }))} placeholder={ph} style={{ flex: 1, fontSize: 11 }} />
+                        </div>
+                    ))}
                     <Input.TextArea
                       value={directNote}
                       onChange={setDirectNote}
                       autoSize={{ minRows: 2, maxRows: 5 }}
-                      placeholder="e.g. slower and heavier · colder mood · the wind carries the scene · less frantic, let it breathe"
+                      placeholder="note — e.g. slower and heavier · colder mood · less frantic, let it breathe"
                       style={{ fontSize: 11 }}
                     />
-                    <Button size="mini" long type="primary" disabled={!directNote.trim()} onClick={() => { onDirectCut && onDirectCut(id, directNote.trim()); setDirectNote(''); }}>
-                      Apply note — 1 call
+                    <Button size="mini" long type="primary" disabled={!directNote.trim() && !lookPicked} onClick={applyDirect}>
+                      Apply — 1 call
                     </Button>
                   </div>
                 )}
               >
-                <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconMessage />} disabled={!onDirectCut || data.developing} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Direct — one note on how the shot FEELS or READS (tone, pacing, mood, emphasis); the prompt is re-shaped to match while events, [Image N] tags, dialogue, references and keyframes all stay. 1 visible call, previous text stashed.">Direct</Button>
+                <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconMessage />} disabled={!onDirectCut || data.developing} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Direct — camera setup, lens, light, movement and/or a note on how the shot feels; the prompt is rewritten to carry them while events, image tags, dialogue, references and keyframes all stay. 1 visible call, previous text stashed.">Direct</Button>
               </Popover>
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
@@ -363,19 +390,6 @@ const CutNodeInner = ({ id, data, selected }) => {
           ) : (
           <DraftText textarea className="nodrag nowheel" value={data.promptOverride} onCommit={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt — Expand to @-mention references" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
           )}
-        </div>
-
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>CINEMATOGRAPHY</Text>
-            <Select className="nodrag" size="mini" value={data.shotTemplate || undefined} placeholder="shot ▾" onChange={pickTemplate} style={{ width: 130 }} triggerProps={{ autoAlignPopupWidth: false }} showSearch filterOption={(input, option) => String(option.props.children).toLowerCase().includes(input.toLowerCase())}>
-              {SHOT_TEMPLATES_BY_CATEGORY.map(({ category, templates }) => (
-                <Select.OptGroup key={category} label={category}>
-                  {templates.map((t) => <Select.Option key={t.id} value={t.id}>{t.name}</Select.Option>)}
-                </Select.OptGroup>
-              ))}
-            </Select>
-          </div>
         </div>
 
         <div>
@@ -423,9 +437,6 @@ const CutNodeInner = ({ id, data, selected }) => {
               ⚠ keyframes overrode: {(data.composeDropped || []).join(' · ')} — original text stashed
             </Text>
           )}
-          {data.cameraStale && (
-            <Text style={{ color: '#f7ba1e', fontSize: 9 }}>camera preset changed after this prompt was written — Compose / Dnrich / Direct restages the action for the new camera</Text>
-          )}
           {anyKfBroken && (
             <Text style={{ color: '#f53f3f', fontSize: 9 }}>a keyframe points to a removed/disabled ref — toggle its chip back on or re-pick</Text>
           )}
@@ -435,37 +446,6 @@ const CutNodeInner = ({ id, data, selected }) => {
         </div>
 
         <ReferencesRow id={id} data={data} patch={patch} bibleEntries={bibleEntries} onOpenRefDrawer={onOpenRefDrawer} />
-      </div>
-      {/* CINEMATOGRAPHY — the DP look layer, ADDITIVE to the Camera preset line:
-          four one-line fields joined into the take's LOOK at shoot time (empty adds
-          nothing — never boilerplate). Collapsed by default; the toggle carries a dot
-          when it holds content, so hidden never reads as empty. Develop/Re-derive
-          never touch these — they rewrite the prompt only. */}
-      {data.cineOpen && (
-        <div className="nodrag" onClick={(e) => e.stopPropagation()} style={{ padding: '6px 10px 8px', borderTop: '1px solid #2a313a', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {[['lens', 'Lens & depth', '35mm, shallow focus, compressed background'],
-            ['light', 'Light', 'low golden-hour backlight, warm haze · or: hard backlight, silhouette'],
-            ['grade', 'Grade', 'warm amber, crushed blacks, fine grain'],
-            ['move', 'Movement', 'slow push in, slight handheld sway']].map(([k, label, ph]) => (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Text style={{ width: 78, flexShrink: 0, color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>{label}</Text>
-                <DraftText className="nodrag" size="mini" value={(data.cine || {})[k]} onCommit={(v) => patch({ cine: { ...(data.cine || {}), [k]: v } })} placeholder={ph} style={{ flex: 1 }} />
-              </div>
-          ))}
-          {data.cinePreset === 'Custom' && String(data.cinematography || '').trim() ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Text style={{ width: 78, flexShrink: 0, color: '#b25c00', fontSize: 10, fontWeight: 700 }}>Legacy look</Text>
-              <DraftText className="nodrag" size="mini" value={data.cinematography} onCommit={(v) => patch({ cinematography: v })} placeholder="hand-written look from the old field — rides into 🎬; clear to retire" style={{ flex: 1 }} />
-            </div>
-          ) : null}
-        </div>
-      )}
-      <div className="nodrag" style={{ display: 'flex', justifyContent: 'flex-end', padding: '1px 6px 4px' }}>
-        <Button size="mini" type="text" onClick={(e) => { e.stopPropagation(); patch({ cineOpen: !data.cineOpen }); }}
-          title="Cinematography — the DP look for this shot: lens & depth · light · grade · movement. Joined into the LOOK line at 🎬; empty fields add nothing."
-          style={{ color: hasLook ? '#f7ba1e' : '#5a6472', height: 18, padding: '0 4px', fontSize: 11 }}>
-          {data.cineOpen ? '−' : '+'} cinematography{hasLook && !data.cineOpen ? ' ●' : ''}
-        </Button>
       </div>
       {editorOpen && (
         <PromptEditorModal

@@ -4,7 +4,6 @@
 // verbatim and return text that ships to the endpoint unchanged — nothing wraps it
 // afterwards, which is why each one carries its own gate.
 import { renderTemplate, getModel, getRuntime, defaultVideoModelKey, videoTraits } from '../suiteConfig';
-import { SHOT_TEMPLATE_BY_ID } from '../recipes';
 import { parseJson } from './director';
 import { requireSkillLine } from '../skills';
 import { withDialogueGate } from './storyboard';
@@ -20,8 +19,8 @@ const jobLineOf = (job) => (String(job || '').trim()
 
 // The card's LOOK and SOUND. Nothing appends these any more, so the prompt must carry
 // them or they do not reach the model. Empty fields say nothing — never a default look.
-const lookLineOf = ({ style = '', cinematography = '', audio = '' } = {}) => {
-  const look = [String(style || '').trim(), String(cinematography || '').trim()].filter(Boolean).join(' · ');
+const lookLineOf = ({ style = '', audio = '' } = {}) => {
+  const look = String(style || '').trim();
   const snd = String(audio || '').trim();
   return [
     look ? `LOOK (from the card — carry it into the prompt): ${look}.` : '',
@@ -29,9 +28,10 @@ const lookLineOf = ({ style = '', cinematography = '', audio = '' } = {}) => {
   ].filter(Boolean).join('\n') || 'No look or sound is pinned on the card — add none of your own beyond what the material implies.';
 };
 
-const cameraLineOf = (camera) => (camera && (camera.framing || camera.move)
-  ? `CAMERA (director-locked, non-negotiable): ${[camera.framing, camera.angle, camera.move].filter(Boolean).join(' · ')}. Stage every event FOR this exact camera, carry it in the action text (summary sentence included), and never contradict it.`
-  : 'No camera preset is locked — choose the single camera that serves the action best and commit to it in the text.');
+const cameraLineOf = (camera) => `CAMERA (director-locked, non-negotiable): ${[camera.framing, camera.angle, camera.move].filter(Boolean).join(' · ')}. Stage every event FOR this exact camera, carry it in the action text (summary sentence included), and never contradict it.`;
+// No camera picked: the text's own camera stands. Where it names none, the verb commits
+// to the one that serves the action best — in the text, the only place a camera lives.
+const KEEP_CAMERA_LINE = 'CAMERA: keep the camera the current text describes. Where it describes none, choose the single camera that serves the action best and commit to it in the text.';
 
 // KEYFRAMES ARE A MODEL CAPABILITY, not a card feature. Seedance 2.0 has no first/last
 // frame control at all, so its pinned stills are plain references and the prompt must
@@ -59,7 +59,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
         .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)) + retry,
-      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices, modelKey), jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), skill: await requireSkillLine(modelKey) }),
+      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices, modelKey), jobLine: jobLineOf(job), cameraLine: camera ? cameraLineOf(camera) : KEEP_CAMERA_LINE, skill: await requireSkillLine(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -72,7 +72,7 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   return out;
 };
 
-export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), camera = null, job = '', style = '', cinematography = '', audio = '', config } = {}, ctx) => {
+export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), job = '', style = '', audio = '', config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
   // ---- STEP 1 · DERIVE (keyframes only — deliberately blind to text and refs, so the
@@ -99,7 +99,7 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)') + retry,
-      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: cameraLineOf(camera), lookLine: lookLineOf({ style, cinematography, audio }), skill: await requireSkillLine(modelKey) }),
+      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: KEEP_CAMERA_LINE, lookLine: lookLineOf({ style, audio }), skill: await requireSkillLine(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,

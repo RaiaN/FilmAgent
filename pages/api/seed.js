@@ -1,5 +1,5 @@
 import { CONFIG, arkKey, ARK_KEY_MISSING } from '../../utils/config';
-import { getModel } from '../../utils/film/suiteConfig';
+import { getModel, resolveModelId, REASONER_OPTIONS, REASONING_EFFORTS, reasonerOptionOfId } from '../../utils/film/suiteConfig';
 import { storeKeyFromUrl, readStoreBytes } from '../../utils/server/mediaStore';
 import { presignStoreUrl } from '../../utils/server/presignStore';
 
@@ -76,24 +76,25 @@ async function seedHandler(req, res) {
     }
     // WHICH API SHAPE: /responses + input formatting, or chat completions.
     //
-    // The SLOT decides, never the id string. Every reasoner slot in this app is Seed 2.0
-    // Pro family and speaks /responses — Seed-SC included — but an account-scoped ep-…
-    // endpoint id says nothing about the model behind it, so a name-prefix guess gets
+    // The SLOT decides, never the id string. Every reasoner slot in this app speaks
+    // /responses — Seed 2.0 Pro, Seed-SC and Seed 2.1 Turbo alike — but an account-scoped
+    // ep-… endpoint id says nothing about the model behind it, so a name-prefix guess gets
     // Seed-SC wrong every time. Matching the id against the configured reasoner slots is
     // the only thing that actually knows.
-    const reasonerIds = [process.env.MODELARK_MODEL_REASONER, process.env.MODELARK_MODEL_REASONER_SC]
-      .map((v) => String(v || '').trim())
-      .filter(Boolean);
+    const reasonerIds = REASONER_OPTIONS.map((o) => resolveModelId(o.key)).filter(Boolean);
+    // DEEP-REASONING EFFORT: sent only to a planner slot whose endpoint takes it.
+    const slot = reasonerOptionOfId(resolvedModelId);
+    const effort = slot?.effort && REASONING_EFFORTS.includes(reasoningEffort) ? reasoningEffort : null;
     // The escape hatch stays for a deployment that points a reasoner slot at something
     // genuinely chat-shaped; the prefix check is the last resort, for a model id that
     // was passed in without being one of the configured slots.
     const override = String(process.env.MODELARK_REASONER_PROTOCOL || '').trim();
-    const isPro260328 = override
+    const useResponses = override
       ? override === 'responses'
       : (reasonerIds.includes(resolvedModelId) || resolvedModelId.startsWith('seed-2-0-pro'));
     
-    // For seed-2-0-pro-260328, we use /responses and input formatting
-    if (isPro260328) {
+    // Planner slots: /responses with input formatting.
+    if (useResponses) {
       const inputContent = [{ type: 'input_text', text: prompt }];
       inlinedImages.forEach(img => {
           inputContent.push({ type: 'input_image', image_url: img });
@@ -119,13 +120,8 @@ async function seedHandler(req, res) {
           stream: false, // Stream false for simpler REST handling in StarterKit
           input: inputMessages,
       };
-      // Seed 2.0 Pro reasoning depth is controlled by `thinking` — this endpoint
-      // rejects `reasoning_effort` as an unknown field. 'low'/unset → leave
-      // default (fast — chat assistant + one-liner helpers); 'medium'/'high' →
-      // enable thinking.
-      if (reasoningEffort && reasoningEffort !== 'low') {
-        payload.thinking = { type: 'enabled' };
-      }
+      // Thinking is on by default for these models; effort sets how deep it goes.
+      if (effort) payload.reasoning = { effort };
 
       const responsesEndpoint = `${endpointBase}/responses`;
       const callResponses = (body) => fetch(responsesEndpoint, {
@@ -134,23 +130,7 @@ async function seedHandler(req, res) {
         body: JSON.stringify(body),
       });
 
-      let response = await callResponses(payload);
-      // If the THINKING param itself tripped the request, retry once without it. Only
-      // when the error actually names the reasoning controls — any other 400 (e.g. a
-      // reference-download failure) surfaces immediately instead of a pointless,
-      // mislabeled retry.
-      if (!response.ok && payload.thinking) {
-        const firstErr = await response.text().catch(() => '');
-        if (/thinking|reasoning/i.test(firstErr)) {
-          console.warn(`[seed] thinking param rejected (${response.status}) — retrying without it. Reason: ${firstErr.slice(0, 400)}`);
-          response = await callResponses({ model: payload.model, stream: payload.stream, input: payload.input });
-        } else {
-          let errData;
-          try { errData = JSON.parse(firstErr); } catch { errData = { error: { message: firstErr.slice(0, 400) } }; }
-          const apiMsg = errData?.error?.message || errData?.message || `Seed API error (${response.status})`;
-          return res.status(response.status).json({ error: apiMsg, details: errData });
-        }
-      }
+      const response = await callResponses(payload);
 
       const responseText = await response.text();
       let data;
@@ -220,6 +200,7 @@ async function seedHandler(req, res) {
       body: JSON.stringify({
         model: resolvedModelId,
         messages: messages,
+        ...(effort ? { reasoning_effort: effort } : {}),
       }),
     });
 

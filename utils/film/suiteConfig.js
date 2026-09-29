@@ -29,19 +29,19 @@ export const ROOT_CONFIG = {
     seedance25Draft: null, // Seedance 2.5 draft-preview        (MODELARK_MODEL_SEEDANCE_25_DRAFT)
     reasoner: null,      // Seed 2.0 Pro reasoner             (MODELARK_MODEL_REASONER)
     reasonerSC: null,    // Seed-SC reasoner                  (MODELARK_MODEL_REASONER_SC)
+    reasoner21Turbo: null, // Seed 2.1 Turbo reasoner          (MODELARK_MODEL_REASONER_21_TURBO)
   },
   runtime: {
     pollIntervalMs: 4000,    // Seedance task polling cadence
     timeoutMs: 360000,       // max wait for an async (video) task
     defaultImageSize: '2K',
-    reasoningEffort: 'high', // Seed 2.0 Pro thinking depth for the heavy reasoning
-                             // calls (plan, QC, style curation, brief). 'low' |
-                             // 'medium' | 'high' | null (off). One-liner helpers
-                             // override to 'low'.
+    reasoningEffort: 'high', // Deep-reasoning EFFORT for every planner call — one of
+                             // REASONING_EFFORTS, set in Project settings. Sent as
+                             // reasoning.effort, only to slots whose `effort` is true.
     // WHICH LLM every planner calls. One switch, because every agent asks for the
     // 'reasoner' slot by name and getModel redirects — 19 call sites, none of which
     // should have to know there is a choice.
-    reasonerSlot: 'reasoner',
+    reasonerSlot: 'reasoner21Turbo', // the DEFAULT planner — Seed 2.1 Turbo
   },
   // Per-agent default parameters (the headless equivalent of the UI's defaultSettings).
   defaults: {
@@ -110,6 +110,7 @@ export const MODEL_ENV_VARS = {
   seedance25Draft: 'MODELARK_MODEL_SEEDANCE_25_DRAFT',
   reasoner: 'MODELARK_MODEL_REASONER',
   reasonerSC: 'MODELARK_MODEL_REASONER_SC',
+  reasoner21Turbo: 'MODELARK_MODEL_REASONER_21_TURBO',
 };
 
 let hydratedDeployModels = null; // client-side: set once from /api/film/config
@@ -140,17 +141,24 @@ export const resolveModelId = (key, perCall) => resolveConfig(perCall).models[ke
 
 // The LLM slots a planner can run on. Every agent asks for 'reasoner'; runtime
 // .reasonerSlot decides which of these that resolves to.
+// `effort`: whether the endpoint takes reasoning.effort — live-probed 2026-09-29. Seed-SC's
+// endpoint runs with thinking DISABLED and rejects any effort ("low + disabled").
 export const REASONER_OPTIONS = [
-  { key: 'reasoner', label: 'Seed 2.0 Pro' },
-  { key: 'reasonerSC', label: 'Seed-SC' },
+  { key: 'reasoner21Turbo', label: 'Seed 2.1 Turbo', effort: true },
+  { key: 'reasoner', label: 'Seed 2.0 Pro', effort: true },
+  { key: 'reasonerSC', label: 'Seed-SC', effort: false },
 ];
+// The deep-reasoning effort levels offered (the API also takes none/minimal/xhigh).
+export const REASONING_EFFORTS = ['low', 'medium', 'high', 'max'];
+// The reasoner slot an id belongs to (null for a non-planner model) — server-safe.
+export const reasonerOptionOfId = (id) => REASONER_OPTIONS.find((o) => id && resolveModelId(o.key) === id) || null;
 const REASONER_KEYS = REASONER_OPTIONS.map((o) => o.key);
 
-// Which LLM slot 'reasoner' currently means. Falls back to the default slot when the
-// stored choice is unknown — a stale localStorage value must not brick every agent.
+// Which LLM slot 'reasoner' currently means. An unknown stored choice resolves to the
+// DEFAULT slot (ROOT_CONFIG.runtime.reasonerSlot) — a stale value must not brick agents.
 export const reasonerSlotOf = (perCall) => {
   const chosen = resolveConfig(perCall).runtime?.reasonerSlot;
-  return REASONER_KEYS.includes(chosen) ? chosen : 'reasoner';
+  return REASONER_KEYS.includes(chosen) ? chosen : ROOT_CONFIG.runtime.reasonerSlot;
 };
 
 // WHAT AN ENDPOINT ID IS. Account-scoped ids (ep-…) carry no meaning on their face, so

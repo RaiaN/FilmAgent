@@ -34,7 +34,7 @@ import {
   saveProjectAny,
 } from '../../utils/film/projectStore';
 import { saveProjectToCloud, listCloudProjects, loadCloudProject, deleteCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
-import { applyDeployModels, REASONER_OPTIONS, reasonerSlotOf, resolveModelId, setClientConfig } from '../../utils/film/suiteConfig';
+import { applyDeployModels, REASONER_OPTIONS, REASONING_EFFORTS, reasonerSlotOf, resolveModelId, setClientConfig, getRuntime } from '../../utils/film/suiteConfig';
 
 const { Title, Text } = Typography;
 
@@ -68,9 +68,10 @@ const FilmAgentPlayground = ({ formValues, setFormValues }) => {
   const [saving, setSaving] = useState(false);
   // WHICH LLM PLANS. App-level, not per-project (it lives in the client config beside
   // the model table); the state here exists only so the Select re-renders on change.
-  const [plannerSlot, setPlannerSlot] = useState('reasoner');
+  const [plannerSlot, setPlannerSlot] = useState(() => reasonerSlotOf());
+  const [effort, setEffort] = useState('high');
   const [lastSavedAt, setLastSavedAt] = useState(null);
-  useEffect(() => { setPlannerSlot(reasonerSlotOf()); }, [settingsOpen]);
+  useEffect(() => { setPlannerSlot(reasonerSlotOf()); setEffort(getRuntime().reasoningEffort); }, [settingsOpen]);
 
   // Opening the canvas mints a WORKING TITLE (a film-flavoured word pair from
   // randomFilmTitle) instead of another "Untitled" — rename any time in the header.
@@ -489,6 +490,21 @@ const FilmAgentPlayground = ({ formValues, setFormValues }) => {
               />
               <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
                 The LLM behind EVERY reasoning call in the suite
+              </Text>
+            </div>
+            <div>
+              <Text type="secondary" style={{ marginRight: 8 }}>Reasoning effort</Text>
+              <Select
+                value={effort}
+                onChange={(v) => { setClientConfig({ runtime: { reasoningEffort: v } }); setEffort(v); }}
+                disabled={!REASONER_OPTIONS.find((o) => o.key === plannerSlot)?.effort}
+                style={{ width: 220 }}
+                options={REASONING_EFFORTS.map((v) => ({ label: v, value: v }))}
+              />
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                {REASONER_OPTIONS.find((o) => o.key === plannerSlot)?.effort
+                  ? 'How deeply the planner thinks before answering — higher is slower and costs more'
+                  : 'This planner runs without deep reasoning — effort does not apply'}
               </Text>
             </div>
             <Space wrap>

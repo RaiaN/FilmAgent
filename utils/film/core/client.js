@@ -6,12 +6,12 @@
 // Interface (all async):
 //   generateImage({ prompt, referenceImages, size, model }) -> { url, prompt }
 //   reason({ prompt, systemPrompt, images, video, modelId }) -> { content }
-//   startVideo({ content, model, resolution, ratio, duration, generateAudio }) -> { taskId }
+//   startVideo({ content, model, resolution, ratio, duration, generateAudio, draft, draftTaskId }) -> { taskId }
 //   pollVideo({ taskId, intervalMs, timeoutMs }) -> { videoUrl }
 //   generateSpeech({ text, imageData, audioRefs, format, sampleRate }) -> { url, bytes, duration }
 
 import { plannerSkillLine } from '../skills';
-import { reasonerSlotOf } from '../suiteConfig';
+import { reasonerSlotOf, DRAFT_MODE } from '../suiteConfig';
 
 // Pull a human-readable string out of an API error body (may nest under
 // .error.message or .details). Never returns "[object Object]".
@@ -69,14 +69,23 @@ export const createBrowserClient = () => ({
     return data;
   },
 
-  async startVideo({ content, model, resolution, ratio, duration, generateAudio, seed }) {
-    // ratio and duration are OMITTED when falsy: a Seedance EDITING task (routed by the
-    // prompt's wording) locks both to the source clip and REJECTS the request outright if
-    // either is sent — `InvalidParameter.TaskTypeConstraint`.
-    const body = { model, content, resolution, generate_audio: !!generateAudio, watermark: false, return_last_frame: true };
-    if (ratio) body.ratio = ratio;
-    if (duration && duration !== 'auto') body.duration = Number(duration);
-    if (seed != null && seed !== '') body.seed = Number(seed);
+  async startVideo({ content, model, resolution, ratio, duration, generateAudio, seed, draft = false, draftTaskId = null }) {
+    let body;
+    if (draftTaskId) {
+      // FINAL FROM A DRAFT: the task REUSES the draft's prompt, references, duration,
+      // ratio, seed and audio setting — resending any of them is rejected even with equal
+      // values. Only the draft's model and the fixed final resolution go.
+      body = { model, content: [{ type: 'draft_task', draft_task: { id: draftTaskId } }], resolution: DRAFT_MODE.finalResolution, watermark: false, return_last_frame: true };
+    } else {
+      // ratio and duration are OMITTED when falsy: a Seedance EDITING task (routed by the
+      // prompt's wording) locks both to the source clip and REJECTS the request outright if
+      // either is sent — `InvalidParameter.TaskTypeConstraint`.
+      body = { model, content, resolution: draft ? DRAFT_MODE.resolution : resolution, generate_audio: !!generateAudio, watermark: false, return_last_frame: true };
+      if (draft) body.draft = true;
+      if (ratio) body.ratio = ratio;
+      if (duration && duration !== 'auto') body.duration = Number(duration);
+      if (seed != null && seed !== '') body.seed = Number(seed);
+    }
     const res = await fetch('/api/seedance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -279,6 +279,7 @@ const VIDEO_MODEL_TRAITS = {
     refPrefix: '@',                   // 2.5 cites references as "@Image1"
     overallBlock: true,               // closes with the Overall-requirements section
     refCap: 30,
+    draft: true,                      // 480p Draft → 1080p Final from the draft's task id
   },
   // Same model family and prompt grammar as 2.5; Premium additionally renders 4K.
   seedance25Premium: {
@@ -289,8 +290,13 @@ const VIDEO_MODEL_TRAITS = {
     refPrefix: '@',
     overallBlock: true,
     refCap: 30,
+    draft: true,
   },
 };
+
+// DRAFT MODE (Seedance 2.5): a draft renders ONLY at 480p; the final rendered from it
+// ONLY at 1080p, on the draft's own model, within 7 days of the draft's creation.
+export const DRAFT_MODE = { resolution: '480p', finalResolution: '1080p', ttlMs: 7 * 24 * 3600 * 1000 };
 export const videoTraits = (key) => VIDEO_MODEL_TRAITS[key] || VIDEO_MODEL_TRAITS[videoModelKeyOf(key)] || VIDEO_MODEL_TRAITS.seedance;
 export const RES_BY_MODEL = Object.fromEntries(Object.entries(VIDEO_MODEL_TRAITS).map(([k, t]) => [k, t.res]));
 export const resDefault = (model) => videoTraits(model).resDefault;

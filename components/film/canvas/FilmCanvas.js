@@ -50,11 +50,11 @@ import PipelineStrip from './PipelineStrip';
 import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
-import { animate as animateOp, generateFilmAudio } from '../../../utils/film/core/operations';
+import { animate as animateOp, finishDraft, generateFilmAudio } from '../../../utils/film/core/operations';
 import { previzPlan, previzPlate, PREVIZ_RESOLUTION, PLATE_STYLES, plateIsStale, plateStyleLock } from '../../../utils/film/core/previz';
 import { describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
-import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
+import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits, DRAFT_MODE } from '../../../utils/film/suiteConfig';
 import { createBrowserClient } from '../../../utils/film/core/client';
 import { createTrace } from '../../../utils/film/core/trace';
 import { emptyTimeline, emptyBible } from '../../../utils/film/projectShape';
@@ -351,7 +351,7 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
         firstFrameUrl: shot.firstFrameUrl, lastFrameUrl: shot.lastFrameUrl,
         audioRefUrls: audioUrls, videoRefUrls: videoUrls,
         duration: shot.durationSec, resolution: shot.resolution, ratio: shot.ratio,
-        generateAudio: genAudio, seed: shot.seed, modelKey: shot.modelKey,
+        generateAudio: genAudio, seed: shot.seed, modelKey: shot.modelKey, draft: !!shot.draft,
       }, ctx);
       return { taskId: out.taskId, droppedRefs, healedAssets };
     } catch (e) {
@@ -2909,28 +2909,28 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
         try {
           const { videoUrl, lastFrameUrl, videoCacheUrl, lastFrameCacheUrl } = await client.pollVideo({ taskId: take.data.taskId });
           setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label: String(n.data.label || 'Take').replace(/…$/, '') } } : n)));
-          if (take.data.cutId) onPatchCut(take.data.cutId, { status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null });
+          if (take.data.cutId) {
+            onPatchCut(take.data.cutId, {
+              status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null,
+              ...(take.data.draft ? { draft: { ...take.data.draft, taskId: take.data.taskId } } : {}),
+              ...(take.data.finalOfDraft ? { draft: null } : {}),
+            });
+          }
+          if (take.data.draft) setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, draft: { ...take.data.draft, taskId: take.data.taskId } } } : n)));
           Message.success('A take that was rendering before the reload has landed.');
         } catch (e) {
           setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, loading: false, taskId: null, error: `Interrupted take could not be resumed: ${e.message}`, label: 'Take failed' } } : n)));
-          if (take.data.cutId) onPatchCut(take.data.cutId, { status: 'failed' });
+          if (take.data.cutId) onPatchCut(take.data.cutId, { status: 'failed', ...(take.data.finalOfDraft ? { draft: { ...take.data.finalOfDraft, finalizing: false } } : {}) });
         }
       })();
     });
   }, [nodes, setNodes, onPatchCut]);
 
-  const handleShootCut = useCallback(async (cutId) => {
-    const card = nodesRef.current.find((n) => n.id === cutId && isShotCard(n));
-    if (!card) return;
-    // Continuity: a CHAIN EDGE into this card is authoritative — its source's last
-    // frame threads in. On a board with a chain, an edge-less card is a HARD CUT (no
-    // threading). A board with ZERO chain edges keeps the legacy nearest-earlier
-    // heuristic so old projects don't change behavior.
-    // Continuity has ONE mechanism: the card's own keyframes — no hidden last-frame
-    // handoffs between takes.
-    // Drop the LOADING take into this card's SHOTGRID — a container beside the card that
-    // accumulates every take. New takes append as one more cell; the grid grows by rows.
-    // (Takes are children of the grid but NOT extent-clamped, so they're draggable out.)
+  // Drop a LOADING take into the card's SHOTGRID — a container beside the card that
+  // accumulates every take. New takes append as one more cell; the grid grows by rows.
+  // (Takes are children of the grid but NOT extent-clamped, so they're draggable out.)
+  const addLoadingTake = useCallback((card, prefix, extra = {}) => {
+    const cutId = card.id;
     const gridId = `grid-${cutId}`;
     const takeId = `shot-${cutId}-${Date.now().toString(36)}`;
     const takeNo = nodesRef.current.filter((n) => n.parentId === gridId).length + 1;
@@ -2948,16 +2948,30 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
         next = next.concat({ ...grid, id: gridId, hidden: true }); // parent BEFORE child (RF ordering); born HIDDEN — never flash on the board
       }
       const tn = createAssetNode({
-        kind: 'video', url: '', label: `Take ${takeNo}…`,
+        kind: 'video', url: '', label: `${prefix} ${takeNo}…`,
         position: { x: GROUP_PAD + (slot % TAKE_COLS) * CELL_W, y: GROUP_HEADER + GROUP_PAD + Math.floor(slot / TAKE_COLS) * TAKE_CELL_H },
       });
-      next = next.concat({ ...tn, id: takeId, parentId: gridId, hidden: true, data: { ...tn.data, loading: true } });
+      next = next.concat({ ...tn, id: takeId, parentId: gridId, hidden: true, data: { ...tn.data, loading: true, ...extra } });
       // Grow the grid to fit the new row count (keep width in sync with the col count too).
       const rows = Math.floor(slot / TAKE_COLS) + 1;
       const w = GROUP_PAD * 2 + TAKE_COLS * CELL_W;
       const h = GROUP_HEADER + GROUP_PAD + rows * TAKE_CELL_H;
       return next.map((n) => (n.id === gridId ? { ...n, style: { ...n.style, width: w, height: h } } : n));
     });
+    return { takeId, takeNo };
+  }, [setNodes]);
+
+  // 🎬 SHOOT a take. `draft` (Seedance 2.5 only) renders the 480p Draft instead: the
+  // take remembers its task id, and the card offers the 1080p Final from it.
+  // Continuity has ONE mechanism: the card's own keyframes — no hidden last-frame
+  // handoffs between takes.
+  const handleShootCut = useCallback(async (cutId, { draft = false } = {}) => {
+    const card = nodesRef.current.find((n) => n.id === cutId && isShotCard(n));
+    if (!card) return;
+    const modelKey = videoModelKeyOf(card.data?.videoModel);
+    if (draft && !videoTraits(modelKey).draft) { Message.warning('Draft mode is Seedance 2.5 only — switch this card to 2.5 or 2.5 Premium.'); return; }
+    const draftMeta = draft ? { draft: { modelKey, createdAt: Date.now() } } : {};
+    const { takeId, takeNo } = addLoadingTake(card, draft ? 'Draft' : 'Take', draftMeta);
     onPatchCut(cutId, { status: 'running' });
     traceRef.current.startRun({ note: `Shoot · ${card.data.beat || `cut ${(card.data.cut ?? 0) + 1}`} (take ${takeNo})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
@@ -2981,7 +2995,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
         if (card.type === 'edit' && masterUrl && !/^https?:/i.test(masterUrl) && !masterUrl.startsWith('asset://') && !masterUrl.includes('/api/film/media?key=')) {
           throw new Error('The master is not a fetchable video — re-pick it, or re-check the clip into the media store.');
         }
-        const shot = shotFromCard(card, { keepTake: false, audioRefUrls, videoRefUrls, videoRefAssetIds, masterUrl, masterAssetId });
+        const shot = { ...shotFromCard(card, { keepTake: false, audioRefUrls, videoRefUrls, videoRefAssetIds, masterUrl, masterAssetId }), draft };
         const refAssetIds = await registerShotRefs(shot.refUrls, shot.refAssetIds);
         // Seedance content-SCREENS every reference image and rejects any it judges to "contain
         // sensitive information / a real person" — photoreal cast plates trip it EVEN as fully
@@ -3006,10 +3020,10 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
         }
         if (droppedRefs) Message.warning(`${droppedRefs} reference image${droppedRefs === 1 ? '' : 's'} skipped on take ${takeNo} — the video model's content screen flagged ${droppedRefs === 1 ? 'it' : 'them'} as sensitive (this take is less anchored).`);
         const { videoUrl, lastFrameUrl, videoCacheUrl, lastFrameCacheUrl } = await ctx.client.pollVideo({ taskId });
-        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label: `Take ${takeNo}` } } : n)));
-        onPatchCut(cutId, { status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null });
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label: `${draft ? 'Draft' : 'Take'} ${takeNo}`, ...(draft ? { draft: { ...draftMeta.draft, taskId } } : {}) } } : n)));
+        onPatchCut(cutId, { status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null, ...(draft ? { draft: { ...draftMeta.draft, taskId } } : {}) });
       } catch (err) {
-        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Take failed' } } : n)));
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: `${draft ? 'Draft' : 'Take'} failed` } } : n)));
         // THE CARD must hear about it too. Marking only the take left the card stuck on
         // `running`: the face said "shooting…" forever and 🎬 stayed disabled, so the one
         // thing you want after a failure — try again — was the one thing you could not do.
@@ -3018,8 +3032,39 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
         Message.error(`Shot failed: ${err.message}`);
       }
     })();
-  }, [shotFromCard, onPatchCut, setNodes, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
+  }, [addLoadingTake, shotFromCard, onPatchCut, setNodes, ensureRefsRegistered, registerShotRefs, resolveCardMediaRefs, durableVideoUrl]);
   handleShootCutRef.current = handleShootCut;
+
+  // FINAL FROM THE CARD'S DRAFT: a 1080p take rendered from the draft's task id on the
+  // draft's own model. The model reuses the draft's prompt, references, duration, ratio,
+  // seed and audio — so the final is the draft, finished, not a re-roll of the card.
+  const handleFinalizeDraft = useCallback((cutId) => {
+    const card = nodesRef.current.find((n) => n.id === cutId && isShotCard(n));
+    const d = card?.data?.draft;
+    if (!d?.taskId || d.finalizing) { if (!d?.taskId) Message.warning('Shoot a Draft first.'); return; }
+    if (Date.now() - (d.createdAt || 0) > DRAFT_MODE.ttlMs) { Message.warning('This draft is older than 7 days — its task id has expired. Shoot a new Draft.'); onPatchCut(cutId, { draft: null }); return; }
+    const { takeId, takeNo } = addLoadingTake(card, 'Final', { finalOfDraft: d });
+    // `finalizing` disables the card's Final button until this settles — a second click
+    // would bill a second 1080p render of the same draft.
+    onPatchCut(cutId, { status: 'running', draft: { ...d, finalizing: true } });
+    traceRef.current.startRun({ note: `Final ${DRAFT_MODE.finalResolution} from draft · ${card.data.beat || `cut ${(card.data.cut ?? 0) + 1}`} (take ${takeNo})` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
+    (async () => {
+      try {
+        const { taskId } = await finishDraft({ draftTaskId: d.taskId, modelKey: d.modelKey }, ctx);
+        resumedTakesRef.current.add(takeId);
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId } } : n)));
+        const { videoUrl, lastFrameUrl, videoCacheUrl, lastFrameCacheUrl } = await ctx.client.pollVideo({ taskId });
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label: `Final ${takeNo}` } } : n)));
+        onPatchCut(cutId, { status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null, draft: null });
+      } catch (err) {
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Final failed' } } : n)));
+        onPatchCut(cutId, { status: 'failed', error: err.message, draft: { ...d, finalizing: false } });
+        traceRef.current.log({ level: 'run', kind: 'decision', status: 'error', note: `Final FAILED · ${card.data.beat || `cut ${(card.data.cut ?? 0) + 1}`} (take ${takeNo})`, error: err.message });
+        Message.error(`Final failed: ${err.message}`);
+      }
+    })();
+  }, [addLoadingTake, onPatchCut, setNodes]);
 
 
   // 🎬 Action — PRINT THE FILM: every un-shot card renders in parallel. Continuity is
@@ -3551,6 +3596,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     bibleEntries,
     mediaEntries,
     onShootCut: handleShootCut,
+    onFinalizeDraft: handleFinalizeDraft,
     onAttachAsset: attachRefToCut,
     onPickMaster: pickMasterFor,
     onDetachRef: detachCardRef,
@@ -3561,7 +3607,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     boardImages,
     prevTakeFrames,
     onOpenRefDrawer: openRefDrawer,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, attachRefToCut, pickMasterFor, detachCardRef, composeCutPrompt, analyzeEditCard, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, handleFinalizeDraft, attachRefToCut, pickMasterFor, detachCardRef, composeCutPrompt, analyzeEditCard, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, openRefDrawer]);
   composeCutRef.current = composeCutPrompt;
 
   const filmMode = true; // Short-Film-only suite.

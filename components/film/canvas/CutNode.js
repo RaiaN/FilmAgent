@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY, SHOT_TEMPLATE_BY_ID } from '../../../utils/film/recipes';
-import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, imageTagOf, clampShotSeconds, videoModelKeyOf, videoTraits } from '../../../utils/film/suiteConfig';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, imageTagOf, clampShotSeconds, videoModelKeyOf, videoTraits, DRAFT_MODE } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import DurationSlider from '../../DurationSlider';
@@ -17,7 +17,7 @@ const { Text } = Typography;
 // or a hand-typed line), AUDIO and the Seedance 2.0 params shape it on top. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onOpenRefDrawer: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onFinalizeDraft: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onOpenRefDrawer: null,
 });
 
 // One keyframe slot tile: shows its picked still, or a dashed ＋ tile. Clicking opens
@@ -75,7 +75,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onAttachAsset, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onOpenRefDrawer } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onFinalizeDraft, onAttachAsset, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onOpenRefDrawer } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -162,6 +162,11 @@ const CutNodeInner = ({ id, data, selected }) => {
   const resOptions = RES_BY_MODEL[videoModel] || RES_BY_MODEL.seedance;
   const maxRefs = videoTraits(videoModel).refCap; // the CARD's model decides how many image refs ride
   const resolution = resOptions.includes(data.resolution) ? data.resolution : resDefault(videoModel);
+  // DRAFT MODE (2.5 only): Draft shoots at 480p; Final renders 1080p from the card's last
+  // draft, on the draft's own model, while its task id is still valid (7 days).
+  const canDraft = !!videoTraits(videoModel).draft;
+  const draftExpiresAt = data.draft?.taskId ? (data.draft.createdAt || 0) + DRAFT_MODE.ttlMs : 0;
+  const hasLiveDraft = draftExpiresAt > Date.now();
   // CINEMATOGRAPHY pin = pick one of the 50 shot templates (sets the whole line) OR
   // hand-type. Picking stores the template id (so the dropdown highlights it) + its
   // name (cinePreset, for display) + the cinematography line.
@@ -270,6 +275,30 @@ const CutNodeInner = ({ id, data, selected }) => {
         >
           🎬
         </Button>
+        {canDraft && (
+          <Button
+            className="nodrag"
+            size="mini"
+            title={`Shoot a ${DRAFT_MODE.resolution} Draft — a cheap preview to check framing, motion and prompt intent before paying for the full render.`}
+            disabled={!onShootCut}
+            onClick={() => onShootCut && onShootCut(id, { draft: true })}
+            style={{ background: '#101418', color: '#9fb4d0', border: '1px solid #3a4656', fontWeight: 700, padding: '0 6px' }}
+          >
+            Draft
+          </Button>
+        )}
+        {hasLiveDraft && (
+          <Button
+            className="nodrag"
+            size="mini"
+            title={`Render the ${DRAFT_MODE.finalResolution} Final from the last Draft — same prompt, references, duration, ratio, seed and audio; the draft id is valid until ${new Date(draftExpiresAt).toLocaleString()}.`}
+            disabled={!onFinalizeDraft || data.draft.finalizing}
+            onClick={() => onFinalizeDraft && onFinalizeDraft(id)}
+            style={{ background: '#f7ba1e', color: '#101418', border: '1px solid #f7ba1e', fontWeight: 700, padding: '0 6px' }}
+          >
+            {data.draft.finalizing ? <IconLoading /> : null} Final {DRAFT_MODE.finalResolution}
+          </Button>
+        )}
       </div>
 
       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>

@@ -4285,26 +4285,34 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     const node = nodesRef.current.find((n) => n.id === nodeId);
     const src = node?.data?.cacheUrl || node?.data?.url;
     if (!src) return;
-    const { annotatedFrame, body = '', shotTemplate, figures } = edits;
+    // Ticked "use this frame" (the default) = an edit of the frame; unticked = Regenerate:
+    // a fresh still from the text and whichever references are ticked.
+    const { annotatedFrame, body = '', shotTemplate, figures, useFrame = true } = edits;
+    const lock = !!useFrame;
     let instruction = String(body || '').trim();
-    if (!instruction && !annotatedFrame) { Message.warning('Describe the change — the frame edits by instruction (or draw marks).'); return; }
+    if (!instruction && !annotatedFrame) { Message.warning(lock ? 'Describe the change — the frame edits by instruction (or draw marks).' : 'Write what the new frame shows — Regenerate renders it from the text.'); return; }
     const chatId = node.data.panelId ? String(node.data.panelId).replace('sbpanel', 'sbchat') : null;
     const chat = chatId ? nodesRef.current.find((n) => n.id === chatId) : null;
     const imageModel = imageModelKeyOf(chat?.data?.imageModel || node.data.imageModel);
     const editorPool = [src, ...freshPoolUrls(chat?.data?.refs || [])];
-    const ticked = [1, ...((Array.isArray(figures) ? figures : []).filter((f) => f > 1))];
+    const picked = Array.isArray(figures) ? figures : [];
+    const ticked = lock ? [1, ...picked.filter((f) => f > 1)] : picked;
     const { ordered, body: renumbered } = resolveShotRefs({ figures: ticked, body: instruction }, editorPool);
     instruction = renumbered;
     const camera = shotTemplate ? (SHOT_TEMPLATE_BY_ID[shotTemplate] || null) : null;
     const refsToSend = [annotatedFrame || ordered[0] || src, ...ordered.slice(1)];
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true, error: undefined } } : n)));
-    traceRef.current.startRun({ note: `Agent · Storyboard (START frame edit · ${String(node.data.beat || '').slice(0, 24)})` });
+    traceRef.current.startRun({ note: `Agent · Storyboard (START frame ${lock ? 'edit' : 'regenerate'} · ${String(node.data.beat || '').slice(0, 24)})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
-      const out = await storyboardKeyframe({ body: instruction, refs: refsToSend, imageModel, frameEdit: true, frameEditAnnotated: !!annotatedFrame, composeEdit: true, camera }, ctx);
+      const out = lock
+        ? await storyboardKeyframe({ body: instruction, refs: refsToSend, imageModel, frameEdit: true, frameEditAnnotated: !!annotatedFrame, composeEdit: true, camera }, ctx)
+        : await storyboardKeyframe({ body: instruction, shotTemplate: shotTemplate || '', refs: ordered, imageModel }, ctx);
       if (out.editMissing?.length) Message.warning(`The edit prompt dropped ${out.editMissing.join(', ')} — that reference may not be used. Re-render or rephrase.`);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt, localUrl: undefined, assetId: undefined, preserved: undefined, loading: false } } : n)));
-      Message.success('START frame edited in place — text untouched, nothing stale. END ↻ re-chains from it when you want.');
+      Message.success(lock
+        ? 'START frame edited in place — text untouched, nothing stale. END ↻ re-chains from it when you want.'
+        : 'START frame regenerated from the text — END ↻ re-chains from it when you want.');
     } catch (e) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: e.message } } : n)));
       Message.error(`START edit failed: ${e.message}`);

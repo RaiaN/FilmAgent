@@ -268,15 +268,19 @@ const cameraEditLine = (camera) => (camera
   ? `CAMERA CHANGE — part of this edit: re-shoot this same frame as ${cameraWords(camera)} — the same scene, subjects and moment. State it as one change clause.`
   : "CAMERA: unchanged — keep the frame's framing, angle and lens exactly.");
 
+// Drawn marks on the frame are part of the instruction: they say WHERE to change, and
+// the result must carry none of them.
+const MARKS_LINE = '\nDRAWN MARKS: [Image 1] carries red hand-drawn marks. They show where to change (and, with the instruction, what). Read them as part of the instruction. The prompt must confine the change to the marked areas and say to remove every red mark — no mark may survive in the result.\n';
+
 // EDIT PROMPT under the image model's skill: the planner reads the frame (+ refs) and
 // writes the change-only edit from the user's instruction and the camera choice. Every
 // [Image N] the instruction cites must survive — checked in code, one corrective retry,
 // and whatever is still missing is returned for the caller to report.
-export const composeFrameEdit = async ({ instruction = '', camera = null, refs = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
+export const composeFrameEdit = async ({ instruction = '', camera = null, annotated = false, refs = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
   const I = '@@INSTRUCTION@@';
   const text = String(instruction || '').trim().slice(0, 2000);
   const wanted = [...new Set([...text.matchAll(/\[Image \d+\]/g)].map((m) => m[0]))];
-  const systemPrompt = renderTemplate('storyboard.frameEditCompose.system', { refCount: String(refs.length), cameraLine: cameraEditLine(camera), skill: await requireSkillLine(imageModel) });
+  const systemPrompt = renderTemplate('storyboard.frameEditCompose.system', { refCount: String(refs.length), cameraLine: cameraEditLine(camera), marksLine: annotated ? MARKS_LINE : '', skill: await requireSkillLine(imageModel) });
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('storyboard.frameEditCompose.user', { instruction: I }).split(I).join(text) + retry,
@@ -301,14 +305,13 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
   const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
   // frameEdit = the Edit-shot editor's structure lock: [Image 1] IS the current frame and
   // the body is the CHANGE. composeEdit (the edit dialogs) has the planner write the edit
-  // under the image model's skill, camera included. Otherwise — drawn marks, or internal
-  // fixed instructions — the lean EDIT template wraps the text verbatim, camera as one
-  // plain sentence ahead of it.
+  // under the image model's skill — camera and drawn marks included. Internal fixed
+  // instructions (no composeEdit) keep the lean EDIT template, text verbatim.
   const SLOT = '@@EDIT@@';
   let prompt;
   let editMissing = [];
-  if (frameEdit && composeEdit && !frameEditAnnotated) {
-    ({ prompt, missing: editMissing } = await composeFrameEdit({ instruction: body, camera, refs: images, imageModel, config }, ctx));
+  if (frameEdit && composeEdit) {
+    ({ prompt, missing: editMissing } = await composeFrameEdit({ instruction: body, camera, annotated: frameEditAnnotated, refs: images, imageModel, config }, ctx));
   } else if (frameEdit) {
     const change = [camera ? `Reframe as ${cameraWords(camera)}: the same scene, subjects and moment.` : '', String(body || '').trim()].filter(Boolean).join(' ');
     prompt = renderTemplate(frameEditAnnotated ? 'storyboard.frameEditDraw' : 'storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(change.slice(0, 2000));

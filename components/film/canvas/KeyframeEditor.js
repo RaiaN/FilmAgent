@@ -32,6 +32,7 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
   // preserved and the render changes ONLY what the text changes. Untick for a free
   // re-composition from text + refs alone.
   const [useFrame, setUseFrame] = useState(!!preview);
+  const editingFrame = mode === 'frame' && useFrame && !!preview; // an edit of the frame, not a fresh render
   // PENCIL MARKS (Seedream 5.0 Pro doodle-guided edit): freehand red strokes over the
   // preview say WHERE the change applies; they bake onto a copy of the frame at Apply
   // and the template tells the model to obey + remove them. Normalized (0..1) points.
@@ -206,8 +207,8 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
               )}
             </div>
           )}
-          <Text type="secondary" title={mode === 'frame' ? 'The frame anchors the structure: the render keeps its composition and changes ONLY what this text changes. Address references as [Image N].' : undefined} style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-            {mode === 'frame'
+          <Text type="secondary" title={editingFrame ? 'The frame anchors the structure: the render keeps its composition and changes ONLY what this text changes. Address references as [Image N].' : undefined} style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+            {editingFrame
               ? 'Edit instruction — change only what you name; address references as [Image N]'
               : 'Frame text — what the still renders from; address references as [Image N]'}
           </Text>
@@ -223,7 +224,7 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
           )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 14 }}>
             <div style={{ flex: 1 }}>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>{mode === 'frame' ? 'Reframe (optional) — re-shoot this frame from another camera' : 'Camera'}</Text>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 2 }}>{editingFrame ? 'Reframe (optional) — re-shoot this frame from another camera' : 'Camera'}</Text>
               <Select
                 size="small" showSearch value={shotTemplate || undefined} onChange={(v) => setShotTemplate(v || '')} options={mode === 'frame' ? STILL_OPTS : SHOT_OPTS} style={{ width: '100%' }}
                 allowClear={mode === 'frame'}

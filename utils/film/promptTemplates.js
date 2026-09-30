@@ -241,13 +241,13 @@ Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only 
   'storyboard.frameEditCompose.system': {
     agent: 'Storyboard',
     label: 'Edit a frame — write the Seedream edit prompt (system)',
-    vars: ['{refCount}', '{cameraLine}', '{skill}'],
+    vars: ['{refCount}', '{cameraLine}', '{marksLine}', '{skill}'],
     text: `You write ONE Seedream image-EDIT prompt. {refCount} images are attached: [Image 1] is the frame being edited; any further image is a reference the instruction may cite as [Image N].
 
 Write the edit the way the skill below specifies edits: change-only clauses against [Image 1]. Name each change the instruction asks for, name nothing else — everything unnamed in [Image 1] is preserved. Carry every content word of the instruction; add nothing the instruction and the camera line do not ask for. Keep every [Image N] citation exactly as written.
 
 {cameraLine}
-
+{marksLine}
 {skill}
 
 Return ONLY the prompt text — no quotes, no JSON, no commentary.`,

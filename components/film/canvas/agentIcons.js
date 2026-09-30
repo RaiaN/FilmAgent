@@ -21,6 +21,7 @@ export const AGENT_ICONS = {
   bulb: IconStar,        // Inspiration Board
   user: IconUser,        // Character Variations
   location: IconLocation, // Location Variations
+  scout: IconEye,        // Tech Scout (walks the empty location)
   film: IconVideoCamera, // Animate
   story: IconBranch,     // Story Director
   board: IconApps,       // Storyboard (the panel grid)

@@ -54,7 +54,8 @@ import { animate as animateOp, finishDraft, generateFilmAudio } from '../../../u
 import { previzPlan, previzPlate, PREVIZ_RESOLUTION, PLATE_STYLES, plateIsStale, plateStyleLock } from '../../../utils/film/core/previz';
 import { describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
-import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits, DRAFT_MODE, draftFinalsOf } from '../../../utils/film/suiteConfig';
+import { SCOUT_PATHS, startSurvey, surveyFrameTimes, checkEmpty } from '../../../utils/film/core/scout';
+import { clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits, DRAFT_MODE, draftFinalsOf, VIDEO_MODEL_OPTIONS, resolveModelId } from '../../../utils/film/suiteConfig';
 import { createBrowserClient } from '../../../utils/film/core/client';
 import { createTrace } from '../../../utils/film/core/trace';
 import { emptyTimeline, emptyBible } from '../../../utils/film/projectShape';
@@ -1008,7 +1009,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
   useEffect(() => {
     const sel = selectedNodes.find((n) => n.data?.kind === 'image' && refUrl(n));
     if (!sel) return;
-    const isVar = (id) => id === 'characterVariations' || id === 'locationVariations';
+    const isVar = (id) => id === 'characterVariations' || id === 'locationVariations' || id === 'techScout';
     if (panelAgentId && isVar(panelAgentId)) {
       setLayerSettings((prev) => (prev[panelAgentId]?.anchorId === sel.id ? prev
         : { ...prev, [panelAgentId]: { ...(prev[panelAgentId] || {}), anchorId: sel.id } }));
@@ -2924,6 +2925,55 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     onPatchCut(cutId, (d) => ({ drafts: (d.drafts || []).map((x) => (x.taskId === taskId ? { ...x, ...p } : x)) }));
   }, [onPatchCut]);
 
+  // TECH SCOUT · the frame step. A finished survey video → evenly spaced background
+  // frames in its group (the video sits in the first cell) → each frame checked for
+  // people or animals; a hit is flagged on the frame, never hidden. Runs once per survey
+  // (scout.done), whether the survey finished in this session or after a reload.
+  const SCOUT_COLS = 3;
+  const scoutGroupDims = (items) => ({
+    width: GROUP_PAD * 2 + SCOUT_COLS * EXTRACT_COL_W,
+    height: GROUP_HEADER + GROUP_PAD * 2 + Math.ceil(items / SCOUT_COLS) * EXTRACT_ROW_H,
+  });
+  const scoutCell = (slot) => ({ x: GROUP_PAD + (slot % SCOUT_COLS) * EXTRACT_COL_W, y: GROUP_HEADER + GROUP_PAD + Math.floor(slot / SCOUT_COLS) * EXTRACT_ROW_H });
+  const finishScoutSurvey = useCallback(async (videoNodeId, videoUrl) => {
+    const vid = nodesRef.current.find((n) => n.id === videoNodeId);
+    const sc = vid?.data?.scout;
+    if (!sc || sc.done || !videoUrl) return;
+    setNodes((ns) => ns.map((n) => (n.id === videoNodeId ? { ...n, data: { ...n.data, scout: { ...sc, done: true } } } : n)));
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
+    try {
+      const { frames = [] } = await ctx.client.extractFrames({ url: absLocalMediaUrl(videoUrl), timestamps: surveyFrameTimes(sc.seconds, sc.frames) });
+      traceRef.current.log({ level: 'run', kind: 'decision', note: `Tech Scout · ${frames.length} background frames from the ${sc.pathLabel} survey` });
+      const landed = frames.map((f) => {
+        const nd = createAssetNode({ kind: 'image', url: f.url, label: `${sc.plateLabel} · ${sc.pathLabel} · ${Number(f.t).toFixed(1)} s`, meta: { scoutOf: videoNodeId, path: sc.path, t: f.t } });
+        return { ...nd, data: { ...nd.data, cacheUrl: f.url } };
+      });
+      const groupId = vid.parentId;
+      setNodes((ns) => {
+        const next = ns.map((n) => (n.id === groupId ? { ...n, style: { ...n.style, ...scoutGroupDims(1 + landed.length) } } : n));
+        return next.concat(landed.map((nd, i) => ({ ...nd, parentId: groupId, position: scoutCell(i + 1) })));
+      });
+      let flagged = 0;
+      await runWithConcurrency(landed.map((nd) => async () => {
+        let patch;
+        try {
+          const found = await checkEmpty({ imageUrl: nd.data.url }, ctx);
+          if (found.length) flagged += 1;
+          patch = { scoutFlags: found };
+        } catch (e) {
+          patch = { scoutCheckFailed: true };
+        }
+        setNodes((ns) => ns.map((n) => (n.id === nd.id ? { ...n, data: { ...n.data, ...patch } } : n)));
+      }), 6);
+      traceRef.current.log({ level: 'run', kind: 'decision', note: `Tech Scout · people check: ${flagged} of ${landed.length} frames flagged` });
+      if (flagged) Message.warning(`Tech Scout: ${flagged} background frame${flagged === 1 ? '' : 's'} from the ${sc.pathLabel} survey show a person or animal — flagged on the frame.`);
+      else Message.success(`Tech Scout: ${landed.length} empty background frames from the ${sc.pathLabel} survey.`);
+    } catch (e) {
+      setNodes((ns) => ns.map((n) => (n.id === videoNodeId ? { ...n, data: { ...n.data, error: `Background frames failed: ${e.message}` } } : n)));
+      Message.error(`Tech Scout: background frames failed — ${e.message}`);
+    }
+  }, [setNodes]);
+
   // 🎬 on a single card: shoot JUST this cut (keyframe + animate, no stitch) — the
   // same engine, so retries and History tracing come along. The take lands on the
   // card, the board and the timeline at the cut's slot; re-clicking re-shoots.
@@ -2954,6 +3004,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
             if (take.data.finalOfDraft) patchCardDraft(take.data.cutId, take.data.finalOfDraft.taskId, { finalizing: false });
           }
           if (take.data.draft) setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, draft: { ...take.data.draft, taskId: take.data.taskId } } } : n)));
+          if (take.data.scout && !take.data.scout.done) finishScoutSurvey(take.id, videoCacheUrl || videoUrl);
           Message.success('A take that was rendering before the reload has landed.');
         } catch (e) {
           setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, loading: false, taskId: null, error: `Interrupted take could not be resumed: ${e.message}`, label: 'Take failed' } } : n)));
@@ -2962,7 +3013,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
         }
       })();
     });
-  }, [nodes, setNodes, onPatchCut, addCardDraft, patchCardDraft]);
+  }, [nodes, setNodes, onPatchCut, addCardDraft, patchCardDraft, finishScoutSurvey]);
 
 
   // 🎬 SHOOT a take. `draft` (Seedance 2.5 only) renders the 480p Draft instead: the
@@ -4417,6 +4468,52 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
 
   // Run THIS agent card: read its own settings, land outputs beside it. Same handlers
   // the old panel Run invoked — the card is just where the tap and the config live now.
+  // TECH SCOUT · one survey per ticked camera path, in parallel. Each lands in its own
+  // titled group beside the card: the survey video first, then its background frames.
+  // The render's task id is stored on the video node, so a reload resumes it.
+  const runTechScout = useCallback(async (node) => {
+    const s = node.data.settings || {};
+    const anchor = nodesRef.current.find((n) => n.id === s.anchorId && n.data?.kind === 'image' && refUrl(n));
+    if (!anchor) { Message.warning('Pick the location plate first.'); return; }
+    const paths = (s.paths || []).filter((p) => SCOUT_PATHS[p]);
+    if (!paths.length) { Message.warning('Tick at least one camera path.'); return; }
+    const modelKey = [s.videoModel, ...VIDEO_MODEL_OPTIONS.map((o) => o.key)].find((k) => k && videoTraits(k).keyframes && resolveModelId(k));
+    if (!modelKey) { Message.warning('Tech Scout needs a Seedance 2.5 model — set MODELARK_MODEL_SEEDANCE_25 in .env.local.'); return; }
+    const frames = [4, 6, 8].includes(Number(s.frames)) ? Number(s.frames) : 6;
+    const resolution = s.resolution === '720p' ? '720p' : '1080p';
+    const plateUrl = absLocalMediaUrl(refUrl(anchor));
+    const plateLabel = String(anchor.data?.label || 'Location').slice(0, 32);
+    const beside = { x: (node.position?.x || 0) + Math.round(node.measured?.width || 300) + 60, y: node.position?.y || 0 };
+    traceRef.current.startRun({ note: `Agent · Tech Scout (${paths.map((p) => SCOUT_PATHS[p].label).join(' + ')})` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
+    const full = scoutGroupDims(1 + frames);
+    await Promise.all(paths.map(async (path, pi) => {
+      const p = SCOUT_PATHS[path];
+      const stamp = `${Date.now().toString(36)}${pi}`;
+      const groupId = `scout-${stamp}`;
+      const vidId = `scoutvid-${stamp}`;
+      const position = freeOrigin({ w: full.width, h: full.height, preferred: { x: beside.x, y: beside.y + pi * (full.height + 40) } });
+      const group = createGroupNode({ label: `Tech Scout · ${p.label} · ${plateLabel}`, position, width: full.width, height: scoutGroupDims(1).height });
+      const vn = createAssetNode({ kind: 'video', url: '', label: `Survey · ${p.label}…` });
+      setNodes((ns) => ns.concat(
+        { ...group, id: groupId },
+        { ...vn, id: vidId, parentId: groupId, position: scoutCell(0), data: { ...vn.data, loading: true, scout: { path, pathLabel: p.label, seconds: p.seconds, frames, plateLabel, done: false } } },
+      ));
+      try {
+        const { taskId } = await startSurvey({ plateUrl, path, modelKey, resolution }, ctx);
+        resumedTakesRef.current.add(vidId);
+        setNodes((ns) => ns.map((n) => (n.id === vidId ? { ...n, data: { ...n.data, taskId } } : n)));
+        const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
+        setNodes((ns) => ns.map((n) => (n.id === vidId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label: `Survey · ${p.label}` } } : n)));
+        await finishScoutSurvey(vidId, videoCacheUrl || videoUrl);
+      } catch (e) {
+        setNodes((ns) => ns.map((n) => (n.id === vidId ? { ...n, data: { ...n.data, loading: false, taskId: null, error: e.message, label: 'Survey failed' } } : n)));
+        traceRef.current.log({ level: 'run', kind: 'decision', status: 'error', note: `Tech Scout · ${p.label} survey FAILED`, error: e.message });
+        Message.error(`Tech Scout (${p.label}): ${e.message}`);
+      }
+    }));
+  }, [freeOrigin, setNodes, finishScoutSurvey]);
+
   const runAgentNode = useCallback(async (nodeId) => {
     const node = nodesRef.current.find((n) => n.id === nodeId && n.type === 'agent');
     if (!node || agentRunning.includes(nodeId)) return;
@@ -4460,6 +4557,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
         }
         const { result } = await runAgent({ agentId, settings: s, selectionNodes: anchor ? [anchor] : [], origin: groupOrigin() });
         Message.success(result?.async ? `${layer.label} started` : `${layer.label} finished`);
+      } else if (agentId === 'techScout') {
+        await runTechScout(node);
       } else if (agentId === 'inspiration') {
         const picked = (s.refs || []).map((rid) => nodesRef.current.find((x) => x.id === rid))
           .filter((n) => n && n.data?.kind === 'image' && refUrl(n));
@@ -4471,7 +4570,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     } finally {
       setAgentRunning((r) => r.filter((x) => x !== nodeId));
     }
-  }, [agentRunning, runCastDraft, runAudioClip, runAgent, freeOrigin]);
+  }, [agentRunning, runCastDraft, runAudioClip, runAgent, runTechScout, freeOrigin]);
 
   // Drop a fresh SHOT card carrying the draft panel's preset (prompt verbatim, camera,
   // duration) — everything stays editable ON the card afterwards. The live board

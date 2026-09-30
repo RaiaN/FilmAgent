@@ -380,6 +380,30 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final pr
     vars: ['{refRoster}', '{text}'],
     text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE DIRECTOR\'S TEXT:\n"""\n{text}\n"""\n\nReturn the JSON.',
   },
+  'scout.survey': {
+    agent: 'Tech Scout',
+    label: 'Empty-location survey (video prompt)',
+    vars: ['{path}'],
+    text: 'The empty location from the first frame. {path} The location stays completely empty: no people or animals appear at any moment. Nothing moves except the camera and the small natural motion already in the scene.',
+  },
+  'scout.path.turn': {
+    agent: 'Tech Scout',
+    label: 'Survey path: turn in place',
+    vars: [],
+    text: 'The camera stands in one spot at eye level and slowly pans to the right through a full 360-degree turn, ending where it started.',
+  },
+  'scout.path.walk': {
+    agent: 'Tech Scout',
+    label: 'Survey path: walk-in',
+    vars: [],
+    text: 'The camera, at eye level on a smooth gimbal, walks slowly forward through the space along its main open path.',
+  },
+  'scout.emptyCheck': {
+    agent: 'Tech Scout',
+    label: 'Background frame: people check (grounding)',
+    vars: [],
+    text: 'List every person or animal visible anywhere in this image, including tiny, distant, partial or silhouetted ones, each as {"what": "...", "bbox": "<bbox>x1 y1 x2 y2</bbox>"}. Return a JSON list; return [] if there are none.',
+  },
   'deconstruct.describeFrame': {
     agent: 'Take Viewer',
     label: 'Describe one frame (Take Viewer note)',

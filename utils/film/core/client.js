@@ -98,6 +98,19 @@ export const createBrowserClient = () => ({
     return { taskId };
   },
 
+  // Frames at given times from a video — each one is checked into the media store by
+  // the route, so every url that comes back is durable.
+  async extractFrames({ url, timestamps, maxWidth }) {
+    const res = await fetch('/api/film/frames', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, timestamps, ...(maxWidth ? { maxWidth } : {}) }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(errMsg(data, 'Frame extraction failed'));
+    return data; // { frames: [{ t, url }] }
+  },
+
   async pollVideo({ taskId, intervalMs = POLL_INTERVAL_MS, timeoutMs = POLL_TIMEOUT_MS }) {
     const startedAt = Date.now();
     // eslint-disable-next-line no-constant-condition

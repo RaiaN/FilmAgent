@@ -388,6 +388,17 @@ const AssetNodeInner = ({ id, data, selected }) => {
         </div>
       )}
 
+      {/* Tech Scout: a background frame that should be empty but is not (or was never checked). */}
+      {(data.scoutFlags?.length > 0 || data.scoutCheckFailed) && (
+        <div style={{ padding: '4px 8px', background: '#fff7e8' }} title={data.scoutFlags?.length ? `Found: ${data.scoutFlags.map((f) => f.what || 'person').join(' · ')}` : 'The people check did not run for this frame.'}>
+          <Text style={{ fontSize: 10, color: '#d25f00' }} ellipsis={{ rows: 1 }}>
+            {data.scoutFlags?.length
+              ? `⚠ ${data.scoutFlags.length === 1 ? (data.scoutFlags[0].what || 'person in frame') : `${data.scoutFlags.length} people or animals in frame`}`
+              : '⚠ not checked for people'}
+          </Text>
+        </div>
+      )}
+
       {/* Caption — editable name (left) + icon-only actions (right), one aligned row. */}
       {(label || canRename) && (
         <div style={{ padding: '6px 8px', borderTop: '1px solid #f2f3f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

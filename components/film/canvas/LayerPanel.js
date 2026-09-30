@@ -1,7 +1,8 @@
 import { Button, Checkbox, Input, InputNumber, Select, Typography } from '@arco-design/web-react';
 import { IconPlayArrow, IconPlus, IconClose } from '@arco-design/web-react/icon';
 import { AGENT_MAP, IMAGE_RESOLUTIONS } from '../../../utils/film/agents';
-import { IMAGE_MODEL_OPTIONS, imageModelKeyOf, imageTraits, maxShotSeconds, AUTO_SECONDS, defaultVideoModelKey } from '../../../utils/film/suiteConfig';
+import { IMAGE_MODEL_OPTIONS, imageModelKeyOf, imageTraits, maxShotSeconds, AUTO_SECONDS, defaultVideoModelKey, VIDEO_MODEL_OPTIONS, videoTraits, resolveModelId } from '../../../utils/film/suiteConfig';
+import { SCOUT_PATHS } from '../../../utils/film/core/scout';
 import { SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
 import { agentIcon } from './agentIcons';
 
@@ -326,6 +327,49 @@ const VariationsFields = ({ agentId, s, up, imageAssets, onOpenRefDrawer }) => (
   </>
 );
 
+// Only video slots that lock a first frame can survey from a plate (the 2.5 family).
+const scoutModelOptions = () => VIDEO_MODEL_OPTIONS
+  .filter((o) => videoTraits(o.key).keyframes && resolveModelId(o.key))
+  .map((o) => ({ label: o.label, value: o.key }));
+
+const TechScoutFields = ({ s, up, imageAssets, onOpenRefDrawer }) => {
+  const paths = s.paths || [];
+  const togglePath = (k, on) => up({ paths: on ? [...new Set([...paths, k])] : paths.filter((p) => p !== k) });
+  const models = scoutModelOptions();
+  return (
+    <>
+      <div>
+        <Text style={FIELD_LABEL}>Location plate — the empty location, at eye level</Text>
+        <BoardImagePicker imageAssets={imageAssets} value={s.anchorId || ''} onPick={(anchorId) => up({ anchorId })}
+          onBrowse={onOpenRefDrawer ? () => onOpenRefDrawer('anchorId') : undefined}
+          emptyHint="Pick the location's master plate. The survey starts on exactly this picture." />
+      </div>
+      <div>
+        <Text style={FIELD_LABEL}>Camera paths — one survey video each</Text>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {Object.entries(SCOUT_PATHS).map(([k, p]) => (
+            <Checkbox key={k} checked={paths.includes(k)} onChange={(on) => togglePath(k, on)}>{p.label} · {p.seconds} s</Checkbox>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div>
+          <Text style={FIELD_LABEL}>Background frames per survey</Text>
+          <Select size="small" value={s.frames} onChange={(v) => up({ frames: v })} style={{ width: 90 }} options={[4, 6, 8].map((n) => ({ label: String(n), value: n }))} />
+        </div>
+        <div>
+          <Text style={FIELD_LABEL}>Resolution</Text>
+          <Select size="small" value={s.resolution} onChange={(v) => up({ resolution: v })} style={{ width: 96 }} options={['720p', '1080p'].map((x) => ({ label: x, value: x }))} />
+        </div>
+      </div>
+      <div>
+        <Text style={FIELD_LABEL}>Video model</Text>
+        <Select size="small" value={s.videoModel || (models[0] && models[0].value) || undefined} onChange={(v) => up({ videoModel: v })}
+          placeholder="no Seedance 2.5 model configured" options={models} style={{ width: '100%' }} />
+      </div>
+    </>
+  );
+};
 
 const AudioFields = ({ s, up, imageAssets, audioAssets, onOpenRefDrawer }) => {
   const nRefs = (s.audioRefs || []).length;
@@ -361,6 +405,7 @@ export const AGENT_FIELDS = {
   inspiration: InspirationFields,
   characterVariations: VariationsFields,
   locationVariations: VariationsFields,
+  techScout: TechScoutFields,
   audio: AudioFields,
 };
 

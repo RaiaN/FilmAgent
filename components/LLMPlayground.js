@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Select, Input, Button, Upload, Message, Grid, Card, Typography, Tooltip, Empty, Spin } from '@arco-design/web-react';
+import { supportsReasoningEffort } from '../utils/modelCapabilities';
+
+// '' sends nothing (the model's own default); 'minimal' turns deep reasoning off.
+const EFFORT_OPTIONS = [
+    { label: 'Model default', value: '' },
+    { label: 'Off', value: 'minimal' },
+    { label: 'Low', value: 'low' },
+    { label: 'Medium', value: 'medium' },
+    { label: 'High', value: 'high' },
+    { label: 'Max', value: 'max' },
+];
 import { IconImage, IconVideoCamera, IconSend, IconRobot, IconRefresh, IconBook, IconDelete, IconPlus } from '@arco-design/web-react/icon';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -30,6 +41,7 @@ const LLMPlayground = ({
 
     // Extract options safely
     const modelOptions = schema?.fields?.find(f => f.key === 'model' || f.name === 'model')?.options || [];
+    const effortSupported = supportsReasoningEffort(formValues.model);
 
     return (
         <div style={{ display: 'flex', gap: 24, height: 'calc(100vh - 140px)', paddingBottom: 20 }}>
@@ -77,6 +89,19 @@ const LLMPlayground = ({
                         }}
                         options={modelOptions}
                     />
+                    <div style={{ marginTop: 12, marginBottom: 8, fontWeight: 500 }}>Reasoning effort</div>
+                    <Select
+                        style={{ width: '100%' }}
+                        value={effortSupported ? (formValues.reasoningEffort || '') : ''}
+                        disabled={!effortSupported}
+                        onChange={(val) => handleInputChange('reasoningEffort', val)}
+                        options={EFFORT_OPTIONS}
+                    />
+                    <div style={{ marginTop: 4, fontSize: 12, color: '#86909c' }}>
+                        {effortSupported
+                            ? 'How deeply the model thinks before answering. Higher is slower and costs more; Off answers directly.'
+                            : 'This model runs without adjustable deep reasoning.'}
+                    </div>
                 </div>
 
                 {/* Media Upload Section */}
@@ -211,6 +236,12 @@ const LLMPlayground = ({
                         >
                             {result.content}
                         </ReactMarkdown>
+                        {result.reasoning && (
+                            <details style={{ marginTop: 16, borderTop: '1px solid #f2f3f5', paddingTop: 12 }}>
+                                <summary style={{ cursor: 'pointer', color: '#4e5969', fontWeight: 500 }}>Reasoning summary</summary>
+                                <div style={{ marginTop: 8, whiteSpace: 'pre-wrap', color: '#4e5969', fontSize: 13, lineHeight: 1.6 }}>{result.reasoning}</div>
+                            </details>
+                        )}
                      </div>
                  ) : result && result.error ? (
                      <div style={{ color: 'red', padding: 20, background: '#fff7f7', borderRadius: 8, border: '1px solid #ffecec' }}>

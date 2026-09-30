@@ -3,7 +3,7 @@
 // id key would silently stop matching on any other account. getModelCapabilities()
 // resolves the caller's model id back to its slot at LOOKUP time via the same
 // env-backed registry the routes use.
-import { resolveModelId } from './film/suiteConfig';
+import { resolveModelId, reasonerOptionOfId } from './film/suiteConfig';
 
 const SLOT_CAPABILITIES = {
     // --- SEEDREAM (IMAGE) ---
@@ -119,21 +119,6 @@ const CATALOG_CAPABILITIES = {
         supports_seed: false,
         max_ref_images: 14,
     },
-    'seed-2-0-pro-260328': {
-        input_modalities: ['text', 'image', 'video', 'audio'],
-        supportsImage: true,
-        supportsVideo: true,
-    },
-    'seed-2-0-mini-260428': {
-        input_modalities: ['text', 'image', 'video', 'audio'],
-        supportsImage: true,
-        supportsVideo: true,
-    },
-    'seed-2-0-lite-260428': {
-        input_modalities: ['text', 'image', 'video', 'audio'],
-        supportsImage: true,
-        supportsVideo: true,
-    },
 };
 
 export const DEFAULT_CAPABILITIES = {
@@ -160,6 +145,10 @@ export const DEFAULT_CAPABILITIES = {
     // LLM defaults
     input_modalities: ['text', 'image', 'video'],
 };
+
+// Does this LLM take a deep-reasoning effort? Only configured planner slots are used,
+// and each declares it (its endpoint was probed — Seed-SC's rejects effort).
+export const supportsReasoningEffort = (modelId) => !!reasonerOptionOfId(modelId)?.effort;
 
 // Always returns an object (DEFAULT_CAPABILITIES when the id is unknown/unset).
 export const getModelCapabilities = (modelId) => {

@@ -253,6 +253,7 @@ export default function Home() {
             modelId: llmPayload.model,
             images: llmPayload.images,
             video: llmPayload.video,
+            reasoningEffort: llmPayload.reasoningEffort,
             systemPrompt: `You are an expert AI media analyst for the ModelArk platform. 
             Your goal is to analyze the provided image or video and answer the user's prompt.
             

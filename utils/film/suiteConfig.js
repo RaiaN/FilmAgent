@@ -148,8 +148,10 @@ export const REASONER_OPTIONS = [
   { key: 'reasoner', label: 'Seed 2.0 Pro', effort: true },
   { key: 'reasonerSC', label: 'Seed-SC', effort: false },
 ];
-// The deep-reasoning effort levels offered (the API also takes none/minimal/xhigh).
+// The deep-reasoning effort levels offered for planner calls (the API also takes
+// none/minimal/xhigh). 'minimal' turns reasoning OFF; only the AI Analysis tab offers it.
 export const REASONING_EFFORTS = ['low', 'medium', 'high', 'max'];
+export const REASONING_EFFORTS_ALL = ['minimal', ...REASONING_EFFORTS];
 // The reasoner slot an id belongs to (null for a non-planner model) — server-safe.
 export const reasonerOptionOfId = (id) => REASONER_OPTIONS.find((o) => id && resolveModelId(o.key) === id) || null;
 const REASONER_KEYS = REASONER_OPTIONS.map((o) => o.key);

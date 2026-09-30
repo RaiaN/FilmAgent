@@ -1,4 +1,4 @@
-import { resolveModelId } from './film/suiteConfig';
+import { resolveModelId, REASONER_OPTIONS, reasonerSlotOf } from './film/suiteConfig';
 
 // Seedream (image) endpoints for the Tools → Image dropdown — Lite + Pro. Endpoint ids
 // come from the suite-config registry (ROOT_CONFIG.models) so the tab and the film suite
@@ -25,19 +25,12 @@ const seedanceEndpointsLive = () => [
 ].filter((o) => o.value);
 const defaultSeedanceModel = () => seedanceEndpointsLive()[0]?.value || null; // first CONFIGURED endpoint — never a hardcoded id
 
-// LLM Models — the env-configured reasoner slot FIRST (it's what the film suite
-// uses and what a customer actually deployed), then the public catalog names
-// (portable across accounts — standard model names, never account-scoped ep- ids).
-const LLM_CATALOG_IDS = [
-    'seed-2-0-pro-260328',
-    'seed-2-0-mini-260428',
-    'seed-2-0-lite-260428',
-];
-const llmModelsLive = () => {
-    const r = resolveModelId('reasoner');
-    return r && !LLM_CATALOG_IDS.includes(r) ? [r, ...LLM_CATALOG_IDS] : LLM_CATALOG_IDS;
-};
-const defaultLlmModel = () => resolveModelId('reasoner') || LLM_CATALOG_IDS[0];
+// LLM Models — exactly the planner slots configured in .env.local (MODELARK_MODEL_REASONER*),
+// named as in Project settings. Nothing is listed that the deployment did not configure.
+const llmModelsLive = () => REASONER_OPTIONS
+    .map((o) => ({ value: resolveModelId(o.key), label: o.label }))
+    .filter((o) => o.value);
+const defaultLlmModel = () => resolveModelId(reasonerSlotOf()) || llmModelsLive()[0]?.value || null;
 
 export const baseSchemas = {
   seedream: {
@@ -118,6 +111,7 @@ export const baseSchemas = {
     ],
     defaults: {
       get model() { return defaultLlmModel(); },
+      reasoningEffort: '', // '' = the model's own default
       prompt: 'Describe this content.',
       image: [],
       video: [],

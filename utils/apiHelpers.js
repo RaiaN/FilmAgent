@@ -227,5 +227,6 @@ export const constructLLMPayload = (formValues) => {
         prompt: formValues.prompt,
         images: formValues.image && formValues.image.length > 0 ? formValues.image : [],
         video: formValues.video && formValues.video.length > 0 ? formValues.video[0] : null,
+        reasoningEffort: formValues.reasoningEffort || null,
     };
 };

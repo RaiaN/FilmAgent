@@ -1,5 +1,6 @@
 import { CONFIG, arkKey, ARK_KEY_MISSING } from '../../utils/config';
-import { getModel, resolveModelId, REASONER_OPTIONS, REASONING_EFFORTS, reasonerOptionOfId } from '../../utils/film/suiteConfig';
+import { getModel, resolveModelId, REASONER_OPTIONS, REASONING_EFFORTS_ALL } from '../../utils/film/suiteConfig';
+import { supportsReasoningEffort } from '../../utils/modelCapabilities';
 import { storeKeyFromUrl, readStoreBytes } from '../../utils/server/mediaStore';
 import { presignStoreUrl } from '../../utils/server/presignStore';
 
@@ -82,9 +83,8 @@ async function seedHandler(req, res) {
     // Seed-SC wrong every time. Matching the id against the configured reasoner slots is
     // the only thing that actually knows.
     const reasonerIds = REASONER_OPTIONS.map((o) => resolveModelId(o.key)).filter(Boolean);
-    // DEEP-REASONING EFFORT: sent only to a planner slot whose endpoint takes it.
-    const slot = reasonerOptionOfId(resolvedModelId);
-    const effort = slot?.effort && REASONING_EFFORTS.includes(reasoningEffort) ? reasoningEffort : null;
+    // DEEP-REASONING EFFORT: sent only to a model that takes it ('minimal' = off).
+    const effort = supportsReasoningEffort(resolvedModelId) && REASONING_EFFORTS_ALL.includes(reasoningEffort) ? reasoningEffort : null;
     // The escape hatch stays for a deployment that points a reasoner slot at something
     // genuinely chat-shaped; the prefix check is the last resort, for a model id that
     // was passed in without being one of the configured slots.
@@ -167,7 +167,15 @@ async function seedHandler(req, res) {
         return res.status(502).json({ error: 'Reasoning model returned no assistant text', details: data });
       }
 
-      return res.status(200).json({ content, raw: data });
+      // The thinking SUMMARY (what these models return instead of raw thinking) — shown
+      // by the AI Analysis tab; agents ignore it.
+      const reasoning = outputItems
+        .filter((item) => item?.type === 'reasoning')
+        .flatMap((item) => (Array.isArray(item.summary) ? item.summary : []))
+        .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+        .join('\n\n')
+        .trim();
+      return res.status(200).json({ content, ...(reasoning ? { reasoning } : {}), raw: data });
     }
 
     // Standard Chat Completions logic for other models
@@ -218,7 +226,8 @@ async function seedHandler(req, res) {
       return res.status(500).json({ error: 'No response text returned', details: data });
     }
 
-    return res.status(200).json({ content });
+    const reasoning = String(data?.choices?.[0]?.message?.reasoning_content || '').trim();
+    return res.status(200).json({ content, ...(reasoning ? { reasoning } : {}) });
   } catch (error) {
     // Node's fetch buries the real network reason (ECONNRESET / ENOTFOUND / ETIMEDOUT)
     // in error.cause — surface it, or "fetch failed" is all anyone ever sees.

@@ -106,7 +106,7 @@ export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, cou
   const n = clamp(count, 1, 12, 6);
   const items = await planPrompts({ task: 'inspiration', count: n, idea: prompt, references: refs, config }, ctx);
   const genRefs = useRefsInGen ? refs : [];
-  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: genRefs, label: it.label || `Inspiration ${i + 1}`, meta: { planLabel: it.label } }));
+  const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: genRefs, label: it.label || `Mood ${i + 1}`, meta: { planLabel: it.label } }));
   // Pro is the suite-wide default image model; its 2048² area cap clamps the size tier.
   return runImagineBatch({ specs, size: clampSizeForModel(defaultImageModelKey(), size), model: getModel(defaultImageModelKey(), config) }, ctx, onItem);
 };

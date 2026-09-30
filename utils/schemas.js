@@ -226,7 +226,7 @@ export const baseSchemas = {
   'film-agent': {
     id: 'film-agent',
     name: 'Film Agent',
-    description: 'A freeform canvas for cinematic pre-production. Drop assets, then run agent layers — Inspiration Board, Character & Location Variations — to explore your film.',
+    description: 'A freeform canvas for cinematic pre-production. Drop assets, then run agent layers — Mood Board, Character & Location Variations — to explore your film.',
     fields: [
       {
         key: 'idea',

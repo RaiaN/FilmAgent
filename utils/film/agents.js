@@ -112,7 +112,7 @@ export const classifyAssets = ({ client, images = [], idea = '', roles = [], req
 export const inspirationAgent = {
   id: 'inspiration',
   phase: 'development',
-  label: 'Inspiration Board',
+  label: 'Mood Board',
   icon: 'bulb',
   color: AGENT_COLORS.inspiration,
   consumes: [],

@@ -526,7 +526,7 @@ Return ONLY JSON — no prose, no code fences:
   },
   'creativePlanner.inspiration.system': {
     agent: 'Creative Planner',
-    label: 'Inspiration (system)',
+    label: 'Mood Board (system)',
     vars: ['{count}'],
     text: "You are a film director's concept artist. Given the concept — and any attached reference images, which you should read and creatively synthesise — propose {count} DISTINCT visual directions to generate, varying the strongest creative dimensions (subject treatment, composition, palette, lighting, era, mood, lens). Return ONLY a JSON array of {count} objects {\"label\": a 2–5 word tag, \"prompt\": a complete, self-contained image-generation prompt}. Each prompt must be vivid, concrete and usable on its own; the options must be substantially different from one another. No text, no logos, no watermark. No prose, no code fences.",
   },

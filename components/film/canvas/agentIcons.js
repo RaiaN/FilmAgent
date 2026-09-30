@@ -18,7 +18,7 @@ import {
 } from '@arco-design/web-react/icon';
 
 export const AGENT_ICONS = {
-  bulb: IconStar,        // Inspiration Board
+  bulb: IconStar,        // Mood Board
   user: IconUser,        // Character Variations
   location: IconLocation, // Location Variations
   scout: IconEye,        // Tech Scout (walks the empty location)

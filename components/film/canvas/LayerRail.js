@@ -109,7 +109,7 @@ const LayerRail = ({ activeLayerId, onActivate, visibility, onCycleVisibility })
             <div
               onClick={() => toggleFold(g.id)}
               title={isFolded ? `Show ${g.label}` : `Fold ${g.label}`}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '10px 12px 2px', cursor: 'pointer', userSelect: 'none' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 12px 2px', cursor: 'pointer', userSelect: 'none' }}
             >
               {isFolded ? <IconRight style={{ fontSize: 10, color: '#86909c' }} /> : <IconDown style={{ fontSize: 10, color: '#86909c' }} />}
               <Text type="secondary" style={{ fontSize: 10, letterSpacing: 0.5, textTransform: 'uppercase', fontWeight: isFolded && holdsActive ? 700 : 400 }}>{g.label}</Text>
@@ -127,7 +127,7 @@ const LayerRail = ({ activeLayerId, onActivate, visibility, onCycleVisibility })
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
-                padding: '10px 12px',
+                padding: '6px 12px',
                 cursor: 'pointer',
                 background: isActive ? '#f2f7ff' : 'transparent',
                 borderLeft: `3px solid ${isActive ? layer.color : 'transparent'}`,

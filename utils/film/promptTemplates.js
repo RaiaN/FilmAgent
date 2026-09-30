@@ -238,6 +238,26 @@ Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only 
     vars: ['{panels}', '{style}', '{script}'],
     text: 'ONE storyboard PAGE: a single image containing {panels} numbered panels in a clean grid, read left-to-right, top-to-bottom, telling this script as a visual sequence — choose the {panels} most story-bearing moments yourself:\n"""\n{script}\n"""\nSimple, readable panel compositions with a cohesive look{style}; characters match the attached reference images across every panel. Panel numbers only — no other on-image text, no watermarks.',
   },
+  'storyboard.frameEditCompose.system': {
+    agent: 'Storyboard',
+    label: 'Edit a frame — write the Seedream edit prompt (system)',
+    vars: ['{refCount}', '{cameraLine}', '{skill}'],
+    text: `You write ONE Seedream image-EDIT prompt. {refCount} images are attached: [Image 1] is the frame being edited; any further image is a reference the instruction may cite as [Image N].
+
+Write the edit the way the skill below specifies edits: change-only clauses against [Image 1]. Name each change the instruction asks for, name nothing else — everything unnamed in [Image 1] is preserved. Carry every content word of the instruction; add nothing the instruction and the camera line do not ask for. Keep every [Image N] citation exactly as written.
+
+{cameraLine}
+
+{skill}
+
+Return ONLY the prompt text — no quotes, no JSON, no commentary.`,
+  },
+  'storyboard.frameEditCompose.user': {
+    agent: 'Storyboard',
+    label: 'Edit a frame — the instruction',
+    vars: ['{instruction}'],
+    text: 'THE INSTRUCTION (verbatim — every word must be carried):\n"""\n{instruction}\n"""\n\nWrite the edit prompt.',
+  },
   'storyboard.frameEdit': {
     agent: 'Storyboard',
     label: 'Edit a frame in place (structure locked)',

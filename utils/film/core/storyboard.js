@@ -12,6 +12,7 @@ import { parseJson } from './director';
 import { withRetry, isTransient } from './retry';
 import { isImagePolicyError } from './operations';
 import { runWithConcurrency } from './parallel';
+import { requireSkillLine } from '../skills';
 
 // A shot's durationSec always lands inside the default video model's window,
 // defaulting to 10s.
@@ -261,15 +262,59 @@ export const storyboardQuickPage = async ({ script = '', panels = 6, style = '',
   return { url, cacheUrl, prompt };
 };
 
-export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = defaultImageModelKey(), frameEdit = false, frameEditAnnotated = false, config } = {}, ctx) => {
+// A camera change under the edit lock, as words: the preset's framing, angle and lens.
+const cameraWords = (camera) => [camera.framing, camera.angle, camera.cinematography].filter(Boolean).join(', ');
+const cameraEditLine = (camera) => (camera
+  ? `CAMERA CHANGE — part of this edit: re-shoot this same frame as ${cameraWords(camera)} — the same scene, subjects and moment. State it as one change clause.`
+  : "CAMERA: unchanged — keep the frame's framing, angle and lens exactly.");
+
+// EDIT PROMPT under the image model's skill: the planner reads the frame (+ refs) and
+// writes the change-only edit from the user's instruction and the camera choice. Every
+// [Image N] the instruction cites must survive — checked in code, one corrective retry,
+// and whatever is still missing is returned for the caller to report.
+export const composeFrameEdit = async ({ instruction = '', camera = null, refs = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
+  const I = '@@INSTRUCTION@@';
+  const text = String(instruction || '').trim().slice(0, 2000);
+  const wanted = [...new Set([...text.matchAll(/\[Image \d+\]/g)].map((m) => m[0]))];
+  const systemPrompt = renderTemplate('storyboard.frameEditCompose.system', { refCount: String(refs.length), cameraLine: cameraEditLine(camera), skill: await requireSkillLine(imageModel) });
+  const run = async (retry) => {
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('storyboard.frameEditCompose.user', { instruction: I }).split(I).join(text) + retry,
+      systemPrompt,
+      images: refs,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    return String(content || '').replace(/^```\w*\s*|\s*```$/g, '').trim();
+  };
+  let prompt = await run('');
+  let missing = wanted.filter((t) => !prompt.includes(t));
+  if (!prompt || missing.length) {
+    prompt = await run(`\n\nYour last prompt dropped ${missing.join(', ') || 'everything'} — every image citation in the instruction must appear exactly as written.`);
+    missing = wanted.filter((t) => !prompt.includes(t));
+  }
+  if (!prompt) throw new Error('The edit prompt came back empty — try again.');
+  return { prompt, missing };
+};
+
+export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = defaultImageModelKey(), frameEdit = false, frameEditAnnotated = false, composeEdit = false, camera = null, config } = {}, ctx) => {
   const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
   // frameEdit = the Edit-shot editor's structure lock: [Image 1] IS the current frame and
-  // the body is the CHANGE (instruction or full prompt, verbatim via sentinel). The lean
-  // EDIT template replaces the cinematic wrapper — line-1 camera talk would fight the frame.
+  // the body is the CHANGE. composeEdit (the edit dialogs) has the planner write the edit
+  // under the image model's skill, camera included. Otherwise — drawn marks, or internal
+  // fixed instructions — the lean EDIT template wraps the text verbatim, camera as one
+  // plain sentence ahead of it.
   const SLOT = '@@EDIT@@';
-  const prompt = frameEdit
-    ? renderTemplate(frameEditAnnotated ? 'storyboard.frameEditDraw' : 'storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(body || '').trim().slice(0, 2000))
-    : composeKeyframePrompt({ body, shotTemplate, style, expression, ethnicity });
+  let prompt;
+  let editMissing = [];
+  if (frameEdit && composeEdit && !frameEditAnnotated) {
+    ({ prompt, missing: editMissing } = await composeFrameEdit({ instruction: body, camera, refs: images, imageModel, config }, ctx));
+  } else if (frameEdit) {
+    const change = [camera ? `Reframe as ${cameraWords(camera)}: the same scene, subjects and moment.` : '', String(body || '').trim()].filter(Boolean).join(' ');
+    prompt = renderTemplate(frameEditAnnotated ? 'storyboard.frameEditDraw' : 'storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(change.slice(0, 2000));
+  } else {
+    prompt = composeKeyframePrompt({ body, shotTemplate, style, expression, ethnicity });
+  }
   const { url, cacheUrl } = await ctx.client.generateImage({
     prompt,
     referenceImages: images,
@@ -281,7 +326,7 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
     ...(frameEdit ? { optimizePrompt: false } : {}),
   });
   if (!url) throw new Error('No keyframe URL in response');
-  return { url, cacheUrl, prompt }; // the EXACT sent prompt — stashed as promptUsed
+  return { url, cacheUrl, prompt, editMissing }; // prompt = the EXACT sent prompt — stashed as promptUsed
 };
 
 // SINGLE-IMAGE mode: render the WHOLE storyboard as ONE sheet (a grid of numbered panels). Composed

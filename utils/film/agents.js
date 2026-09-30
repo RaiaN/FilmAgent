@@ -287,7 +287,7 @@ export const storyboardAgent = {
   consumes: [],
   needsSelection: false,
   defaultSettings: { script: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: '', mode: 'multiple' },
-  describe: 'Brainstorm the shot division with a cinematographer — a chat bound to a grid of keyframe stills it refines as you talk.',
+  describe: 'Brainstorm the shot division with a cinematographer',
   async run() {
     throw new Error('The Storyboard agent lays a chat node + SHOT cards on the canvas — run it from the board.');
   },

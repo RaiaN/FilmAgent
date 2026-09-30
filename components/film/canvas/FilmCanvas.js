@@ -2102,10 +2102,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     const frameEdit = !!(edits.useFrame && frameSrc);
     if (frameEdit) ({ body, refs: ordered } = lockBodyToFrame(body, ordered, frameSrc));
     // Camera change under the lock = a named change: reframe the same scene.
-    if (frameEdit && shot.shotTemplate && shot.shotTemplate !== (src.data?.editTemplate || 'medium-shot')) {
-      const tpl = SHOT_TEMPLATE_BY_ID[shot.shotTemplate];
-      if (tpl) body = `Reframe to a ${tpl.framing}, ${tpl.angle} — the same scene, subjects and moment. ${body}`;
-    }
+    const camera = frameEdit && shot.shotTemplate && shot.shotTemplate !== (src.data?.editTemplate || 'medium-shot')
+      ? (SHOT_TEMPLATE_BY_ID[shot.shotTemplate] || null) : null;
     // The card IS the frame being iterated — the render replaces its image in place,
     // exactly like a keyframe card. Duplicate first to keep
     // both versions (the previous image's bytes stay safe in the store/Library either way).
@@ -2117,7 +2115,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
       // A node that carries its own RENDER CONVENTION (a clay blockout, any styled
       // plate) re-states it on every edit — otherwise the keyframe wrapper's photoreal
       // default silently converts the medium.
-      const { url, cacheUrl } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style: src.data?.styleLock || '', expression: shot.expression, refs: ordered, imageModel: defaultImageModelKey(), frameEdit, frameEditAnnotated: !!edits.annotatedFrame }, ctx);
+      const out = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style: src.data?.styleLock || '', expression: shot.expression, refs: ordered, imageModel: defaultImageModelKey(), frameEdit, frameEditAnnotated: !!edits.annotatedFrame, composeEdit: true, camera }, ctx);
+      const { url, cacheUrl } = out;
+      if (out.editMissing?.length) Message.warning(`The edit prompt dropped ${out.editMissing.join(', ')} — that reference may not be used. Re-render or rephrase.`);
       // The image CHANGED: stale display/registration state must not survive — the old
       // cacheUrl/localUrl would keep SHOWING the old frame, and the old assetId would
       // keep REFERENCING it in shoots (re-register on demand via the usual paths).
@@ -3296,17 +3296,15 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     const frameSrc = edits.annotatedFrame || plate.cacheUrl || plate.url;
     const frameEdit = !!(edits.useFrame && frameSrc);
     if (frameEdit) ({ body: text, refs: ordered } = lockBodyToFrame(text, ordered, frameSrc));
-    if (frameEdit && shot.shotTemplate) {
-      const tpl = SHOT_TEMPLATE_BY_ID[shot.shotTemplate];
-      if (tpl) text = `Reframe to a ${tpl.framing}, ${tpl.angle} — the same scene, subjects and moment. ${text}`;
-    }
+    const camera = frameEdit && shot.shotTemplate && shot.shotTemplate !== (plate.editTemplate || 'medium-shot')
+      ? (SHOT_TEMPLATE_BY_ID[shot.shotTemplate] || null) : null;
     mark({ editBody: body, editTemplate: shot.shotTemplate, editExpression: shot.expression, editFigures: shot.figures, editPool: previzPool, loading: true, error: '' });
     setPrevizEdit(null);
     traceRef.current.startRun({ note: `Agent · Previz · edit plate ${index + 1}` });
     try {
       // styleLock re-states the plate's own medium — without it the keyframe wrapper's
       // photoreal default turns a pencil panel into a photograph on the first edit.
-      const { url, cacheUrl } = await storyboardKeyframe({
+      const out = await storyboardKeyframe({
         body: text,
         shotTemplate: shot.shotTemplate,
         style: plateStyleLock(sh.kind, plate.style || 'pencil'),
@@ -3314,8 +3312,12 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
         refs: ordered,
         imageModel: 'seedreamPro',
         frameEdit,
+        composeEdit: true,
+        camera,
         frameEditAnnotated: !!edits.annotatedFrame,
       }, previzCtxOf());
+      const { url, cacheUrl } = out;
+      if (out.editMissing?.length) Message.warning(`The edit prompt dropped ${out.editMissing.join(', ')} — that reference may not be used. Re-render or rephrase.`);
       if (!url) throw new Error('the model returned no image');
       mark({ url, cacheUrl: cacheUrl || null, loading: false, error: '' });
       Message.success(`Plate ${index + 1} updated — ↻ redraws it from the plan instead.`);
@@ -4093,10 +4095,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     if (frameEdit) ({ body, refs: ordered } = lockBodyToFrame(body, ordered, frameSrc));
     // A CAMERA change under the lock is a NAMED change: reframe the same scene to the
     // new framing/angle (wide ⇄ close-up ⇄ aerial matter). Unchanged camera = pure lock.
-    if (frameEdit && editFields.shotTemplate && editFields.shotTemplate !== node.data.shotTemplate) {
-      const tpl = SHOT_TEMPLATE_BY_ID[editFields.shotTemplate];
-      if (tpl) body = `Reframe to a ${tpl.framing}, ${tpl.angle} — the same scene, subjects and moment. ${body}`;
-    }
+    const camera = frameEdit && editFields.shotTemplate && editFields.shotTemplate !== node.data.shotTemplate
+      ? (SHOT_TEMPLATE_BY_ID[editFields.shotTemplate] || null) : null;
     setNodes((ns) => ns.map((n) => {
       if (n.id === nodeId) return { ...n, data: { ...n.data, ...shot, label: shot.beat, loading: true, error: undefined } };
       if (chat && n.id === chatId && Array.isArray(n.data?.shots)) return { ...n, data: { ...n.data, shots: n.data.shots.map((s, i) => (i === index ? { ...s, ...shot } : s)) } };
@@ -4105,11 +4105,13 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     traceRef.current.startRun({ note: `Agent · Storyboard (${frameEdit ? 'edit in place' : 'render still'})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
-      const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style, expression: shot.expression, ethnicity, refs: ordered, imageModel, frameEdit, frameEditAnnotated: !!annotatedFrame }, ctx);
+      const out = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style, expression: shot.expression, ethnicity, refs: ordered, imageModel, frameEdit, frameEditAnnotated: !!annotatedFrame, composeEdit: true, camera }, ctx);
+      const { url, cacheUrl, prompt: promptUsed } = out;
+      if (out.editMissing?.length) Message.warning(`The edit prompt dropped ${out.editMissing.join(', ')} — that reference may not be used. Re-render or rephrase.`);
       // renderedFrameEdit rides with bodyRendered/shotRefs so a tile ↻ re-rolls the SAME
       // kind of render (a locked edit re-rolls as a locked edit).
       const stashRefs = annotatedFrame ? [node.data.cacheUrl || node.data.url, ...ordered.slice(1)].filter(Boolean) : ordered; // never persist megabyte annotated data: urls
-      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false, shotRefs: stashRefs, bodyRendered: body, renderedFrameEdit: frameEdit, promptUsed, staleStill: undefined } } : n)));
+      setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, loading: false, shotRefs: stashRefs, bodyRendered: body, renderedFrameEdit: frameEdit, cameraRendered: camera ? editFields.shotTemplate : '', promptUsed, staleStill: undefined } } : n)));
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
     }
@@ -4264,7 +4266,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     traceRef.current.startRun({ note: 'Agent · Storyboard (keyframe edit)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
-      const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: merged.shotTemplate, style, expression: merged.expression, refs: shotRefs, imageModel, frameEdit: !!node.data.renderedFrameEdit }, ctx);
+      const { url, cacheUrl, prompt: promptUsed } = await storyboardKeyframe({ body, shotTemplate: merged.shotTemplate, style, expression: merged.expression, refs: shotRefs, imageModel, frameEdit: !!node.data.renderedFrameEdit, composeEdit: !!node.data.renderedFrameEdit, camera: SHOT_TEMPLATE_BY_ID[node.data.cameraRendered] || null }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url, cacheUrl: cacheUrl || n.data.cacheUrl, promptUsed, loading: false } } : n)));
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
@@ -4293,16 +4295,14 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     const ticked = [1, ...((Array.isArray(figures) ? figures : []).filter((f) => f > 1))];
     const { ordered, body: renumbered } = resolveShotRefs({ figures: ticked, body: instruction }, editorPool);
     instruction = renumbered;
-    if (shotTemplate) {
-      const t = SHOT_TEMPLATE_BY_ID[shotTemplate];
-      if (t) instruction = `Reframe to a ${[t.framing, t.angle].filter(Boolean).join(', ')} — the same scene, subjects and moment. ${instruction}`;
-    }
+    const camera = shotTemplate ? (SHOT_TEMPLATE_BY_ID[shotTemplate] || null) : null;
     const refsToSend = [annotatedFrame || ordered[0] || src, ...ordered.slice(1)];
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: true, error: undefined } } : n)));
     traceRef.current.startRun({ note: `Agent · Storyboard (START frame edit · ${String(node.data.beat || '').slice(0, 24)})` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
-      const out = await storyboardKeyframe({ body: instruction, refs: refsToSend, imageModel, frameEdit: true, frameEditAnnotated: !!annotatedFrame }, ctx);
+      const out = await storyboardKeyframe({ body: instruction, refs: refsToSend, imageModel, frameEdit: true, frameEditAnnotated: !!annotatedFrame, composeEdit: true, camera }, ctx);
+      if (out.editMissing?.length) Message.warning(`The edit prompt dropped ${out.editMissing.join(', ')} — that reference may not be used. Re-render or rephrase.`);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || null, promptUsed: out.prompt, localUrl: undefined, assetId: undefined, preserved: undefined, loading: false } } : n)));
       Message.success('START frame edited in place — text untouched, nothing stale. END ↻ re-chains from it when you want.');
     } catch (e) {

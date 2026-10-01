@@ -32,8 +32,6 @@ export const ROOT_CONFIG = {
     reasoner21Turbo: null, // Seed 2.1 Turbo reasoner          (MODELARK_MODEL_REASONER_21_TURBO)
   },
   runtime: {
-    pollIntervalMs: 4000,    // Seedance task polling cadence
-    timeoutMs: 360000,       // max wait for an async (video) task
     defaultImageSize: '2K',
     reasoningEffort: 'high', // Deep-reasoning EFFORT for every planner call — one of
                              // REASONING_EFFORTS, set in Project settings. Sent as

@@ -1,5 +1,5 @@
 // Transient-failure retry — pure, no imports. Generative calls routinely die on
-// "server overload" / "Seedance timed out", and without a second attempt those are
+// "server overload" / a gateway timeout, and without a second attempt those are
 // holes in the cut. A redo is cheap relative to a missing shot, so the engine
 // retries transient errors with
 // exponential backoff + jitter (jitter so parallel retries don't re-stampede the

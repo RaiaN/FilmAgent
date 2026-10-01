@@ -7,7 +7,7 @@
 //   generateImage({ prompt, referenceImages, size, model }) -> { url, prompt }
 //   reason({ prompt, systemPrompt, images, video, modelId }) -> { content }
 //   startVideo({ content, model, resolution, ratio, duration, generateAudio, draft, draftTaskId }) -> { taskId }
-//   pollVideo({ taskId, intervalMs, timeoutMs }) -> { videoUrl }
+//   pollVideo({ taskId, intervalMs }) -> { videoUrl }
 //   generateSpeech({ text, imageData, audioRefs, format, sampleRate }) -> { url, bytes, duration }
 
 import { plannerSkillLine } from '../skills';
@@ -27,9 +27,11 @@ export const errMsg = (data, fallback) => {
 };
 
 const POLL_INTERVAL_MS = 4000;
-// Seedance has NO generation SLA — under load a task can sit queued for many minutes — so the
-// client poll waits generously (30 min) before giving up rather than killing a still-live task.
-const POLL_TIMEOUT_MS = 1800000;
+// Ark decides when a video task is over: every task ends succeeded, failed, expired or
+// cancelled (a task that never runs expires on Ark's side). The poll waits for that end
+// state and never gives up on a live task — a client-side deadline only abandons a render
+// that is still running and still billed (a queued 4K take routinely runs past 30 min).
+const TASK_FAILED = ['failed', 'expired', 'cancelled'];
 
 // ---- Browser client: talks to the app's own Next.js API routes ----------------
 // Used by the canvas (L4). Keeps the existing request shapes unchanged.
@@ -111,19 +113,26 @@ export const createBrowserClient = () => ({
     return data; // { frames: [{ t, url }] }
   },
 
-  async pollVideo({ taskId, intervalMs = POLL_INTERVAL_MS, timeoutMs = POLL_TIMEOUT_MS }) {
-    const startedAt = Date.now();
+  async pollVideo({ taskId, intervalMs = POLL_INTERVAL_MS }) {
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      if (Date.now() - startedAt > timeoutMs) throw new Error('Seedance timed out');
       await new Promise((r) => setTimeout(r, intervalMs));
-      // Server-key mode: NO auth header at all (an empty `Bearer ` header reaches the
-      // route as the literal string "Bearer" and got forwarded to Ark → 401 loop).
-      const res = await fetch(`/api/seedance-status?taskId=${encodeURIComponent(taskId)}`, {
-      });
-      const data = await res.json();
+      // A blip (network drop, dev-server restart, 5xx) says nothing about the task — wait
+      // it out. A 4xx is a real answer (unknown task, bad key) and ends the poll.
+      let res;
+      let data;
+      try {
+        res = await fetch(`/api/seedance-status?taskId=${encodeURIComponent(taskId)}`);
+        data = await res.json().catch(() => ({}));
+      } catch {
+        continue;
+      }
+      if (!res.ok) {
+        if (res.status >= 500) continue;
+        throw new Error(errMsg(data, `Seedance status check failed (HTTP ${res.status})`));
+      }
       if (data.status === 'succeeded' && data.video_url) return { videoUrl: data.video_url, lastFrameUrl: data.last_frame_url || null, videoCacheUrl: data.video_cache_url || null, lastFrameCacheUrl: data.last_frame_cache_url || null };
-      if (data.status === 'failed') throw new Error(data.error?.message || data.error || 'Seedance task failed');
+      if (TASK_FAILED.includes(data.status)) throw new Error(data.error?.message || data.error || `Seedance task ${data.status}`);
     }
   },
 

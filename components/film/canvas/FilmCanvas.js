@@ -3059,15 +3059,19 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       const frame = take.data.lastFrameUrl;
       if (!frame) { extractTakeFrame(take); return; }
       const mode = link.mode === 'open' ? 'open' : 'state';
-      const key = `${src.id}|${take.id}|${mode}|${frame}`;
-      if (key === card.data.continuityKey) return;
+      const text = String(link.text || '').trim();
+      const key = `${src.id}|${take.id}|${mode}|${frame}${text ? `|${text}` : ''}`;
       const chip = { nodeId: null, url: frame, label: `◀ ${(src.data.beat || 'previous shot').slice(0, 24)} · ${String(take.data.label || 'take').replace(/…$/, '')} last frame`, continuity: true };
       const refs = card.data.assetRefs || [];
       const at = refs.findIndex((r) => r.continuity);
       const assetRefs = at < 0 ? [...refs, chip] : refs.map((r, i) => (i === at ? chip : r));
       const n = shotReferences({ ...card.data, assetRefs }, bibleRef.current).findIndex((r) => r.url === frame) + 1;
       if (!n) return; // over the model's reference cap — nothing to point at
-      const line = renderTemplate(`story.ref.${mode}`, { n });
+      // The filmmaker's wording when given ({frame} = this frame's @ImageN), else the mode's line.
+      const line = text ? text.split('{frame}').join(`@Image${n}`) : renderTemplate(`story.ref.${mode}`, { n });
+      // Settled when the key, the line and its presence in the prompt all still hold.
+      const inPrompt = !!card.data.continuityLine && String(card.data.promptOverride || '').includes(card.data.continuityLine);
+      if (key === card.data.continuityKey && inPrompt && line === card.data.continuityLine) return;
       const prompt = String(card.data.promptOverride || '');
       const old = card.data.continuityLine;
       const promptOverride = old && prompt.includes(old) ? prompt.split(old).join(line) : `${prompt.trim()}\n${line}`;
@@ -3084,11 +3088,12 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // THE STORY ROOM'S LINKS for the cards it sent: set, re-pointed or dropped on the card.
   // Dropping takes the frame chip, its prompt line and its keyframe off with it.
   useEffect(() => {
-    (storyLinks || []).forEach(({ cardId, from, mode }) => {
+    (storyLinks || []).forEach(({ cardId, from, mode, text = '' }) => {
       const card = nodesRef.current.find((n) => n.id === cardId && isShotCard(n));
       if (!card) return;
-      const want = from && nodesRef.current.some((n) => n.id === from) ? { cardId: from, mode: mode === 'open' ? 'open' : 'state' } : null;
-      const have = card.data.continuesFrom ? { cardId: card.data.continuesFrom.cardId, mode: card.data.continuesFrom.mode === 'open' ? 'open' : 'state' } : null;
+      const want = from && nodesRef.current.some((n) => n.id === from) ? { cardId: from, mode: mode === 'open' ? 'open' : 'state', text: String(text || '') } : null;
+      const cf = card.data.continuesFrom;
+      const have = cf ? { cardId: cf.cardId, mode: cf.mode === 'open' ? 'open' : 'state', text: String(cf.text || '') } : null;
       if (JSON.stringify(want) === JSON.stringify(have)) return;
       if (want) {
         onPatchCut(cardId, { continuesFrom: want });
@@ -4255,7 +4260,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       const videoModel = resolveModelId('seedance25') ? 'seedance25' : undefined;
       // A Story Room link points at a shot by its story index → the card laid for it.
       const cardAt = new Map(shots.map((x, i) => [x.at, `${idPrefix}-${i}`]));
-      const linkOfShot = (x) => (x.link && cardAt.has(x.link.from) ? { cardId: cardAt.get(x.link.from), mode: x.link.mode === 'open' ? 'open' : 'state' } : null);
+      const linkOfShot = (x) => (x.link && cardAt.has(x.link.from) ? { cardId: cardAt.get(x.link.from), mode: x.link.mode === 'open' ? 'open' : 'state', text: String(x.link.text || '') } : null);
       if (!videoModel) Message.warning('Seedance 2.5 is not configured — the cards use the default video model.');
       shots.forEach((x, i) => storyboardPanelRef.current({
         index: i, cut: cutBase + i, idPrefix, cols, title: x.title || `Shot ${i + 1}`,

@@ -249,8 +249,8 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
   const setLink = (i, patch) => setShots((list) => list.map((x, j) => {
     if (j !== i) return x;
     if (patch === 'auto') { const { link, ...rest } = x; return rest; }
-    const cur = linkOf(list, i) || { from: null, mode: 'state' };
-    return { ...x, link: { from: cur.from, mode: cur.mode, ...patch, user: true } };
+    const cur = linkOf(list, i) || { from: null, mode: 'state', text: '' };
+    return { ...x, link: { from: cur.from, mode: cur.mode, text: cur.text || '', ...patch, user: true } };
   }));
   const setShotBody = (i, v) => setShots((list) => list.map((x, j) => (j === i ? { ...x, body: v } : x)));
   const setAsset = (key, field, v) => setAssets((list) => list.map((a) => (a.key === key ? { ...a, [field]: v } : a)));
@@ -290,7 +290,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
       if (!c) return;
       const l = linkOf(shots, i);
       const src = l ? cardOf(l.from) : null;
-      out.push({ cardId: c.cardId, from: src ? src.cardId : null, mode: l?.mode || 'state' });
+      out.push({ cardId: c.cardId, from: src ? src.cardId : null, mode: l?.mode || 'state', text: l?.text || '' });
     });
     const key = JSON.stringify(out);
     if (key === linksSent.current) return;
@@ -303,7 +303,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
     if (!shots.length) { onSendToFilm({ script: blueprintScript(blueprint), title }); return; }
     const id = `send-${Date.now().toString(36)}`;
     setSendId(id);
-    onSendToFilm({ sendId: id, shots: shots.map((x, i) => { const r = shotRefs(x); const l = linkOf(shots, i); return { title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId), link: l ? { from: l.from, mode: l.mode } : null }; }), title });
+    onSendToFilm({ sendId: id, shots: shots.map((x, i) => { const r = shotRefs(x); const l = linkOf(shots, i); return { title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId), link: l ? { from: l.from, mode: l.mode, text: l.text } : null }; }), title });
   };
   // Look: a preset fills the sentence; references are read by the planner into one.
   const presets = lookPresets();

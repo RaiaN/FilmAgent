@@ -425,6 +425,28 @@ const CutNodeInner = ({ id, data, selected }) => {
           )}
         </div>
 
+        {/* CONTINUITY — the frame this shot carries from the shot it continues, and the
+            line in the prompt above that says how it is used (set in Story Room). */}
+        {data.continuesFrom?.cardId && (
+          <div style={{ display: 'flex', gap: 8, padding: 8, background: '#0d1a14', border: `1px solid ${data.continuityFrame ? '#1f6f4a' : '#7a4a12'}`, borderRadius: 4 }}>
+            {data.continuityFrame && <img src={data.continuityFrame} alt="" style={{ width: 96, aspectRatio: '16 / 9', objectFit: 'cover', borderRadius: 3, flexShrink: 0, border: `1px solid ${data.continuesFrom.mode === 'open' ? '#165dff' : '#00a870'}` }} />}
+            <div style={{ minWidth: 0, display: 'grid', gap: 2 }}>
+              <Text style={{ color: '#7ee2b8', fontSize: 10, fontWeight: 700 }}>
+                CONTINUITY · {data.continuesFrom.mode === 'open' ? 'FIRST FRAME' : 'STATE OF THE SCENE'}
+              </Text>
+              {data.continuityFrame
+                ? (
+                  <>
+                    <Text style={{ color: '#9fb4d0', fontSize: 10 }} ellipsis>{((data.assetRefs || []).find((r) => r.continuity)?.label || '').replace(/^◀\s*/, '')}</Text>
+                    <Text style={{ color: '#d6f5e6', fontSize: 11, fontStyle: 'italic', lineHeight: 1.4 }}>{data.continuityLine}</Text>
+                    {!String(data.promptOverride || '').includes(data.continuityLine || '@@') && <Text style={{ color: '#ff7d00', fontSize: 10 }}>Not in the prompt — it is written back in a moment.</Text>}
+                  </>
+                )
+                : <Text style={{ color: '#ffb35c', fontSize: 11 }}>Waiting for the take of the shot it continues from — this card will not shoot without its last frame.</Text>}
+            </div>
+          </div>
+        )}
+
         <div>
           <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700, display: 'block', marginBottom: 2 }}>AUDIO <span style={{ color: '#5a6472', fontWeight: 400 }}>· optional</span></Text>
           <DraftText textarea className="nodrag nowheel" value={data.audio} onCommit={(v) => patch({ audio: v })} placeholder="dialogue · ambient · foley · score" autoSize={{ minRows: 1, maxRows: 3 }} style={promptArea} />

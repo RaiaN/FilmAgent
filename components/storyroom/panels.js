@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { linkTextOf, FRAME_TOKEN } from '../../utils/film/core/story';
 import { Button, Drawer, Image, Input, Modal, Radio, Select, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconClose, IconEye, IconImage, IconLoading, IconPlus, IconSound } from '@arco-design/web-react/icon';
 
@@ -384,7 +385,44 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
 // THE FRAME A LINKED SHOT CARRIES — what is actually on its board card (image + which
 // take it came from + the line in its prompt), and the source shot's takes as their last
 // frames: click one to hand that take on; click the chosen one again to follow the newest.
-const CarriedFrame = ({ index, link, card, onPinTake }) => {
+// HOW THE FRAME IS USED — the filmmaker's own words, cited as @ImageN (code keeps the
+// number right). Empty = the mode's standard line.
+const FrameUse = ({ index, link, carried, onSetLink }) => {
+  const n = (/@Image(\d+)/.exec(carried?.line || '') || [])[1];
+  const cite = n ? `@Image${n}` : '@Frame';
+  const shown = link.text ? link.text.split(FRAME_TOKEN).join(cite) : (carried?.line || '');
+  const [draft, setDraft] = useState(shown);
+  useEffect(() => { setDraft(shown); }, [shown]);
+  const commit = () => {
+    const next = linkTextOf(draft);
+    const standard = !next || (carried?.line && draft.trim() === carried.line.trim() && !link.text);
+    if (standard ? !link.text : next === link.text) return;
+    onSetLink && onSetLink(index, { text: standard ? '' : next });
+  };
+  // On the card when the card's line reads what this box says (its @ImageN filled in).
+  const pending = linkTextOf(draft) !== (link.text || '') && !(carried?.line && draft.trim() === carried.line.trim());
+  const onCard = !!carried?.line && !pending;
+  return (
+    <div style={{ display: 'grid', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontSize: 11, fontWeight: 700, color: MUTED }}>HOW TO USE IT — in SH {pad2(index + 1)}'s prompt</Text>
+        <span style={{ flex: 1 }} />
+        {link.text && <Button size="mini" type="text" onClick={() => onSetLink && onSetLink(index, { text: '' })} title="Back to the standard line for this mode">Standard line</Button>}
+        {carried && (onCard
+          ? <Text style={{ fontSize: 11, color: '#00a870', fontWeight: 600 }}>on the card ✓</Text>
+          : <Button size="mini" type="primary" onClick={commit} title="Write this line into the board card's prompt now">Update card</Button>)}
+      </div>
+      <Input.TextArea
+        value={draft} onChange={setDraft} onBlur={commit}
+        autoSize={{ minRows: 2, maxRows: 6 }} style={{ fontSize: 12 }}
+        placeholder={`e.g. ${cite}: keep the guard frozen at the door and the dropped bag where it lies; the camera now looks from behind the counter.`}
+      />
+      <Text type="secondary" style={{ fontSize: 10 }}>Cite the frame as {cite}. This line rides in the prompt word for word; the mode above decides whether the frame is a reference or the exact first frame.</Text>
+    </div>
+  );
+};
+
+const CarriedFrame = ({ index, link, card, onPinTake, onSetLink }) => {
   const src = link.card;
   const carried = card?.carried;
   const takes = src?.takes || [];
@@ -396,8 +434,7 @@ const CarriedFrame = ({ index, link, card, onPinTake }) => {
             <Image src={carried.frameUrl} width={220} style={{ borderRadius: 6, border: `2px solid ${link.mode === 'open' ? '#165dff' : '#00a870'}` }} />
             <div style={{ display: 'grid', gap: 4 }}>
               <Text style={{ fontSize: 12, fontWeight: 600 }}>{carried.label.replace(/^◀\s*/, '')}</Text>
-              <Text type="secondary" style={{ fontSize: 11 }}>On SH {pad2(index + 1)}'s card as {link.mode === 'open' ? 'its FIRST FRAME' : 'the STATE OF THE SCENE (a reference)'}. In its prompt:</Text>
-              <Text style={{ fontSize: 11, color: '#4e5969', fontStyle: 'italic' }}>{carried.line}</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>On SH {pad2(index + 1)}'s card as {link.mode === 'open' ? 'its FIRST FRAME' : 'the STATE OF THE SCENE (a reference)'}.</Text>
             </div>
           </div>
         )
@@ -409,6 +446,7 @@ const CarriedFrame = ({ index, link, card, onPinTake }) => {
                   : 'Picking up the frame…'}
           </Text>
         )}
+      <FrameUse index={index} link={link} carried={carried} onSetLink={onSetLink} />
       {src && takes.length > 0 && (
         <div style={{ display: 'grid', gap: 4 }}>
           <Text type="secondary" style={{ fontSize: 11 }}>From which take of SH {pad2(link.from + 1)} — {src.pinned ? 'picked by you' : 'the newest, unless you pick one'}:</Text>
@@ -499,7 +537,7 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, o
               )}
             </div>
             {consistency
-              ? <CarriedFrame index={index} link={consistency} card={boardCard} onPinTake={onPinTake} />
+              ? <CarriedFrame index={index} link={consistency} card={boardCard} onPinTake={onPinTake} onSetLink={onSetLink} />
               : <Text type="secondary" style={{ fontSize: 12 }}>Not linked — the shot carries its plates only.</Text>}
             {boardCard?.stale && <Text style={{ fontSize: 12, color: '#ff7d00' }}>⟳ Stale: {boardCard.stale}</Text>}
           </div>

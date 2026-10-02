@@ -473,12 +473,20 @@ export const consistencyFrom = (shots = [], i) => {
 // shot starts on that frame). Set by hand it wins; otherwise the scene decides
 // (the previous shot in the same scene, as state).
 export const LINK_MODES = ['state', 'open'];
+// The filmmaker's own wording for how the frame is used. Stored with {frame} where the
+// frame is cited; the board writes its @ImageN there.
+export const FRAME_TOKEN = '{frame}';
+export const linkTextOf = (raw = '') => {
+  const t = String(raw || '').trim().replace(/@Image\d+|@Frame/g, FRAME_TOKEN);
+  if (!t) return '';
+  return t.includes(FRAME_TOKEN) ? t : `${FRAME_TOKEN}: ${t}`;
+};
 export const linkOf = (shots = [], i) => {
   const own = shots[i]?.link;
   if (own?.user) {
     const from = Number.isInteger(own.from) && own.from >= 0 && own.from < i ? own.from : null;
-    return from == null ? null : { from, mode: LINK_MODES.includes(own.mode) ? own.mode : 'state', user: true };
+    return from == null ? null : { from, mode: LINK_MODES.includes(own.mode) ? own.mode : 'state', text: String(own.text || ''), user: true };
   }
   const from = consistencyFrom(shots, i);
-  return from == null ? null : { from, mode: 'state', user: false };
+  return from == null ? null : { from, mode: 'state', text: '', user: false };
 };

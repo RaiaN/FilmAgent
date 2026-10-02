@@ -139,7 +139,15 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
     try { return await fn(); } catch (err) { Message.error({ content: err.message || String(err), duration: 8000 }); return null; } finally { setBusy(null); }
   };
 
-  const plannerLabel = (REASONER_OPTIONS.find((o) => o.key === reasonerSlotOf()) || {}).label || 'planner';
+  // The planner + effort live in the browser's config — read after mount (and when the tab
+  // is revisited), never during the server render, or hydration sees two different texts.
+  const [planner, setPlanner] = useState(null);
+  useEffect(() => {
+    const read = () => setPlanner({ label: (REASONER_OPTIONS.find((o) => o.key === reasonerSlotOf()) || {}).label || 'planner', effort: getRuntime().reasoningEffort });
+    read();
+    window.addEventListener('focus', read);
+    return () => window.removeEventListener('focus', read);
+  }, []);
   const problems = blueprint ? blueprintProblems(blueprint) : [];
 
   const scout = () => run('scout', async () => {
@@ -479,7 +487,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
           <span style={{ flex: 1 }} />
           {busy
             ? <Text style={{ fontSize: 12, color: '#4e5969' }}><IconLoading style={{ marginRight: 6 }} />{ROLE_LABEL[busy.role]} · {elapsed}s</Text>
-            : <Text type="secondary" style={{ fontSize: 12 }}>{plannerLabel} · effort {getRuntime().reasoningEffort}</Text>}
+            : planner && <Text type="secondary" style={{ fontSize: 12 }}>{planner.label} · effort {planner.effort}</Text>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div role="tablist" style={{ display: 'flex', gap: 2, background: '#f2f3f5', borderRadius: 8, padding: 3 }}>

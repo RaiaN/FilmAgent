@@ -9,6 +9,7 @@ import {
   Modal,
   Dropdown,
   Menu,
+  Tooltip,
 } from '@arco-design/web-react';
 import {
   IconFolderAdd,
@@ -567,8 +568,14 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <Space align="center" wrap>
-            <Title heading={6} style={{ margin: 0 }}>{project.title}</Title>
+          <Space align="center" size={4} wrap>
+            <Title heading={6} style={{ margin: '0 4px 0 0' }}>{project.title}</Title>
+            <Tooltip content="Project settings">
+              <Button size="mini" type="text" icon={<IconSettings />} onClick={() => setSettingsOpen(true)} aria-label="Project settings" style={{ color: '#4e5969' }} />
+            </Tooltip>
+            <Tooltip content="New project">
+              <Button size="mini" type="text" icon={<IconPlus />} onClick={handleNewScratch} aria-label="New project" style={{ color: '#4e5969' }} />
+            </Tooltip>
           </Space>
           {!isScratch && displayPath && (
             <div>
@@ -589,13 +596,11 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
           <Button size="small" icon={<IconCloudDownload />} loading={cloudBusy} onClick={handleCloudOpenClick} title="Open a cloud project — autosave keeps every project in your TOS bucket as you work; restore the full board on any machine">Cloud open</Button>
           <Button size="small" icon={<IconCode />} onClick={() => setPromptsOpen(true)}>Prompts</Button>
           <Button size="small" icon={<IconBook />} onClick={() => setSkillsOpen(true)} title="Skills — the model vendors' prompt specs, sent VERBATIM to whichever model slot each is bound to">Skills</Button>
-          <Button size="small" icon={<IconSettings />} onClick={() => setSettingsOpen(true)}>Project</Button>
           {recent.length > 0 && (
             <Dropdown droplist={recentMenu} position="br">
               <Button size="small" icon={<IconClockCircle />}>Recent</Button>
             </Dropdown>
           )}
-          <Button size="small" icon={<IconPlus />} onClick={handleNewScratch}>New</Button>
         </Space>
       </div>
 

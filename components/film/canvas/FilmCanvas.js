@@ -430,7 +430,10 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
   return { body: text, refs: [frameSrc, ...keep] };
 };
 
-const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
+// Story Room hand-offs already laid on a board (see the incomingStory effect).
+const consumedStories = new Set();
+
+const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory }) => {
   const wrapperRef = useRef(null);
   const fileInputRef = useRef(null);
   const [rfInstance, setRfInstance] = useState(null);
@@ -2638,6 +2641,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
       job: panel.job || '',
       cuts: [{ action: panel.framing ? `${panel.framing}. ${panel.action}` : panel.action, seconds: Math.min(6, sec) }],
       ...(panel.promptOverride != null ? { promptOverride: panel.promptOverride } : {}),
+      ...(panel.videoModel ? { videoModel: panel.videoModel } : {}),
       audio: panel.audio || '',
       durationSec: sec,
       refIds: panel.refEntryIds || [],
@@ -4069,6 +4073,40 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce }) => {
     ));
     Message.success('Storyboard on the board — Divide lays the shot list as editable text cards (no renders); stills are rendered per card, or all at once.');
   }, [rfInstance, freeOrigin, setNodes]);
+
+  // STORY ROOM hand-off. Shots land as SHOT cards on Seedance 2.5 — prompts verbatim (they
+  // were written under its spec), duration left to the model, chained in story order (the
+  // edges carry order only). A story without shots lands as a Storyboard card, verbatim,
+  // with the Storyboard panel's current settings — the same element the rail adds.
+  // Consumed nonces are module-scoped so a remount never lands the same story twice.
+  useEffect(() => {
+    if (!incomingStory?.nonce || consumedStories.has(incomingStory.nonce)) return;
+    consumedStories.add(incomingStory.nonce);
+    const shots = (incomingStory.shots || []).filter((x) => String(x?.prompt || '').trim());
+    if (shots.length) {
+      const idPrefix = `story-${Date.now().toString(36)}`;
+      const cols = Math.min(5, shots.length);
+      const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 220, y: 200 }) : { x: 160, y: 160 };
+      const base = freeOrigin({ w: cols * CUT_COL_W, h: Math.ceil(shots.length / cols) * CUT_ROW_H, preferred: pref });
+      const cutBase = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
+      const videoModel = resolveModelId('seedance25') ? 'seedance25' : undefined;
+      if (!videoModel) Message.warning('Seedance 2.5 is not configured — the cards use the default video model.');
+      shots.forEach((x, i) => storyboardPanelRef.current({
+        index: i, cut: cutBase + i, idPrefix, cols, title: x.title || `Shot ${i + 1}`,
+        action: '', promptOverride: x.prompt, framing: '', durationSec: AUTO_SECONDS,
+        refEntryIds: [], audio: '', videoModel,
+      }, base));
+      if (shots.length > 1) {
+        applyEdges((es) => es.concat(shots.slice(1).map((_, i) => ({
+          id: `cont-${idPrefix}-${i}-${idPrefix}-${i + 1}`, source: `${idPrefix}-${i}`, target: `${idPrefix}-${i + 1}`, type: 'continuity',
+        })).filter((e) => !es.some((y) => y.id === e.id))));
+      }
+      Message.success(`${shots.length} SHOT card${shots.length === 1 ? '' : 's'} from the Story Room — prompts verbatim, chained in story order.`);
+      return;
+    }
+    const d = { ...(AGENT_MAP.storyboard?.defaultSettings || {}), ...(layerSettings.storyboard || {}) };
+    spawnStoryboardChat(incomingStory.script, d.count, [], d.ethnicity || '', d.style || '', imageModelKeyOf(d.imageModel));
+  }, [incomingStory, spawnStoryboardChat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Render ONE card's still from its CURRENT fields (the card is the contract): merge any
   // edits onto the shot, re-resolve its figures → refs + renumber the body, write back to the

@@ -576,6 +576,196 @@ Return ONLY JSON — no prose, no code fences:
     text: 'Ad idea: {idea}\n\nThe {count} attached images are the client\'s uploaded assets, in order. Classify each into exactly one of: {roles}. Return the specified JSON array — one entry per image, in the same order.',
   },
 
+
+  // ---- Story Room: idea → blueprint (the story-builder skill) → critique → patch ----
+  // The skill rides whole as {skill}; user text is sentinel-injected VERBATIM by
+  // utils/film/core/story.js. Every block is word-capped and the cap is code-checked.
+  'story.scout.axes': {
+    agent: 'Story Room',
+    label: 'Scout — the axes it deals ideas from (one item per line under each heading)',
+    vars: [],
+    text: `SITUATIONS
+a debt that cannot be repaid in money
+a rescue that needs a betrayal
+two rivals who must depend on each other
+an inheritance that comes with a condition
+a lie told to protect someone, now coming due
+a return home after a long absence
+an obsession that is costing everything
+a case of mistaken identity
+a vow that collides with love
+an ambition that requires a crime
+a stranger who unsettles a closed community
+enemies who must survive a disaster together
+a secret that would free one person and ruin another
+a contest whose prize is worth more than winning
+a child forced to take a parent's place
+a pursuit across a border
+a gift that turns into a burden
+a rule obeyed long past the point of sense
+a discovery nobody wants to be true
+a reunion that reopens an old wrong
+REGISTERS
+comedy
+romance
+crime
+thriller
+tragedy
+satire
+coming of age
+mystery
+farce
+melodrama
+OPPOSITION
+someone who loves the protagonist
+a rival with a better claim
+an institution doing its job correctly
+the protagonist's own community
+a force of nature
+a machine or system that cannot be argued with
+a family member
+a charming liar
+a child
+the protagonist's younger self, in letters, recordings or memory`,
+  },
+  'story.scout.system': {
+    agent: 'Story Room',
+    label: 'Scout — find ideas from life (system)',
+    vars: [],
+    text: 'You are a story scout. You find dramas in real life, not in cinema: the stories people tell each other in markets, on night shifts, at border posts, in kitchens, on ships, in research stations and in settlements on other worlds. Every idea you return is built on the ASSIGNMENT it is given (a dramatic situation, a register and a kind of opposition) and set in a real, specific place or community with its own customs, trades and stakes. No famous plots, no genre formulas, nothing that sounds like a pitch for an existing film or series. Each idea has a person at its centre and something that has just gone wrong in their life.',
+  },
+  'story.scout.user': {
+    agent: 'Story Room',
+    label: 'Scout — find ideas (instruction)',
+    vars: ['{count}', '{direction}', '{assignments}'],
+    text: 'Come up with {count} ORIGINAL story ideas, one per assignment below, in the same order.\n\nDIRECTION FROM THE FILMMAKER (follow it; when it is empty, roam freely):\n{direction}\n\nASSIGNMENTS:\n{assignments}\n\nEvery idea comes from a different place, community or world. Return ONLY a JSON array of {count} objects:\n[{"title": "2-5 words", "logline": "2-3 sentences: who, what just happened, what is at stake", "place_and_culture": "the specific place, community or world", "what_is_unexpected": "one sentence"}]',
+  },
+  'story.probe.system': {
+    agent: 'Story Room',
+    label: 'Originality probe (system)',
+    vars: [],
+    text: 'You are a development executive checking story ideas for originality before anyone develops them. For EACH idea, name the closest existing film, book or series and the premise shape it shares: the dramatic situation in one line (for example "small community vs corporation over land"), never the setting. Score it: 2 = no known work shares the premise shape; 1 = a known work shares the premise shape even if the setting is new; 0 = essentially the same story. Be strict: a new setting on a familiar premise is a 1.\nReturn ONLY a JSON array, one object per idea, in order: [{"closest_work": "Title (year)", "shared_premise": "...", "score": 0, "note": "one sentence: what would make it fresh"}]',
+  },
+  'story.probe.user': {
+    agent: 'Story Room',
+    label: 'Originality probe (instruction)',
+    vars: ['{ideas}'],
+    text: 'THE IDEAS:\n{ideas}',
+  },
+  'story.architect.system': {
+    agent: 'Story Room',
+    label: 'Architect — idea to blueprint (system)',
+    vars: ['{skill}', '{cap}', '{spineCap}'],
+    text: '{skill}\n\nYOU ARE THE ARCHITECT. Run Steps 1-4 of the story-builder workflow on the idea internally: map it into the blocks, derive the missing blocks in dependency order (flaw -> internal need -> inciting incident -> external want -> antagonist -> journey -> crisis -> climax -> resolution), write the spine, then stress-test and fix. Keep everything the idea states; invent only what it leaves out.\nLENGTH: every block at most {cap} words; each journey obstacle at most {cap} words; the spine is ONE sentence of at most {spineCap} words.\nReturn ONLY the final blueprint as JSON, no prose:\n{"title": "2-5 words", "protagonist": "...", "flaw": "...", "internal_need": "...", "inciting_incident": "...", "external_want": "...", "antagonist": "...", "journey": ["3-5 escalating obstacles"], "crisis": "...", "climax": "...", "resolution": "...", "spine": "Once upon a time, ..."}',
+  },
+  'story.architect.user': {
+    agent: 'Story Room',
+    label: 'Architect — idea to blueprint (instruction)',
+    vars: ['{idea}'],
+    text: 'THE IDEA:\n{idea}',
+  },
+  'story.critic.system': {
+    agent: 'Story Room',
+    label: 'Critic — objection-first stress test (system)',
+    vars: ['{skill}'],
+    text: `{skill}
+
+YOU ARE A HARSH DEVELOPMENT EDITOR scoring one story blueprint against the stress test. Most professional blueprints earn 1 on most items; a 2 is rare.
+For EVERY item give "objection" (in one sentence, the strongest push-back a development executive would raise; there is always one) and "score": 2 = the blueprint already answers the objection, nothing to fix; 1 = it works but the objection partly stands; 0 = broken, missing or contradicted.
+q1 Could you film the want? 2 = a single visible goal with a finish line a camera can see.
+q2 Does chasing the want force the protagonist to face the need? 2 = the want can only be won by facing the need.
+q3 Is the antagonist strong enough that the outcome is in doubt? 2 = a specific force with its own logic that beats the protagonist's flaw.
+q4 Does each journey obstacle raise the stakes over the last? 2 = every step costs more than the one before and closes an option.
+q5 Is the crisis a real choice with a real cost? 2 = two goods or two evils, each costing something the audience cares about.
+q6 Does the protagonist cause the climax? 2 = their choice and new behaviour decide it.
+q7 Does the resolution show change? 2 = a concrete new behaviour that mirrors the opening flaw.
+originality: name the closest existing film, book or series and the premise shape it shares. 2 = no known work shares the premise shape; 1 = a known work shares it even if the setting is new; 0 = essentially the same story.
+specificity: 2 = the culture, trade or place is load-bearing (the crisis or climax could not happen anywhere else); 1 = concrete detail, but the plot would survive a change of setting; 0 = generic dressing.
+Then "fix": for every item below 2, the ONE block whose rewrite would answer it, with the note the rewrite must answer. Block names: protagonist, flaw, internal_need, inciting_incident, external_want, antagonist, journey, crisis, climax, resolution. One note per block; merge notes that land on the same block.
+Return ONLY JSON: {"q1": {"objection": "...", "score": 0}, ..., "q7": {...}, "originality": {"closest_work": "...", "shared_premise": "...", "objection": "...", "score": 0}, "specificity": {"objection": "...", "score": 0}, "fix": {"<block>": "<the note to answer>"}}`,
+  },
+  'story.critic.user': {
+    agent: 'Story Room',
+    label: 'Critic (instruction)',
+    vars: ['{blueprint}'],
+    text: 'THE BLUEPRINT:\n{blueprint}',
+  },
+  'story.reviser.system': {
+    agent: 'Story Room',
+    label: 'Reviser — patch the flagged blocks (system)',
+    vars: ['{skill}', '{cap}', '{spineCap}'],
+    text: '{skill}\n\nYOU ARE THE REVISER. You get a story blueprint and the editor\'s notes on the blocks to rewrite. Rewrite ONLY those blocks, each so it answers its note and still fits every block you were not given to change. Each rewritten block is at most {cap} words ("journey" stays a list of 3-5 obstacles, each at most {cap} words). If the rewrites change the story\'s spine, also return "spine": ONE sentence starting "Once upon a time", at most {spineCap} words.\nReturn ONLY a JSON object whose keys are exactly the blocks you rewrote (plus "spine" when it changed): {"<block>": "..."}',
+  },
+  'story.reviser.user': {
+    agent: 'Story Room',
+    label: 'Reviser (instruction)',
+    vars: ['{blueprint}', '{notes}'],
+    text: 'THE BLUEPRINT:\n{blueprint}\n\nTHE EDITOR\'S NOTES (rewrite these blocks only):\n{notes}',
+  },
+  'story.facts.system': {
+    agent: 'Story Room',
+    label: 'Visual beat sheet — what the viewer must see or hear (system)',
+    vars: ['{skill}'],
+    text: `{skill}
+
+YOU ARE THE SCRIPT SUPERVISOR. Turn the story blueprint into its VISUAL BEAT SHEET: the facts a viewer must SEE or HEAR on screen to follow the whole story. A film has no access to thoughts, so every block, the interior ones included, is translated into observable evidence:
+- flaw: a behaviour we watch in the opening;
+- external want: the visible goal (an object, a place, a person to reach);
+- antagonist: its presence, or an act we see it commit;
+- inciting incident, each journey obstacle, crisis, climax: what happens on screen; the crisis is a choice we watch being made;
+- resolution: the behaviour that mirrors the opening flaw, changed (or tragically unchanged);
+- internal need: shown only through that change, never stated.
+Each fact is ONE observable thing in one sentence: who does what, where, with what. A spoken line counts as heard; give its words in quotes. Never write what anyone thinks, feels, realizes or decides unless the same sentence names the action that shows it.
+Every block gets at least one fact; tag each fact with the ONE block it serves. Keep the blueprint's names, places and objects. List the facts in story order.
+Return ONLY JSON: [{"block": "protagonist|flaw|internal_need|inciting_incident|external_want|antagonist|journey|crisis|climax|resolution", "kind": "see|hear", "fact": "..."}]`,
+  },
+  'story.facts.user': {
+    agent: 'Story Room',
+    label: 'Visual beat sheet (instruction)',
+    vars: ['{blueprint}'],
+    text: 'THE BLUEPRINT:\n{blueprint}',
+  },
+  'story.shots.system': {
+    agent: 'Story Room',
+    label: 'Shot plan — which shot shows which facts (system)',
+    vars: [],
+    text: `YOU ARE THE DIRECTOR planning a story's shots for Seedance 2.5 from its VISUAL BEAT SHEET. Each shot is ONE generation: one place, one continuous moment, at most 30 seconds. Decide how many shots the story needs: a beat gets as many shots as its facts need, and one shot may show several facts that share a place and moment. Every fact is shown by at least one shot, and the shots run in story order.
+Also write the cast sheet: one look line per recurring character (age, build, face, hair, wardrobe), so every shot can describe them with the same words.
+Return ONLY JSON: {"cast": [{"name": "...", "look": "..."}], "shots": [{"title": "2-5 words", "location": "the place", "moment": "one sentence: what happens in this shot", "shows": ["F1"]}]}`,
+  },
+  'story.shots.user': {
+    agent: 'Story Room',
+    label: 'Shot plan (instruction)',
+    vars: ['{blueprint}', '{facts}'],
+    text: 'THE BLUEPRINT:\n{blueprint}\n\nTHE VISUAL BEAT SHEET (every fact must be shown):\n{facts}',
+  },
+  'story.shot.system': {
+    agent: 'Story Room',
+    label: 'Shot prompt — one Seedance 2.5 prompt (system)',
+    vars: ['{skill}'],
+    text: `{skill}
+
+YOU ARE THE DIRECTOR writing ONE shot of a story as a Seedance 2.5 prompt, following the spec above. The shot is one generation: one place, one continuous moment, at most 30 seconds. It must visibly or audibly show every fact listed for it. Describe each character with the cast sheet's look words. Duration, aspect ratio and resolution are request parameters, never prompt text.
+Return ONLY the prompt text — no title, no notes, no JSON.`,
+  },
+  'story.shot.user': {
+    agent: 'Story Room',
+    label: 'Shot prompt (instruction)',
+    vars: ['{story}', '{cast}', '{shot}', '{facts}', '{neighbours}', '{retry}'],
+    text: 'THE STORY:\n{story}\n\nTHE CAST SHEET:\n{cast}\n\nTHIS SHOT:\n{shot}\n\nFACTS THIS SHOT MUST SHOW:\n{facts}\n\nAROUND IT:\n{neighbours}{retry}',
+  },
+  'story.verify.system': {
+    agent: 'Story Room',
+    label: 'Verify — prove each shot shows its facts (system)',
+    vars: [],
+    text: 'You are a script supervisor checking Seedance shot prompts against the story\'s visual beat sheet. For every shot and every fact it claims, copy the EXACT words from that shot\'s prompt that make the fact visible or audible on screen: one verbatim phrase of at most 30 words, copied character for character. If the prompt does not show the fact (it is missing, only implied, or only stated as a thought), return an empty quote. Never paraphrase, never join separate phrases.\nReturn ONLY JSON: [{"shot": 1, "fact": "F3", "quote": "..."}]',
+  },
+  'story.verify.user': {
+    agent: 'Story Room',
+    label: 'Verify (instruction)',
+    vars: ['{facts}', '{shots}'],
+    text: 'THE FACTS:\n{facts}\n\nTHE SHOTS:\n{shots}',
+  },
 };
 
 const STORAGE_KEY = 'film-agent-prompt-overrides';

@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useState } from 'react';
 import { Layout, Button, Card, Typography } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt, IconSafe } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt, IconSafe, IconBook } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
@@ -10,6 +10,7 @@ import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
 import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
+import StoryRoomPlayground from '../components/StoryRoomPlayground';
 import AssetUploadPlayground from '../components/AssetUploadPlayground';
 import VideoEnhancePlayground from '../components/VideoEnhancePlayground';
 import ArtifactVerifyPlayground from '../components/ArtifactVerifyPlayground';
@@ -165,6 +166,14 @@ export default function Home() {
     });
     setLastToolId('seedance');
     handleModelFamilyChange('seedance');
+  };
+
+  // Story Room → Film Agent: { shots } land as chained SHOT cards, { script } as a
+  // Storyboard card (the canvas consumes each nonce once).
+  const [storyHandoff, setStoryHandoff] = useState(null);
+  const handleSendStoryToFilm = (payload) => {
+    setStoryHandoff({ ...payload, nonce: Date.now() });
+    handleModelFamilyChange('film-agent');
   };
 
   const handleModelChange = (e) => {
@@ -350,7 +359,7 @@ export default function Home() {
         <title>ModelArk Starter Kit</title>
       </Head>
       <Layout className="layout-container" style={{ height: '100vh' }}>
-        {/* The left icon rail is GONE — the top Film Agent | Tools tabs already cover
+        {/* The left icon rail is GONE — the top Film Agent | Story Room | Tools tabs cover
             navigation; Settings moved to the top-right corner. */}
         <Content style={{ padding: isCanvasTool ? '8px 16px 14px' : '12px 24px 16px', background: '#f6f7f9', overflowY: 'auto' }}>
             <div style={{ maxWidth: isCanvasTool ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
@@ -374,6 +383,13 @@ export default function Home() {
                                     >
                                         <IconUser style={{ marginRight: 8 }} />
                                         Film Agent
+                                    </Button>
+                                    <Button
+                                        type={activeModelId === 'story-room' ? 'primary' : 'secondary'}
+                                        onClick={() => handleModelFamilyChange('story-room')}
+                                    >
+                                        <IconBook style={{ marginRight: 8 }} />
+                                        Story Room
                                     </Button>
                                     <Button
                                         type={isToolActive ? 'primary' : 'secondary'}
@@ -450,7 +466,11 @@ export default function Home() {
                     <FilmAgentPlayground
                         formValues={formValues}
                         setFormValues={setFormValues}
+                        storyHandoff={storyHandoff}
                     />
+                </div>
+                <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
+                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />
@@ -476,7 +496,7 @@ export default function Home() {
                     />
                 </div>
                 <div style={{ marginTop: 24 }}>
-                     {!['llm', 'film-agent', 'asset-upload', 'video-enhance', 'verify'].includes(activeModelId) && (
+                     {!['llm', 'film-agent', 'story-room', 'asset-upload', 'video-enhance', 'verify'].includes(activeModelId) && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}

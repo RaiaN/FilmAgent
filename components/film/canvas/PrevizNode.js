@@ -1,14 +1,14 @@
-import { createContext, memo, useContext } from 'react';
-import { Typography, Button, Tag, Dropdown, Menu } from '@arco-design/web-react';
+import { createContext, memo, useContext, useEffect } from 'react';
+import { Typography, Button, Tag } from '@arco-design/web-react';
 import { IconLoading, IconPlayArrow, IconRefresh, IconEdit, IconVideoCamera } from '@arco-design/web-react/icon';
 import { DraftText, BLOCK_LABEL } from './cardBlocks';
 import { ANIMATIC_MODEL, totalSecondsOf } from '../../../utils/film/core/previz';
-import { draftFinalsOf, maxShotSeconds } from '../../../utils/film/suiteConfig';
+import { maxShotSeconds } from '../../../utils/film/suiteConfig';
 
 const { Text } = Typography;
 
 export const PrevizContext = createContext({
-  onPlan: null, onDrawSchematic: null, onPatchPreviz: null, onEditSchematic: null, onAnimatic: null, onFinal: null, onPlay: null, onToCut: null, onOpenTakes: null,
+  onPlan: null, onDrawSchematic: null, onPatchPreviz: null, onEditSchematic: null, onAnimatic: null, onPlay: null, onToCut: null, onPickAnimatic: null, onNeedPoster: null, posters: {},
 });
 
 // THE PREVIZ CARD — block the scene, see it move. Scene words → a plan (set, actors, who
@@ -20,18 +20,17 @@ const SWATCH = {
 };
 
 const PrevizNodeInner = ({ id, data, selected }) => {
-  const { onPlan, onDrawSchematic, onPatchPreviz, onEditSchematic, onAnimatic, onFinal, onPlay, onToCut } = useContext(PrevizContext);
+  const { onPlan, onDrawSchematic, onPatchPreviz, onEditSchematic, onAnimatic, onPlay, onToCut, onPickAnimatic, onNeedPoster, posters } = useContext(PrevizContext);
   const patch = (p) => onPatchPreviz && onPatchPreviz(id, p);
   // A plan from the old page-of-plates Previz has no shots — treat it as unplanned.
   const plan = Array.isArray(data.plan?.shots) ? { ...data.plan, actors: data.plan.actors || [], set: data.plan.set || [] } : null;
   const legacy = !!data.plan && !plan;
   const schem = data.schematic || {};
   const anim = data.animatic || null;
-  // Every animatic made on this card; the chosen one is what Final and To CUT card use.
-  const animatics = Array.isArray(data.animatics) ? data.animatics : (anim?.takeId ? [anim] : []);
+  const poster = anim?.takeId ? posters?.[anim.takeId] : null;
+  useEffect(() => { if (anim?.takeId && !poster && onNeedPoster) onNeedPoster(anim.takeId); }, [anim?.takeId, poster, onNeedPoster]);
   const total = totalSecondsOf(plan);
   const maxS = maxShotSeconds(ANIMATIC_MODEL);
-  const finals = draftFinalsOf(ANIMATIC_MODEL);
 
   return (
     <div style={{ width: 720, background: '#fff', borderRadius: 10, border: `2px solid ${selected ? '#3491fa' : '#d9d9e3'}`, boxShadow: selected ? '0 0 0 3px rgba(52,145,250,0.14)' : '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
@@ -86,61 +85,60 @@ const PrevizNodeInner = ({ id, data, selected }) => {
               ))}
             </div>
 
-            {/* THE ANIMATIC */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingTop: 4, borderTop: '1px solid #f2f3f5' }}>
-              <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>ANIMATIC</Text>
-              <Text type="secondary" style={{ fontSize: 10 }}>solid blocks · 480p draft</Text>
-              <span style={{ flex: 1 }} />
-              <Button
-                size="mini" type="primary" icon={<IconVideoCamera />} loading={!!data.animaticBusy}
-                disabled={!onAnimatic || !schem.url || total > maxS}
-                onClick={() => onAnimatic && onAnimatic(id)}
-                title="Seedance 2.5 reads the schematic and moves the blockout through the shots — a cheap 480p draft, no audio"
-                style={{ background: '#165dff', borderColor: '#165dff' }}
-              >{anim ? 'New animatic' : 'Make animatic'}</Button>
-              {anim?.taskId && finals.length > 0 && (
-                <Dropdown trigger="click" position="br" droplist={<Menu onClickMenuItem={(res) => onFinal && onFinal(id, res)}>{finals.map((r) => <Menu.Item key={r}>Final {r}</Menu.Item>)}</Menu>}>
-                  <Button size="mini" disabled={!!data.animaticBusy} title="Finish the chosen animatic at full resolution">Final ▾</Button>
-                </Dropdown>
-              )}
-            </div>
-            <div>
-              <Text style={{ ...BLOCK_LABEL, color: '#86909c', display: 'block', marginBottom: 3 }}>HOW TO CORRECT</Text>
-              <DraftText
-                textarea value={data.animaticNote} onCommit={(v) => patch({ animaticNote: v })}
-                placeholder="what the next animatic must do differently — e.g. she reaches the table before he turns; the camera stays behind the counter"
-                autoSize={{ minRows: 1, maxRows: 4 }} style={{ fontSize: 11 }}
-              />
-            </div>
-            {data.animaticError && <Text style={{ fontSize: 10, color: '#f53f3f' }}>{data.animaticError}</Text>}
-            {animatics.length > 0 && (
-              <div style={{ display: 'grid', gap: 6 }}>
-                {/* PICK THE ANIMATIC — click a chip to choose it (Final and To CUT card use the
-                    chosen one); ▶ opens it in the take viewer. */}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {animatics.map((a) => {
-                    const on = a.takeId === anim?.takeId;
-                    return (
-                      <span
-                        key={a.takeId} role="button" tabIndex={0}
-                        onClick={() => patch({ animatic: a })}
-                        title={on ? 'Chosen — Final and To CUT card use this one' : 'Choose this animatic'}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 999, cursor: 'pointer', fontSize: 11, fontWeight: on ? 700 : 500, border: `1.5px solid ${on ? '#b06f10' : '#e5e6eb'}`, background: on ? '#fff7e8' : '#fff', color: on ? '#b06f10' : '#4e5969' }}
-                      >
-                        {on ? '● ' : ''}{a.label || 'Animatic'}{a.final ? ` · ${a.final}` : ''}
-                        <IconPlayArrow onClick={(e) => { e.stopPropagation(); onPlay && onPlay(id, a.takeId); }} title="Open in the take viewer" style={{ fontSize: 13, color: '#165dff' }} />
-                      </span>
-                    );
-                  })}
+            {/* THE ANIMATIC — the chosen one (poster: play it), its correction + render, and
+                the hand-off. Picking another happens in the Take Library. */}
+            <div style={{ borderTop: '1px solid #f2f3f5', paddingTop: 10, display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>ANIMATIC</Text>
+                <Text type="secondary" style={{ fontSize: 10 }}>solid-block blocking · 480p draft · no audio</Text>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, alignItems: 'start' }}>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <div
+                    role="button" tabIndex={0}
+                    onClick={() => anim?.takeId && onPlay && onPlay(id)}
+                    title={anim?.takeId ? 'Play it in the take viewer' : undefined}
+                    style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', background: '#101418', cursor: anim?.takeId ? 'pointer' : 'default', display: 'grid', placeItems: 'center' }}
+                  >
+                    {poster && <img src={poster} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />}
+                    {data.animaticBusy
+                      ? <Text style={{ color: '#9fb4d0', fontSize: 11, position: 'relative' }}><IconLoading style={{ marginRight: 4 }} />rendering…</Text>
+                      : anim?.takeId
+                        ? <span style={{ position: 'relative', width: 40, height: 40, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', display: 'grid', placeItems: 'center' }}><IconPlayArrow style={{ color: '#fff', fontSize: 20 }} /></span>
+                        : <Text style={{ color: '#6e7b8b', fontSize: 11, position: 'relative' }}>No animatic yet</Text>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 11, fontWeight: 600, flex: 1, minWidth: 0 }} ellipsis>{anim?.takeId ? anim.label || 'Animatic' : '—'}</Text>
+                    <Button size="mini" type="text" onClick={() => onPickAnimatic && onPickAnimatic(id)} title="Choose another animatic (or any video) in the Take Library">Change…</Button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ flex: 1 }} />
-                  <Button size="small" type="primary" loading={!!data.cutBusy} disabled={!anim?.takeId} onClick={() => onToCut && onToCut(id)} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="One CUT card that rides the chosen animatic as its motion reference; its prompt is written by watching it (the real scene, not the blockout look)">To CUT card · {anim?.label || 'animatic'}</Button>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>{anim ? 'HOW TO CORRECT · for the next render' : 'NOTES · for the render'}</Text>
+                  <DraftText
+                    textarea value={data.animaticNote} onCommit={(v) => patch({ animaticNote: v })}
+                    placeholder="e.g. Robber 2 reaches the counter before the teller turns; the camera stays behind the counter"
+                    autoSize={{ minRows: 4, maxRows: 8 }} style={{ fontSize: 11 }}
+                  />
+                  <Button
+                    size="small" type="primary" long icon={<IconVideoCamera />} loading={!!data.animaticBusy}
+                    disabled={!onAnimatic || !schem.url || total > maxS}
+                    onClick={() => onAnimatic && onAnimatic(id)}
+                    title="Seedance 2.5 reads the schematic and moves the blocks through the shots — a cheap 480p draft, no audio"
+                    style={{ background: '#165dff', borderColor: '#165dff' }}
+                  >{anim ? 'Render a new animatic' : 'Render animatic'}</Button>
+                  {data.animaticError && <Text style={{ fontSize: 10, color: '#f53f3f' }}>{data.animaticError}</Text>}
                 </div>
               </div>
-            )}
-
-            {plan.look && <Text style={{ fontSize: 10, color: '#86909c' }} title="Rides to the SHOT cards; the animatic stays a blockout">look · {plan.look}</Text>}
+              <div style={{ display: 'grid', gap: 4 }}>
+                <Button
+                  size="default" type="primary" long loading={!!data.cutBusy} disabled={!anim?.takeId}
+                  onClick={() => onToCut && onToCut(id)}
+                  style={{ background: '#b06f10', borderColor: '#b06f10', fontWeight: 600 }}
+                  title="One CUT card that rides this animatic as its motion reference; its prompt is written by watching it — the real scene, not the blocks"
+                >To CUT card →</Button>
+                {plan.look && <Text type="secondary" style={{ fontSize: 10 }} title="The animatic stays a blockout; this look rides to the CUT card">look on the CUT card · {plan.look}</Text>}
+              </div>
+            </div>
           </>
         )}
       </div>

@@ -504,9 +504,6 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
 // window so a hot reload of this module cannot replay a hand-off.
 const consumedStories = (typeof window !== 'undefined' && (window.__storyRoomConsumed = window.__storyRoomConsumed || new Set())) || new Set();
 
-// A Previz card's animatics, oldest first (cards from before the list hold only one).
-const animaticsOf = (d) => (Array.isArray(d?.animatics) ? d.animatics : (d?.animatic?.takeId ? [d.animatic] : []));
-
 // A role line joins the prompt's REFERENCE block (the leading paragraph of "@ImageN …"
 // lines and "Look:"), before the Look line; a prompt without one gets a block of its own.
 const withRoleLine = (prompt, line) => {
@@ -940,6 +937,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // Focus is selection-derived: a selected SHOT card filters the drawer to its takes.
   const [takeLibOpen, setTakeLibOpen] = useState(false);
   const [masterPickFor, setMasterPickFor] = useState(null);
+  const [animaticPickFor, setAnimaticPickFor] = useState(null); // a Previz card choosing its animatic in the Take Library
   // ---- REFERENCE BROWSER (right drawer) — the ONE library-picking surface -----------
   // Sources: a SHOT card ({type:'cut',id}), the storyboard pool ({type:'sbpool',id}),
   // a panel field ({type:'panel',field}) or a generic single-pick request
@@ -947,7 +945,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // ENABLED refs inline and opens this drawer to browse/toggle the rest.
   const [refDrawer, setRefDrawer] = useState(null);
   const [shotBrowserOpen, setShotBrowserOpen] = useState(false);
-  const openRefDrawer = useCallback((req) => { setTakeLibOpen(false); setMasterPickFor(null); setShotBrowserOpen(false); setRefDrawer(req); }, []);
+  const openRefDrawer = useCallback((req) => { setTakeLibOpen(false); setMasterPickFor(null); setAnimaticPickFor(null); setShotBrowserOpen(false); setRefDrawer(req); }, []);
   const closeRefDrawer = useCallback(() => setRefDrawer(null), []);
   const focusedCutId = useMemo(() => (selectedNodes.find(isShotCard) || {}).id || null, [selectedNodes]);
   // Groups mirror the SHOT cards in cut order. A card's takes = its grid children plus
@@ -1639,7 +1637,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   const storyboardPanelRef = useRef(null);
   // Previz DISPATCH lives far below (it needs onPatchCut and the panel layer), while the
   // previz context is built above it — the ref is the seam.
-  const previzDispatchRef = useRef({ toCut: () => {}, edit: () => {}, animatic: () => {}, final: () => {}, play: () => {} });
+  const previzDispatchRef = useRef({ toCut: () => {}, edit: () => {}, animatic: () => {}, play: () => {}, pick: () => {}, poster: () => {} });
   // Compose is declared far below (it closes over the bible, the trace and the client);
   // previz dispatch needs to CALL it. Same seam as previzDispatchRef, other direction.
   const composeCutRef = useRef(null);
@@ -2019,15 +2017,26 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     }
   }, [patchPreviz, previzCtxOf, drawPrevizSchematic]);
 
+  // The chosen animatic's poster per Previz card (stills only on the board).
+  const previzPosters = useMemo(() => {
+    const map = {};
+    nodes.forEach((c) => {
+      const id = c.type === 'previz' && c.data?.animatic?.takeId;
+      const t = id && nodes.find((n) => n.id === id);
+      if (t?.data?.posterUrl) map[id] = t.data.posterUrl;
+    });
+    return map;
+  }, [nodes]);
   const previzCtx = useMemo(() => ({
     onPlan: runPrevizPlan, onDrawSchematic: drawPrevizSchematic, onPatchPreviz: patchPreviz,
     onEditSchematic: (id) => previzDispatchRef.current.edit(id),
     onAnimatic: (id) => previzDispatchRef.current.animatic(id),
-    onFinal: (id, res) => previzDispatchRef.current.final(id, res),
     onPlay: (id, takeId) => previzDispatchRef.current.play(id, takeId),
+    onPickAnimatic: (id) => previzDispatchRef.current.pick(id),
     onToCut: (id) => previzDispatchRef.current.toCut(id),
-    onOpenTakes: openTakesForCard,
-  }), [runPrevizPlan, drawPrevizSchematic, patchPreviz, openTakesForCard]);
+    onNeedPoster: (takeId) => previzDispatchRef.current.poster?.(takeId),
+    posters: previzPosters,
+  }), [runPrevizPlan, drawPrevizSchematic, patchPreviz, previzPosters]);
 
   // MASK — reproduce ANY board image (storyboard frames, uploads, plates) with every
   // person as a flat color silhouette: identities are scrubbed, the plate is pure
@@ -3340,8 +3349,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // storyboardPanelRef and laySeqRef, all defined above this point) ----------------------
 
   // THE ANIMATIC: the schematic in, a moving blockout out. A cheap 480p Seedance 2.5
-  // Draft (no audio) in the card's style, cut by the planned cameras; each run stacks as
-  // a take on the Previz card. Final finishes the latest draft at full resolution.
+  // Draft (no audio), cut by the planned cameras; each run stacks as a take on the
+  // Previz card and becomes the chosen one.
   const makePrevizAnimatic = useCallback((cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
@@ -3368,9 +3377,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
         const label = `Animatic ${takeNo}`;
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, draft: { ...draftMeta.draft, taskId } } } : n)));
-        // Every animatic stays on the card; the newest is chosen until you pick another.
-        const rec = { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, label, seconds: shot.durationSec, createdAt: Date.now() };
-        patchPreviz(cardId, (d) => ({ animaticBusy: false, animatic: rec, animatics: [...animaticsOf(d), rec] }));
+        // The newest animatic is the chosen one until another is picked from the Library.
+        patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, label, seconds: shot.durationSec, createdAt: Date.now() } });
       } catch (err) {
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Animatic failed' } } : n)));
         patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
@@ -3379,32 +3387,23 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     })();
   }, [addLoadingTake, patchPreviz, setNodes]);
 
-  const finalPrevizAnimatic = useCallback((cardId, resolution) => {
-    const card = nodesRef.current.find((n) => n.id === cardId);
-    const a = card?.data?.animatic;
-    if (!a?.taskId) { Message.warning('Make an animatic draft first.'); return; }
-    if (Date.now() - (a.createdAt || 0) > DRAFT_MODE.ttlMs) { Message.warning('That draft is older than 7 days — make a new animatic.'); return; }
-    const { takeId, takeNo } = addLoadingTake(card, 'Animatic final');
-    patchPreviz(cardId, { animaticBusy: true, animaticError: '' });
-    traceRef.current.startRun({ note: `Agent · Previz · animatic final ${resolution}` });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
-    (async () => {
-      try {
-        const { taskId } = await finishDraft({ draftTaskId: a.taskId, modelKey: ANIMATIC_MODEL, resolution }, ctx);
-        resumedTakesRef.current.add(takeId);
-        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId: cardId } } : n)));
-        const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
-        const label = `Animatic ${takeNo} · ${resolution}`;
-        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label } } : n)));
-        const rec = { ...a, takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, final: resolution, createdAt: Date.now() };
-        patchPreviz(cardId, (d) => ({ animaticBusy: false, animatic: rec, animatics: [...animaticsOf(d), rec] }));
-      } catch (err) {
-        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Final failed' } } : n)));
-        patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
-        Message.error(`Animatic final failed: ${err.message}`);
-      }
-    })();
-  }, [addLoadingTake, patchPreviz, setNodes]);
+  // PICK THE ANIMATIC in the Take Library — any video on the board; that one is what
+  // Final (when it is a draft) and To CUT card use.
+  const pickPrevizAnimatic = useCallback((cardId) => {
+    setRefDrawer(null);
+    setShotBrowserOpen(false);
+    setMasterPickFor(null);
+    setAnimaticPickFor(cardId);
+    setTakeLibOpen(true);
+  }, []);
+  const adoptAnimatic = useCallback((cardId, take) => {
+    const node = nodesRef.current.find((n) => n.id === take.id);
+    const url = take.url || node?.data?.url;
+    if (!url) { Message.warning('That video has not rendered yet.'); return; }
+    patchPreviz(cardId, { animatic: { takeId: take.id, url, cacheUrl: take.cacheUrl || node?.data?.cacheUrl || null, label: String(take.label || 'Animatic').replace(/…$/, ''), taskId: node?.data?.draft?.taskId || null } });
+    setAnimaticPickFor(null);
+    setTakeLibOpen(false);
+  }, [patchPreviz]);
 
   const playPrevizAnimatic = useCallback((cardId, takeId) => {
     const id = takeId || nodesRef.current.find((n) => n.id === cardId)?.data?.animatic?.takeId;
@@ -3487,28 +3486,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     }
   }, [previzCtxOf, previzPool, patchPreviz]);
 
-  // A Previz card's animatic chips = the animatics actually on the board (its take grid),
-  // oldest first — kept in step as takes land or are deleted. What the card recorded about
-  // a take (draft task id, seconds, final) is kept; the chosen one falls back to the newest.
-  useEffect(() => {
-    nodes.forEach((card) => {
-      if (card.type !== 'previz') return;
-      const takes = nodes.filter((n) => n.parentId === `grid-${card.id}` && n.data?.kind === 'video' && n.data.url && !n.data.loading);
-      const known = new Map(animaticsOf(card.data).map((a) => [a.takeId, a]));
-      const list = takes.map((t) => ({
-        takeId: t.id, url: t.data.url, cacheUrl: t.data.cacheUrl || null,
-        label: String(t.data.label || 'Animatic').replace(/…$/, ''),
-        taskId: t.data.draft?.taskId || null,
-        ...(known.get(t.id) || {}),
-      }));
-      const chosen = list.find((a) => a.takeId === card.data.animatic?.takeId) || list[list.length - 1] || null;
-      const same = list.length === animaticsOf(card.data).length && list.every((a, i) => a.takeId === animaticsOf(card.data)[i]?.takeId)
-        && (chosen?.takeId || null) === (card.data.animatic?.takeId || null);
-      if (!same) patchPreviz(card.id, { animatics: list, animatic: chosen });
-    });
-  }, [nodes, patchPreviz]);
-
-  previzDispatchRef.current = { toCut: previzToCut, edit: previzEditSchematic, animatic: makePrevizAnimatic, final: finalPrevizAnimatic, play: playPrevizAnimatic };
+  previzDispatchRef.current = { pick: pickPrevizAnimatic, toCut: previzToCut, edit: previzEditSchematic, animatic: makePrevizAnimatic, play: playPrevizAnimatic };
 
   // ANALYZE an EDIT card's master: the reasoner watches the video itself and describes
   // the shot — the footage only, never THE EDIT — and that description goes on the card
@@ -5339,6 +5317,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     q.waiting.push(run);
     next();
   }, [setNodes]);
+  previzDispatchRef.current.poster = ensurePoster;
 
   // The director's ✕ = RESET all the way back to the "What are we making?" launcher
   // — that IS the initial board state. So besides
@@ -5822,7 +5801,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
             <ControlButton onClick={() => setHistoryOpen((v) => !v)} title="History" style={historyOpen ? { color: '#165dff' } : undefined}>
               <IconHistory style={{ fontSize: 14 }} />
             </ControlButton>
-            <ControlButton onClick={() => { setShotBrowserOpen(false); setMasterPickFor(null); setTakeLibOpen((v) => !v); }} title="Take Library — every card's renders" style={takeLibOpen ? { color: '#165dff' } : undefined}>
+            <ControlButton onClick={() => { setShotBrowserOpen(false); setMasterPickFor(null); setAnimaticPickFor(null); setTakeLibOpen((v) => !v); }} title="Take Library — every card's renders" style={takeLibOpen ? { color: '#165dff' } : undefined}>
               <IconVideoCamera style={{ fontSize: 14 }} />
             </ControlButton>
             <ControlButton onClick={() => { setTakeLibOpen(false); setRefDrawer(null); setShotBrowserOpen((v) => !v); }} title="SHOT browser — find any card on the board and fly to it" style={shotBrowserOpen ? { color: '#165dff' } : undefined}>
@@ -5884,9 +5863,10 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         )}
         {takeLibOpen && (
           <TakeLibrary
-            pick={masterPickFor ? { title: 'Pick the master', onPick: (t) => adoptMaster(masterPickFor, t) } : null}
-            groups={masterPickFor ? pickGroups : takeGroups}
-            focusedCardId={takeLibFocusId || focusedCutId}
+            pick={masterPickFor ? { title: 'Pick the master', onPick: (t) => adoptMaster(masterPickFor, t) }
+              : animaticPickFor ? { title: 'Pick the animatic', onPick: (t) => adoptAnimatic(animaticPickFor, t) } : null}
+            groups={masterPickFor || animaticPickFor ? pickGroups : takeGroups}
+            focusedCardId={animaticPickFor || takeLibFocusId || focusedCutId}
             timelineIds={onTimelineNodeIds}
             onOpenViewer={setViewerId}
             onAddToTimeline={addTakeToTimeline}
@@ -5898,7 +5878,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
             onNeedPoster={ensurePoster}
             onFocusCard={selectAndCenter}
             onShowAll={() => { setTakeLibFocusId(null); setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n))); }}
-            onClose={() => { setMasterPickFor(null); setTakeLibFocusId(null); setTakeLibOpen(false); }}
+            onClose={() => { setMasterPickFor(null); setAnimaticPickFor(null); setTakeLibFocusId(null); setTakeLibOpen(false); }}
           />
         )}
 

@@ -21,7 +21,7 @@ import {
   IconStorage,
   IconHistory,
   IconArchive,
-  IconVideoCamera, IconCamera,
+  IconVideoCamera, IconCamera, IconApps,
 } from '@arco-design/web-react/icon';
 import AssetNode, { AssetNodeContext } from './AssetNode';
 import EditNode, { EDIT_OPENER } from './EditNode';
@@ -169,6 +169,75 @@ const nodeRect = (n) => {
   const w = n.measured?.width || n.width || Number(n.style?.width) || fb.w;
   const h = n.measured?.height || n.height || Number(n.style?.height) || fb.h;
   return { x: n.position?.x || 0, y: n.position?.y || 0, w, h };
+};
+
+// ORGANIZE — the board as a production wall: horizontal bands top to bottom in the order
+// a film is made (development → pre-production → production → post → loose media), each
+// band flowing left to right and wrapping. Only visible top-level nodes move; children
+// ride their groups. A storyboard's panel group stays beside its control card; SHOT
+// cards keep shot order. Pure: returns { id: position }.
+const ORGANIZE_BANDS = ['development', 'pre', 'production', 'post', 'loose'];
+const ORGANIZE_GAP = 60;
+const ORGANIZE_BAND_GAP = 200;
+const ORGANIZE_MAX_W = 5 * (780 + ORGANIZE_GAP); // five SHOT cards a row
+const organizeLayout = (nodes, agentPhase) => {
+  const top = nodes.filter((n) => !n.hidden && !n.parentId);
+  if (!top.length) return {};
+  const panelOf = new Map(top.filter((n) => n.type === 'sbchat' && n.data?.panelId).map((n) => [n.data.panelId, n.id]));
+  const childrenOf = (gid) => nodes.filter((c) => c.parentId === gid);
+  const bandOf = (n) => {
+    if (n.type === 'agent') return agentPhase(n.data?.agentId) || 'pre';
+    if (n.type === 'cut' || n.type === 'edit' || n.type === 'sequence') return 'production';
+    if (n.type === 'sbchat' || n.type === 'previz') return 'pre';
+    if (n.type === 'note') return 'development';
+    if (n.type === 'group') {
+      const kids = childrenOf(n.id);
+      if (kids.some((c) => c.data?.layerId === 'inspiration')) return 'development';
+      return 'pre';
+    }
+    if (n.data?.kind === 'audio') return 'post';
+    if (n.data?.layerId === 'inspiration') return 'development';
+    if (n.data?.bibleRole) return 'pre';
+    return 'loose';
+  };
+  // Order inside a band: casting first, then storyboards (+ their panel), previz, the rest;
+  // SHOT cards by shot number, edits after them.
+  const rank = (n) => {
+    if (n.type === 'group' && String(n.id).startsWith('cast-')) return 0;
+    if (n.type === 'sbchat') return 1;
+    if (n.type === 'previz') return 2;
+    if (n.type === 'cut') return 10 + (Number.isFinite(n.data?.cut) ? n.data.cut : 0) / 1e4;
+    if (n.type === 'edit') return 20;
+    if (n.type === 'agent') return 30;
+    return 40;
+  };
+  const buckets = Object.fromEntries(ORGANIZE_BANDS.map((b) => [b, []]));
+  top.forEach((n) => { if (!panelOf.has(n.id)) buckets[bandOf(n)].push(n); });
+  const originX = Math.min(...top.map((n) => n.position?.x || 0));
+  let y = Math.min(...top.map((n) => n.position?.y || 0));
+  const out = {};
+  ORGANIZE_BANDS.forEach((band) => {
+    const list = buckets[band].sort((a, b) => rank(a) - rank(b) || (a.position?.y || 0) - (b.position?.y || 0) || (a.position?.x || 0) - (b.position?.x || 0));
+    // A storyboard and its panel move as one unit, panel to the right of the card.
+    const units = list.map((n) => {
+      const panel = n.type === 'sbchat' && n.data?.panelId ? top.find((x) => x.id === n.data.panelId) : null;
+      const a = nodeRect(n);
+      if (!panel) return { parts: [{ id: n.id, dx: 0 }], w: a.w, h: a.h };
+      const b = nodeRect(panel);
+      return { parts: [{ id: n.id, dx: 0 }, { id: panel.id, dx: a.w + ORGANIZE_GAP }], w: a.w + ORGANIZE_GAP + b.w, h: Math.max(a.h, b.h) };
+    });
+    if (!units.length) return;
+    let x = originX;
+    let rowH = 0;
+    units.forEach((u) => {
+      if (x > originX && x + u.w > originX + ORGANIZE_MAX_W) { x = originX; y += rowH + ORGANIZE_GAP; rowH = 0; }
+      u.parts.forEach((p) => { out[p.id] = { x: x + p.dx, y }; });
+      x += u.w + ORGANIZE_GAP;
+      rowH = Math.max(rowH, u.h);
+    });
+    y += rowH + ORGANIZE_BAND_GAP;
+  });
+  return out;
 };
 
 // Map a blueprint session's steps back to their CUT cards. Every shot emits exactly
@@ -1275,6 +1344,28 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       try { rfInstance.fitView({ nodes: [{ id }], duration: 400, maxZoom: 1.1, padding: 0.5 }); } catch { /* noop */ }
     }
   }, [setNodes, rfInstance]);
+  // Organize: tidy the board into production bands, frame it, offer a one-click undo.
+  const organizeBoard = useCallback(() => {
+    const before = nodesRef.current;
+    const layout = organizeLayout(before, (agentId) => AGENT_MAP[agentId]?.phase);
+    const ids = Object.keys(layout);
+    if (!ids.length) { Message.info('Nothing on the board to organize yet.'); return; }
+    const prev = Object.fromEntries(before.filter((n) => layout[n.id]).map((n) => [n.id, n.position]));
+    setNodes((ns) => ns.map((n) => (layout[n.id] ? { ...n, position: layout[n.id] } : n)));
+    // Frame once React Flow has the new positions (a frame or two after the state lands).
+    const frame = () => setTimeout(() => requestAnimationFrame(() => { try { rfInstance?.fitView({ duration: 500, padding: 0.12 }); } catch { /* noop */ } }), 250);
+    frame();
+    const undo = () => {
+      setNodes((ns) => ns.map((n) => (prev[n.id] ? { ...n, position: prev[n.id] } : n)));
+      frame();
+      Message.clear();
+    };
+    Message.success({
+      content: <span>Board organized into production lanes · <a role="button" tabIndex={0} onClick={undo} style={{ cursor: 'pointer', fontWeight: 600 }}>Undo</a></span>,
+      duration: 8000,
+    });
+  }, [setNodes, rfInstance]);
+
   // Story Room ▸ "Open on board": select the card and frame it once the tab is visible.
   const focusSeen = useRef(0);
   useEffect(() => {
@@ -5637,6 +5728,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
             </ControlButton>
             <ControlButton onClick={() => rfInstance?.fitView({ duration: 300, padding: 0.2 })} title="Fit to view">
               <IconFullscreen style={{ fontSize: 14 }} />
+            </ControlButton>
+            <ControlButton onClick={organizeBoard} title="Organize — tidy the board into production lanes: development, pre-production, SHOT cards in order, post (undo-able)">
+              <IconApps style={{ fontSize: 14 }} />
             </ControlButton>
             <ControlButton onClick={() => setLibraryOpen((v) => !v)} title="Library" style={libraryOpen ? { color: '#165dff' } : undefined}>
               <IconStorage style={{ fontSize: 14 }} />

@@ -105,8 +105,39 @@ Return ONLY JSON — no prose, no code fences:
   'previz.animatic': {
     agent: 'Previz',
     label: 'Previz animatic — the Seedance prompt',
-    vars: ['{style}', '{key}', '{shots}'],
-    text: 'An ANIMATIC of one scene. {style}\n@Image1 is a top-down floor plan of this scene: use only its layout, where each actor stands, the paths the arrows show and where each camera stands. Never show the plan itself — no lines, labels, circles or arrows on screen.\n{key} Each figure keeps its colour for the whole video; the figures are simple and featureless, so only colour tells them apart.\n{shots}',
+    vars: ['{style}', '{key}', '{shots}', '{fix}'],
+    text: 'An ANIMATIC of one scene. {style}\n@Image1 is a top-down floor plan of this scene: use only its layout, where each actor stands, the paths the arrows show and where each camera stands. Never show the plan itself — no lines, labels, circles or arrows on screen.\n{key} Each figure keeps its colour for the whole video; the figures are simple and featureless, so only colour tells them apart.\n{shots}\n{fix}',
+  },
+  'previz.animatic.fix': {
+    agent: 'Previz',
+    label: 'Previz animatic — the director\'s correction',
+    vars: ['{note}'],
+    text: 'THE DIRECTOR\'S CORRECTION — this must hold over everything above: {note}',
+  },
+  'previz.describe.system': {
+    agent: 'Previz',
+    label: 'Previz → CUT — describe the animatic (system)',
+    vars: [],
+    text: `You watch a previz ANIMATIC: stand-in figures moving through a blockout of a set, cut by the cameras. Write what happens in it as the REAL scene, for a video model that will shoot it with this animatic as its motion reference.
+
+Name every figure by the person or thing it stands for, using the colour key, and call the set by the place it stands for. Write, in order: who is where, who moves where, what they do, where the camera stands and how it frames and moves, and every cut ("Cut to: ..."), with rough timing when it helps ("for the first 3 seconds").
+
+Never describe the animatic's look: no mannequins, no figure colours, no grey geometry, pencil lines, clay, untextured surfaces or floor-plan marks. Never decide light, grade or wardrobe — the look is set elsewhere. Write only what the video shows; do not add events.
+
+Return ONLY JSON — no prose, no code fences:
+{"prompt":"<the scene, plain prose, at most 160 words>"}`,
+  },
+  'previz.describe.user': {
+    agent: 'Previz',
+    label: 'Previz → CUT — instruction',
+    vars: ['{scene}', '{set}', '{cast}', '{seconds}'],
+    text: 'THE SCENE: {scene}\nTHE SET: {set}\nTHE COLOUR KEY (who each figure stands for):\n{cast}\nLENGTH: {seconds} seconds\n\nWatch the attached animatic and return the JSON.',
+  },
+  'previz.cut.ref': {
+    agent: 'Previz',
+    label: 'Previz → CUT — the animatic\'s role line',
+    vars: [],
+    text: '@Video1 is used for the blocking, the timing of the action, the camera positions and moves, and the cuts; do not use its look — its featureless stand-in figures, their flat colours, the grey set geometry, pencil lines or clay.',
   },
   'previz.animatic.style.pencil': {
     agent: 'Previz',

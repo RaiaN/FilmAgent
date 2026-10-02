@@ -99,11 +99,37 @@ export const previzSchematic = async ({ plan, imageModel = defaultImageModelKey(
 
 // THE ANIMATIC PROMPT — built by code from the plan: the schematic's role (Seedance 2.5
 // reference grammar), the colour key, the style, and one line per shot.
-export const previzAnimaticPrompt = ({ plan, style = 'blockout' } = {}) => {
+// The director's correction rides last, as a constraint the new render must hold.
+export const previzAnimaticPrompt = ({ plan, style = 'blockout', note = '' } = {}) => {
   const st = PLATE_STYLES.includes(style) ? style : 'blockout';
+  const fix = String(note || '').trim();
   return renderTemplate('previz.animatic', {
     style: renderTemplate(`previz.animatic.style.${st}`),
     key: (plan?.actors || []).length ? `The colour key: ${plan.actors.map((a) => `the ${colorWord(a)} figure is ${a.name}`).join('; ')}.` : '',
     shots: (plan?.shots || []).map((s, i) => `Shot ${i + 1} (${cameraLine(s, i)}): ${s.action}`).join('\n'),
+    fix: fix ? renderTemplate('previz.animatic.fix', { note: fix }) : '',
+  }).trim();
+};
+
+// THE CUT PROMPT — a vision call watches the animatic and writes what happens as the
+// REAL scene (named people, the place, who moves where, the cameras and cuts), never its
+// blockout look. Code puts the reference-video role first and the plan's look last.
+export const previzCutPrompt = async ({ videoUrl = '', plan, config } = {}, ctx) => {
+  if (!videoUrl) throw new Error('Make an animatic first.');
+  const cast = (plan?.actors || []).map((a) => `- the ${colorWord(a)} figure = ${a.name}${a.description ? `: ${a.description}` : ''}`).join('\n');
+  const { content } = await ctx.client.reason({
+    prompt: renderTemplate('previz.describe.user', {
+      scene: plan?.scene || '(not stated)',
+      set: (plan?.set || []).map((s) => `${s.name}${s.where ? ` (${s.where})` : ''}`).join('; ') || '(not stated)',
+      cast: cast || '(no named figures)',
+      seconds: String(totalSecondsOf(plan) || 'unknown'),
+    }),
+    systemPrompt: renderTemplate('previz.describe.system'),
+    video: videoUrl,
+    modelId: getModel('reasoner', config),
+    reasoningEffort: getRuntime(config).reasoningEffort,
   });
+  const text = String((parseJson(content) || {}).prompt || '').trim();
+  if (!text) throw new Error('The animatic description came back empty — try again.');
+  return [renderTemplate('previz.cut.ref'), text, plan?.look ? `Look: ${plan.look}` : ''].filter(Boolean).join('\n');
 };

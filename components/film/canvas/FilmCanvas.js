@@ -51,7 +51,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, finishDraft, generateFilmAudio } from '../../../utils/film/core/operations';
-import { previzPlan, previzSchematic, previzAnimaticPrompt, totalSecondsOf, PLATE_STYLES, ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK } from '../../../utils/film/core/previz';
+import { previzPlan, previzSchematic, previzAnimaticPrompt, previzCutPrompt, totalSecondsOf, PLATE_STYLES, ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK } from '../../../utils/film/core/previz';
 import { describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { SCOUT_PATHS, startSurvey, surveyFrameTimes, checkEmpty } from '../../../utils/film/core/scout';
@@ -1587,7 +1587,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   const storyboardPanelRef = useRef(null);
   // Previz DISPATCH lives far below (it needs onPatchCut and the panel layer), while the
   // previz context is built above it — the ref is the seam.
-  const previzDispatchRef = useRef({ toShots: () => {}, edit: () => {}, animatic: () => {}, final: () => {}, play: () => {} });
+  const previzDispatchRef = useRef({ toCut: () => {}, edit: () => {}, animatic: () => {}, final: () => {}, play: () => {} });
   // Compose is declared far below (it closes over the bible, the trace and the client);
   // previz dispatch needs to CALL it. Same seam as previzDispatchRef, other direction.
   const composeCutRef = useRef(null);
@@ -1973,8 +1973,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     onAnimatic: (id) => previzDispatchRef.current.animatic(id),
     onFinal: (id, res) => previzDispatchRef.current.final(id, res),
     onPlay: (id) => previzDispatchRef.current.play(id),
-    onToShotCards: (id) => previzDispatchRef.current.toShots(id),
-  }), [runPrevizPlan, drawPrevizSchematic, patchPreviz]);
+    onToCut: (id) => previzDispatchRef.current.toCut(id),
+    onOpenTakes: openTakesForCard,
+  }), [runPrevizPlan, drawPrevizSchematic, patchPreviz, openTakesForCard]);
 
   // MASK — reproduce ANY board image (storyboard frames, uploads, plates) with every
   // person as a flat color silhouette: identities are scrubbed, the plate is pure
@@ -3190,7 +3191,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     (async () => {
       try {
         const shot = {
-          motion: previzAnimaticPrompt({ plan, style }),
+          motion: previzAnimaticPrompt({ plan, style, note: card.data?.animaticNote }),
           refUrls: [src], refAssetIds: [null], refRoles: [],
           durationSec: clampShotSeconds(ANIMATIC_MODEL, totalSecondsOf(plan)),
           resolution: DRAFT_MODE.resolution, ratio: ANIMATIC_RATIO,
@@ -3202,7 +3203,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
         const label = `Animatic ${takeNo}`;
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, draft: { ...draftMeta.draft, taskId } } } : n)));
-        patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, style, label, createdAt: Date.now() } });
+        patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, style, label, seconds: shot.durationSec, createdAt: Date.now() } });
       } catch (err) {
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Animatic failed' } } : n)));
         patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
@@ -3243,42 +3244,38 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     else Message.warning('No animatic on this card yet.');
   }, []);
 
-  // HAND-OFF: one SHOT card per planned shot, in order and chained. Each rides the
-  // schematic as an image reference and the animatic as a reference VIDEO, so the shot
-  // follows the blocked motion.
-  const previzToShotCards = useCallback((cardId) => {
+  // HAND-OFF: ONE CUT card. The animatic is its single reference — a motion reference
+  // video — and its prompt is written by watching the animatic (the real scene, never
+  // the blockout look).
+  const previzToCut = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
-    if (!plan?.shots?.length) { Message.warning('Plan the scene first.'); return; }
-    const schem = card.data.schematic;
-    const anim = card.data.animatic;
+    const anim = card?.data?.animatic;
     const animNode = anim?.takeId ? nodesRef.current.find((n) => n.id === anim.takeId) : null;
-    const animUrl = animNode ? durableVideoUrl(animNode.data?.cacheUrl || animNode.data?.url || anim.url) : '';
-    const shots = plan.shots;
-    const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
-    const cols = Math.min(4, shots.length);
-    const base = freeOrigin({ w: cols * CUT_COL_W, h: Math.ceil(shots.length / cols) * CUT_ROW_H, preferred: { x: (card.position?.x || 0) + 760, y: card.position?.y || 0 } });
-    const cutBase = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
-    const chip = schem?.url ? { nodeId: null, url: schem.cacheUrl || schem.url, label: 'Previz schematic' } : null;
-    shots.forEach((sh, i) => {
-      const cam = [sh.camera?.framing, sh.camera?.move, sh.camera?.from ? `from ${sh.camera.from}` : ''].filter(Boolean).join(', ');
+    if (!plan?.shots?.length || !animNode) { Message.warning('Make an animatic first — it is what the CUT card follows.'); return; }
+    if (card.data?.cutBusy) return;
+    const animUrl = durableVideoUrl(animNode.data?.cacheUrl || animNode.data?.url || anim.url);
+    patchPreviz(cardId, { cutBusy: true, animaticError: '' });
+    traceRef.current.startRun({ note: 'Agent · Previz · animatic → CUT card' });
+    try {
+      const prompt = await previzCutPrompt({ videoUrl: animUrl, plan }, previzCtxOf());
+      const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
+      const base = freeOrigin({ w: CUT_COL_W, h: CUT_ROW_H, preferred: { x: (card.position?.x || 0) + 760, y: card.position?.y || 0 } });
+      const cut = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
       storyboardPanelRef.current({
-        index: i, cut: cutBase + i, idPrefix, cols,
-        title: `Previz ${i + 1}`,
-        action: '',
-        promptOverride: [cam ? `${cam[0].toUpperCase()}${cam.slice(1)}.` : '', sh.action, animUrl ? `The blocking follows shot ${i + 1} of the reference video.` : '', plan.look].filter(Boolean).join(' '),
-        framing: '', durationSec: sh.seconds || AUTO_SECONDS, refEntryIds: [], audio: '', videoModel: ANIMATIC_MODEL,
+        index: 0, cut, idPrefix, cols: 1,
+        title: 'Previz', action: '', promptOverride: prompt,
+        framing: '', durationSec: anim.seconds || clampShotSeconds(ANIMATIC_MODEL, totalSecondsOf(plan)), refEntryIds: [], audio: '', videoModel: ANIMATIC_MODEL,
       }, base);
-      onPatchCut(`${idPrefix}-${i}`, {
-        ...(chip ? { assetRefs: [chip] } : {}),
-        ...(animUrl ? { videoRefs: [{ nodeId: anim.takeId, url: animUrl, label: anim.label || 'Animatic' }] } : {}),
-      });
-    });
-    if (shots.length > 1) {
-      applyEdges((es) => es.concat(shots.slice(1).map((_, i) => ({ id: `cont-${idPrefix}-${i}-${idPrefix}-${i + 1}`, source: `${idPrefix}-${i}`, target: `${idPrefix}-${i + 1}`, type: 'continuity' })).filter((e) => !es.some((x) => x.id === e.id))));
+      onPatchCut(`${idPrefix}-0`, { videoRefs: [{ nodeId: anim.takeId, url: animUrl, label: anim.label || 'Animatic' }] });
+      Message.success('CUT card laid — it rides the animatic as its motion reference. Add plates for the faces and the place.');
+    } catch (e) {
+      patchPreviz(cardId, { animaticError: e.message });
+      Message.error(`To CUT card failed: ${e.message}`);
+    } finally {
+      patchPreviz(cardId, { cutBusy: false });
     }
-    Message.success(`${shots.length} SHOT card${shots.length === 1 ? '' : 's'} laid${animUrl ? ' — each rides the animatic as its motion reference' : ' — make an animatic first to give them a motion reference'}.`);
-  }, [freeOrigin, onPatchCut, applyEdges, durableVideoUrl]);
+  }, [freeOrigin, onPatchCut, durableVideoUrl, patchPreviz, previzCtxOf]);
 
   // EDIT THE SCHEMATIC with the same KeyframeEditor every board image uses (instruction
   // and drawn marks), written back to the card. The schematic is [Image 1] of the edit.
@@ -3322,7 +3319,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     }
   }, [previzCtxOf, previzPool, patchPreviz]);
 
-  previzDispatchRef.current = { toShots: previzToShotCards, edit: previzEditSchematic, animatic: makePrevizAnimatic, final: finalPrevizAnimatic, play: playPrevizAnimatic };
+  previzDispatchRef.current = { toCut: previzToCut, edit: previzEditSchematic, animatic: makePrevizAnimatic, final: finalPrevizAnimatic, play: playPrevizAnimatic };
 
   // ANALYZE an EDIT card's master: the reasoner watches the video itself and describes
   // the shot — the footage only, never THE EDIT — and that description goes on the card

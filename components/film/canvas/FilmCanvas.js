@@ -3529,7 +3529,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // shot-list handoff. The card carries the shot's beat/camera/duration, the keyframe
   // becomes its START ANCHOR (the pinned grammar's composition binding — no lock
   // text), and the shot's body follows as the editable starting text (a still's
-  // language — add motion + dialogue, then 🎬).
+  // language — add motion + dialogue, then Shoot).
   const promoteKeyframeToCard = useCallback((nodeId) => {
     const kf = nodesRef.current.find((n) => n.id === nodeId);
     const url = kf && refUrl(kf);
@@ -4714,7 +4714,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const attached = refEntryIds.length + assetRefs.length + audioRefs.length + videoRefs.length;
     Message.success(attached
       ? `SHOT card on the board — ${attached} selected reference${attached > 1 ? 's' : ''} attached.`
-      : 'SHOT card on the board — edit it, attach refs, then 🎬 to shoot.');
+      : 'SHOT card on the board — edit it, attach refs, then Shoot.');
   }, [rfInstance, freeOrigin]);
 
   // The rail / context-menu tap OPENS THE CONFIGURATION PANEL — nothing lands on the

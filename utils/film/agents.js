@@ -370,7 +370,7 @@ export const shotAgent = {
   consumes: [],
   needsSelection: false,
   defaultSettings: { prompt: '', durationSec: maxShotSeconds(defaultVideoModelKey()) },
-  describe: 'A SHOT card carrying your description — edit on the card, attach references, then 🎬 to shoot.',
+  describe: 'A SHOT card carrying your description — edit on the card, attach references, then Shoot.',
   async run() {
     throw new Error('The Shot agent lays a SHOT card on the canvas — run it from the board.');
   },

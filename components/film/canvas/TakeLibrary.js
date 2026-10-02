@@ -161,7 +161,7 @@ const TakeLibrary = ({ pick = null, groups, focusedCardId, timelineIds, onOpenVi
           <Empty
             style={{ marginTop: 40 }}
             description={focused
-              ? 'No takes on this card yet — press 🎬 on it.'
+              ? 'No takes on this card yet — press Shoot on it.'
               : 'No takes yet — 🎬 on a SHOT card renders the first one.'}
           />
         )}

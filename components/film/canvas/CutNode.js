@@ -3,7 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Dropdown, Menu } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
-import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, imageTagOf, clampShotSeconds, videoModelKeyOf, videoTraits, DRAFT_MODE, draftFinalsOf } from '../../../utils/film/suiteConfig';
+import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, imageTagOf, clampShotSeconds, maxShotSeconds, videoModelKeyOf, videoTraits, DRAFT_MODE, draftFinalsOf } from '../../../utils/film/suiteConfig';
 import { BOARD_NODE_DRAG_TYPE, ASSET_DRAG_TYPE } from '../../../utils/film/libraryStore';
 import PromptEditorModal from './PromptEditorModal';
 import DurationSlider from '../../DurationSlider';
@@ -11,6 +11,40 @@ import EditableLabel from './EditableLabel';
 import { SeedanceParams, DraftText, ReferencesRow } from './cardBlocks';
 
 const { Text } = Typography;
+
+// The shot's length as a slate pill: "⏱ Auto" or "⏱ 12s". Click → quick picks up to the
+// model's ceiling + a fine slider. Auto = no duration sent; the events set the length.
+const QUICK_SECONDS = [5, 8, 10, 12, 15, 20, 25, 30];
+const DurationPill = ({ value, max, onChange }) => {
+  const auto = value === 'auto' || value == null;
+  const quick = QUICK_SECONDS.filter((n) => n <= max);
+  const chip = (on) => ({ cursor: 'pointer', padding: '2px 9px', borderRadius: 12, fontSize: 12, fontWeight: 600, border: `1px solid ${on ? '#f7ba1e' : '#3a4656'}`, background: on ? '#f7ba1e' : 'transparent', color: on ? '#101418' : '#cdd3dc' });
+  return (
+    <Popover
+      trigger="click"
+      position="bottom"
+      content={(
+        <div className="nodrag nowheel" style={{ width: 250, display: 'grid', gap: 10 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <span role="button" tabIndex={0} style={chip(auto)} onClick={() => onChange('auto')}>Auto</span>
+            {quick.map((n) => <span key={n} role="button" tabIndex={0} style={chip(!auto && Number(value) === n)} onClick={() => onChange(n)}>{n}s</span>)}
+          </div>
+          <DurationSlider value={value} onChange={onChange} width={250} />
+          <Text type="secondary" style={{ fontSize: 11 }}>Auto sends no duration: the model plays the events out as long as they take. Up to {max}s on this model.</Text>
+        </div>
+      )}
+    >
+      <button
+        type="button"
+        className="nodrag"
+        title="Shot length"
+        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, height: 24, padding: '0 10px', borderRadius: 12, border: '1px solid #3a4656', background: '#161b22', color: '#e5e9f0', fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
+      >
+        <span style={{ opacity: 0.7 }}>⏱</span>{auto ? 'Auto' : `${value}s`}
+      </button>
+    </Popover>
+  );
+};
 
 // A SHOT card — the shot's SPEC on the board before generation (5–15s). The Story agent's
 // prompt rides verbatim in the editable PROMPT field — the only look/camera state; Direct
@@ -223,17 +257,18 @@ const CutNodeInner = ({ id, data, selected }) => {
           last frame then threads into the target's shoot. No edge = hard cut. */}
       <Handle type="target" position={Position.Left} title="continuity in — a chained predecessor's last frame threads into this shoot" style={{ width: 9, height: 9, background: '#3491fa', border: '2px solid #101418' }} />
       <Handle type="source" position={Position.Right} title="continuity out — drag to the next SHOT card to thread this card's last frame forward" style={{ width: 9, height: 9, background: '#3491fa', border: '2px solid #101418' }} />
-      {/* slate header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'repeating-linear-gradient(135deg, #1d2530 0 12px, #f7ba1e 12px 24px)', borderBottom: '1px solid #2a313a' }}>
-        <Tag size="small" style={{ background: '#101418', color: '#f7ba1e', border: 'none', fontWeight: 700 }}>SHOT {(data.cut ?? 0) + 1}</Tag>
+      {/* slate: a thin clapper stick on top, a solid readable bar under it */}
+      <div style={{ height: 6, background: 'repeating-linear-gradient(135deg, #1d2530 0 12px, #f7ba1e 12px 24px)' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#161b22', borderBottom: '1px solid #2a313a' }}>
+        <span style={{ fontFamily: '"Courier Prime", "Courier New", monospace', fontWeight: 700, fontSize: 14, letterSpacing: '0.04em', color: '#f7ba1e' }}>SHOT {(data.cut ?? 0) + 1}</span>
         {Number(data.takeCount) > 0 && (
           <Tag
             size="small"
             className="nodrag"
             title="Open this card's renders in the Take Library — scrub, download, add to the timeline"
             onClick={(e) => { e.stopPropagation(); onOpenTakes && onOpenTakes(id); }}
-            style={{ background: '#101418', color: '#9fb4d0', border: 'none', fontWeight: 700, cursor: 'pointer' }}
-          >🎞 View takes ({data.takeCount})</Tag>
+            style={{ background: '#101418', color: '#9fb4d0', border: '1px solid #2a313a', fontWeight: 700, cursor: 'pointer' }}
+          >🎞 {data.takeCount} take{Number(data.takeCount) === 1 ? '' : 's'}</Tag>
         )}
         {status && (
           <Tag size="small" style={{ background: '#101418', color: status.color, border: 'none', fontWeight: 700 }}>
@@ -243,34 +278,17 @@ const CutNodeInner = ({ id, data, selected }) => {
         <span style={{ flex: 1 }} />
         {/* The SHOT's length — Auto (no duration sent: the events set it) or a fixed
             ceiling in seconds. The single source of truth for shotFromCard. */}
-        <DurationSlider
-          className="nodrag nowheel"
-          value={durationSec}
-          onChange={(v) => patch({ durationSec: v })}
-          width={150}
-          labelColor="#cdd3dc"
-          title="How long this shot runs, 0–30 s. 0 is Auto: no duration is sent and the model plays the events out as long as they take (what the Film button sets)."
-        />
-        <Button
-          className="nodrag"
-          size="mini"
-          title="Shoot a take — drops an in-progress video on the board. Click again for more takes (they run in parallel, no waiting)."
-          disabled={!onShootCut}
-          onClick={() => onShootCut && onShootCut(id)}
-          style={{ background: '#101418', color: '#f7ba1e', border: '1px solid #f7ba1e', fontWeight: 700, padding: '0 6px' }}
-        >
-          🎬
-        </Button>
+        <DurationPill value={durationSec} max={maxShotSeconds(videoModel)} onChange={(v) => patch({ durationSec: v })} />
         {canDraft && (
           <Button
             className="nodrag"
-            size="mini"
+            size="small"
             title={`Shoot a ${DRAFT_MODE.resolution} Draft — a cheap preview to check framing, motion and prompt intent before paying for the full render.`}
             disabled={!onShootCut}
             onClick={() => onShootCut && onShootCut(id, { draft: true })}
-            style={{ background: '#101418', color: '#9fb4d0', border: '1px solid #3a4656', fontWeight: 700, padding: '0 6px' }}
+            style={{ background: 'transparent', color: '#cdd3dc', border: '1px solid #3a4656', fontWeight: 600, borderRadius: 6 }}
           >
-            Draft
+            Draft <span style={{ opacity: 0.6, marginLeft: 4, fontWeight: 500 }}>{DRAFT_MODE.resolution}</span>
           </Button>
         )}
         {liveDrafts.length > 0 && (
@@ -293,15 +311,25 @@ const CutNodeInner = ({ id, data, selected }) => {
           >
             <Button
               className="nodrag"
-              size="mini"
+              size="small"
               title="Render a Final from one of this card's drafts — same prompt, references, duration, ratio, seed and audio as that draft. Pick the draft and the resolution."
               disabled={!onFinalizeDraft}
-              style={{ background: '#f7ba1e', color: '#101418', border: '1px solid #f7ba1e', fontWeight: 700, padding: '0 6px' }}
+              style={{ background: 'transparent', color: '#f7ba1e', border: '1px solid #f7ba1e', fontWeight: 700, borderRadius: 6 }}
             >
               {finalizing ? <IconLoading style={{ marginRight: 3 }} /> : null}Final ▾
             </Button>
           </Dropdown>
         )}
+        <Button
+          className="nodrag"
+          size="small"
+          title="Shoot a take — drops an in-progress video on the board. Click again for more takes (they run in parallel, no waiting)."
+          disabled={!onShootCut}
+          onClick={() => onShootCut && onShootCut(id)}
+          style={{ background: '#f7ba1e', color: '#101418', border: '1px solid #f7ba1e', fontWeight: 700, borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: 4, background: '#e5383b', display: 'inline-block' }} />Shoot
+        </Button>
       </div>
 
       <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>

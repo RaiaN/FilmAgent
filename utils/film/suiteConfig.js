@@ -298,7 +298,7 @@ const VIDEO_MODEL_TRAITS = {
     refPrefix: '@',
     overallBlock: true,
     refCap: 30,
-    draftFinals: ['1080p'],           // per the docs; a Premium draft's 4K final is unprobed
+    draftFinals: ['4K'],              // live-probed: 480p, 720p and 1080p finals rejected — 4K is the one left
   },
 };
 

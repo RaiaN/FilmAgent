@@ -72,6 +72,8 @@ export const createBrowserClient = () => ({
   },
 
   async startVideo({ content, model, resolution, ratio, duration, generateAudio, seed, draft = false, draftTaskId = null }) {
+    // The API's resolution values are lowercase ('480p' … '4k'); the UI labels say '4K'.
+    resolution = resolution ? String(resolution).toLowerCase() : resolution; // eslint-disable-line no-param-reassign
     let body;
     if (draftTaskId) {
       // FINAL FROM A DRAFT: the task REUSES the draft's prompt, references, duration,

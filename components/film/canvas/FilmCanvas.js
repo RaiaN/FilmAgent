@@ -430,10 +430,11 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
   return { body: text, refs: [frameSrc, ...keep] };
 };
 
-// Story Room hand-offs already laid on a board (see the incomingStory effect).
-const consumedStories = new Set();
+// Story Room hand-offs already laid on a board (see the incomingStory effect). Kept on
+// window so a hot reload of this module cannot replay a hand-off.
+const consumedStories = (typeof window !== 'undefined' && (window.__storyRoomConsumed = window.__storyRoomConsumed || new Set())) || new Set();
 
-const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates }) => {
+const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates, onStoryCards, focusRequest }) => {
   const wrapperRef = useRef(null);
   const fileInputRef = useRef(null);
   const [rfInstance, setRfInstance] = useState(null);
@@ -867,6 +868,23 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       };
     });
   }, [nodes]);
+  // Story Room ▸ Shots shows how its sent cards are doing: status + the latest take.
+  const storyCardsSent = useRef('');
+  useEffect(() => {
+    if (!onStoryCards) return;
+    const byId = new Map(takeGroups.map((g) => [g.cardId, g]));
+    // Stamped cards carry {sendId, index}; cards sent before stamping are known by their
+    // "N · Title" label (the Story Room's own naming) and the story- id prefix.
+    const list = nodes.filter((n) => n.type === 'cut' && (n.data?.storyRef?.sendId || String(n.id).startsWith('story-'))).map((n) => {
+      const g = byId.get(n.id);
+      const take = g ? [...g.takes].reverse().find((t) => t.url || t.loading) : null;
+      return { sendId: n.data.storyRef?.sendId || null, index: n.data.storyRef?.index ?? null, beat: n.data.beat || '', cardId: n.id, status: n.data.status || '', take: take ? { url: take.cacheUrl || take.url, posterUrl: take.posterUrl, loading: take.loading } : null };
+    });
+    const key = JSON.stringify(list);
+    if (key === storyCardsSent.current) return;
+    storyCardsSent.current = key;
+    onStoryCards(list);
+  }, [nodes, takeGroups, onStoryCards]);
   // PICKING A MASTER sees more than the dailies: any video ON THE BOARD is editable —
   // an uploaded clip, something dragged in from the Library. They ride as one extra
   // group so the picker stays a single surface with one set of poster mechanics.
@@ -1257,6 +1275,25 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       try { rfInstance.fitView({ nodes: [{ id }], duration: 400, maxZoom: 1.1, padding: 0.5 }); } catch { /* noop */ }
     }
   }, [setNodes, rfInstance]);
+  // Story Room ▸ "Open on board": select the card and frame it once the tab is visible.
+  const focusSeen = useRef(0);
+  useEffect(() => {
+    if (!focusRequest?.nonce || focusRequest.nonce === focusSeen.current) return undefined;
+    focusSeen.current = focusRequest.nonce;
+    if (!nodesRef.current.some((n) => n.id === focusRequest.cardId)) { Message.warning('That SHOT card is no longer on this board.'); return undefined; }
+    // The board was hidden a frame ago — let React Flow measure it, then select + frame.
+    const t = setTimeout(() => {
+      selectAndCenter(focusRequest.cardId);
+      const n = rfInstance?.getNode?.(focusRequest.cardId);
+      if (n && rfInstance) {
+        const w = n.width || n.measured?.width || 780;
+        const h = n.height || n.measured?.height || 700;
+        const pos = n.positionAbsolute || n.internals?.positionAbsolute || n.position;
+        try { rfInstance.setCenter(pos.x + w / 2, pos.y + h / 2, { zoom: 0.8, duration: 450 }); } catch { /* noop */ }
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [focusRequest, selectAndCenter, rfInstance]);
 
   // ---- preserve (check-in) ----
   // Re-host a node's expiring URL into TOS and swap data.url to the stable URL,
@@ -2655,6 +2692,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       cuts: [{ action: panel.framing ? `${panel.framing}. ${panel.action}` : panel.action, seconds: Math.min(6, sec) }],
       ...(panel.promptOverride != null ? { promptOverride: panel.promptOverride } : {}),
       ...(panel.videoModel ? { videoModel: panel.videoModel } : {}),
+      ...(panel.storyRef ? { storyRef: panel.storyRef } : {}),
       audio: panel.audio || '',
       durationSec: sec,
       refIds: panel.refEntryIds || [],
@@ -4112,7 +4150,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       shots.forEach((x, i) => storyboardPanelRef.current({
         index: i, cut: cutBase + i, idPrefix, cols, title: x.title || `Shot ${i + 1}`,
         action: '', promptOverride: x.prompt, framing: '', durationSec: AUTO_SECONDS,
-        refEntryIds: [], audio: '', videoModel,
+        refEntryIds: (x.refNodeIds || []).map((nid) => bibleRef.current.find((b) => b.nodeId === nid)?.id).filter(Boolean),
+        audio: '', videoModel,
+        storyRef: incomingStory.sendId ? { sendId: incomingStory.sendId, index: i } : null,
       }, base));
       if (shots.length > 1) {
         applyEdges((es) => es.concat(shots.slice(1).map((_, i) => ({

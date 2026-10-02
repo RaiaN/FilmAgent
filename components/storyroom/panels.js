@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Button, Drawer, Image, Input, Tag, Tooltip, Typography } from '@arco-design/web-react';
+import { Button, Drawer, Image, Input, Modal, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconClose, IconEye, IconImage, IconLoading, IconPlus, IconSound } from '@arco-design/web-react/icon';
 
 const { Text } = Typography;
@@ -258,20 +258,57 @@ export const AssetBoard = ({ assets, setAsset, usage, plates = [] }) => {
 // ---- SHOT LIST ---------------------------------------------------------------------
 // Shot cards in a grid; a card opens the drawer, where the body, bindings and the
 // rendered prompt live.
-export const ShotBoard = ({ shots, assets, onOpen, busy }) => {
+// The card's picture: the latest take once the shot is filmed on the board (click to
+// play), else its reference plates — the location as the frame, cast faces as avatars.
+const ShotPreview = ({ refs, card, onPlay }) => {
+  const take = card?.take;
+  const loc = refs.find((p) => p.role === 'location') || refs[0];
+  const frame = { height: 150, background: '#11141a', position: 'relative', overflow: 'hidden', display: 'grid', placeItems: 'center' };
+  const badge = (text, color) => <span style={{ position: 'absolute', left: 8, top: 8, padding: '1px 7px', borderRadius: 4, background: 'rgba(0,0,0,0.6)', color, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em' }}>{text}</span>;
+  if (take?.url) {
+    return (
+      <div style={frame} onClick={(e) => { e.stopPropagation(); onPlay(take.url); }} title="Play the take">
+        {take.posterUrl
+          ? <img src={take.posterUrl} alt="Take" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <video src={take.url} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+        <span style={{ position: 'absolute', width: 40, height: 40, borderRadius: 20, background: 'rgba(0,0,0,0.55)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 16 }}>▶</span>
+        {badge('FILMED', '#7be3a0')}
+      </div>
+    );
+  }
+  const rolling = card && (card.status === 'running' || take?.loading);
+  if (!loc && !rolling) return null;
+  return (
+    <div style={frame}>
+      {loc && <img src={loc.url} alt={loc.asset} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: rolling ? 0.45 : 0.9 }} />}
+      {rolling ? badge('ROLLING…', '#8fb8ff') : card ? badge('ON THE BOARD', '#c9cdd4') : null}
+      <div style={{ position: 'absolute', left: 8, bottom: 8, display: 'flex', gap: 4 }}>
+        {refs.filter((p) => p.role === 'character').slice(0, 5).map((p) => (
+          <img key={p.nodeId} src={p.url} alt={p.asset} title={p.asset} style={{ width: 30, height: 30, borderRadius: 15, objectFit: 'cover', objectPosition: 'center 20%', border: '2px solid #fff' }} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], cardOf = () => null, onJump }) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const [playing, setPlaying] = useState('');
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
       {shots.map((x, i) => {
         const loc = byKey[x.location];
         const bound = x.assets.map((k) => byKey[k]).filter((a) => a && a.kind !== 'location');
         return (
-          <button
+          <div
             key={i}
-            type="button"
+            role="button"
+            tabIndex={0}
             onClick={() => onOpen(i)}
-            style={{ textAlign: 'left', cursor: 'pointer', padding: 0, background: PAPER, border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto auto 1fr auto', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+            onKeyDown={(e) => { if (e.key === 'Enter') onOpen(i); }}
+            style={{ textAlign: 'left', cursor: 'pointer', padding: 0, background: PAPER, border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto auto auto 1fr auto', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
           >
+            <ShotPreview refs={refsOf(x)} card={cardOf(i)} onPlay={setPlaying} />
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '10px 12px 4px' }}>
               <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 13, fontWeight: 700 }}>SH {pad2(i + 1)}</Text>
               <Text style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.title}</Text>
@@ -281,7 +318,7 @@ export const ShotBoard = ({ shots, assets, onOpen, busy }) => {
             </div>
             <div style={{ padding: '0 12px 10px' }}>
               {x.body
-                ? <Text style={{ fontSize: 12, lineHeight: 1.5, color: '#4e5969', display: '-webkit-box', WebkitLineClamp: 5, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{x.body.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, k) => byKey[k]?.name || k)}</Text>
+                ? <Text style={{ fontSize: 12, lineHeight: 1.5, color: '#4e5969', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{x.body.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, k) => byKey[k]?.name || k)}</Text>
                 : <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>{busy ? 'Writing…' : x.moment || 'No shot yet'}</Text>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 12px', borderTop: `1px solid ${LINE}`, background: '#fafbfc' }}>
@@ -292,16 +329,21 @@ export const ShotBoard = ({ shots, assets, onOpen, busy }) => {
               ))}
               {bound.length > 5 && <Text type="secondary" style={{ fontSize: 11 }}>+{bound.length - 5}</Text>}
               <span style={{ flex: 1 }} />
-              <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 10, color: MUTED }}>{x.shows.join(' ')}</Text>
+              {cardOf(i) && onJump
+                ? <Button size="mini" type="text" onClick={(e) => { e.stopPropagation(); onJump(cardOf(i).cardId); }} title="Select this SHOT card on the Film Agent board">Open on board ↗</Button>
+                : <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 10, color: MUTED }}>{x.shows.join(' ')}</Text>}
             </div>
-          </button>
+          </div>
         );
       })}
+      <Modal visible={!!playing} footer={null} onCancel={() => setPlaying('')} style={{ width: 'min(960px, 94vw)' }} title="Take">
+        {playing && <video src={playing} controls autoPlay style={{ width: '100%', borderRadius: 6, background: '#000' }} />}
+      </Modal>
     </div>
   );
 };
 
-export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt }) => (
+export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump }) => (
   <Drawer
     width={620}
     visible={index != null && !!shot}
@@ -312,6 +354,11 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, o
         <Text style={{ fontFamily: SCRIPT_FONT, fontWeight: 700 }}>SH {pad2(index + 1)}</Text>
         <Text style={{ fontWeight: 600 }}>{shot.title}</Text>
         <span style={{ flex: 1 }} />
+        {onJump && (
+          <Tooltip content={boardCard ? 'Select this SHOT card on the Film Agent board' : 'Not on the board yet. Send shots first.'}>
+            <Button size="mini" type="primary" disabled={!boardCard} onClick={() => boardCard && onJump(boardCard.cardId)}>Open on board ↗</Button>
+          </Tooltip>
+        )}
         <Button size="mini" disabled={index === 0} onClick={onPrev}>‹ Prev</Button>
         <Button size="mini" disabled={index >= shots.length - 1} onClick={onNext}>Next ›</Button>
       </div>
@@ -345,6 +392,22 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, o
           <Eyebrow>Shot</Eyebrow>
           <Input.TextArea id={`story-room-shot-${index}`} value={shot.body} onChange={(v) => setBody(index, v)} autoSize={{ minRows: 8, maxRows: 22 }} style={{ fontSize: 13, lineHeight: 1.6 }} />
           <Text type="secondary" style={{ fontSize: 11 }}>Name assets as {'{{KEY}}'}; their looks are written in from the casting board.</Text>
+        </div>
+        <div style={{ display: 'grid', gap: 6 }}>
+          <Eyebrow>References sent</Eyebrow>
+          {refsOf(shot).length
+            ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {refsOf(shot).map((p, i) => (
+                  <div key={p.nodeId} style={{ width: 96, display: 'grid', gap: 2 }}>
+                    <img src={p.url} alt={p.name} style={{ width: 96, height: 72, objectFit: 'cover', borderRadius: 6, border: `1px solid ${LINE}` }} />
+                    <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 11, fontWeight: 700 }}>@Image{i + 1}</Text>
+                    <Text type="secondary" style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.asset}</Text>
+                  </div>
+                ))}
+              </div>
+            )
+            : <Text type="secondary" style={{ fontSize: 12 }}>None yet. Cast & World renders the plates on the Film Agent board; every asset with a plate rides as a reference.</Text>}
         </div>
         <div style={{ display: 'grid', gap: 6 }}>
           <Eyebrow>Prompt sent to Seedance 2.5{look ? ' · with the Look' : ''}</Eyebrow>

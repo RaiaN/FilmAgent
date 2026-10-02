@@ -799,6 +799,24 @@ Watercolor: hand-painted watercolor, paper texture, soft bleeding edges, muted t
     vars: ['{count}', '{notes}'],
     text: 'Describe the visual style these {count} reference images share.\nThe filmmaker\'s notes: {notes}',
   },
+  'story.ref.character': {
+    agent: 'Story Room',
+    label: 'Shot reference line — character plate (Seedance 2.5 role line)',
+    vars: ['{name}', '{n}'],
+    text: '{name} maps to @Image{n}; use only facial features, hairstyle, and clothing.',
+  },
+  'story.ref.prop': {
+    agent: 'Story Room',
+    label: 'Shot reference line — prop plate (Seedance 2.5 role line)',
+    vars: ['{name}', '{n}'],
+    text: '{name} maps to @Image{n}; use only structure, material, and color.',
+  },
+  'story.ref.location': {
+    agent: 'Story Room',
+    label: 'Shot reference line — location plate (Seedance 2.5 role line)',
+    vars: ['{name}', '{n}'],
+    text: '{name} references @Image{n}; use only spatial layout, architecture, and lighting, and do not use the people in the image.',
+  },
   'story.plate.face': {
     agent: 'Story Room',
     label: 'Asset plate — character face (Cast & World)',

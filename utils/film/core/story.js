@@ -347,9 +347,17 @@ export const boundAssets = (shot, assets = []) => {
 
 // The final prompt, rendered by code: the bound assets' looks, the story's Look, then the
 // body with each token replaced by the asset's name.
-export const renderShotPrompt = (shot, assets = [], look = '') => {
+// `refs` = { assetKey: n } for the assets that ride as reference images (@Image n, in the
+// card's reference order): those get the Seedance 2.5 spec's role line, then their look.
+export const renderShotPrompt = (shot, assets = [], look = '', refs = {}) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
-  const defs = boundAssets(shot, assets).filter((a) => a.look).map((a) => (a.kind === 'location' ? `Setting — ${a.name}: ${a.look}` : `${a.name}: ${a.look}`));
+  const trim = (t) => String(t || '').trim().replace(/[.\s]+$/, '');
+  const defs = boundAssets(shot, assets).map((a) => {
+    const n = refs[a.key];
+    if (n) return [inject(`story.ref.${a.kind === 'location' ? 'location' : a.kind === 'prop' ? 'prop' : 'character'}`, { name: a.name, n }), trim(a.look)].filter(Boolean).join(' ');
+    if (!a.look) return '';
+    return a.kind === 'location' ? `Setting — ${a.name}: ${a.look}` : `${a.name}: ${a.look}`;
+  }).filter(Boolean);
   const body = String(shot.body || '').replace(TOKEN_RE, (m, k) => byKey[keyOf(k)]?.name || k.replace(/_/g, ' ').toLowerCase()).trim();
   const lookLine = String(look || '').trim() ? `Look: ${String(look).trim().replace(/[.\s]+$/, '')}.` : '';
   return [[...defs.map((d) => (/[.!?]$/.test(d) ? d : `${d}.`)), lookLine].filter(Boolean).join('\n'), body].filter(Boolean).join('\n\n');

@@ -172,6 +172,12 @@ export default function Home() {
   // Storyboard card (the canvas consumes each nonce once).
   const [storyHandoff, setStoryHandoff] = useState(null);
   const [boardPlates, setBoardPlates] = useState([]); // the Film Agent board's plates, shown in Story Room ▸ Assets
+  const [boardStoryCards, setBoardStoryCards] = useState([]); // sent shots' status + latest take, for Story Room ▸ Shots
+  const [boardFocus, setBoardFocus] = useState(null); // Story Room ▸ "Open on board"
+  const handleOpenOnBoard = (cardId) => {
+    setBoardFocus({ cardId, nonce: Date.now() });
+    handleModelFamilyChange('film-agent');
+  };
   const handleSendStoryToFilm = (payload) => {
     setStoryHandoff({ ...payload, nonce: Date.now() });
     handleModelFamilyChange('film-agent');
@@ -470,10 +476,12 @@ export default function Home() {
                         setFormValues={setFormValues}
                         storyHandoff={storyHandoff}
                         onPlates={setBoardPlates}
+                        onStoryCards={setBoardStoryCards}
+                        focusRequest={boardFocus}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
-                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} />
+                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />

@@ -3,8 +3,8 @@ import { Button, Input, InputNumber, Message, Tag, Tooltip, Typography } from '@
 import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
-import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer } from './storyroom/panels';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets } from '../utils/film/core/story';
+import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, platesFor } from './storyroom/panels';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets } from '../utils/film/core/story';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -50,7 +50,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm, boardPlates = [] }) => {
+const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], boardShots = [] }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -67,6 +67,7 @@ const StoryRoomPlayground = ({ onSendToFilm, boardPlates = [] }) => {
   const [look, setLook] = useState(''); // the story's one visual style sentence
   const [lookImages, setLookImages] = useState([]); // style references (downscaled data URLs)
   const [tab, setTab] = useState('story');
+  const [sendId, setSendId] = useState(''); // the last Send — its board cards report back here
   const [openShot, setOpenShot] = useState(null); // the shot open in the drawer
   const [busy, setBusy] = useState(null); // { role, at }
   const [elapsed, setElapsed] = useState(0);
@@ -86,13 +87,14 @@ const StoryRoomPlayground = ({ onSendToFilm, boardPlates = [] }) => {
     if (Array.isArray(s.lookImages)) setLookImages(s.lookImages);
     else if (typeof s.lookImage === 'string' && s.lookImage) setLookImages([s.lookImage]);
     if (typeof s.tab === 'string') setTab(s.tab);
+    if (typeof s.sendId === 'string') setSendId(s.sendId);
     if (Array.isArray(s.shots)) setShots(s.shots.map((x) => ({ ...x, assets: x.assets || [], shows: x.shows || [], body: x.body ?? x.prompt ?? '' })));
     hydrated.current = true;
   }, []);
   useEffect(() => {
     if (!hydrated.current) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab })); } catch { /* quota — the session copy stands */ }
-  }, [idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab, sendId })); } catch { /* quota — the session copy stands */ }
+  }, [idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab, sendId]);
   useEffect(() => {
     if (!busy) return undefined;
     setElapsed(0);
@@ -194,11 +196,34 @@ const StoryRoomPlayground = ({ onSendToFilm, boardPlates = [] }) => {
   const shotsOfFact = (id) => shots.map((x, i) => (x.shows.includes(id) ? i + 1 : 0)).filter(Boolean);
   const usage = (key) => shots.filter((x) => x.location === key || x.assets.includes(key)).length;
 
+  // A shot's reference images: the board plates of its bound assets (characters, props,
+  // then the location — boundAssets' order), one per asset, numbered @Image1..N.
+  const shotRefs = (x) => {
+    const list = [];
+    const numbers = {};
+    boundAssets(x, assets).forEach((a) => {
+      const p = platesFor(a, boardPlates).main;
+      if (!p?.url || !p.nodeId || list.some((q) => q.nodeId === p.nodeId)) return;
+      list.push({ ...p, asset: a.name });
+      numbers[a.key] = list.length;
+    });
+    return { list, numbers };
+  };
+  // A shot's card on the board: the one stamped by the last Send, else the newest card
+  // carrying this shot's "N · Title" label.
+  const cardOf = (i) => {
+    const stamped = boardShots.find((c) => sendId && c.sendId === sendId && c.index === i);
+    if (stamped) return stamped;
+    const label = `${i + 1} · ${shots[i]?.title || 'Shot'}`;
+    return boardShots.filter((c) => c.beat === label).sort((a, b) => (a.cardId < b.cardId ? 1 : -1))[0] || null;
+  };
   const send = () => {
     if (!onSendToFilm) return;
     const title = blueprint.title || source?.title || '';
     if (!shots.length) { onSendToFilm({ script: blueprintScript(blueprint), title }); return; }
-    onSendToFilm({ shots: shots.map((x, i) => ({ title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets, look) })), title });
+    const id = `send-${Date.now().toString(36)}`;
+    setSendId(id);
+    onSendToFilm({ sendId: id, shots: shots.map((x, i) => { const r = shotRefs(x); return { title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId) }; }), title });
   };
   // Look: a preset fills the sentence; references are read by the planner into one.
   const presets = lookPresets();
@@ -399,7 +424,7 @@ const StoryRoomPlayground = ({ onSendToFilm, boardPlates = [] }) => {
     look: <LookPanel look={look} setLook={setLook} presets={presets} images={lookImages} addImages={addLookImages} removeImage={(i) => setLookImages((l) => l.filter((_, j) => j !== i))} readImages={readLook} busy={!!busy} />,
     beats: !blueprint ? needsBlueprint : facts.length ? <BeatSheet facts={facts} shotsOfFact={shotsOfFact} onOpenShot={(i) => { setTab('shots'); setOpenShot(i); }} /> : needsShots('beat sheet'),
     assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} plates={boardPlates} /> : needsShots('assets'),
-    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} /> : needsShots('shots'),
+    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} refsOf={(x) => shotRefs(x).list} cardOf={cardOf} onJump={onOpenOnBoard} /> : needsShots('shots'),
   }[tab] || storyPanel;
 
   return (
@@ -453,7 +478,10 @@ const StoryRoomPlayground = ({ onSendToFilm, boardPlates = [] }) => {
         onNext={() => setOpenShot((i) => Math.min(shots.length - 1, i + 1))}
         setBody={setShotBody}
         toggleBinding={toggleBinding}
-        renderPrompt={(x) => renderShotPrompt(x, assets, look)}
+        renderPrompt={(x) => renderShotPrompt(x, assets, look, shotRefs(x).numbers)}
+        refsOf={(x) => shotRefs(x).list}
+        boardCard={openShot != null ? cardOf(openShot) : null}
+        onJump={(id) => { setOpenShot(null); onOpenOnBoard?.(id); }}
       />
     </div>
   );

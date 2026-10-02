@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, InputNumber, Message, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, reviseBlueprint, scoutIdeas, storyFacts, writeShotBodies, ASSET_KINDS } from '../utils/film/core/story';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, reviseBlueprint, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, ASSET_KINDS } from '../utils/film/core/story';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -172,6 +172,9 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
     if (!shots.length) { onSendToFilm({ script: blueprintScript(blueprint), title }); return; }
     onSendToFilm({ shots: shots.map((x, i) => ({ title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets) })), title });
   };
+  const sendAssets = () => {
+    if (onSendToFilm && assets.length) onSendToFilm({ cast: castDesignOf(assets), title: blueprint.title || source?.title || '' });
+  };
 
   const box = { background: '#fff', border: '1px solid #e5e6eb', borderRadius: 10, padding: 16 };
   const capOf = (k) => (k === 'spine' ? SPINE_CAP : BLOCK_CAP);
@@ -228,7 +231,8 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
             <span style={{ flex: 1 }} />
             <Button size="small" disabled={!!busy} onClick={critiqueNow}>Critique</Button>
             <Button size="small" disabled={!!busy || !fixCount} onClick={revise}>Revise flagged{fixCount ? ` (${fixCount})` : ''}</Button>
-            <Button size="small" disabled={!!busy || problems.length > 0} onClick={writeAllShots} title="The visual beat sheet, then one Seedance 2.5 prompt per shot, then the proof that each prompt shows its facts">{shots.length ? 'Rewrite shots' : 'Write shots'}</Button>
+            <Button size="small" disabled={!!busy || problems.length > 0} onClick={writeAllShots} title="The visual beat sheet, the asset roster and shot plan, then one Seedance 2.5 shot per call">{shots.length ? 'Rewrite shots' : 'Write shots'}</Button>
+            {assets.length > 0 && <Button size="small" icon={<IconSend />} disabled={!!busy} onClick={sendAssets} title="Renders every asset on the Film Agent board as Cast & World plates (characters: face + turnaround), named as here and auto-tagged into the bible">{`Cast & World (${assets.length})`}</Button>}
             <Button size="small" type="primary" icon={<IconSend />} disabled={!!busy || problems.length > 0} onClick={send} title={problems.length ? 'Fix the failing checks first' : shots.length ? 'Lands the shots on the Film Agent board as chained SHOT cards (Seedance 2.5), prompts verbatim' : 'Lands this story on the Film Agent board as a Storyboard card, verbatim'}>{shots.length ? `Send ${shots.length} shots` : 'Send to Film Agent'}</Button>
           </div>
 

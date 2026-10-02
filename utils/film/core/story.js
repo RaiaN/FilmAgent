@@ -360,3 +360,11 @@ export const writeShotBodies = async ({ blueprint, facts, assets, shots, config,
   }), 3);
   return { shots: out, failed };
 };
+
+// The roster as a Cast & World design — one asset per roster entry, names verbatim (they
+// become the plate labels), each plate prompt rendered from the entry's look.
+export const castDesignOf = (assets = []) => assets.filter((a) => a.name).map((a) => {
+  const v = { name: a.name, look: String(a.look || '').replace(/[.\s]+$/, '') };
+  if (a.kind === 'character') return { type: 'character', name: a.name, facePrompt: inject('story.plate.face', v), bodyPrompt: inject('story.plate.body', v) };
+  return { type: a.kind === 'location' ? 'location' : 'prop', name: a.name, prompt: inject(a.kind === 'location' ? 'story.plate.location' : 'story.plate.prop', v) };
+});

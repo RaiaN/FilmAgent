@@ -8,7 +8,7 @@ import { maxShotSeconds, defaultVideoModelKey, imageModelKeyOf } from './suiteCo
 import * as ops from './core/operations';
 import * as director from './core/director';
 import { buildAnimatePrompt } from './core/operations';
-import { castFromIdea } from './core/storyboard';
+import { castFromIdea, castDraftFromParsed } from './core/storyboard';
 import { SIZE_TIERS as IMAGE_RESOLUTIONS, ASPECT_RATIOS as IMAGE_RATIOS } from './imageSizes';
 
 // Re-exported so the canvas panels can reuse them.
@@ -261,10 +261,17 @@ export const castAgent = {
   defaultSettings: { prompt: '', imageModel: '', imageThinking: false, ethnicity: '', refs: [] },
   describe: 'Drafts the film\'s recurring assets — characters, creatures, locations and key props/vehicles — in one shared look, as bible candidates.',
   async run({ prompt, settings = {}, ctx, onPlan, onEntry, onError }) {
+    const hooks = { onPlan, onEntry, onError: (msg) => { if (onError) onError([msg]); } };
+    // A ready design (the Story Room's asset roster) skips the planner: names and looks ride as given.
+    if (Array.isArray(settings.design?.arr) && settings.design.arr.length) {
+      const { arr, style = '' } = settings.design;
+      const created = await castDraftFromParsed({ arr, style, imageModel: imageModelKeyOf(settings.imageModel), thinking: !!settings.imageThinking, max: arr.length }, ctx || browserCtx(), hooks);
+      return { created, errors: [] };
+    }
     const entries = await castFromIdea(
       { idea: (prompt && String(prompt).trim()) || (settings.idea || '').trim(), ethnicity: settings.ethnicity || '', imageModel: imageModelKeyOf(settings.imageModel), thinking: !!settings.imageThinking, references: settings.references || [] },
       ctx || browserCtx(),
-      { onPlan, onEntry, onError: (msg) => { if (onError) onError([msg]); } },
+      hooks,
     );
     return { created: entries, errors: [] };
   },

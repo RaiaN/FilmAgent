@@ -750,6 +750,30 @@ YOU ARE THE DIRECTOR writing ONE shot of a story as the body of a Seedance 2.5 p
 Refer to every asset ONLY by its token exactly as given, e.g. {{KAAN}} — never describe an asset's appearance; its look is written in separately. Duration, aspect ratio and resolution are request parameters, never prompt text.
 Return ONLY the shot body text — no title, no notes, no JSON.`,
   },
+  'story.plate.face': {
+    agent: 'Story Room',
+    label: 'Asset plate — character face (Cast & World)',
+    vars: ['{name}', '{look}'],
+    text: 'Character reference portrait of {name}: {look}',
+  },
+  'story.plate.body': {
+    agent: 'Story Room',
+    label: 'Asset plate — character turnaround (Cast & World)',
+    vars: ['{name}', '{look}'],
+    text: 'Full-body character turnaround sheet of {name} in ONE image: a frontal view on the left and a 90° side profile on the right, head to toe, same neutral A-pose, identical wardrobe and scale, plain neutral-grey background, even light. {look}. No on-image text.',
+  },
+  'story.plate.location': {
+    agent: 'Story Room',
+    label: 'Asset plate — location (Cast & World)',
+    vars: ['{name}', '{look}'],
+    text: 'Establishing view of {name}, no people: {look}. Neutral motivated light, no on-image text.',
+  },
+  'story.plate.prop': {
+    agent: 'Story Room',
+    label: 'Asset plate — prop (Cast & World)',
+    vars: ['{name}', '{look}'],
+    text: 'Clean reference of {name}, three-quarter view on a neutral ground, even light, no people: {look}. No on-image text.',
+  },
   'story.shot.user': {
     agent: 'Story Room',
     label: 'Shot prompt (instruction)',

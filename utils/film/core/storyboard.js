@@ -431,7 +431,7 @@ const CAST_ROLE = { character: 'character', creature: 'character', location: 'lo
 // prompt) into bible PLATES. Used by castFromIdea (the Cast & World idea read). Each plate carries
 // its source asset id + a `primary` flag (the identity anchor: the FACE for a character, the single
 // plate otherwise). Streams onPlan/onEntry; the canvas tags/locks the plates.
-export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaultImageModelKey(), thinking = false, references = [], config } = {}, ctx, hooks = {}) => {
+export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaultImageModelKey(), thinking = false, references = [], max = 8, config } = {}, ctx, hooks = {}) => {
   const onPlan = hooks.onPlan || (() => {});
   const onEntry = hooks.onEntry || (() => {});
   // The shared style rides on EVERY plate — consistency by construction.
@@ -459,7 +459,7 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
   //  `assetId`/`primary` tag each plate to its source asset (the FACE is the primary anchor) so
   //  a caller can wire a SHOT card's refs to the right plate. (`c.role` tolerated alongside `c.type`.)
   const plates = [];
-  arr.slice(0, 8).forEach((c, ci) => {
+  arr.slice(0, max).forEach((c, ci) => {
     const aid = String(c?.id != null ? c.id : ci);
     const type = String(c?.type || c?.role || '').trim().toLowerCase();
     const role = CAST_ROLE[type] || 'location';

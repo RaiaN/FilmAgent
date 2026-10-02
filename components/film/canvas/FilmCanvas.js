@@ -4082,6 +4082,11 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory })
   useEffect(() => {
     if (!incomingStory?.nonce || consumedStories.has(incomingStory.nonce)) return;
     consumedStories.add(incomingStory.nonce);
+    // Assets → a Cast & World panel rendered from the Story Room's roster (planner skipped).
+    if (Array.isArray(incomingStory.cast) && incomingStory.cast.length) {
+      runCastDraft({ design: { arr: incomingStory.cast, style: '' } });
+      return;
+    }
     const shots = (incomingStory.shots || []).filter((x) => String(x?.prompt || '').trim());
     if (shots.length) {
       const idPrefix = `story-${Date.now().toString(36)}`;
@@ -4395,7 +4400,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory })
   const runCastDraft = useCallback(async (params = {}) => {
 
       const idea = String(params.prompt || '').trim();
-      if (!idea && !(params.refs || []).length) { Message.warning('Give me the film idea — or pick reference art on the Cast & World panel; a storyboard alone is enough.'); return; }
+      if (!idea && !(params.refs || []).length && !params.design) { Message.warning('Give me the film idea — or pick reference art on the Cast & World panel; a storyboard alone is enough.'); return; }
       traceRef.current.startRun({ note: `Agent · ${castAgent.label}` });
       const castCtx = { client: traceRef.current.wrapClient(createBrowserClient()) };
       // Lay the "Cast & World" PANEL the moment the run starts — BEFORE the
@@ -4423,7 +4428,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory })
         // reference art alone.
         setPanelPhase('Drafting — deciding the characters, places and look from the brief…');
         const { created: entries } = await castAgent.run({
-          prompt: idea, settings: { imageModel: imageModelKeyOf(params.imageModel), imageThinking: !!params.imageThinking, ethnicity: params.ethnicity || '', references: params.refs || [] }, ctx: castCtx,
+          prompt: idea, settings: { imageModel: imageModelKeyOf(params.imageModel), imageThinking: !!params.imageThinking, ethnicity: params.ethnicity || '', references: params.refs || [], design: params.design || null }, ctx: castCtx,
           // onPlan: swap the status line for a LOADING cell per planned plate the instant
           // the read returns, so the whole pending block shows at once. AUTO-TAG: stamp
           // bibleRole + locked NOW — the draft IS the bible (children are still picked

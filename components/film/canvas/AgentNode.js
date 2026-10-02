@@ -27,7 +27,7 @@ const summarize = (agentId, s, imageAssets) => {
     case 'cast':
       return prompt || 'No idea typed — Run drafts from the selected Brief.';
     case 'previz':
-      return (s.brief || '').trim() || 'No scene text — Run reads the selected Brief.';
+      return (s.brief || '').trim() || 'No scene text yet.';
     case 'audio':
       return `Seed Audio 1.0${prompt ? ` · ${prompt}` : ' · no prompt yet'}`;
     case 'characterVariations':

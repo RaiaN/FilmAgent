@@ -204,7 +204,7 @@ export const isImagePolicyError = (err) => /image may contain sensitive/i.test((
 // Two source modes: a single imageUrl/assetId (the classic keyframe → first frame),
 // or `refUrls` — SEVERAL real reference images (direct-to-video: the storyboard's
 // cast/place assets, untouched, so the video model preserves the subjects itself).
-export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], refRoles = [], firstFrameUrl = null, lastFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, seed = null, modelKey = null, draft = false, config } = {}, ctx) => {
+export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], refRoles = [], firstFrameUrl = null, lastFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, modelKey = null, draft = false, config } = {}, ctx) => {
   modelKey = videoModelKeyOf(modelKey); // env-driven default — first CONFIGURED video slot, never a literal
   // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
   // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
@@ -246,20 +246,18 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // this order). data: urls are staged to TOS by /api/seedance.
   (audioRefUrls || []).filter(Boolean).forEach((u) => content.push({ type: 'audio_url', audio_url: { url: u }, role: 'reference_audio' }));
   (videoRefUrls || []).filter(Boolean).forEach((u) => content.push({ type: 'video_url', video_url: { url: u }, role: 'reference_video' }));
-  // seed (sequence-level, optional): held constant across re-shoots it isolates the
-  // prompt as the only changed variable; null lets the model roll its own each time.
   // Per-shot endpoint choice: the SHOT card may pick a variant (e.g. Seedance 2.0 Mini) by
   // modelKey; blank falls back to the env-preferred default slot, never a literal.
   const videoModel = getModel(videoModelKeyOf(modelKey), config);
   const { taskId } = await withRetry(
-    () => ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, seed, draft }),
+    () => ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, draft }),
     { tries: 3, baseMs: 3000 },
   );
   return { taskId, prompt };
 };
 
 // DRAFT → FINAL (Seedance 2.5): render the final from a draft task, at one of the draft model's draftFinals. Everything
-// that shaped the draft (prompt, refs, duration, ratio, seed, audio) is reused by the
+// that shaped the draft (prompt, refs, duration, ratio, audio) is reused by the
 // model from the task itself; only the draft's own model slot is needed here.
 export const finishDraft = async ({ draftTaskId, modelKey, resolution, config } = {}, ctx) => {
   if (!draftTaskId) throw new Error('finishDraft needs the draft task id');

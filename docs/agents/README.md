@@ -14,7 +14,7 @@ language:
 - [brief.svg](brief.svg) — the Brief node (verbatim container) and its six actions
 - [cast-world.svg](cast-world.svg) — Cast & World: brief → tagged identity plates
 - [storyboard.svg](storyboard.svg) — text-first shot division, opt-in stills, promote
-- [previz.svg](previz.svg) — Previz (blocking): floor plan → projection → SHOT card
+- [previz.svg](previz.svg) — Previz: blocking → top-down schematic (image-editable) → animatic (Seedance) → SHOT cards (diagram predates the schematic/animatic rework)
 - [shot-card.svg](shot-card.svg) — the SHOT card lifecycle through 🎬 and the timeline
 - [character-variations.svg](character-variations.svg) — edit-locked character variations
 - [location-variations.svg](location-variations.svg) — location coverage variations

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
 import {
-  Button, Input, InputNumber, Select, Checkbox, Message, Typography, Tag, Upload, Spin,
+  Button, Input, Select, Checkbox, Message, Typography, Tag, Upload, Spin,
 } from '@arco-design/web-react';
 import { IconPlus, IconRefresh, IconDelete } from '@arco-design/web-react/icon';
 import DurationSlider from '../components/DurationSlider';
@@ -46,7 +46,6 @@ export default function VideoPlayground() {
   const [ratio, setRatio] = useState('16:9');
   const [duration, setDuration] = useState('auto');
   const [generateAudio, setGenerateAudio] = useState(true);
-  const [seed, setSeed] = useState(null);
 
   const [library, setLibrary] = useState([]);
   const [libBusy, setLibBusy] = useState(false);
@@ -166,7 +165,6 @@ export default function VideoPlayground() {
     // best, a conflict at worst.
     if (ratio && ratio !== 'adaptive' && !roleAt[imgIdx[0]]) body.ratio = ratio;
     if (duration && duration !== 'auto') body.duration = Number(duration);
-    if (seed != null && seed !== '') body.seed = Number(seed);
 
     try {
       const started = await fetch('/api/seedance', {
@@ -302,7 +300,6 @@ export default function VideoPlayground() {
           </Select>
           )}
           <DurationSlider value={duration} onChange={setDuration} width={200} title="Duration, 0–30 s. 0 is Auto: no duration is sent and the model sets the length." />
-          <InputNumber placeholder="seed" value={seed} onChange={setSeed} style={{ width: 100 }} />
           <Checkbox checked={generateAudio} onChange={setGenerateAudio}>audio</Checkbox>
           <span style={{ flex: 1 }} />
           <Button

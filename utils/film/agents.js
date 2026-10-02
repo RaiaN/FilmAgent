@@ -25,7 +25,7 @@ export const AGENT_COLORS = {
   storyboard: '#4e5969',           // graphite (the shot plan)
   shot: '#d9488f',                 // rose (a single SHOT card)
   edit: '#1D9E75',                 // teal (editing: one master in, one master out)
-  previz: '#3491fa',               // sky blue (blocking: floor plan → projected shots)
+  previz: '#3491fa',               // sky blue (blocking: schematic → animatic)
   audio: '#7816ff',                // violet (spoken word: VO / line reads)
 };
 
@@ -300,12 +300,6 @@ export const storyboardAgent = {
   },
 };
 
-// The PREVIZ agent: from a scene description it plans the STAGING, the action AXIS and
-// the COVERAGE, then draws a PAGE OF PLATES — an overhead staging map, a plate per
-// principal subject, and a pencil storyboard panel per shot. Plates are drawings because
-// the renderer is a text-to-image model with no scene to orbit; the camera work belongs
-// downstream to Seedance. It generates NO video: any plate dispatches to a SHOT card,
-// and with it the skills, the gates, the takes and the Take Library.
 // The VIDEO EDIT agent: one existing video is the sole master; the edit changes only
 // what you name and inherits the rest — scene, camera, trajectories, event order. A
 // standalone card, like Previz: the rail tap lays it, everything happens on the card.
@@ -317,7 +311,7 @@ export const editAgent = {
   color: AGENT_COLORS.edit,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { beat: '', videoModel: '', resolution: '1080p', seed: null },
+  defaultSettings: { beat: '', videoModel: '', resolution: '1080p' },
   describe: 'One existing video is the sole master; the edit changes only what you name and inherits the rest — scene, camera, trajectories, event order. Ratio and duration are locked to the master.',
   async run() {
     throw new Error('The Video Edit agent lays a card on the canvas — run it from the board.');
@@ -343,6 +337,8 @@ export const techScoutAgent = {
   },
 };
 
+// The PREVIZ agent: blocks a scene (set, actors, who moves where, cameras, timing), draws
+// it as a top-down schematic, and turns the schematic into an animatic with Seedance.
 export const previzAgent = {
   id: 'previz',
   phase: 'pre',
@@ -351,8 +347,8 @@ export const previzAgent = {
   color: AGENT_COLORS.previz,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { brief: '', camera: '', durationSec: 5 },
-  describe: 'Scene description → staging, the action axis and COVERAGE → a page of plates: an overhead staging map, a plate per principal subject, and a pencil storyboard panel per shot. Any plate dispatches to a SHOT card — a panel as its opening frame, a map or character plate as a reference. Previz decides staging, coverage and timing; it never generates video itself.',
+  defaultSettings: { brief: '', camera: '' },
+  describe: 'Scene description → blocking (set, actors, who moves where, cameras, timing) → a top-down schematic you edit like any image → an animatic: Seedance moves the blockout through the cameras. SHOT cards then follow the animatic.',
   async run() {
     throw new Error('The Previz agent lays a card on the canvas — run it from the board.');
   },

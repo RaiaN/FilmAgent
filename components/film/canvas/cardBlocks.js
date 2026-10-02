@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Typography, Input, Select, Checkbox, InputNumber, Tag } from '@arco-design/web-react';
+import { Typography, Input, Select, Checkbox, Tag } from '@arco-design/web-react';
 import { IconSound, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, videoTraits, videoModelKeyOf } from '../../../utils/film/suiteConfig';
@@ -241,11 +241,6 @@ export const SeedanceParams = ({ data, patch, videoModel, resolution, resOptions
       <Checkbox className="nodrag" checked={data.generateAudio !== false} onChange={(c) => patch({ generateAudio: c })}>
         <Text style={{ fontSize: 10, color: '#9fb4d0' }}>audio</Text>
       </Checkbox>
-      <InputNumber
-        className="nodrag" size="mini" placeholder="seed" value={data.seed ?? undefined}
-        onChange={(v) => patch({ seed: v == null || v === '' ? null : Math.round(Number(v)) })}
-        style={{ width: 88 }}
-      />
     </div>
   </div>
 );

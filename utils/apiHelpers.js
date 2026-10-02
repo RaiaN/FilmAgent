@@ -77,10 +77,6 @@ export const constructSeedancePayload = (formValues) => {
         watermark: formValues.watermark,
     };
 
-    if (formValues.seed !== -1) {
-        payload.seed = Number(formValues.seed);
-    }
-
     const caps = getModelCapabilities(formValues.model);
 
     if (caps.supports_audio) {

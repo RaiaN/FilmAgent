@@ -201,23 +201,16 @@ const PrevizFields = ({ s, up }) => (
       <Text style={FIELD_LABEL}>Scene description</Text>
       <Input.TextArea
         value={s.brief || ''} onChange={(v) => up({ brief: v })}
-        placeholder="the shot to previz — who is where, what happens, how the camera moves"
+        placeholder="the scene to block — who is where, who moves where, how the cameras cover it"
         autoSize={{ minRows: 4, maxRows: 10 }}
       />
     </div>
-    <div style={{ display: 'flex', gap: 10 }}>
-      <div style={{ flex: 1 }}>
-        <Text style={FIELD_LABEL}>Camera</Text>
-        <ShotTemplateSelect value={s.camera} onChange={(v) => up({ camera: v })} placeholder="planner chooses" />
-      </div>
-      <div style={{ width: 120 }}>
-        <Text style={FIELD_LABEL}>Duration</Text>
-        <Select size="small" style={{ width: '100%' }} value={s.durationSec || 5} onChange={(v) => up({ durationSec: v })}
-          options={[5, 8, 10, 12].map((v) => ({ label: `${v}s`, value: v }))} />
-      </div>
+    <div>
+      <Text style={FIELD_LABEL}>Camera</Text>
+      <ShotTemplateSelect value={s.camera} onChange={(v) => up({ camera: v })} placeholder="planner chooses" />
     </div>
     <Text type="secondary" style={{ fontSize: 12 }}>
-      Adds a Previz panel: plan the page &rarr; draw the plates (overhead map, character plates, pencil storyboard panels) &rarr; dispatch any plate to a SHOT card. Previz makes no video itself.
+      Adds a Previz card: block the scene &rarr; a top-down schematic (edit it like any image) &rarr; an animatic, Seedance moving the blockout through your cameras &rarr; SHOT cards that follow it.
     </Text>
   </>
 );

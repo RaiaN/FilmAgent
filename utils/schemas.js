@@ -181,13 +181,6 @@ export const baseSchemas = {
         description: 'Video duration, 0–30 s. 0 is Auto: no duration is sent and the model sets the length.',
       },
       {
-        key: 'seed',
-        label: 'Seed',
-        type: 'number',
-        defaultValue: -1,
-        description: 'Random seed (-1 for random).',
-      },
-      {
         key: 'generate_audio',
         label: 'Generate Audio',
         type: 'boolean',
@@ -212,7 +205,6 @@ export const baseSchemas = {
       ratio: '16:9',
       duration: 'auto',
       parallelCount: 1,
-      seed: -1,
       generate_audio: true,
       watermark: false,
     },

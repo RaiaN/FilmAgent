@@ -1,255 +1,109 @@
-import { renderTemplate, getModel, getRuntime, keyframeImageSize, clampSizeForModel, defaultImageModelKey, imageModelKeyOf } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, keyframeImageSize, defaultImageModelKey, imageModelKeyOf, maxShotSeconds } from '../suiteConfig';
 import { parseJson } from './director';
 
-// PREVIZ — a PAGE OF PLATES, then dispatch. Two steps, no video of its own:
-//   1. plan   (reasoner) — the staging, the axis, the subjects, and the plate list
-//   2. plates (Seedream) — each plate drawn on demand; any plate promotes to a SHOT card
-//
-// Why drawings and not a 3D-style blockout: the plate renderer is a text-to-image model.
-// It has no scene to orbit and no memory between calls, so "the same staging from camera
-// 2" is not a thing it can do — asking for it yields N pictures that merely resemble each
-// other by accident. A pencil storyboard panel has no such requirement: panels are
-// SUPPOSED to differ, and what carries between them is the drawing convention, which an
-// image model holds easily. The camera work moves downstream to Seedance, which is a
-// world model and can actually place a camera.
+// PREVIZ — block the scene, then see it move:
+//   1. plan      (reasoner) — the set, the actors, who moves where, the cameras, the timing
+//   2. schematic (Seedream) — a top-down floor plan of all of it; edited by image edit
+//   3. animatic  (Seedance) — the schematic in, a moving blockout out, cut by the cameras
+// The SCHEMATIC is the source of truth once drawn: an edit changes the drawing, and the
+// animatic follows the drawing. The plan text is the label set it was drawn from.
 
-export const PREVIZ_RESOLUTION = '480p'; // previz is a decision tool, never a deliverable
+export const ANIMATIC_MODEL = 'seedance25';
+export const ANIMATIC_RATIO = '16:9';
 
-export const PLATE_KINDS = ['board', 'map', 'character'];
-
-// How the page is DRAWN. Three conventions, one plan, and each answers a different
-// question: PENCIL reads like a storyboard (composition), BLOCKOUT is the strongest
-// Seedance reference (subject separation and screen direction, flat, no light at all),
-// CLAY is the only one that shows LIGHT (key direction, shadow, falloff, form).
+// How the ANIMATIC looks. One plan, three looks: pencil reads like a moving storyboard,
+// colour blocks are the clearest blocking (flat mannequins, no light), clay is the only
+// one that shows LIGHT.
 export const PLATE_STYLES = ['pencil', 'blockout', 'clay'];
 
-// The mask convention's order, so a blockout plate and a masked frame name their
-// subjects the same way and the cast-colour binding line reads either one.
+// Each actor's colour, dealt by CODE in actor order — the binding between a circle on the
+// schematic and a figure in the animatic. Same order and names as the Mask tool.
 export const BLOCKOUT_COLORS = ['BLUE', 'GREEN', 'YELLOW', 'RED', 'PURPLE', 'ORANGE'];
 export const blockoutColorOf = (i) => BLOCKOUT_COLORS[i % BLOCKOUT_COLORS.length];
 
-// Is this plate out of date with the page's current style? Only BOARD panels have a
-// style variant — a map is always line art and a character plate always pencil — so a
-// style switch stales exactly the panels and leaves the rest alone. A plate drawn before
-// styles existed carries no `style` and counts as pencil.
-export const plateIsStale = (planPlate, plate, style = 'pencil') => {
-  if (!plate?.url) return true;
-  // Every kind has a pencil form and a blockout form, the map included — a mixed page
-  // is the one thing a page of plates must never be.
-  return (plate.style || 'pencil') !== style;
-};
+// What an edit of the schematic must restate, or the frame editor's photoreal default
+// turns the diagram into a photograph.
+export const SCHEMATIC_STYLE_LOCK = 'clean top-down orthographic technical floor-plan diagram on white, thin black linework, flat coloured circles and arrows, small block-capital labels, no perspective, no shading, no photographic texture';
 
-// Which subject a character plate stands for. The planner titles those plates with the
-// subject's name, so match on that first; failing that, fall back to this plate's ordinal
-// among the character plates, which is the order the planner emits them in.
-// The planned look, handed to a clay render as LIGHT ONLY. This is the seam that keeps
-// the clay pass inside previz's charter: the look sentence carries time of day, weather
-// and light quality, and the clay render is told to take the light out of it and leave
-// the grade, the colour and the texture behind.
-const lightLineOf = (plan) => {
-  const look = String(plan?.look || '').trim();
-  return look
-    ? ` The scene's planned light is: ${look} — render the LIGHT of that and nothing else: its direction, its hardness or softness, and where it leaves shadow. Ignore every word in it about colour, grade, texture, fur, material or finish; the clay stays grey.`
-    : '';
-};
+const clean = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
-// What a promoted plate must RE-STATE if it is ever edited. Without it the frame
-// editor's photoreal default silently converts a pencil panel into a photograph.
-export const plateStyleLock = (kind, style = 'pencil') => {
-  if (style === 'clay') {
-    return kind === 'map'
-      ? 'top-down 3D previz clay render — untextured matte grey clay maquette seen from above, lit with one clear key throwing hard cast shadows, no colour and no texture'
-      : '3D previz clay render — untextured matte grey clay maquette, featureless clay figures, lit with a clear key, visible falloff, cast shadows and rim separation, no colour and no texture';
-  }
-  if (style === 'blockout') {
-    return kind === 'map'
-      ? 'top-down VFX blockout matte ID pass — orthographic straight down, every element one flat solid colour with hard edges, no texture, no shading, no gradient'
-      : 'VFX blockout matte ID pass — every element one flat solid colour with hard edges, featureless coloured masses, grey ground and set geometry, no texture, no shading, no gradient';
-  }
-  return kind === 'map'
-    ? 'hand-drawn graphite pencil overhead floor plan on off-white paper, black and white only, no colour'
-    : 'hand-drawn graphite pencil storyboard panel on off-white paper, loose contour lines and light hatching, black and white only, no colour';
-};
-
-export const subjectIndexOf = (plan, index) => {
-  const sheet = plan?.plates || [];
-  const subs = plan?.subjects || [];
-  const title = String(sheet[index]?.title || '').trim().toLowerCase();
-  const named = subs.findIndex((sub) => String(sub.name || '').trim().toLowerCase() === title);
-  if (named >= 0) return named;
-  return sheet.slice(0, index).filter((p) => p.kind === 'character').length;
-};
-
-// A move drawn as an arrow is the storyboard's own notation for camera motion, and an
-// arrow is a MARK — something an image model draws well, unlike the words for it.
-const MOVE_RE = /\b(pan|tilt|track|tracking|dolly|push|pull|zoom|crane|boom|whip|handheld|steadicam|orbit|arc)\w*/i;
-
-// ONE reasoner call: the staging, the action axis, the subjects and the whole plate page.
-// Everything downstream reads this object; nothing is re-inferred per plate.
+// ONE reasoner call: the set, the actors, the shots (camera + who moves where + seconds).
+// The total running time is clamped by code to the animatic model's ceiling.
 export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) => {
   const text = String(brief || '').trim();
   if (!text) throw new Error('Previz needs a scene description first.');
+  const maxSeconds = maxShotSeconds(ANIMATIC_MODEL);
   const B = '@@BRIEF@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('previz.plan.user', { brief: B, camera: String(camera || '').trim() || 'the planner chooses' }).split(B).join(text.slice(0, 6000)),
-    systemPrompt: renderTemplate('previz.plan.system', {}),
+    systemPrompt: renderTemplate('previz.plan.system', { maxSeconds }),
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
   const raw = parseJson(content) || {};
-  const clean = (v, n) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
-  const subjects = (Array.isArray(raw.subjects) ? raw.subjects : [])
-    .map((s) => ({ name: clean(s?.name, 40), description: clean(s?.description, 300) }))
-    .filter((s) => s.name || s.description)
+  const actors = (Array.isArray(raw.actors) ? raw.actors : [])
+    .map((a) => ({ name: clean(a?.name, 40), description: clean(a?.description, 200), start: clean(a?.start, 160) }))
+    .filter((a) => a.name)
+    .slice(0, BLOCKOUT_COLORS.length)
+    .map((a, i) => ({ ...a, color: blockoutColorOf(i) }));
+  const set = (Array.isArray(raw.set) ? raw.set : [])
+    .map((s) => ({ name: clean(s?.name, 40), where: clean(s?.where, 160) }))
+    .filter((s) => s.name)
+    .slice(0, 12);
+  let shots = (Array.isArray(raw.shots) ? raw.shots : [])
+    .map((s) => ({
+      camera: {
+        from: clean(s?.camera?.from, 160),
+        framing: clean(s?.camera?.framing, 80),
+        move: clean(s?.camera?.move, 120),
+      },
+      action: clean(s?.action, 600),
+      seconds: Math.max(2, Math.round(Number(s?.seconds) || 4)),
+    }))
+    .filter((s) => s.action)
     .slice(0, 8);
+  // Fit the cut into one generation: scale every shot down proportionally.
+  const total = shots.reduce((n, s) => n + s.seconds, 0);
+  if (total > maxSeconds) shots = shots.map((s) => ({ ...s, seconds: Math.max(2, Math.floor((s.seconds * maxSeconds) / total)) }));
 
-  // THE PAGE. Order is the planner's — map, then characters, then the board panels in
-  // cut order — so the grid reads top-left to bottom-right the way a storyboard page does.
-  const plates = (Array.isArray(raw.plates) ? raw.plates : [])
-    .map((p) => {
-      const kind = PLATE_KINDS.includes(String(p?.kind || '').toLowerCase()) ? String(p.kind).toLowerCase() : 'board';
-      return {
-        kind,
-        title: clean(p?.title, 60),
-        draw: clean(p?.draw, 1400),
-        // Only a board panel carries a shot — it is the only kind that describes one.
-        caption: kind === 'board' ? clean(p?.caption, 300) : '',
-        camera: kind === 'board' ? clean(p?.camera, 300) : '',
-        motion: kind === 'board' ? clean(p?.motion, 800) : '',
-      };
-    })
-    .filter((p) => p.draw)
-    .slice(0, 16);
-
-  const plan = {
-    scene: clean(raw.scene, 1600),
-    axis: clean(raw.axis, 400),
-    subjects,
-    look: clean(raw.look, 400),
-    plates,
-  };
-  if (!plan.plates.length) throw new Error('The previz plan came back with no plates — try again.');
+  const plan = { scene: clean(raw.scene, 1200), axis: clean(raw.axis, 300), look: clean(raw.look, 300), set, actors, shots };
+  if (!plan.shots.length) throw new Error('The previz plan came back with no shots — try again.');
   return plan;
 };
 
-// ONE PLATE. `references` are the plates already on the page, each with the NAME it
-// stands for: a character plate pins WHO, an earlier board panel pins the hand. Naming
-// them matters — an unlabelled reference is a mood board, a labelled one is a casting
-// instruction, and only the second stops the wolf turning into a boar.
-const NUM = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+export const totalSecondsOf = (plan) => (plan?.shots || []).reduce((n, s) => n + (Number(s.seconds) || 0), 0);
+const colorWord = (a) => String(a.color || '').toLowerCase();
+const cameraLine = (s, i) => [`CAM ${i + 1}`, s.camera?.from, s.camera?.framing, s.camera?.move].filter(Boolean).join(', ');
 
-// WHO IS IN THE FRAME, DESCRIBED. The planner already decided this — name AND
-// description — and sending only the name asks the image model to know what the word
-// means. "Malinois" is a guess; "Malinois (a Belgian Malinois, tan with a black mask)"
-// is a drawing. The description is also what makes the kind-agnostic silhouette rule
-// usable: it is the only place a plate learns what shape the thing actually has.
-const describedCast = (plan) => (plan?.subjects || [])
-  .map((sub) => {
-    const name = String(sub?.name || '').trim();
-    const desc = String(sub?.description || '').trim();
-    if (name && desc && desc.toLowerCase() !== name.toLowerCase()) return `${name} (${desc})`;
-    return name || desc;
-  })
-  .filter(Boolean);
-
-// The closure sentence: how many are alive, exactly which, and that there is nothing
-// else. Kind-agnostic — it never enumerates what sort of thing might intrude.
-const closureLine = (cast, noun = 'living subject') => (cast.length
-  ? ` Exactly ${NUM[cast.length] || cast.length} ${noun}${cast.length === 1 ? '' : 's'} appear${cast.length === 1 ? 's' : ''} in this frame — ${cast.join(' and ')} — and nothing else that is alive: no other figure, no onlooker, nothing moving in the background.`
-  : '');
-
-export const previzPlate = async ({ plan, index = 0, references = [], style = 'pencil', imageModel = defaultImageModelKey(), config } = {}, ctx) => {
-  const plate = (plan?.plates || [])[index];
-  if (!plate?.draw) throw new Error('That plate is not in the plan.');
+// THE SCHEMATIC — every fact of the plan as a mark on a floor plan.
+export const previzSchematic = async ({ plan, imageModel = defaultImageModelKey(), config } = {}, ctx) => {
+  if (!plan?.shots?.length) throw new Error('Plan the scene first.');
   const model = imageModelKeyOf(imageModel);
-  const refs = references.filter((r) => r?.url).slice(0, 4);
-
-  let prompt;
-  if (plate.kind === 'map') {
-    // The map is the one plate that WANTS the whole space: it exists to show geography.
-    const geography = [plate.draw, String(plan?.scene || '').trim(), String(plan?.axis || '').trim()].filter(Boolean).join(' ');
-    const subs = (plan?.subjects || []).filter((sub) => sub.name || sub.description);
-    prompt = style === 'clay'
-      ? renderTemplate('previz.plate.clayMap', { draw: geography, light: lightLineOf(plan) })
-      : style === 'blockout'
-      ? renderTemplate('previz.plate.mapBlockout', {
-        draw: geography,
-        cast: subs.length
-          ? ` The masses are coloured: ${describedCast(plan).map((c, i) => `${blockoutColorOf(i)} is ${c}`).join('; ')}.`
-          : '',
-      })
-      : renderTemplate('previz.plate.map', { draw: geography });
-  } else if (plate.kind === 'character') {
-    prompt = style === 'clay'
-      ? renderTemplate('previz.plate.clayCharacter', { draw: plate.draw })
-      : style === 'blockout'
-      ? renderTemplate('previz.plate.characterBlockout', {
-        draw: plate.draw,
-        color: blockoutColorOf(subjectIndexOf(plan, index)),
-      })
-      : renderTemplate('previz.plate.character', { draw: plate.draw });
-  } else if (style === 'clay') {
-    const cast = describedCast(plan);
-    prompt = renderTemplate('previz.plate.clay', {
-      draw: plate.draw,
-      light: lightLineOf(plan),
-      marks: MOVE_RE.test(plate.camera)
-        ? ` Mark the camera move with one bold arrow over the frame showing its direction (${plate.camera.toLowerCase()}) — a plain line and arrowhead, no lettering.`
-        : '',
-      cast: closureLine(cast, 'clay figure'),
-      refs: refs.length
-        ? ` The attached plates are the form keys: ${refs.map((r, i) => `Image ${i + 1} is ${r.label}`).join('; ')}. Give each clay figure the same silhouette and stance it has there.`
-        : '',
-    });
-  } else if (style === 'blockout') {
-    // A blockout names its subjects by COLOUR, not by identity — that is the whole point
-    // of the medium, and it is what makes the plate reusable as a Seedance anchor.
-    const subs = (plan?.subjects || []).filter((sub) => sub.name || sub.description);
-    prompt = renderTemplate('previz.plate.blockout', {
-      draw: plate.draw,
-      marks: MOVE_RE.test(plate.camera)
-        ? ` Mark the camera move with one bold arrow over the frame showing its direction (${plate.camera.toLowerCase()}) — a plain line and arrowhead, no lettering.`
-        : '',
-      cast: subs.length
-        ? ` The masses are coloured: ${describedCast(plan).map((c, i) => `${blockoutColorOf(i)} is ${c}`).join('; ')}.${closureLine(describedCast(plan), 'coloured mass')}`
-        : '',
-      // The shape keys, when they are drawn: the panel copies each mass's SILHOUETTE, not
-      // any detail — there is no detail in a blockout to copy.
-      refs: refs.length
-        ? ` The attached plates are the shape keys: ${refs.map((r, i) => `Image ${i + 1} is ${r.label}`).join('; ')}. Give each coloured mass the same silhouette and stance it has there.`
-        : '',
-    });
-  } else {
-    // A board panel gets its OWN words and nothing else. Appending the scene description
-    // pushes every panel toward the establishing wide — the whole clearing has to fit —
-    // which is exactly how a tight single ends up a wide two-shot.
-    const cast = describedCast(plan);
-    prompt = renderTemplate('previz.plate.board', {
-      draw: plate.draw,
-      marks: MOVE_RE.test(plate.camera)
-        ? ` Over the drawing, mark the camera move with one bold hand-drawn arrow showing its direction (${plate.camera.toLowerCase()}) — a plain drawn line and arrowhead, no lettering.`
-        : '',
-      // CAST CLOSURE. An image model asked for two animals in a forest draws a pack,
-      // because that is what forests contain in its training data. The count has to be
-      // stated and the absence has to be stated with it.
-      cast: closureLine(cast),
-      refs: refs.length
-        ? ` Use the attached drawings for identity: ${refs.map((r, i) => `Image ${i + 1} is ${r.label}`).join('; ')}. Draw those exact subjects — same build, same coat, same markings.`
-        : '',
-    });
-  }
-
-  const size = plate.kind === 'character'
-    ? clampSizeForModel(model, '1440x1920') // a figure alone reads in portrait
-    : keyframeImageSize(model);
-
+  const prompt = renderTemplate('previz.schematic', {
+    set: (plan.set || []).length ? `The set: ${plan.set.map((s) => `${s.name.toUpperCase()}${s.where ? ` (${s.where})` : ''}`).join('; ')}.` : (plan.scene ? `The set: ${plan.scene}` : ''),
+    actors: (plan.actors || []).length ? `The actors: ${plan.actors.map((a) => `${a.name} — a solid ${colorWord(a)} circle${a.start ? `, starting ${a.start}` : ''}`).join('; ')}.` : '',
+    moves: `The movements, numbered in order: ${plan.shots.map((s, i) => `${i + 1}. ${s.action}`).join(' ')}`,
+    cameras: `The cameras: ${plan.shots.map((s, i) => cameraLine(s, i)).join('; ')}.`,
+    axis: plan.axis ? `The line of action: ${plan.axis}.` : '',
+  });
   const { url, cacheUrl } = await ctx.client.generateImage({
     prompt,
-    referenceImages: refs.length ? refs.map((r) => r.url) : undefined,
-    size,
+    size: keyframeImageSize(model),
     model: getModel(model, config),
     optimizePrompt: false,
   });
+  if (!url) throw new Error('the image model returned no schematic');
   return { url, cacheUrl, prompt };
+};
+
+// THE ANIMATIC PROMPT — built by code from the plan: the schematic's role (Seedance 2.5
+// reference grammar), the colour key, the style, and one line per shot.
+export const previzAnimaticPrompt = ({ plan, style = 'blockout' } = {}) => {
+  const st = PLATE_STYLES.includes(style) ? style : 'blockout';
+  return renderTemplate('previz.animatic', {
+    style: renderTemplate(`previz.animatic.style.${st}`),
+    key: (plan?.actors || []).length ? `The colour key: ${plan.actors.map((a) => `the ${colorWord(a)} figure is ${a.name}`).join('; ')}.` : '',
+    shots: (plan?.shots || []).map((s, i) => `Shot ${i + 1} (${cameraLine(s, i)}): ${s.action}`).join('\n'),
+  });
 };

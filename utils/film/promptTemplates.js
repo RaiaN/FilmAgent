@@ -68,123 +68,63 @@ Up to 8 assets total. Include EVERY recurring subject the film needs — never d
     text: 'Reproduce [Image 1] EXACTLY — the same set, camera, framing, lighting and composition — but replace {targets} with FLAT solid-color silhouettes, one per subject: hard edges, completely filled with one color, no facial features, no clothing detail, no shading. Assign the colors left to right: blue, then green, then yellow, then red, then purple (repeat the sequence if there are more figures). Each silhouette keeps its subject\'s exact position, scale and pose. Everything NOT replaced stays photorealistic and identical to [Image 1]. No text or watermarks.',
   },
 
-  // ---- Previz: plan a PAGE OF PLATES -> promote any plate to a SHOT card -------------
-  // Previz plates are DRAWINGS, which is what a text-to-image model is actually good at:
-  // a pencil panel has no 3D scene to be consistent with, and panels are ALLOWED to look
-  // different from each other — that is the medium. What carries between them is the
-  // pencil convention, not a camera. Three kinds: an overhead map, character plates,
-  // and the storyboard panels themselves.
+  // ---- Previz: block the scene → a top-down schematic → an animatic -----------------
+  // The plan is the blocking; the SCHEMATIC draws it as a floor plan (edited by image
+  // edit); the ANIMATIC is Seedance reading the schematic and moving the blockout.
   'previz.plan.system': {
     agent: 'Previz',
-    label: 'Previz plan — the plate page (system)',
-    vars: [],
-    text: `You are a storyboard artist and 1st AD preparing PREVIZ for a scene. Previz decides STAGING, GEOGRAPHY, EYELINES, COVERAGE and TIMING — never final look. Your output is a PAGE OF PLATES: drawings a director reads before a frame is shot.
+    label: 'Previz plan — blocking and coverage (system)',
+    vars: ['{maxSeconds}'],
+    text: `You are a director and 1st AD BLOCKING one scene for an animatic. Decide where everything is, who moves where, and how the cameras cover it. Never decide final look.
 
-Plan silently, then output. Fix the scene first: the one place it happens and the features that define it; every subject the description actually names, whatever kind of thing each one is (individuals stay individual, a crowd collapses to one group); where each stands, bound to a named feature; which way each one FACES; and the ACTION AXIS, the line between the two principal subjects that every camera stays on one side of.
+Fix the scene first: the ONE place it happens and the set pieces that define it (doors, tables, windows, vehicles, walls), each with where it sits in the space. Then every actor the description actually names (a crowd collapses to one group, at most 6), and where each one STARTS, bound to a named set piece.
 
-Then choose the plates. Three kinds:
-  "map" — ONE overhead floor plan of the whole setup with every camera position marked. Include one whenever the scene has geography worth locking: more than one subject, or movement through space.
-  "character" — one plate per PRINCIPAL subject, alone on the page. At most 4.
-  "board" — one storyboard panel per SHOT, in cut order. The bulk of the page.
-
-COVERAGE — how you choose the board panels. Be a director, not a camera operator:
-  - Open on the widest shot that makes the geography legible, and return to a wide whenever the geography changes.
-  - Play the scene from BOTH sides of the axis: a single on one subject is answered by the reverse on the other. A scene of two parties shot entirely from one bearing is a failure.
-  - Vary SIZE deliberately. Go tight for what the story turns on — a face, a hand, an object — and only there. Never go tight while the audience still needs to know where everyone is.
-  - Cover REACTION, not only action. The shot of someone watching is usually the shot that makes the moment land.
-  - As few panels as the scene truly needs and no fewer — usually 6 to 12.
-
-Every board panel shows ONLY the subjects you listed, and never a person unless a person is one of them. A busy or populated setting invites the artist to add figures nobody asked for — write each panel so there is nothing for them to fill in.
-
-DRAWING each plate. The artist is an image model with NO 3D scene and no memory between plates, so "4m north of the subject, 0.8m height, tight single" draws nothing at all. Write every "draw" as WHAT THE FINISHED DRAWING SHOWS: which subject sits where in the frame (left / centre / right, high / low), how big each one is (fills the frame, half the frame height, a small figure in the distance), which way each faces and where it looks, what is in the foreground and what is behind, and where the horizon or eye level falls. State camera height only as what it does to the picture — "seen from below, the horizon low behind them", never a measurement. Name subjects by the name you gave them so the same one recurs across plates.
+Then the shots, in cut order. For each shot:
+  - camera.from: where the camera stands in the space, bound to a set piece ("by the window, looking toward the door");
+  - camera.framing: the shot size;
+  - camera.move: static, or the move ("slow push in", "pans left with her");
+  - action: who moves where during this shot, from a named place to a named place, in plain words ("Mara walks from the door to the table and sits; Tom turns to watch her"). Name actors by the names you gave them;
+  - seconds: how long the shot runs, a whole number.
+Cover like a director: open wide enough to read the geography, keep every camera on one side of the line of action, go tight only where the story turns. The whole cut runs at most {maxSeconds} seconds.
 
 Return ONLY JSON — no prose, no code fences:
-{"scene":"<2-3 sentences: the space and its features, in drawable terms>","axis":"<one sentence: the action axis named against two fixed features, and which side the cameras stay on>","subjects":[{"name":"<short name, reused on every plate>","description":"<what this subject IS — its KIND first and exactly, in the description's own words. Never assume a person, and never substitute a nearby kind for the one that was named. Then appearance; clothing only if it is a person.>"}],"look":"<one sentence: the photoreal look of the finished scene — place, time of day, light, atmosphere, in the description's own words. Rides to the SHOT card, never drawn on a plate.>","plates":[{"kind":"map","title":"<3-6 words>","draw":"<what the overhead plan shows: the set pieces and their positions seen from above, each subject's marker and which way it faces, and every camera position with the direction it points. Describe placement — there are no labels to read.>"},{"kind":"character","title":"<the subject's name>","draw":"<the figure alone: kind, build, stance, coat or clothing, markings, anything carried>"},{"kind":"board","title":"<3-6 words>","draw":"<what this panel shows, by the drawing rule above>","caption":"<one line: what happens in this shot — the words that go under the panel>","camera":"<the shot in film terms: size, angle, and any move. Rides to the SHOT card.>","motion":"<what happens during this shot, present tense, in the description's own words>"}]}
-
-At most 16 plates.`,
+{"scene":"<2 sentences: the space and its features>","axis":"<one sentence: the line of action between the principal actors, against two set pieces>","look":"<one sentence: the photoreal look of the finished scene — place, time of day, light — in the description's own words>","set":[{"name":"<short name>","where":"<where it sits in the space>"}],"actors":[{"name":"<short name>","description":"<what this actor IS, its kind first, in the description's own words>","start":"<where it starts, bound to a set piece>"}],"shots":[{"camera":{"from":"...","framing":"...","move":"..."},"action":"...","seconds":4}]}`,
   },
   'previz.plan.user': {
     agent: 'Previz',
     label: 'Previz plan — instruction',
     vars: ['{brief}', '{camera}'],
-    text: 'SCENE DESCRIPTION (verbatim):\n"""\n{brief}\n"""\nCAMERA: {camera}\n\nPlan the plates and return the JSON.',
+    text: 'SCENE DESCRIPTION (verbatim):\n"""\n{brief}\n"""\nCAMERA PREFERENCE: {camera}\n\nBlock the scene and return the JSON.',
   },
-
-  // The three plate conventions. Frozen: every board panel must come off the same pencil,
-  // or the page stops reading as one document. No lettering anywhere — an image model
-  // garbles text, and the captions and legends live on the panel UI instead.
-  'previz.plate.board': {
+  'previz.schematic': {
     agent: 'Previz',
-    label: 'Plate — storyboard panel (pencil)',
-    vars: ['{draw}', '{marks}', '{cast}', '{refs}'],
-    text: 'A single hand-drawn STORYBOARD PANEL in graphite pencil on off-white paper. Black and white only, no colour anywhere. Loose confident contour lines, light cross-hatching for shadow, unfinished sketch quality — figures are simplified, but their pose, scale, screen position and eyeline read exactly. Each subject keeps the real silhouette, stance and proportions of whatever it actually is, drawn the way that thing is really shaped — never a human form substituted for something that is not a person, and never a shape borrowed from a different kind of thing. The drawing fills the whole image edge to edge: no paper border, no frame line, no panel number, no lettering, no caption, no watermark.{marks}{cast}{refs}\n\nTHE PANEL SHOWS: {draw}',
+    label: 'Previz schematic — the top-down floor plan',
+    vars: ['{set}', '{actors}', '{moves}', '{cameras}', '{axis}'],
+    text: 'A TOP-DOWN ORTHOGRAPHIC FLOOR-PLAN SCHEMATIC of a film scene: a clean technical blocking diagram on white, seen straight down, no perspective. Thin black linework for walls, doors, furniture and every set piece, each labelled in small block capitals. Each actor is a solid filled circle in their colour with their name beside it in small capitals. Each movement is a bold arrow in that actor\'s colour from where they start to where they end, numbered in order. Each camera is a small black camera symbol with a light-grey view cone opening toward what it frames, labelled CAM 1, CAM 2 and so on; a camera move is a dashed black arrow from the camera. The line of action is one thin dashed red line. No shading, no texture, no people drawn as figures, no photographic detail.\n\n{set}\n{actors}\n{moves}\n{cameras}\n{axis}',
   },
-  // THE BLOCKOUT LAYER — the same panel as a VFX pass: flat colour masses, no identity,
-  // no look. A stronger Seedance reference than a drawing, because subject separation and
-  // screen direction are unambiguous and nothing about the finished look is imposed. The
-  // colour order matches previz.mask, so a blockout and a masked frame read the same way.
-  'previz.plate.blockout': {
+  'previz.animatic': {
     agent: 'Previz',
-    label: 'Plate — VFX blockout layer (colour blocks)',
-    vars: ['{draw}', '{marks}', '{cast}', '{refs}'],
-    text: 'A VFX BLOCKOUT LAYER render — a matte ID pass. EVERY element in the frame is one flat solid colour with a hard clean edge: no texture, no pattern, no shading, no gradient, no highlight, no outline and no detail anywhere in the image.\n\nThe SUBJECTS are featureless coloured masses — no face, no hair, no clothing, no features. Each mass keeps the real silhouette, stance and proportions of whatever that subject actually is — never a human form substituted for something that is not a person, and never a shape borrowed from a different kind of thing. Each mass carries a small raised WEDGE on the front of its head showing which way it faces, so eyelines and screen direction read.\n\nThe ENVIRONMENT is blocked the same way, each part its own flat colour: the GROUND is flat warm mid-grey, the SKY or far backdrop is flat pale blue-grey, and every piece of set geometry — whatever the space actually contains — is flat slate grey held as a simple shape. No foliage detail, no bark, no grass, no clouds, no set dressing. Flat even light, no cast shadows beyond a soft contact shadow, no atmosphere, no haze, no depth of field. No text, no lettering, no watermark.{marks}{cast}{refs}\n\nTHE FRAME SHOWS: {draw}',
+    label: 'Previz animatic — the Seedance prompt',
+    vars: ['{style}', '{key}', '{shots}'],
+    text: 'An ANIMATIC of one scene. {style}\n@Image1 is a top-down floor plan of this scene: use only its layout, where each actor stands, the paths the arrows show and where each camera stands. Never show the plan itself — no lines, labels, circles or arrows on screen.\n{key} Each figure keeps its colour for the whole video; the figures are simple and featureless, so only colour tells them apart.\n{shots}',
   },
-
-  'previz.plate.map': {
+  'previz.animatic.style.pencil': {
     agent: 'Previz',
-    label: 'Plate — overhead staging map (pencil)',
-    vars: ['{draw}'],
-    text: 'An OVERHEAD FLOOR PLAN of a film set, hand-drawn in graphite pencil on off-white paper — the same hand as the storyboard panels. Black and white only, no colour. Straight top-down view, no perspective, drawn with loose confident ruled-feeling lines and light hatching where a surface needs to read. Everything in the space that is not a subject is drawn as its own shape seen from directly above. Each subject is a filled dark shape matching its real footprint seen from above, with a smaller mark on one end to show which way it faces. Each camera position is a small filled camera shape with two light dotted lines opening from its lens to show the field of view. A simple segmented scale bar lies along the bottom edge. Uncluttered and diagrammatic. No lettering, no labels, no numbers, no watermark.\n\n{draw}',
+    label: 'Animatic look — pencil',
+    vars: [],
+    text: 'Hand-drawn graphite pencil line animation on off-white paper, loose contour lines and light hatching; each figure is a simple pencil mannequin tinted with a single wash of its colour.',
   },
-
-  // The map in blockout form: the same plan seen as a top-down matte ID pass, so the
-  // page reads as one document and the colours mean the same thing from above as they
-  // do in the panels.
-  'previz.plate.mapBlockout': {
+  'previz.animatic.style.blockout': {
     agent: 'Previz',
-    label: 'Plate — top-down location view (colour blocked)',
-    vars: ['{draw}', '{cast}'],
-    text: 'A VFX BLOCKOUT LAYER render — a matte ID pass seen from DIRECTLY ABOVE, looking straight down at the location. Orthographic top-down view, no perspective. EVERY element is one flat solid colour with a hard clean edge: no texture, no pattern, no shading, no gradient, no highlight, no outline and no detail anywhere in the image.\n\nThe GROUND is flat warm mid-grey covering the whole frame. Every piece of set geometry — whatever the space actually contains — is a flat slate grey shape seen from above. Each subject is a coloured mass seen from above, keeping its real footprint, with a small wedge on one end showing which way it faces. Each camera position is a small flat dark marker with two thin lines opening from it to show the field of view. A simple segmented scale bar lies along the bottom edge.\n\nNo foliage detail, no bark, no grass, no set dressing, no lettering, no labels, no numbers, no watermark.{cast}\n\nTHE PLAN SHOWS: {draw}',
+    label: 'Animatic look — colour blocks',
+    vars: [],
+    text: 'A VFX blockout: flat solid-colour featureless mannequins moving through untextured grey set geometry, hard edges, no texture, no detail, even flat light.',
   },
-  // The character plate in blockout form: the SHAPE KEY for the page. It shows which
-  // colour a subject is and what silhouette that colour will hold, which is exactly what
-  // a colour-blocked page needs a character plate FOR — identity is not the point here.
-  'previz.plate.characterBlockout': {
+  'previz.animatic.style.clay': {
     agent: 'Previz',
-    label: 'Plate — blockout shape key (one coloured mass)',
-    vars: ['{draw}', '{color}'],
-    text: 'A VFX BLOCKOUT LAYER render — a matte ID pass of ONE subject alone. The subject is a single featureless mass filled entirely with flat solid {color}, hard clean edge, no texture, no pattern, no shading, no gradient, no highlight, no outline, no face, no hair, no clothing and no features of any kind. It keeps the real silhouette, stance and proportions of whatever it actually is, in whatever view reads its form best. A small raised WEDGE on the front of its head shows which way it faces. It stands alone on a flat plain light-grey background with a soft contact shadow under it and nothing else in the frame. Flat even light, no atmosphere, no depth of field, no text, no lettering, no watermark.\n\nTHE SUBJECT IS: {draw}',
-  },
-
-  'previz.plate.character': {
-    agent: 'Previz',
-    label: 'Plate — character sheet (pencil)',
-    vars: ['{draw}'],
-    text: 'A CHARACTER PLATE from a film production storyboard, drawn in graphite pencil on off-white paper. Black and white only, no colour. Loose confident contour lines with light cross-hatching for shadow. ONE subject alone on an otherwise blank page, whole body in frame with clear white space around it, standing in a neutral three-quarter stance turned slightly toward the viewer. It is drawn the way that kind of thing is really shaped, in whatever view reads its form best — three-quarter where that shows the most. No background, no scenery, no other subject, no ground shadow beyond a light contact shadow, no lettering, no caption, no watermark.\n\n{draw}',
-  },
-
-  // THE CLAY RENDER — the third convention, and the only one that shows LIGHT. Pencil
-  // implies lighting, the blockout deliberately kills it; a grey clay maquette render is
-  // where a previz department actually blocks the key, the shadows and the falloff. It
-  // stays inside the charter because it decides light as STRUCTURE — direction, quality,
-  // what is in shadow — and never as colour grade, texture or finish.
-  'previz.plate.clay': {
-    agent: 'Previz',
-    label: 'Plate — 3D clay render (lighting block)',
-    vars: ['{draw}', '{marks}', '{cast}', '{refs}', '{light}'],
-    text: 'A 3D PREVIZ CLAY RENDER: an untextured grey maquette of the scene, rendered like a physical clay model photographed on a modelmaker bench. Every surface is the SAME matte grey clay — no colour, no texture, no pattern, no material detail, no set dressing. Subjects are featureless clay figures with no face, no hair and no clothing, each keeping the real silhouette, stance and proportions of whatever it actually is — never a human form substituted for something that is not a person. Each figure carries a small raised WEDGE on the front of its head showing which way it faces.\n\nLIGHTING IS THE POINT OF THIS RENDER and must read unmistakably: one clear key with a stated direction, visible falloff across the clay, hard-edged cast shadows on the ground and across the forms, soft fill holding the shadow side open, and rim separation where a figure would otherwise merge with what is behind it. Ambient occlusion darkens the contact points and the creases. Depth reads through light, not through haze.{light}{marks}{cast}{refs}\n\nTHE FRAME SHOWS: {draw}',
-  },
-  'previz.plate.clayCharacter': {
-    agent: 'Previz',
-    label: 'Plate — clay figure study (lighting on one subject)',
-    vars: ['{draw}'],
-    text: 'A 3D PREVIZ CLAY RENDER of ONE subject alone: an untextured matte grey clay maquette, no face, no hair, no clothing, no texture and no colour, keeping the real silhouette, stance and proportions of whatever it actually is, in whatever view reads its form best. A small raised WEDGE on the front of its head shows which way it faces. It stands alone on a plain grey clay ground with nothing else in the frame.\n\nLight it to show FORM: one clear key from the upper front-left with visible falloff, a soft fill opening the shadow side, a rim from behind separating it from the background, a grounded cast shadow, and ambient occlusion in the creases and at the contact points. No text, no lettering, no watermark.\n\nTHE SUBJECT IS: {draw}',
-  },
-  'previz.plate.clayMap': {
-    agent: 'Previz',
-    label: 'Plate — clay set from above (lighting plan)',
-    vars: ['{draw}', '{light}'],
-    text: 'A 3D PREVIZ CLAY RENDER seen from DIRECTLY ABOVE, looking straight down at the set: an untextured matte grey clay maquette of the whole location, every surface the same grey clay, no colour, no texture, no set dressing. Set geometry — whatever the space actually contains — is modelled as simple clay volumes. Each subject is a featureless clay figure seen from above keeping its real footprint, with a small wedge on one end showing which way it faces. Each camera position is a small clay camera form with two thin lines opening from it to show the field of view.\n\nLIGHT THE SET so the plan reads: one clear key with a stated direction throwing long hard cast shadows across the ground, so every figure and every set piece lays a shadow that says where the light comes from. Soft fill, ambient occlusion at the contact points.{light}\n\nNo lettering, no labels, no numbers, no watermark.\n\nTHE PLAN SHOWS: {draw}',
+    label: 'Animatic look — clay',
+    vars: [],
+    text: 'A 3D clay-render previz: an untextured matte grey clay maquette of the set and featureless clay mannequins, each mannequin in its own flat colour, lit by one clear key light with soft fill and hard cast shadows.',
   },
 
   // The LOCATION PLATE. Location Variations is edit-locked — coverage is a reframe of a

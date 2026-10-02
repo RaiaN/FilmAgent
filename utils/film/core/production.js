@@ -75,7 +75,6 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
           motion: p.motion || intent,
           camera: p.camera, lens: p.lens, focalLength: p.focalLength, aperture: p.aperture,
           duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: genAudio,
-          seed: p.seed ?? null,
           modelKey: p.modelKey ?? null,  // the card's per-shot Seedance slot rides into animate
           config,
         }, ctx);
@@ -237,7 +236,7 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
       if (shot.direct) {
         const base = {
           id: animId, agent: 'animate', title: shot.beat, intent: shot.beat,
-          params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto', direct: true, refUrls: shot.refUrls || [], refAssetIds: shot.refAssetIds || [], seed: shot.seed ?? null, firstFrameUrl: shot.firstFrameUrl ?? null, audioRefUrls: shot.audioRefUrls ?? [], videoRefUrls: shot.videoRefUrls ?? [], resolution: shot.resolution, ratio: shot.ratio, generateAudio: shot.generateAudio },
+          params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto', direct: true, refUrls: shot.refUrls || [], refAssetIds: shot.refAssetIds || [], firstFrameUrl: shot.firstFrameUrl ?? null, audioRefUrls: shot.audioRefUrls ?? [], videoRefUrls: shot.videoRefUrls ?? [], resolution: shot.resolution, ratio: shot.ratio, generateAudio: shot.generateAudio },
           dependsOn: [], gated: true, qc: null, error: null,
           // Seedance 2.0 takes up to 9 reference images — same cap as Seedream.
           bibleRefs: refIds, refCap: EXPLICIT_REF_CAP, locked: false, feedback: '',

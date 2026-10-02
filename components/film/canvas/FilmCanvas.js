@@ -51,7 +51,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, finishDraft, generateFilmAudio } from '../../../utils/film/core/operations';
-import { previzPlan, previzPlate, PREVIZ_RESOLUTION, PLATE_STYLES, plateIsStale, plateStyleLock } from '../../../utils/film/core/previz';
+import { previzPlan, previzSchematic, previzAnimaticPrompt, totalSecondsOf, PLATE_STYLES, ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK } from '../../../utils/film/core/previz';
 import { describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { SCOUT_PATHS, startSurvey, surveyFrameTimes, checkEmpty } from '../../../utils/film/core/scout';
@@ -421,7 +421,7 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
         firstFrameUrl: shot.firstFrameUrl, lastFrameUrl: shot.lastFrameUrl,
         audioRefUrls: audioUrls, videoRefUrls: videoUrls,
         duration: shot.durationSec, resolution: shot.resolution, ratio: shot.ratio,
-        generateAudio: genAudio, seed: shot.seed, modelKey: shot.modelKey, draft: !!shot.draft,
+        generateAudio: genAudio, modelKey: shot.modelKey, draft: !!shot.draft,
       }, ctx);
       return { taskId: out.taskId, droppedRefs, healedAssets };
     } catch (e) {
@@ -1587,7 +1587,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   const storyboardPanelRef = useRef(null);
   // Previz DISPATCH lives far below (it needs onPatchCut and the panel layer), while the
   // previz context is built above it — the ref is the seam.
-  const previzDispatchRef = useRef({ toShot: () => {}, edit: () => {} });
+  const previzDispatchRef = useRef({ toShots: () => {}, edit: () => {}, animatic: () => {}, final: () => {}, play: () => {} });
   // Compose is declared far below (it closes over the bible, the trace and the client);
   // previz dispatch needs to CALL it. Same seam as previzDispatchRef, other direction.
   const composeCutRef = useRef(null);
@@ -1921,237 +1921,60 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   }, [rfInstance, freeOrigin, setNodes]);
 
 
-  // ---- PREVIZ: plan the page → draw the plates → dispatch any plate to a SHOT card --
-  // Structure first, look second. The PLAN is one reasoner call and everything after it
-  // reads that object, so no plate re-infers the staging. Plates live on the panel.
+  // ---- PREVIZ: block the scene → the top-down schematic → the animatic ------------------
+  // The PLAN is one reasoner call; the SCHEMATIC draws it (and is edited by image edit);
+  // the ANIMATIC is Seedance reading the schematic. Dispatch that needs later handlers
+  // (takes, SHOT cards, the editor) goes through previzDispatchRef.
   const patchPreviz = useCallback((id, patch) => {
-    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)));
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...(typeof patch === 'function' ? patch(n.data) : patch) } } : n)));
   }, [setNodes]);
 
   const previzCtxOf = useCallback(() => ({ client: traceRef.current.wrapClient(createBrowserClient()) }), []);
 
-  // A PLATE is a drawing that lives ON the panel (data.plates), never a loose board node:
-  // the panel is the one surface for them, exactly as the Take Library is for takes.
-  // NORMALIZE — the SAME op the storyboard division runs, unchanged: brief → screenplay
-  // format, extractive, never inventing, writing UNSTATED where the source says nothing.
-  // Previz benefits from it for the same reason the carve does: the planner then works
-  // from sluglines and action lines instead of a paragraph, and an UNSTATED location is
-  // stated as unknown rather than quietly invented as a pine clearing.
-  // Free when the text already parses as scenes (normalizeBrief passes it through).
-  const runPrevizNormalize = useCallback(async (cardId) => {
+  const drawPrevizSchematic = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
-    const script = String(card?.data?.brief || '').trim();
-    if (!script) { Message.warning('Write the scene description first.'); return; }
-    if (card?.data?.busy) return;
-    patchPreviz(cardId, { busy: true, step: 'normalize', error: '' });
-    traceRef.current.startRun({ note: 'Agent · Previz · normalize' });
+    const plan = card?.data?.plan;
+    if (!Array.isArray(plan?.shots)) { Message.warning('Block the scene first.'); return; }
+    patchPreviz(cardId, (d) => ({ schematic: { ...(d.schematic || {}), loading: true, error: '' } }));
+    traceRef.current.startRun({ note: 'Agent · Previz · schematic' });
     try {
-      const { screenplay, passthrough } = await normalizeBrief({ script }, previzCtxOf());
-      patchPreviz(cardId, { screenplay, busy: false, step: '' });
-      Message.success(passthrough
-        ? 'Already a screenplay — carried through untouched, no call spent.'
-        : 'Normalized. Read it, fix anything it got wrong, then plan the page.');
+      const { url, cacheUrl, prompt } = await previzSchematic({ plan }, previzCtxOf());
+      patchPreviz(cardId, { schematic: { url, cacheUrl: cacheUrl || null, prompt, loading: false, error: '' }, schematicStale: false });
     } catch (e) {
-      patchPreviz(cardId, { busy: false, step: '', error: e.message });
-      Message.error(`Normalize failed: ${e.message}`);
+      patchPreviz(cardId, (d) => ({ schematic: { ...(d.schematic || {}), loading: false, error: e.message } }));
+      Message.error(`Schematic failed: ${e.message}`);
     }
   }, [patchPreviz, previzCtxOf]);
 
-  // PREVIZ PLAN — one reasoner call: the staging, the axis, the subjects and the whole
-  // plate page. No pixels, no video. Re-plan freely.
+  // PLAN, then draw the schematic straight away — one tap from words to a floor plan.
   const runPrevizPlan = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const brief = String(card?.data?.brief || '').trim();
     if (!brief) { Message.warning('Write the scene description first.'); return; }
     if (card?.data?.busy) return;
-    patchPreviz(cardId, { busy: true, step: 'plan', error: '' });
+    patchPreviz(cardId, { busy: true, step: 'blocking', error: '' });
     traceRef.current.startRun({ note: 'Agent · Previz · plan' });
     try {
-      // The APPROVED SCREENPLAY is the source when one exists — same precedence the
-      // division uses. The raw brief stays the fallback, never a second input.
-      const source = String(card?.data?.screenplay || '').trim() || brief;
-      const plan = await previzPlan({ brief: source, camera: shotTemplateCinematography(card?.data?.camera) || '' }, previzCtxOf());
-      const panels = plan.plates.filter((p) => p.kind === 'board').length;
-      traceRef.current.log({ level: 'run', kind: 'decision', note: `Previz · ${plan.plates.length} plates (${panels} panel${panels === 1 ? '' : 's'}), ${plan.subjects.length} subject${plan.subjects.length === 1 ? '' : 's'}` });
-      patchPreviz(cardId, { plan, plates: [], busy: false, step: '' });
-      Message.success(`Page planned — ${plan.plates.length} plates, ${panels} panel${panels === 1 ? '' : 's'}. Draw them, then send any plate to a SHOT card.`);
+      const plan = await previzPlan({ brief, camera: shotTemplateCinematography(card?.data?.camera) || '' }, previzCtxOf());
+      traceRef.current.log({ level: 'run', kind: 'decision', note: `Previz · ${plan.actors.length} actor${plan.actors.length === 1 ? '' : 's'}, ${plan.shots.length} shot${plan.shots.length === 1 ? '' : 's'}, ${totalSecondsOf(plan)}s` });
+      patchPreviz(cardId, { plan, busy: true, step: 'drawing the schematic' });
+      await drawPrevizSchematic(cardId);
     } catch (e) {
-      patchPreviz(cardId, { busy: false, step: '', error: e.message });
+      patchPreviz(cardId, { error: e.message });
       Message.error(`Previz plan failed: ${e.message}`);
-    }
-  }, [patchPreviz, previzCtxOf]);
-
-  // ONE PLATE. The plates already drawn ride as references — the character plates first,
-  // since they pin WHO, then the first drawn panel, which pins the hand. This is the only
-  // real lever on consistency: the renderer has no scene memory between calls, so a plate
-  // drawn early in the page simply has less to hold onto.
-  const previzPlateRefs = useCallback((plan, plates, index) => {
-    const urlOf = (i) => plates[i]?.cacheUrl || plates[i]?.url || null;
-    const sheet = plan.plates || [];
-    if (sheet[index]?.kind === 'character') return []; // a character plate is the anchor; it copies no one
-    // Character plates ONLY. They are the identity/shape anchors and they exist by the
-    // time anything else draws; no plate references another panel, which is what lets
-    // the whole rest of the page fire in one wave.
-    // LABELLED, not just attached: the plate prompt names each reference by the subject
-    // it stands for, so "the wolf" is bound to a drawing instead of to the model's prior.
-    const chars = sheet
-      .map((p, i) => (p.kind === 'character' && i !== index && urlOf(i)
-        ? { url: urlOf(i), label: p.title || (plan.subjects || [])[0]?.name || 'this subject' }
-        : null))
-      .filter(Boolean);
-    return chars.slice(0, 4);
-  }, []);
-
-  const renderPrevizPlate = useCallback(async (cardId, index, { quiet = false } = {}) => {
-    const card = nodesRef.current.find((n) => n.id === cardId);
-    const plan = card?.data?.plan;
-    // These guards THROW rather than return: a batch counts a silent return as a drawn
-    // plate, which is how a run reports twelve drawn and shows six.
-    if (!plan) { if (!quiet) Message.warning('Plan the page first.'); throw new Error('no plan on this card'); }
-    const mark = (patch) => setNodes((ns) => ns.map((n) => (n.id === cardId
-      ? { ...n, data: { ...n.data, plates: Object.assign([], n.data.plates || [], { [index]: { ...(n.data.plates || [])[index], ...patch } }) } }
-      : n)));
-    mark({ loading: true, error: '' });
-    if (!quiet) traceRef.current.startRun({ note: `Agent · Previz · plate ${index + 1}` });
-    try {
-      const style = PLATE_STYLES.includes(card.data?.plateStyle) ? card.data.plateStyle : PLATE_STYLES[0];
-      const references = previzPlateRefs(plan, card.data.plates || [], index);
-      const { url, cacheUrl, prompt } = await previzPlate({ plan, index, references, style, imageModel: 'seedreamPro' }, previzCtxOf());
-      // An empty url is the endpoint answering without an image — a refusal, a filtered
-      // result, an unexpected body. Left unchecked it lands as a blank tile with no
-      // error and still counts as success.
-      if (!url) throw new Error('the model returned no image');
-      mark({ url, cacheUrl: cacheUrl || null, prompt, style, loading: false, error: '' });
-    } catch (e) {
-      mark({ loading: false, error: e.message });
-      // In a batch the tile already shows the reason — ten toasts would bury the page.
-      if (!quiet) Message.error(`Plate ${index + 1} failed: ${e.message}`);
-      throw e;
-    }
-  }, [previzCtxOf, previzPlateRefs, setNodes]);
-
-  // DRAW ALL. TWO waves, and only because of one real dependency: the character plates
-  // are the identity anchors every other plate references, so they must exist first.
-  // Everything else — the map and every panel — goes at once in wave two.
-  //
-  // There WAS a third stage: one pilot panel drawn alone to set the hand the rest would
-  // match. It cost a full serialized round trip to add very little (the pencil and clay
-  // conventions are already pinned hard in their templates) and it made a page of eleven
-  // plates read as a trickle. Gone.
-  //
-  // Then ONE retry pass over whatever failed. Firing a page in parallel makes transient
-  // refusals ordinary, and asking the user to hunt for the ↻ on four tiles is work the
-  // run can do itself. Only the second failure is reported.
-  const renderAllPrevizPlates = useCallback(async (cardId, { all = false } = {}) => {
-    const card = nodesRef.current.find((n) => n.id === cardId);
-    const plan = card?.data?.plan;
-    if (!plan) { Message.warning('Plan the page first.'); return; }
-    const done = card.data.plates || [];
-    const style = PLATE_STYLES.includes(card.data?.plateStyle) ? card.data.plateStyle : PLATE_STYLES[0];
-    // STALE, not just missing: switching the page from pencil to colour blocks leaves
-    // every panel drawn but wrong, and a run that reports "already drawn" there is
-    // answering a question nobody asked. `all` is the explicit redraw.
-    const todo = plan.plates.map((p, i) => ({ p, i }))
-      .filter(({ p, i }) => all || plateIsStale(p, done[i], style));
-    if (!todo.length) { Message.info('Every plate is up to date.'); return; }
-
-    let drawn = 0;
-    const failed = new Map(); // index → the reason it did not draw
-    const step = () => patchPreviz(cardId, { busy: true, step: `drawing ${drawn + failed.size}/${todo.length}` });
-    const draw = async ({ i }) => {
-      try { await renderPrevizPlate(cardId, i, { quiet: true }); drawn += 1; failed.delete(i); }
-      catch (e) { failed.set(i, e.message); }
-      step();
-    };
-    const wave = (items) => Promise.all(items.map(draw));
-
-    // ONE run for the batch, not one per plate: parallel startRun calls overwrite each
-    // other's context, so per-plate runs scramble the trace they were meant to explain.
-    traceRef.current.startRun({ note: `Agent · Previz · draw ${todo.length} plate${todo.length === 1 ? '' : 's'}` });
-    step();
-    try {
-      const anchors = todo.filter(({ p }) => p.kind === 'character');
-      if (anchors.length) await wave(anchors);
-      await wave(todo.filter(({ p }) => p.kind !== 'character'));
-
-      if (failed.size) {
-        const again = [...failed.keys()];
-        traceRef.current.log({ level: 'run', kind: 'warning', note: `Previz · retrying ${again.length} failed plate${again.length === 1 ? '' : 's'}: ${again.map((i) => i + 1).join(', ')}` });
-        patchPreviz(cardId, { busy: true, step: `retrying ${again.length}` });
-        await wave(again.map((i) => ({ i, p: plan.plates[i] })));
-      }
-
-      if (failed.size) {
-        const lines = [...failed.entries()].map(([i, why]) => `${i + 1}: ${why}`);
-        traceRef.current.log({ level: 'run', kind: 'warning', note: `Previz · ${failed.size} plate${failed.size === 1 ? '' : 's'} failed twice — ${lines.join(' · ')}` });
-        Message.error({
-          content: `${drawn} drawn, ${failed.size} failed twice — plate${failed.size === 1 ? '' : 's'} ${lines.join('; ')}`,
-          duration: 12000,
-        });
-      } else {
-        Message.success(`${drawn} plate${drawn === 1 ? '' : 's'} drawn.`);
-      }
     } finally {
       patchPreviz(cardId, { busy: false, step: '' });
     }
-  }, [patchPreviz, renderPrevizPlate]);
-
-  // PROMOTE A PLATE TO THE BOARD. On the panel a plate is a decision aid; as a board
-  // image it becomes an ordinary asset — editable, maskable, taggable into the bible,
-  // attachable to any card, in the reference drawer, saved with the project. Promoting
-  // COPIES: the plate stays on the panel, so the page still reads as a page.
-  const previzPlateToBoard = useCallback((cardId, index, { quiet = false } = {}) => {
-    const card = nodesRef.current.find((n) => n.id === cardId);
-    const sh = (card?.data?.plan?.plates || [])[index];
-    const plate = (card?.data?.plates || [])[index];
-    if (!sh || !plate?.url) { if (!quiet) Message.warning('Draw this plate first.'); return null; }
-    const label = `${sh.title || `Plate ${index + 1}`}${sh.kind === 'board' ? '' : ` (${sh.kind})`}`;
-    const col = index % 4;
-    const row = Math.floor(index / 4);
-    const pos = freeOrigin({
-      w: 230,
-      h: 240,
-      preferred: {
-        x: (card.position?.x || 0) + (Number(card.style?.width) || 700) + 60 + col * 250,
-        y: (card.position?.y || 0) + row * 260,
-      },
-    });
-    const asset = createAssetNode({ kind: 'image', url: plate.url, label, position: pos, layerId: 'previz' });
-    // A blockout panel is a colour-coded plate by construction, so it lands with the same
-    // flag a masked frame carries — that is what gives it the attach / cast-colours
-    // toolkit and the FULL-plate anchor binding on a SHOT card.
-    const isBlockout = plate.style === 'blockout' && sh.kind === 'board';
-    setNodes((ns) => ns.concat({
-      ...asset,
-      data: {
-        ...asset.data,
-        cacheUrl: plate.cacheUrl || null,
-        // styleLock is what the frame editor re-states on every edit — without it the
-        // editor's photoreal default converts a pencil panel into a photograph.
-        styleLock: plateStyleLock(sh.kind, plate.style || 'pencil'),
-        ...(isBlockout ? { previzMask: true } : {}),
-      },
-    }));
-    if (!quiet) Message.success(`"${label}" is on the board — edit it, mask it, tag it into the bible or attach it to any card.`);
-    return asset.id;
-  }, [freeOrigin, setNodes]);
-
-  const previzPlatesToBoard = useCallback((cardId) => {
-    const card = nodesRef.current.find((n) => n.id === cardId);
-    const drawn = (card?.data?.plan?.plates || [])
-      .map((_, i) => i)
-      .filter((i) => (card?.data?.plates || [])[i]?.url);
-    if (!drawn.length) { Message.warning('Nothing drawn yet.'); return; }
-    drawn.forEach((i) => previzPlateToBoard(cardId, i, { quiet: true }));
-    Message.success(`${drawn.length} plate${drawn.length === 1 ? '' : 's'} on the board.`);
-  }, [previzPlateToBoard]);
+  }, [patchPreviz, previzCtxOf, drawPrevizSchematic]);
 
   const previzCtx = useMemo(() => ({
-    onPlan: runPrevizPlan, onNormalize: runPrevizNormalize, onRenderPlate: renderPrevizPlate, onRenderAll: renderAllPrevizPlates, onPatchPreviz: patchPreviz,
-    onToBoard: previzPlateToBoard, onAllToBoard: previzPlatesToBoard,
-    onEditPlate: (a, b) => previzDispatchRef.current.edit(a, b),
-    onToShotCard: (a, b) => previzDispatchRef.current.toShot(a, b),
-  }), [runPrevizPlan, runPrevizNormalize, renderPrevizPlate, renderAllPrevizPlates, patchPreviz, previzPlateToBoard, previzPlatesToBoard]);
+    onPlan: runPrevizPlan, onDrawSchematic: drawPrevizSchematic, onPatchPreviz: patchPreviz,
+    onEditSchematic: (id) => previzDispatchRef.current.edit(id),
+    onAnimatic: (id) => previzDispatchRef.current.animatic(id),
+    onFinal: (id, res) => previzDispatchRef.current.final(id, res),
+    onPlay: (id) => previzDispatchRef.current.play(id),
+    onToShotCards: (id) => previzDispatchRef.current.toShots(id),
+  }), [runPrevizPlan, drawPrevizSchematic, patchPreviz]);
 
   // MASK — reproduce ANY board image (storyboard frames, uploads, plates) with every
   // person as a flat color silhouette: identities are scrubbed, the plate is pure
@@ -2926,7 +2749,6 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       // ignored or a conflict — same contract as an editing task inheriting its master's.
       ratio: (master || refRoles.includes('first_frame')) ? null : (c.data.ratio || '21:9'),
       generateAudio: c.data.generateAudio,
-      seed: c.data.seed,
       modelKey: videoModelKeyOf(c.data.videoModel),
       ...(audioRefUrls.length ? { audioRefUrls } : {}),
       ...(master || videoRefUrls.length ? { videoRefUrls: [...(master ? [master.url] : []), ...videoRefUrls], videoRefAssetIds: [...(master ? [masterAssetId] : []), ...videoRefAssetIds] } : {}),
@@ -3239,7 +3061,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
 
   // FINAL FROM A CHOSEN DRAFT: a take rendered from that draft's task id, on the draft's
   // own model, at one of the model's draft-final resolutions. The model reuses the draft's
-  // prompt, references, duration, ratio, seed and audio — the final is that draft,
+  // prompt, references, duration, ratio and audio — the final is that draft,
   // finished, not a re-roll of the card.
   const handleFinalizeDraft = useCallback((cutId, draftTaskId, resolution) => {
     const card = nodesRef.current.find((n) => n.id === cutId && isShotCard(n));
@@ -3347,133 +3169,160 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   const splitFlightRef = useRef(new Set());
   const laySeqRef = useRef(0);
 
-  // Declared HERE, not with the other previz handlers: they close over onPatchCut,
-  // storyboardPanelRef and laySeqRef, all defined below that block — reading them
-  // earlier is a temporal-dead-zone crash at first render.
-  // DISPATCH → a SHOT card. A PANEL rides as the card's opening frame with its camera
-  // and action pre-filled, so the card is shootable on arrival. A MAP or CHARACTER plate
-  // is not a frame of the film, so it rides as a REFERENCE instead — geography, or who
-  // the subject is. Previz makes no video of its own: generation belongs to the SHOT
-  // card, and with it the skill, the gates, the takes and the Take Library.
-  const previzToShotCard = useCallback((cardId, index) => {
+  // ---- PREVIZ dispatch (declared here: these close over addLoadingTake, onPatchCut,
+  // storyboardPanelRef and laySeqRef, all defined above this point) ----------------------
+
+  // THE ANIMATIC: the schematic in, a moving blockout out. A cheap 480p Seedance 2.5
+  // Draft (no audio) in the card's style, cut by the planned cameras; each run stacks as
+  // a take on the Previz card. Final finishes the latest draft at full resolution.
+  const makePrevizAnimatic = useCallback((cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
-    const sh = (plan?.plates || [])[index];
-    const plate = (card?.data?.plates || [])[index];
-    if (!sh || !plate?.url) { Message.warning('Draw this plate first — it is what the card is built on.'); return; }
-    const isPanel = sh.kind === 'board';
-    const pos = freeOrigin({ w: 780, h: 360, preferred: { x: (card.position?.x || 0) + 900, y: (card.position?.y || 0) + index * 120 } });
-    const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
-    const cardId2 = `${idPrefix}-0`;
-    const cut = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
-    storyboardPanelRef.current({
-      index: 0, cut, idPrefix, cols: 1,
-      title: sh.title || `Previz ${index + 1}`,
-      action: '',
-      promptOverride: (isPanel
-        ? [sh.camera, sh.motion, plan.look]
-        : [plan.scene, plan.look]).filter(Boolean).join('. '),
-      framing: '',
-      durationSec: AUTO_SECONDS,
-      refEntryIds: [], audio: '',
-    }, pos);
-    const chip = { nodeId: null, url: plate.cacheUrl || plate.url, label: sh.title || `Previz plate ${index + 1}` };
-    onPatchCut(cardId2, {
-      assetRefs: [chip],
-      resolution: PREVIZ_RESOLUTION,
-      previzOf: { cardId, index },
-      // Only a PANEL is a frame of the film, and only 2.5 honours a first frame.
-      ...(isPanel ? { keyframes: [{ ...chip, desc: sh.camera || '', pickedAt: Date.now() }], videoModel: 'seedance25' } : {}),
-    });
-    // AUTO-COMPOSE. The card lands with the planner's words, which are notes, not a
-    // prompt — the model's skill has not touched them yet. Composing here FINISHES the
-    // tap the user already made rather than doing something behind their back: one
-    // click, one card, one call, and what lands is shootable.
-    onPatchCut(cardId2, { composePending: true });
-    Message.success(isPanel
-      ? `SHOT card laid from panel ${index + 1} — ${PREVIZ_RESOLUTION}, the panel pinned as its opening frame. Writing the prompt with the model's skill…`
-      : `SHOT card laid — the ${sh.kind} plate rides as a reference at ${PREVIZ_RESOLUTION}. Writing the prompt with the model's skill…`);
+    const schem = card?.data?.schematic;
+    const src = schem?.cacheUrl || schem?.url;
+    if (!Array.isArray(plan?.shots) || !src) { Message.warning('Block the scene and draw the schematic first.'); return; }
+    const style = PLATE_STYLES.includes(card.data?.plateStyle) ? card.data.plateStyle : 'blockout';
+    const draftMeta = { draft: { modelKey: ANIMATIC_MODEL, createdAt: Date.now() } };
+    const { takeId, takeNo } = addLoadingTake(card, 'Animatic', draftMeta);
+    patchPreviz(cardId, { animaticBusy: true, animaticError: '' });
+    traceRef.current.startRun({ note: `Agent · Previz · animatic ${takeNo}` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     (async () => {
-      // Wait for the card to settle: compose reads nodesRef, and the lay is two queued
-      // setState calls deep. Same wait the Film-strip flow uses.
-      let landed = false;
-      for (let i = 0; i < 60 && !landed; i += 1) {
-        landed = !!nodesRef.current.find((n) => n.id === cardId2)?.data?.assetRefs?.length;
-        // eslint-disable-next-line no-await-in-loop
-        if (!landed) await new Promise((r) => { setTimeout(r, 25); });
+      try {
+        const shot = {
+          motion: previzAnimaticPrompt({ plan, style }),
+          refUrls: [src], refAssetIds: [null], refRoles: [],
+          durationSec: clampShotSeconds(ANIMATIC_MODEL, totalSecondsOf(plan)),
+          resolution: DRAFT_MODE.resolution, ratio: ANIMATIC_RATIO,
+          generateAudio: false, modelKey: ANIMATIC_MODEL, draft: true,
+        };
+        const { taskId } = await animateWithRefFallback(shot, [null], ctx);
+        resumedTakesRef.current.add(takeId);
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId: cardId } } : n)));
+        const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
+        const label = `Animatic ${takeNo}`;
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, draft: { ...draftMeta.draft, taskId } } } : n)));
+        patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, style, label, createdAt: Date.now() } });
+      } catch (err) {
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Animatic failed' } } : n)));
+        patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
+        Message.error(`Animatic failed: ${err.message}`);
       }
-      onPatchCut(cardId2, { composePending: false });
-      if (landed && composeCutRef.current) await composeCutRef.current(cardId2);
-      else Message.error('The card did not settle in time — press Compose on it to write its prompt.');
     })();
-  }, [freeOrigin, onPatchCut]);
-  // CLICKING A PLATE opens the frame editor ON THE PLATE — the same KeyframeEditor every
-  // board image uses (reference pool, structure lock, red pencil marks), but the render
-  // lands back in data.plates. Re-rendering from scratch is what ↻ is for; a click that
-  // silently spent a generation was the wrong default, and one that quietly added a node
-  // to the board was worse.
-  const previzEditPlate = useCallback((cardId, index) => {
+  }, [addLoadingTake, patchPreviz, setNodes]);
+
+  const finalPrevizAnimatic = useCallback((cardId, resolution) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
-    const plate = (card?.data?.plates || [])[index];
-    if (!plate?.url) { Message.warning('Draw this plate first.'); return; }
-    const src = plate.cacheUrl || plate.url;
-    const saved = Array.isArray(plate.editPool) && plate.editPool.length ? plate.editPool : null;
-    // The plate itself is always [Image 1] and always re-resolves live; only the ADDED
-    // references survive from a previous edit.
-    setPrevizPool(saved ? [src, ...saved.slice(1)] : [src]);
-    setPrevizEdit({ cardId, index });
+    const a = card?.data?.animatic;
+    if (!a?.taskId) { Message.warning('Make an animatic draft first.'); return; }
+    if (Date.now() - (a.createdAt || 0) > DRAFT_MODE.ttlMs) { Message.warning('That draft is older than 7 days — make a new animatic.'); return; }
+    const { takeId, takeNo } = addLoadingTake(card, 'Animatic final');
+    patchPreviz(cardId, { animaticBusy: true, animaticError: '' });
+    traceRef.current.startRun({ note: `Agent · Previz · animatic final ${resolution}` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
+    (async () => {
+      try {
+        const { taskId } = await finishDraft({ draftTaskId: a.taskId, modelKey: ANIMATIC_MODEL, resolution }, ctx);
+        resumedTakesRef.current.add(takeId);
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId: cardId } } : n)));
+        const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
+        const label = `Animatic ${takeNo} · ${resolution}`;
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label } } : n)));
+        patchPreviz(cardId, (d) => ({ animaticBusy: false, animatic: { ...(d.animatic || {}), takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, final: resolution } }));
+      } catch (err) {
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Final failed' } } : n)));
+        patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
+        Message.error(`Animatic final failed: ${err.message}`);
+      }
+    })();
+  }, [addLoadingTake, patchPreviz, setNodes]);
+
+  const playPrevizAnimatic = useCallback((cardId) => {
+    const a = nodesRef.current.find((n) => n.id === cardId)?.data?.animatic;
+    if (a?.takeId && nodesRef.current.some((n) => n.id === a.takeId)) setViewerId(a.takeId);
+    else Message.warning('No animatic on this card yet.');
   }, []);
 
-  // The plate edit itself: the same op the board editor runs, written back to the plate.
-  const regeneratePrevizPlate = useCallback(async (cardId, index, edits = {}) => {
+  // HAND-OFF: one SHOT card per planned shot, in order and chained. Each rides the
+  // schematic as an image reference and the animatic as a reference VIDEO, so the shot
+  // follows the blocked motion.
+  const previzToShotCards = useCallback((cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
-    const sh = (plan?.plates || [])[index];
-    const plate = (card?.data?.plates || [])[index];
-    if (!sh || !plate?.url) return;
+    if (!plan?.shots?.length) { Message.warning('Plan the scene first.'); return; }
+    const schem = card.data.schematic;
+    const anim = card.data.animatic;
+    const animNode = anim?.takeId ? nodesRef.current.find((n) => n.id === anim.takeId) : null;
+    const animUrl = animNode ? durableVideoUrl(animNode.data?.cacheUrl || animNode.data?.url || anim.url) : '';
+    const shots = plan.shots;
+    const idPrefix = `film-${Date.now().toString(36)}${(laySeqRef.current += 1).toString(36)}`;
+    const cols = Math.min(4, shots.length);
+    const base = freeOrigin({ w: cols * CUT_COL_W, h: Math.ceil(shots.length / cols) * CUT_ROW_H, preferred: { x: (card.position?.x || 0) + 760, y: card.position?.y || 0 } });
+    const cutBase = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
+    const chip = schem?.url ? { nodeId: null, url: schem.cacheUrl || schem.url, label: 'Previz schematic' } : null;
+    shots.forEach((sh, i) => {
+      const cam = [sh.camera?.framing, sh.camera?.move, sh.camera?.from ? `from ${sh.camera.from}` : ''].filter(Boolean).join(', ');
+      storyboardPanelRef.current({
+        index: i, cut: cutBase + i, idPrefix, cols,
+        title: `Previz ${i + 1}`,
+        action: '',
+        promptOverride: [cam ? `${cam[0].toUpperCase()}${cam.slice(1)}.` : '', sh.action, animUrl ? `The blocking follows shot ${i + 1} of the reference video.` : '', plan.look].filter(Boolean).join(' '),
+        framing: '', durationSec: sh.seconds || AUTO_SECONDS, refEntryIds: [], audio: '', videoModel: ANIMATIC_MODEL,
+      }, base);
+      onPatchCut(`${idPrefix}-${i}`, {
+        ...(chip ? { assetRefs: [chip] } : {}),
+        ...(animUrl ? { videoRefs: [{ nodeId: anim.takeId, url: animUrl, label: anim.label || 'Animatic' }] } : {}),
+      });
+    });
+    if (shots.length > 1) {
+      applyEdges((es) => es.concat(shots.slice(1).map((_, i) => ({ id: `cont-${idPrefix}-${i}-${idPrefix}-${i + 1}`, source: `${idPrefix}-${i}`, target: `${idPrefix}-${i + 1}`, type: 'continuity' })).filter((e) => !es.some((x) => x.id === e.id))));
+    }
+    Message.success(`${shots.length} SHOT card${shots.length === 1 ? '' : 's'} laid${animUrl ? ' — each rides the animatic as its motion reference' : ' — make an animatic first to give them a motion reference'}.`);
+  }, [freeOrigin, onPatchCut, applyEdges, durableVideoUrl]);
+
+  // EDIT THE SCHEMATIC with the same KeyframeEditor every board image uses (instruction
+  // and drawn marks), written back to the card. The schematic is [Image 1] of the edit.
+  const previzEditSchematic = useCallback((cardId) => {
+    const schem = nodesRef.current.find((n) => n.id === cardId)?.data?.schematic;
+    if (!schem?.url) { Message.warning('Draw the schematic first.'); return; }
+    const src = schem.cacheUrl || schem.url;
+    const saved = Array.isArray(schem.editPool) && schem.editPool.length ? schem.editPool : null;
+    setPrevizPool(saved ? [src, ...saved.slice(1)] : [src]);
+    setPrevizEdit({ cardId });
+  }, []);
+
+  const regeneratePrevizSchematic = useCallback(async (cardId, edits = {}) => {
+    const card = nodesRef.current.find((n) => n.id === cardId);
+    const schem = card?.data?.schematic;
+    if (!schem?.url) return;
     const body = String(edits.body || '').trim();
     if (!body) { Message.warning('Write what to change first.'); return; }
-    const mark = (patch) => setNodes((ns) => ns.map((n) => (n.id === cardId
-      ? { ...n, data: { ...n.data, plates: Object.assign([], n.data.plates || [], { [index]: { ...(n.data.plates || [])[index], ...patch } }) } }
-      : n)));
-
-    const shot = { beat: sh.title || 'plate', shotTemplate: edits.shotTemplate || 'medium-shot', expression: edits.expression || '', figures: Array.isArray(edits.figures) ? edits.figures : [], body };
+    const mark = (patch) => patchPreviz(cardId, (d) => ({ schematic: { ...(d.schematic || {}), ...patch } }));
+    const shot = { beat: 'schematic', shotTemplate: edits.shotTemplate || 'top-down', expression: '', figures: Array.isArray(edits.figures) ? edits.figures : [], body };
     let { ordered, body: text } = resolveShotRefs(shot, previzPool);
-    const frameSrc = edits.annotatedFrame || plate.cacheUrl || plate.url;
-    const frameEdit = !!(edits.useFrame && frameSrc);
+    const frameSrc = edits.annotatedFrame || schem.cacheUrl || schem.url;
+    const frameEdit = !!(edits.useFrame !== false && frameSrc);
     if (frameEdit) ({ body: text, refs: ordered } = lockBodyToFrame(text, ordered, frameSrc));
-    const camera = frameEdit && shot.shotTemplate && shot.shotTemplate !== (plate.editTemplate || 'medium-shot')
-      ? (SHOT_TEMPLATE_BY_ID[shot.shotTemplate] || null) : null;
-    mark({ editBody: body, editTemplate: shot.shotTemplate, editExpression: shot.expression, editFigures: shot.figures, editPool: previzPool, loading: true, error: '' });
+    mark({ editBody: body, editPool: previzPool, loading: true, error: '' });
     setPrevizEdit(null);
-    traceRef.current.startRun({ note: `Agent · Previz · edit plate ${index + 1}` });
+    traceRef.current.startRun({ note: 'Agent · Previz · edit schematic' });
     try {
-      // styleLock re-states the plate's own medium — without it the keyframe wrapper's
-      // photoreal default turns a pencil panel into a photograph on the first edit.
       const out = await storyboardKeyframe({
-        body: text,
-        shotTemplate: shot.shotTemplate,
-        style: plateStyleLock(sh.kind, plate.style || 'pencil'),
-        expression: shot.expression,
-        refs: ordered,
-        imageModel: 'seedreamPro',
-        frameEdit,
-        composeEdit: true,
-        camera,
+        body: text, shotTemplate: '', style: SCHEMATIC_STYLE_LOCK, expression: '', refs: ordered,
+        imageModel: defaultImageModelKey(), frameEdit, composeEdit: true, camera: null,
         frameEditAnnotated: !!edits.annotatedFrame,
       }, previzCtxOf());
-      const { url, cacheUrl } = out;
-      if (out.editMissing?.length) Message.warning(`The edit prompt dropped ${out.editMissing.join(', ')} — that reference may not be used. Re-render or rephrase.`);
-      if (!url) throw new Error('the model returned no image');
-      mark({ url, cacheUrl: cacheUrl || null, loading: false, error: '' });
-      Message.success(`Plate ${index + 1} updated — ↻ redraws it from the plan instead.`);
+      if (!out.url) throw new Error('the model returned no image');
+      mark({ url: out.url, cacheUrl: out.cacheUrl || null, loading: false, error: '' });
+      patchPreviz(cardId, { schematicEdited: true });
+      Message.success('Schematic updated — the next animatic follows the new drawing.');
     } catch (e) {
       mark({ loading: false, error: e.message });
-      Message.error(`Plate ${index + 1} edit failed: ${e.message} — it kept its current image.`);
+      Message.error(`Schematic edit failed: ${e.message} — it kept its current drawing.`);
     }
-  }, [previzCtxOf, previzPool, setNodes]);
+  }, [previzCtxOf, previzPool, patchPreviz]);
 
-  previzDispatchRef.current = { toShot: previzToShotCard, edit: previzEditPlate };
+  previzDispatchRef.current = { toShots: previzToShotCards, edit: previzEditSchematic, animatic: makePrevizAnimatic, final: finalPrevizAnimatic, play: playPrevizAnimatic };
 
   // ANALYZE an EDIT card's master: the reasoner watches the video itself and describes
   // the shot — the footage only, never THE EDIT — and that description goes on the card
@@ -4870,7 +4719,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
           // Opens as an edit instruction: naming the source video is what routes the
           // request as an edit rather than a new generation.
           promptOverride: EDIT_OPENER, assetRefs: [], refIds: [],
-          videoModel: d.videoModel || '', resolution: d.resolution || '1080p', seed: d.seed ?? null,
+          videoModel: d.videoModel || '', resolution: d.resolution || '1080p',
         },
       }));
       closePanel();
@@ -4885,7 +4734,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         id: `previz-${Date.now().toString(36)}`,
         type: 'previz',
         position: pos,
-        data: { layerId: 'previz', brief: (d.brief || '').trim(), camera: d.camera || '', durationSec: d.durationSec || 5, busy: false },
+        data: { layerId: 'previz', brief: (d.brief || '').trim(), camera: d.camera || '', plateStyle: 'blockout', busy: false },
       }));
       if ((d.brief || '').trim()) setLayerSettings((prev) => ({ ...prev, previz: { ...(prev.previz || {}), brief: '' } }));
       closePanel();
@@ -5893,26 +5742,25 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         );
       })()}
       {previzEdit && (() => {
-        // The SAME editor the board uses, pointed at a plate. Saving re-renders the plate
-        // in place; nothing lands on the board unless you press ↗.
+        // The SAME editor the board uses, pointed at the Previz schematic: an instruction
+        // or drawn marks change the drawing in place.
         const c = nodes.find((n) => n.id === previzEdit.cardId);
-        const sh = (c?.data?.plan?.plates || [])[previzEdit.index];
-        const pl = (c?.data?.plates || [])[previzEdit.index];
-        const src = pl?.cacheUrl || pl?.url;
-        if (!sh || !src) return null;
+        const sc = c?.data?.schematic;
+        const src = sc?.cacheUrl || sc?.url;
+        if (!src) return null;
         return (
           <KeyframeEditor
-            key={`previz-${previzEdit.cardId}-${previzEdit.index}`}
+            key={`previz-${previzEdit.cardId}`}
             mode="frame"
-            shot={{ beat: `${sh.title || `Plate ${previzEdit.index + 1}`} · previz`, body: pl.editBody || '', shotTemplate: pl.editTemplate || 'medium-shot', expression: pl.editExpression || '', figures: Array.isArray(pl.editFigures) && pl.editFigures.length ? pl.editFigures : [1] }}
+            shot={{ beat: 'Schematic · previz', body: sc.editBody || '', shotTemplate: 'top-down', expression: '', figures: [1] }}
             pool={previzPool}
             preview={src}
-            loading={!!pl.loading}
+            loading={!!sc.loading}
             imageAssets={imageAssets}
             onClose={() => setPrevizEdit(null)}
-            onSave={(edits) => regeneratePrevizPlate(previzEdit.cardId, previzEdit.index, edits)}
+            onSave={(edits) => regeneratePrevizSchematic(previzEdit.cardId, edits)}
             onAddRef={(url) => { const p = previzPool; if (p.includes(url)) return p.indexOf(url) + 1; setPrevizPool([...p, url]); return p.length + 1; }}
-            promptUsed={pl.prompt}
+            promptUsed={sc.prompt}
           />
         );
       })()}

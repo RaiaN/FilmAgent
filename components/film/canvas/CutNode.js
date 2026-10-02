@@ -312,7 +312,7 @@ const CutNodeInner = ({ id, data, selected }) => {
             <Button
               className="nodrag"
               size="small"
-              title="Render a Final from one of this card's drafts — same prompt, references, duration, ratio, seed and audio as that draft. Pick the draft and the resolution."
+              title="Render a Final from one of this card's drafts — same prompt, references, duration, ratio and audio as that draft. Pick the draft and the resolution."
               disabled={!onFinalizeDraft}
               style={{ background: 'transparent', color: '#f7ba1e', border: '1px solid #f7ba1e', fontWeight: 700, borderRadius: 6 }}
             >

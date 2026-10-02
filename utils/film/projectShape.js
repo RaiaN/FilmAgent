@@ -19,10 +19,6 @@ export const emptyProject = ({ id, title, language, targetMinutes }) => ({
   title: title || randomFilmTitle(),
   language: language || 'en',
   targetMinutes: targetMinutes || 4,
-  // The SEQUENCE seed — one seed for every shot in the film. { value, locked }:
-  // locked reuses `value` across re-shoots (a prompt tweak becomes the only changed
-  // variable — the iteration lever); unlocked re-rolls each shoot. value null = random.
-  seed: { value: null, locked: false },
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 

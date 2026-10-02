@@ -66,7 +66,7 @@ export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) 
   const total = shots.reduce((n, s) => n + s.seconds, 0);
   if (total > maxSeconds) shots = shots.map((s) => ({ ...s, seconds: Math.max(2, Math.floor((s.seconds * maxSeconds) / total)) }));
 
-  const plan = { scene: clean(raw.scene, 1200), axis: clean(raw.axis, 300), look: clean(raw.look, 300), set, actors, shots };
+  const plan = { scene: clean(raw.scene, 1200), axis: clean(raw.axis, 300), set, actors, shots };
   if (!plan.shots.length) throw new Error('The previz plan came back with no shots — try again.');
   return plan;
 };
@@ -111,7 +111,7 @@ export const previzAnimaticPrompt = ({ plan, note = '' } = {}) => {
 
 // THE CUT PROMPT — a vision call watches the animatic and writes what happens as the
 // REAL scene (named people, the place, who moves where, the cameras and cuts), never its
-// blockout look. Code puts the reference-video role first and the plan's look last.
+// blockout look. Code puts the reference-video role first.
 export const previzCutPrompt = async ({ videoUrl = '', plan, config } = {}, ctx) => {
   if (!videoUrl) throw new Error('Make an animatic first.');
   const cast = (plan?.actors || []).map((a) => `- the ${colorWord(a)} block = ${a.name}${a.description ? `: ${a.description}` : ''}`).join('\n');
@@ -129,5 +129,5 @@ export const previzCutPrompt = async ({ videoUrl = '', plan, config } = {}, ctx)
   });
   const text = String((parseJson(content) || {}).prompt || '').trim();
   if (!text) throw new Error('The animatic description came back empty — try again.');
-  return [renderTemplate('previz.cut.ref'), text, plan?.look ? `Look: ${plan.look}` : ''].filter(Boolean).join('\n');
+  return [renderTemplate('previz.cut.ref'), text].join('\n');
 };

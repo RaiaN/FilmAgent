@@ -65,24 +65,28 @@ const PrevizNodeInner = ({ id, data, selected }) => {
 
         {plan && (
           <>
-            {/* THE SCHEMATIC — the floor plan everything else follows. */}
-            <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', background: '#f7f8fa', border: '1px solid #e5e6eb', aspectRatio: '16 / 9', display: 'grid', placeItems: 'center' }}>
-              {schem.url
-                ? <img src={schem.cacheUrl || schem.url} alt="Previz schematic" onClick={() => onEditSchematic && onEditSchematic(id)} style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', opacity: schem.loading ? 0.45 : 1 }} title="Click to edit — write a change or draw on it" />
-                : <Text type="secondary" style={{ fontSize: 11 }}>{schem.loading ? 'Drawing the schematic…' : 'No schematic yet'}</Text>}
-              {schem.loading && schem.url && <IconLoading style={{ position: 'absolute', fontSize: 22, color: '#3491fa' }} />}
-              <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 4 }}>
-                {schem.url && <Button size="mini" icon={<IconEdit />} disabled={!!schem.loading} onClick={() => onEditSchematic && onEditSchematic(id)}>Edit</Button>}
-                <Button size="mini" icon={<IconRefresh />} loading={!!schem.loading} onClick={() => onDrawSchematic && onDrawSchematic(id)} title="Draw the schematic again from the plan (replaces your edits)">{schem.url ? 'Redraw' : 'Draw'}</Button>
+            {/* THE SCHEMATIC — the floor plan everything else follows: a compact tile (click
+                to edit it), with its colour key beside it. */}
+            <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, alignItems: 'start' }}>
+              <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', background: '#f7f8fa', border: '1px solid #e5e6eb', aspectRatio: '16 / 9', display: 'grid', placeItems: 'center' }}>
+                {schem.url
+                  ? <img src={schem.cacheUrl || schem.url} alt="Previz schematic" onClick={() => onEditSchematic && onEditSchematic(id)} style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'pointer', opacity: schem.loading ? 0.45 : 1 }} title="Click to edit — write a change or draw on it" />
+                  : <Text type="secondary" style={{ fontSize: 11 }}>{schem.loading ? 'Drawing the schematic…' : 'No schematic yet'}</Text>}
+                {schem.loading && schem.url && <IconLoading style={{ position: 'absolute', fontSize: 22, color: '#3491fa' }} />}
               </div>
-            </div>
-            {schem.error && <Text style={{ fontSize: 10, color: '#f53f3f' }}>{schem.error}</Text>}
-
-            {/* THE COLOUR KEY — circle on the plan = figure in the animatic. */}
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {plan.actors.map((a) => (
-                <Tag key={a.name} size="small" title={a.description} style={{ background: SWATCH[a.color] || '#86909c', color: '#fff', border: 'none' }}>{a.name}</Tag>
-              ))}
+              <div style={{ display: 'grid', gap: 8 }}>
+                <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>SCHEMATIC</Text>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {plan.actors.map((a) => (
+                    <Tag key={a.name} size="small" title={a.description} style={{ background: SWATCH[a.color] || '#86909c', color: '#fff', border: 'none' }}>{a.name}</Tag>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {schem.url && <Button size="mini" icon={<IconEdit />} disabled={!!schem.loading} onClick={() => onEditSchematic && onEditSchematic(id)}>Edit</Button>}
+                  <Button size="mini" icon={<IconRefresh />} loading={!!schem.loading} onClick={() => onDrawSchematic && onDrawSchematic(id)} title="Draw the schematic again from the plan (replaces your edits)">{schem.url ? 'Redraw' : 'Draw'}</Button>
+                </div>
+                {schem.error && <Text style={{ fontSize: 10, color: '#f53f3f' }}>{schem.error}</Text>}
+              </div>
             </div>
 
             {/* THE ANIMATIC — the chosen one (poster: play it), its correction + render, and
@@ -136,7 +140,6 @@ const PrevizNodeInner = ({ id, data, selected }) => {
                   style={{ background: '#b06f10', borderColor: '#b06f10', fontWeight: 600 }}
                   title="One CUT card that rides this animatic as its motion reference; its prompt is written by watching it — the real scene, not the blocks"
                 >To CUT card →</Button>
-                {plan.look && <Text type="secondary" style={{ fontSize: 10 }} title="The animatic stays a blockout; this look rides to the CUT card">look on the CUT card · {plan.look}</Text>}
               </div>
             </div>
           </>

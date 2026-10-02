@@ -88,7 +88,7 @@ Then the shots, in cut order. For each shot:
 Cover like a director: open wide enough to read the geography, keep every camera on one side of the line of action, go tight only where the story turns. The whole cut runs at most {maxSeconds} seconds.
 
 Return ONLY JSON — no prose, no code fences:
-{"scene":"<2 sentences: the space and its features>","axis":"<one sentence: the line of action between the principal actors, against two set pieces>","look":"<one sentence: the photoreal look of the finished scene — place, time of day, light — in the description's own words>","set":[{"name":"<short name>","where":"<where it sits in the space>"}],"actors":[{"name":"<short name>","description":"<what this actor IS, its kind first, in the description's own words>","start":"<where it starts, bound to a set piece>"}],"shots":[{"camera":{"from":"...","framing":"...","move":"..."},"action":"...","seconds":4}]}`,
+{"scene":"<2 sentences: the space and its features>","axis":"<one sentence: the line of action between the principal actors, against two set pieces>","set":[{"name":"<short name>","where":"<where it sits in the space>"}],"actors":[{"name":"<short name>","description":"<what this actor IS, its kind first, in the description's own words>","start":"<where it starts, bound to a set piece>"}],"shots":[{"camera":{"from":"...","framing":"...","move":"..."},"action":"...","seconds":4}]}`,
   },
   'previz.plan.user': {
     agent: 'Previz',

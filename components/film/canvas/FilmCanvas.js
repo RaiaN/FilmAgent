@@ -51,7 +51,7 @@ import HistoryPanel from './HistoryPanel';
 import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } from '../../../utils/film/agents';
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, finishDraft, generateFilmAudio } from '../../../utils/film/core/operations';
-import { previzPlan, previzSchematic, previzAnimaticPrompt, previzCutPrompt, totalSecondsOf, PLATE_STYLES, ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK } from '../../../utils/film/core/previz';
+import { previzPlan, previzSchematic, previzAnimaticPrompt, previzCutPrompt, totalSecondsOf, ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK } from '../../../utils/film/core/previz';
 import { describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { SCOUT_PATHS, startSurvey, surveyFrameTimes, checkEmpty } from '../../../utils/film/core/scout';
@@ -503,6 +503,9 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
 // Story Room hand-offs already laid on a board (see the incomingStory effect). Kept on
 // window so a hot reload of this module cannot replay a hand-off.
 const consumedStories = (typeof window !== 'undefined' && (window.__storyRoomConsumed = window.__storyRoomConsumed || new Set())) || new Set();
+
+// A Previz card's animatics, oldest first (cards from before the list hold only one).
+const animaticsOf = (d) => (Array.isArray(d?.animatics) ? d.animatics : (d?.animatic?.takeId ? [d.animatic] : []));
 
 // A role line joins the prompt's REFERENCE block (the leading paragraph of "@ImageN …"
 // lines and "Look:"), before the Look line; a prompt without one gets a block of its own.
@@ -2021,7 +2024,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     onEditSchematic: (id) => previzDispatchRef.current.edit(id),
     onAnimatic: (id) => previzDispatchRef.current.animatic(id),
     onFinal: (id, res) => previzDispatchRef.current.final(id, res),
-    onPlay: (id) => previzDispatchRef.current.play(id),
+    onPlay: (id, takeId) => previzDispatchRef.current.play(id, takeId),
     onToCut: (id) => previzDispatchRef.current.toCut(id),
     onOpenTakes: openTakesForCard,
   }), [runPrevizPlan, drawPrevizSchematic, patchPreviz, openTakesForCard]);
@@ -2771,8 +2774,11 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     // POINTER into the reference chips, so locking one is a change of role on a reference
     // that is already in the array — not a new item. That keeps the prompt's [Image N]
     // numbering, which Compose already wrote, meaning exactly what it meant before.
-    const locking = videoTraits(videoModelKeyOf(c.data.videoModel)).keyframes && c.data.keyframeMode === 'locked';
-    const kfIdx = locking ? cardKfPairs(c.data, references).map((x) => x.idx) : [];
+    // A LOCKED frame role cannot be mixed with reference images (the endpoint rejects the
+    // request) — with other references attached, keyframes ride as references.
+    const pairs = cardKfPairs(c.data, references);
+    const locking = videoTraits(videoModelKeyOf(c.data.videoModel)).keyframes && c.data.keyframeMode === 'locked' && references.length <= Math.min(2, pairs.length);
+    const kfIdx = locking ? pairs.map((x) => x.idx) : [];
     const refRoles = [];
     if (kfIdx.length) {
       refRoles[kfIdx[0] - 1] = 'first_frame';
@@ -3088,10 +3094,13 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       const promptOverride = old && prompt.includes(old) ? prompt.split(old).join(line) : withRoleLine(prompt, line);
       const oldFrame = card.data.continuityFrame;
       const keyframes = (card.data.keyframes || []).filter((k) => k?.url !== oldFrame && k?.url !== frame);
+      // The frame rides as an ORDINARY reference in both modes — "Use @ImageN as the first
+      // frame." in the prompt is the role (Seedance 2.5 rejects a first_frame role mixed
+      // with reference images).
       onPatchCut(card.id, {
         assetRefs, promptOverride, continuityFrame: frame, continuityLine: line, continuityKey: key,
         keyframes: mode === 'open' ? [{ nodeId: null, url: frame }, ...keyframes] : keyframes,
-        ...(mode === 'open' ? { keyframeMode: 'locked' } : {}),
+        ...(card.data.keyframeMode === 'locked' ? { keyframeMode: 'reference' } : {}),
       });
     });
   }, [nodes, onPatchCut, extractTakeFrame]);
@@ -3339,7 +3348,6 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const schem = card?.data?.schematic;
     const src = schem?.cacheUrl || schem?.url;
     if (!Array.isArray(plan?.shots) || !src) { Message.warning('Block the scene and draw the schematic first.'); return; }
-    const style = PLATE_STYLES.includes(card.data?.plateStyle) ? card.data.plateStyle : 'blockout';
     const draftMeta = { draft: { modelKey: ANIMATIC_MODEL, createdAt: Date.now() } };
     const { takeId, takeNo } = addLoadingTake(card, 'Animatic', draftMeta);
     patchPreviz(cardId, { animaticBusy: true, animaticError: '' });
@@ -3348,7 +3356,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     (async () => {
       try {
         const shot = {
-          motion: previzAnimaticPrompt({ plan, style, note: card.data?.animaticNote }),
+          motion: previzAnimaticPrompt({ plan, note: card.data?.animaticNote }),
           refUrls: [src], refAssetIds: [null], refRoles: [],
           durationSec: clampShotSeconds(ANIMATIC_MODEL, totalSecondsOf(plan)),
           resolution: DRAFT_MODE.resolution, ratio: ANIMATIC_RATIO,
@@ -3360,7 +3368,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
         const label = `Animatic ${takeNo}`;
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, draft: { ...draftMeta.draft, taskId } } } : n)));
-        patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, style, label, seconds: shot.durationSec, createdAt: Date.now() } });
+        // Every animatic stays on the card; the newest is chosen until you pick another.
+        const rec = { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, label, seconds: shot.durationSec, createdAt: Date.now() };
+        patchPreviz(cardId, (d) => ({ animaticBusy: false, animatic: rec, animatics: [...animaticsOf(d), rec] }));
       } catch (err) {
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Animatic failed' } } : n)));
         patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
@@ -3386,7 +3396,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
         const label = `Animatic ${takeNo} · ${resolution}`;
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label } } : n)));
-        patchPreviz(cardId, (d) => ({ animaticBusy: false, animatic: { ...(d.animatic || {}), takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, final: resolution } }));
+        const rec = { ...a, takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, final: resolution, createdAt: Date.now() };
+        patchPreviz(cardId, (d) => ({ animaticBusy: false, animatic: rec, animatics: [...animaticsOf(d), rec] }));
       } catch (err) {
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Final failed' } } : n)));
         patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
@@ -3395,10 +3406,10 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     })();
   }, [addLoadingTake, patchPreviz, setNodes]);
 
-  const playPrevizAnimatic = useCallback((cardId) => {
-    const a = nodesRef.current.find((n) => n.id === cardId)?.data?.animatic;
-    if (a?.takeId && nodesRef.current.some((n) => n.id === a.takeId)) setViewerId(a.takeId);
-    else Message.warning('No animatic on this card yet.');
+  const playPrevizAnimatic = useCallback((cardId, takeId) => {
+    const id = takeId || nodesRef.current.find((n) => n.id === cardId)?.data?.animatic?.takeId;
+    if (id && nodesRef.current.some((n) => n.id === id)) setViewerId(id);
+    else Message.warning('That animatic is no longer on the board.');
   }, []);
 
   // HAND-OFF: ONE CUT card. The animatic is its single reference — a motion reference
@@ -3409,7 +3420,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const plan = card?.data?.plan;
     const anim = card?.data?.animatic;
     const animNode = anim?.takeId ? nodesRef.current.find((n) => n.id === anim.takeId) : null;
-    if (!plan?.shots?.length || !animNode) { Message.warning('Make an animatic first — it is what the CUT card follows.'); return; }
+    if (!plan?.shots?.length || !animNode) { Message.warning(anim ? `${anim.label || 'The chosen animatic'} is no longer on the board — pick another.` : 'Make an animatic first — it is what the CUT card follows.'); return; }
     if (card.data?.cutBusy) return;
     const animUrl = durableVideoUrl(animNode.data?.cacheUrl || animNode.data?.url || anim.url);
     patchPreviz(cardId, { cutBusy: true, animaticError: '' });
@@ -3475,6 +3486,27 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       Message.error(`Schematic edit failed: ${e.message} — it kept its current drawing.`);
     }
   }, [previzCtxOf, previzPool, patchPreviz]);
+
+  // A Previz card's animatic chips = the animatics actually on the board (its take grid),
+  // oldest first — kept in step as takes land or are deleted. What the card recorded about
+  // a take (draft task id, seconds, final) is kept; the chosen one falls back to the newest.
+  useEffect(() => {
+    nodes.forEach((card) => {
+      if (card.type !== 'previz') return;
+      const takes = nodes.filter((n) => n.parentId === `grid-${card.id}` && n.data?.kind === 'video' && n.data.url && !n.data.loading);
+      const known = new Map(animaticsOf(card.data).map((a) => [a.takeId, a]));
+      const list = takes.map((t) => ({
+        takeId: t.id, url: t.data.url, cacheUrl: t.data.cacheUrl || null,
+        label: String(t.data.label || 'Animatic').replace(/…$/, ''),
+        taskId: t.data.draft?.taskId || null,
+        ...(known.get(t.id) || {}),
+      }));
+      const chosen = list.find((a) => a.takeId === card.data.animatic?.takeId) || list[list.length - 1] || null;
+      const same = list.length === animaticsOf(card.data).length && list.every((a, i) => a.takeId === animaticsOf(card.data)[i]?.takeId)
+        && (chosen?.takeId || null) === (card.data.animatic?.takeId || null);
+      if (!same) patchPreviz(card.id, { animatics: list, animatic: chosen });
+    });
+  }, [nodes, patchPreviz]);
 
   previzDispatchRef.current = { toCut: previzToCut, edit: previzEditSchematic, animatic: makePrevizAnimatic, final: finalPrevizAnimatic, play: playPrevizAnimatic };
 
@@ -4937,7 +4969,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         id: `previz-${Date.now().toString(36)}`,
         type: 'previz',
         position: pos,
-        data: { layerId: 'previz', brief: (d.brief || '').trim(), camera: d.camera || '', plateStyle: 'blockout', busy: false },
+        data: { layerId: 'previz', brief: (d.brief || '').trim(), camera: d.camera || '', busy: false },
       }));
       if ((d.brief || '').trim()) setLayerSettings((prev) => ({ ...prev, previz: { ...(prev.previz || {}), brief: '' } }));
       closePanel();

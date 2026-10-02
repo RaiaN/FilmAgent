@@ -1,8 +1,8 @@
 import { createContext, memo, useContext } from 'react';
-import { Typography, Button, Tag, Select, Dropdown, Menu } from '@arco-design/web-react';
+import { Typography, Button, Tag, Dropdown, Menu } from '@arco-design/web-react';
 import { IconLoading, IconPlayArrow, IconRefresh, IconEdit, IconVideoCamera } from '@arco-design/web-react/icon';
 import { DraftText, BLOCK_LABEL } from './cardBlocks';
-import { PLATE_STYLES, ANIMATIC_MODEL, totalSecondsOf } from '../../../utils/film/core/previz';
+import { ANIMATIC_MODEL, totalSecondsOf } from '../../../utils/film/core/previz';
 import { draftFinalsOf, maxShotSeconds } from '../../../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -18,17 +18,17 @@ const SWATCH = {
   BLUE: '#3491fa', GREEN: '#00b42a', YELLOW: '#d9a406',
   RED: '#f53f3f', PURPLE: '#722ed1', ORANGE: '#ff7d00',
 };
-const STYLE_LABEL = { pencil: 'Pencil', blockout: 'Colour blocks', clay: 'Clay' };
 
 const PrevizNodeInner = ({ id, data, selected }) => {
-  const { onPlan, onDrawSchematic, onPatchPreviz, onEditSchematic, onAnimatic, onFinal, onPlay, onToCut, onOpenTakes } = useContext(PrevizContext);
+  const { onPlan, onDrawSchematic, onPatchPreviz, onEditSchematic, onAnimatic, onFinal, onPlay, onToCut } = useContext(PrevizContext);
   const patch = (p) => onPatchPreviz && onPatchPreviz(id, p);
   // A plan from the old page-of-plates Previz has no shots — treat it as unplanned.
   const plan = Array.isArray(data.plan?.shots) ? { ...data.plan, actors: data.plan.actors || [], set: data.plan.set || [] } : null;
   const legacy = !!data.plan && !plan;
   const schem = data.schematic || {};
   const anim = data.animatic || null;
-  const style = PLATE_STYLES.includes(data.plateStyle) ? data.plateStyle : 'blockout';
+  // Every animatic made on this card; the chosen one is what Final and To CUT card use.
+  const animatics = Array.isArray(data.animatics) ? data.animatics : (anim?.takeId ? [anim] : []);
   const total = totalSecondsOf(plan);
   const maxS = maxShotSeconds(ANIMATIC_MODEL);
   const finals = draftFinalsOf(ANIMATIC_MODEL);
@@ -89,12 +89,7 @@ const PrevizNodeInner = ({ id, data, selected }) => {
             {/* THE ANIMATIC */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingTop: 4, borderTop: '1px solid #f2f3f5' }}>
               <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>ANIMATIC</Text>
-              {anim?.takeId && <Button size="mini" icon={<IconPlayArrow />} onClick={() => onOpenTakes && onOpenTakes(id)} title="Every animatic of this card in the Take Library — open any one in the take viewer">Animatics</Button>}
-              <Select
-                size="mini" value={style} onChange={(v) => patch({ plateStyle: v })} style={{ width: 120 }}
-                options={PLATE_STYLES.map((v) => ({ label: STYLE_LABEL[v], value: v }))}
-                title="How the animatic looks: pencil line animation, flat colour-block mannequins, or a lit clay render"
-              />
+              <Text type="secondary" style={{ fontSize: 10 }}>solid blocks · 480p draft</Text>
               <span style={{ flex: 1 }} />
               <Button
                 size="mini" type="primary" icon={<IconVideoCamera />} loading={!!data.animaticBusy}
@@ -105,7 +100,7 @@ const PrevizNodeInner = ({ id, data, selected }) => {
               >{anim ? 'New animatic' : 'Make animatic'}</Button>
               {anim?.taskId && finals.length > 0 && (
                 <Dropdown trigger="click" position="br" droplist={<Menu onClickMenuItem={(res) => onFinal && onFinal(id, res)}>{finals.map((r) => <Menu.Item key={r}>Final {r}</Menu.Item>)}</Menu>}>
-                  <Button size="mini" disabled={!!data.animaticBusy} title="Finish the latest animatic draft at full resolution">Final ▾</Button>
+                  <Button size="mini" disabled={!!data.animaticBusy} title="Finish the chosen animatic at full resolution">Final ▾</Button>
                 </Dropdown>
               )}
             </div>
@@ -118,12 +113,30 @@ const PrevizNodeInner = ({ id, data, selected }) => {
               />
             </div>
             {data.animaticError && <Text style={{ fontSize: 10, color: '#f53f3f' }}>{data.animaticError}</Text>}
-            {anim?.takeId && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Button size="small" icon={<IconPlayArrow />} onClick={() => onPlay && onPlay(id)}>Play {anim.label || 'animatic'}</Button>
-                <Text type="secondary" style={{ fontSize: 10 }}>{STYLE_LABEL[anim.style] || ''}{anim.final ? ` · ${anim.final}` : ' · 480p draft'}</Text>
-                <span style={{ flex: 1 }} />
-                <Button size="small" type="primary" loading={!!data.cutBusy} onClick={() => onToCut && onToCut(id)} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="One CUT card that rides this animatic as its motion reference; its prompt is written by watching the animatic (the real scene, not the blockout look)">To CUT card</Button>
+            {animatics.length > 0 && (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {/* PICK THE ANIMATIC — click a chip to choose it (Final and To CUT card use the
+                    chosen one); ▶ opens it in the take viewer. */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {animatics.map((a) => {
+                    const on = a.takeId === anim?.takeId;
+                    return (
+                      <span
+                        key={a.takeId} role="button" tabIndex={0}
+                        onClick={() => patch({ animatic: a })}
+                        title={on ? 'Chosen — Final and To CUT card use this one' : 'Choose this animatic'}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 999, cursor: 'pointer', fontSize: 11, fontWeight: on ? 700 : 500, border: `1.5px solid ${on ? '#b06f10' : '#e5e6eb'}`, background: on ? '#fff7e8' : '#fff', color: on ? '#b06f10' : '#4e5969' }}
+                      >
+                        {on ? '● ' : ''}{a.label || 'Animatic'}{a.final ? ` · ${a.final}` : ''}
+                        <IconPlayArrow onClick={(e) => { e.stopPropagation(); onPlay && onPlay(id, a.takeId); }} title="Open in the take viewer" style={{ fontSize: 13, color: '#165dff' }} />
+                      </span>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ flex: 1 }} />
+                  <Button size="small" type="primary" loading={!!data.cutBusy} disabled={!anim?.takeId} onClick={() => onToCut && onToCut(id)} style={{ background: '#b06f10', borderColor: '#b06f10' }} title="One CUT card that rides the chosen animatic as its motion reference; its prompt is written by watching it (the real scene, not the blockout look)">To CUT card · {anim?.label || 'animatic'}</Button>
+                </div>
               </div>
             )}
 

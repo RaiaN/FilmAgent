@@ -106,7 +106,7 @@ Return ONLY JSON — no prose, no code fences:
     agent: 'Previz',
     label: 'Previz animatic — the Seedance prompt',
     vars: ['{style}', '{key}', '{shots}', '{fix}'],
-    text: 'An ANIMATIC of one scene. {style}\n@Image1 is a top-down floor plan of this scene: use only its layout, where each actor stands, the paths the arrows show and where each camera stands. Never show the plan itself — no lines, labels, circles or arrows on screen.\n{key} Each figure keeps its colour for the whole video; the figures are simple and featureless, so only colour tells them apart.\n{shots}\n{fix}',
+    text: 'An ANIMATIC of one scene. {style}\n@Image1 is a top-down floor plan of this scene: use only its layout, where each actor stands, the paths the arrows show and where each camera stands. Never show the plan itself — no lines, labels, circles or arrows on screen.\n{key} Each block keeps its colour for the whole video; only colour tells them apart.\n{shots}\n{fix}',
   },
   'previz.animatic.fix': {
     agent: 'Previz',
@@ -118,11 +118,11 @@ Return ONLY JSON — no prose, no code fences:
     agent: 'Previz',
     label: 'Previz → CUT — describe the animatic (system)',
     vars: [],
-    text: `You watch a previz ANIMATIC: stand-in figures moving through a blockout of a set, cut by the cameras. Write what happens in it as the REAL scene, for a video model that will shoot it with this animatic as its motion reference.
+    text: `You watch a previz ANIMATIC: solid coloured blocks standing in for people, sliding and turning through a grey blockout of a set, cut by the cameras. Write what happens in it as the REAL scene, for a video model that will shoot it with this animatic as its motion reference.
 
-Name every figure by the person or thing it stands for, using the colour key, and call the set by the place it stands for. Write, in order: who is where, who moves where, what they do, where the camera stands and how it frames and moves, and every cut ("Cut to: ..."), with rough timing when it helps ("for the first 3 seconds").
+Name every block by the person or thing it stands for, using the colour key, and call the set by the place it stands for. Write, in order: who is where, who moves where, what they do, where the camera stands and how it frames and moves, and every cut ("Cut to: ..."), with rough timing when it helps ("for the first 3 seconds").
 
-Never describe the animatic's look: no mannequins, no figure colours, no grey geometry, pencil lines, clay, untextured surfaces or floor-plan marks. Never decide light, grade or wardrobe — the look is set elsewhere. Write only what the video shows; do not add events.
+Never describe the animatic's look: no blocks or boxes, no block colours, no sliding, no grey geometry, untextured surfaces or floor-plan marks. Each block stands for a person who walks, turns and acts naturally — write the person, not the block. Never decide light, grade or wardrobe — the look is set elsewhere. Write only what the video shows; do not add events.
 
 Return ONLY JSON — no prose, no code fences:
 {"prompt":"<the scene, plain prose, at most 160 words>"}`,
@@ -131,31 +131,19 @@ Return ONLY JSON — no prose, no code fences:
     agent: 'Previz',
     label: 'Previz → CUT — instruction',
     vars: ['{scene}', '{set}', '{cast}', '{seconds}'],
-    text: 'THE SCENE: {scene}\nTHE SET: {set}\nTHE COLOUR KEY (who each figure stands for):\n{cast}\nLENGTH: {seconds} seconds\n\nWatch the attached animatic and return the JSON.',
+    text: 'THE SCENE: {scene}\nTHE SET: {set}\nTHE COLOUR KEY (who each block stands for):\n{cast}\nLENGTH: {seconds} seconds\n\nWatch the attached animatic and return the JSON.',
   },
   'previz.cut.ref': {
     agent: 'Previz',
     label: 'Previz → CUT — the animatic\'s role line',
     vars: [],
-    text: '@Video1 is used for the blocking, the timing of the action, the camera positions and moves, and the cuts; do not use its look — its featureless stand-in figures, their flat colours, the grey set geometry, pencil lines or clay.',
-  },
-  'previz.animatic.style.pencil': {
-    agent: 'Previz',
-    label: 'Animatic look — pencil',
-    vars: [],
-    text: 'Hand-drawn graphite pencil line animation on off-white paper, loose contour lines and light hatching; each figure is a simple pencil mannequin tinted with a single wash of its colour.',
+    text: '@Video1 is used for the blocking, the timing of the action, the camera positions and moves, and the cuts; do not use its look — its solid stand-in blocks, their flat colours and the grey set geometry; the people move naturally, not as blocks.',
   },
   'previz.animatic.style.blockout': {
     agent: 'Previz',
     label: 'Animatic look — colour blocks',
     vars: [],
-    text: 'A VFX blockout: flat solid-colour featureless mannequins moving through untextured grey set geometry, hard edges, no texture, no detail, even flat light.',
-  },
-  'previz.animatic.style.clay': {
-    agent: 'Previz',
-    label: 'Animatic look — clay',
-    vars: [],
-    text: 'A 3D clay-render previz: an untextured matte grey clay maquette of the set and featureless clay mannequins, each mannequin in its own flat colour, lit by one clear key light with soft fill and hard cast shadows.',
+    text: 'A hard-surface VFX blockout. Every character is ONE rigid solid-colour block: an upright rectangular box about a person\'s height, with no head, no arms, no legs and no face. A block never bends, walks or gestures; it slides across the floor to move and turns in place to face a new way. The set is untextured grey geometry with hard edges, no texture, no detail, even flat light.',
   },
 
   // The LOCATION PLATE. Location Variations is edit-locked — coverage is a reframe of a
@@ -792,7 +780,7 @@ Watercolor: hand-painted watercolor, paper texture, soft bleeding edges, muted t
     agent: 'Story Room',
     label: 'Continuity line — a frame fixed as the first frame (Seedance 2.5 role line)',
     vars: ['{n}'],
-    text: 'Use @Image{n} as the first frame.',
+    text: 'Use @Image{n} as the first frame.\nThis first frame defines the composition at the start of the video, subject positions, poses, prop states, scene, and camera direction.',
   },
   'story.ref.location': {
     agent: 'Story Room',

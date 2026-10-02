@@ -11,10 +11,9 @@ import { parseJson } from './director';
 export const ANIMATIC_MODEL = 'seedance25';
 export const ANIMATIC_RATIO = '16:9';
 
-// How the ANIMATIC looks. One plan, three looks: pencil reads like a moving storyboard,
-// colour blocks are the clearest blocking (flat mannequins, no light), clay is the only
-// one that shows LIGHT.
-export const PLATE_STYLES = ['pencil', 'blockout', 'clay'];
+// How the ANIMATIC looks: a hard blockout — each character one rigid colour block that
+// slides and turns, the set grey geometry. Blocking only; no performance.
+export const ANIMATIC_STYLE = 'blockout';
 
 // Each actor's colour, dealt by CODE in actor order — the binding between a circle on the
 // schematic and a figure in the animatic. Same order and names as the Mask tool.
@@ -100,12 +99,11 @@ export const previzSchematic = async ({ plan, imageModel = defaultImageModelKey(
 // THE ANIMATIC PROMPT — built by code from the plan: the schematic's role (Seedance 2.5
 // reference grammar), the colour key, the style, and one line per shot.
 // The director's correction rides last, as a constraint the new render must hold.
-export const previzAnimaticPrompt = ({ plan, style = 'blockout', note = '' } = {}) => {
-  const st = PLATE_STYLES.includes(style) ? style : 'blockout';
+export const previzAnimaticPrompt = ({ plan, note = '' } = {}) => {
   const fix = String(note || '').trim();
   return renderTemplate('previz.animatic', {
-    style: renderTemplate(`previz.animatic.style.${st}`),
-    key: (plan?.actors || []).length ? `The colour key: ${plan.actors.map((a) => `the ${colorWord(a)} figure is ${a.name}`).join('; ')}.` : '',
+    style: renderTemplate(`previz.animatic.style.${ANIMATIC_STYLE}`),
+    key: (plan?.actors || []).length ? `The colour key: ${plan.actors.map((a) => `the ${colorWord(a)} block is ${a.name}`).join('; ')}.` : '',
     shots: (plan?.shots || []).map((s, i) => `Shot ${i + 1} (${cameraLine(s, i)}): ${s.action}`).join('\n'),
     fix: fix ? renderTemplate('previz.animatic.fix', { note: fix }) : '',
   }).trim();
@@ -116,7 +114,7 @@ export const previzAnimaticPrompt = ({ plan, style = 'blockout', note = '' } = {
 // blockout look. Code puts the reference-video role first and the plan's look last.
 export const previzCutPrompt = async ({ videoUrl = '', plan, config } = {}, ctx) => {
   if (!videoUrl) throw new Error('Make an animatic first.');
-  const cast = (plan?.actors || []).map((a) => `- the ${colorWord(a)} figure = ${a.name}${a.description ? `: ${a.description}` : ''}`).join('\n');
+  const cast = (plan?.actors || []).map((a) => `- the ${colorWord(a)} block = ${a.name}${a.description ? `: ${a.description}` : ''}`).join('\n');
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('previz.describe.user', {
       scene: plan?.scene || '(not stated)',

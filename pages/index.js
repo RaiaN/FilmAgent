@@ -171,6 +171,7 @@ export default function Home() {
   // Story Room → Film Agent: { shots } land as chained SHOT cards, { script } as a
   // Storyboard card (the canvas consumes each nonce once).
   const [storyHandoff, setStoryHandoff] = useState(null);
+  const [boardPlates, setBoardPlates] = useState([]); // the Film Agent board's plates, shown in Story Room ▸ Assets
   const handleSendStoryToFilm = (payload) => {
     setStoryHandoff({ ...payload, nonce: Date.now() });
     handleModelFamilyChange('film-agent');
@@ -468,10 +469,11 @@ export default function Home() {
                         formValues={formValues}
                         setFormValues={setFormValues}
                         storyHandoff={storyHandoff}
+                        onPlates={setBoardPlates}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
-                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} />
+                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />

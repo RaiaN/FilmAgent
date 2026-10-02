@@ -4,7 +4,7 @@ import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
 import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer } from './storyroom/panels';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, reviseBlueprint, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets } from '../utils/film/core/story';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets } from '../utils/film/core/story';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -25,7 +25,7 @@ const ITEM_LABEL = {
 };
 const ROLE_LABEL = {
   look: 'Reading the references\' look',
-  scout: 'Scout is finding ideas', probe: 'Checking originality', architect: 'Architect is building the blueprint', critic: 'Critic is stress-testing', reviser: 'Reviser is patching the flagged blocks',
+  scout: 'Scout is finding ideas', probe: 'Checking originality', architect: 'Architect is building the blueprint', critic: 'Critic is stress-testing', options: 'Writing 3 fix options and judging them blind',
   facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots',
 };
 const SCORE_COLOR = ['#cb2634', '#d25f00', '#00a870'];
@@ -50,7 +50,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm }) => {
+const StoryRoomPlayground = ({ onSendToFilm, boardPlates = [] }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -58,7 +58,9 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
   const [source, setSource] = useState(null); // the idea the blueprint was built from: { text, probe }
   const [blueprint, setBlueprint] = useState(null);
   const [critique, setCritique] = useState(null);
-  const [revised, setRevised] = useState([]); // blocks the last revision rewrote
+  const [revised, setRevised] = useState([]); // blocks the last accepted fix rewrote
+  const [fixRoot, setFixRoot] = useState(null); // the flagged block picked to fix
+  const [fixSet, setFixSet] = useState(null); // { root, note, options: [], verdict }
   const [facts, setFacts] = useState([]); // the visual beat sheet: [{ id, block, kind, fact }]
   const [assets, setAssets] = useState([]); // the roster: [{ key, kind, name, look }]
   const [shots, setShots] = useState([]); // [{ title, location, assets, shows, moment, body }]
@@ -106,7 +108,6 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
 
   const plannerLabel = (REASONER_OPTIONS.find((o) => o.key === reasonerSlotOf()) || {}).label || 'planner';
   const problems = blueprint ? blueprintProblems(blueprint) : [];
-  const fixCount = Object.keys(critique?.fix || {}).length;
 
   const scout = () => run('scout', async () => {
     const found = await scoutIdeas({ direction: idea, count }, ctx);
@@ -138,15 +139,28 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
 
   const critiqueNow = () => run('critic', async () => { setCritique(await critiqueBlueprint({ blueprint }, ctx)); });
 
-  // One revision round, then one re-score — the loop never runs on its own.
-  const revise = () => run('reviser', async () => {
-    const out = await reviseBlueprint({ blueprint, fix: critique?.fix || {} }, ctx);
-    if (!out.changed.length) { Message.warning('The Reviser returned none of the flagged blocks — nothing changed.'); return; }
-    setBlueprint({ ...out.blueprint, title: blueprint.title });
-    setRevised(out.changed);
-    setBusy({ role: 'critic', at: Date.now() });
-    setCritique(await critiqueBlueprint({ blueprint: out.blueprint }, ctx));
+  // Options, not patches: the picked problem → 3 alternative cascades from its root block
+  // (written in parallel) → a blind judge ranks them against the current version. The
+  // filmmaker picks; nothing changes until they do.
+  const flagged = flaggedFixes(critique);
+  const activeFix = flagged.find((f) => f.root === fixRoot) || flagged[0] || null;
+  const writeOptions = () => activeFix && run('options', async () => {
+    setFixSet({ root: activeFix.root, note: activeFix.note, options: [], verdict: null });
+    const out = await fixOptions({
+      blueprint, root: activeFix.root, note: activeFix.note,
+      onOption: (i, o) => setFixSet((cur) => (cur && cur.root === activeFix.root ? { ...cur, options: [...cur.options.filter((x) => x.index !== i), { ...o, index: i }].sort((a, b) => a.index - b.index) } : cur)),
+    }, ctx);
+    setFixSet({ root: activeFix.root, note: activeFix.note, options: out.options, verdict: out.verdict });
   });
+  const useOption = (o) => {
+    setBlueprint({ ...o.blueprint, title: blueprint.title });
+    setRevised(o.changed);
+    // The fixed root and every re-derived block below it no longer carry the old notes.
+    const cleared = BLOCKS.slice(BLOCKS.indexOf(fixSet.root));
+    setCritique((c) => (c ? { ...c, fix: Object.fromEntries(Object.entries(c.fix || {}).filter(([k]) => !cleared.includes(k))), stale: true } : c));
+    setFixSet(null);
+    setFixRoot(null);
+  };
 
   const setBlock = (k, v) => {
     setBlueprint((b) => ({ ...b, [k]: k === 'journey' ? String(v).split('\n') : v }));
@@ -265,11 +279,66 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {critique && <Tag color={critique.total >= 14 ? 'green' : critique.total >= 10 ? 'orange' : 'red'}>Critic {critique.total}/{critique.max}</Tag>}
-            <Button size="small" disabled={!!busy} onClick={critiqueNow}>Critique</Button>
-            <Button size="small" disabled={!!busy || !fixCount} onClick={revise}>Revise flagged{fixCount ? ` (${fixCount})` : ''}</Button>
+            {critique && <Tag color={critique.stale ? 'gray' : critique.total >= 14 ? 'green' : critique.total >= 10 ? 'orange' : 'red'}>Critic {critique.total}/{critique.max}{critique.stale ? ' · before your fix' : ''}</Tag>}
+            <Button size="small" disabled={!!busy} onClick={critiqueNow}>{critique ? 'Critique again' : 'Critique'}</Button>
             {problems.length > 0 && <Text style={{ fontSize: 12, color: '#cb2634' }}>Checks failing: {problems.join(' · ')}</Text>}
           </div>
+
+          {flagged.length > 0 && (
+            <div style={{ ...box, display: 'grid', gap: 12, borderColor: '#ffcf8b', background: '#fffcf7' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <Text style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#d25f00' }}>EDITOR'S NOTES</Text>
+                {flagged.map((f) => (
+                  <Tag key={f.root} checkable checked={activeFix?.root === f.root} onCheck={() => { setFixRoot(f.root); if (fixSet?.root !== f.root) setFixSet(null); }}>{BLOCK_LABEL[f.root]}</Tag>
+                ))}
+                <span style={{ flex: 1 }} />
+                <Button size="small" type="primary" disabled={!!busy || !activeFix} onClick={writeOptions}>3 options to fix {BLOCK_LABEL[activeFix?.root] || ''}</Button>
+              </div>
+              {activeFix && <Text style={{ fontSize: 13 }}>{activeFix.note}</Text>}
+              {activeFix && <Text type="secondary" style={{ fontSize: 12 }}>Each option rewrites {BLOCK_LABEL[activeFix.root]} and re-derives every block after it, so the story still holds together. A blind judge ranks them against your current version; nothing changes until you pick one.</Text>}
+
+              {fixSet && fixSet.root === activeFix?.root && (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {fixSet.verdict && fixSet.verdict.best === 'current' && (
+                    <Text style={{ fontSize: 12, color: '#4e5969' }}><b>The judge prefers your current version.</b> {fixSet.verdict.reasons?.current || ''}</Text>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+                    {[0, 1, 2].map((i) => {
+                      const o = fixSet.options.find((x) => x.index === i);
+                      const rank = o && fixSet.verdict ? fixSet.verdict.ranking.indexOf(fixSet.options.indexOf(o)) : -1;
+                      const pick = o && fixSet.verdict && fixSet.verdict.best === fixSet.options.indexOf(o);
+                      const why = o && fixSet.verdict ? fixSet.verdict.reasons?.[fixSet.options.indexOf(o)] : '';
+                      return (
+                        <div key={i} style={{ background: '#fff', border: `1.5px solid ${pick ? '#165dff' : LINE}`, borderRadius: 10, padding: 12, display: 'grid', gap: 8, alignContent: 'start' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <Text style={{ fontSize: 12, fontWeight: 700 }}>Option {String.fromCharCode(65 + i)}</Text>
+                            {pick && <Tag size="small" color="arcoblue">Judge's pick</Tag>}
+                            {!pick && rank > 0 && <Text type="secondary" style={{ fontSize: 11 }}>#{rank + 1}</Text>}
+                            <span style={{ flex: 1 }} />
+                            {o && <Button size="mini" type={pick ? 'primary' : 'secondary'} disabled={!!busy} onClick={() => useOption(o)}>Use this</Button>}
+                          </div>
+                          {!o
+                            ? <Text type="secondary" style={{ fontSize: 12 }}>{busy ? 'Writing…' : 'No option'}</Text>
+                            : (
+                              <>
+                                <Text type="secondary" style={{ fontSize: 11, fontStyle: 'italic' }}>{o.approach}</Text>
+                                {why && <Text style={{ fontSize: 12, color: '#165dff' }}>{why}</Text>}
+                                {o.changed.filter((k) => k !== 'spine').map((k) => (
+                                  <div key={k} style={{ display: 'grid', gap: 2, borderLeft: '2px solid #165dff', paddingLeft: 8 }}>
+                                    <Text style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#86909c' }}>{BLOCK_LABEL[k]}</Text>
+                                    <Text style={{ fontSize: 12, lineHeight: 1.5 }}>{Array.isArray(o.blueprint[k]) ? o.blueprint[k].map((x, j) => `${j + 1}. ${x}`).join('  ') : o.blueprint[k]}</Text>
+                                  </div>
+                                ))}
+                              </>
+                            )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
             {BLOCKS.map((k) => {
@@ -329,7 +398,7 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
     story: storyPanel,
     look: <LookPanel look={look} setLook={setLook} presets={presets} images={lookImages} addImages={addLookImages} removeImage={(i) => setLookImages((l) => l.filter((_, j) => j !== i))} readImages={readLook} busy={!!busy} />,
     beats: !blueprint ? needsBlueprint : facts.length ? <BeatSheet facts={facts} shotsOfFact={shotsOfFact} onOpenShot={(i) => { setTab('shots'); setOpenShot(i); }} /> : needsShots('beat sheet'),
-    assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} /> : needsShots('assets'),
+    assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} plates={boardPlates} /> : needsShots('assets'),
     shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} /> : needsShots('shots'),
   }[tab] || storyPanel;
 

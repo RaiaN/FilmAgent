@@ -433,7 +433,7 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
 // Story Room hand-offs already laid on a board (see the incomingStory effect).
 const consumedStories = new Set();
 
-const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory }) => {
+const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates }) => {
   const wrapperRef = useRef(null);
   const fileInputRef = useRef(null);
   const [rfInstance, setRfInstance] = useState(null);
@@ -535,6 +535,19 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory })
   const bibleEntries = useMemo(() => bible.entries || [], [bible.entries]);
   const bibleRef = useRef(bibleEntries);  // latest bible for the async session/transport
   useEffect(() => { bibleRef.current = bibleEntries; }, [bibleEntries]);
+  // The board's plates for the Story Room's Assets tab: every bible plate, plus the
+  // tagged plates still rendering. Reported only when the list really changes.
+  const platesSent = useRef('');
+  useEffect(() => {
+    if (!onPlates) return;
+    const ready = bibleEntries.filter((b) => b.url).map((b) => ({ name: b.name, role: b.role, url: b.url, nodeId: b.nodeId }));
+    const pending = nodes.filter((n) => n.data?.bibleRole && n.data?.loading).map((n) => ({ name: n.data.label || '', role: n.data.bibleRole, url: '', nodeId: n.id, loading: true }));
+    const list = [...ready, ...pending];
+    const key = JSON.stringify(list);
+    if (key === platesSent.current) return;
+    platesSent.current = key;
+    onPlates(list);
+  }, [bibleEntries, nodes, onPlates]);
 
   // Run trace — agent introspection. Every prompt + action in an Ad run is recorded
   // here (the transport is wrapped below) so the whole pipeline can be dumped to .txt

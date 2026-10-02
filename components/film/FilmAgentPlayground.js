@@ -53,7 +53,7 @@ const randomId = () =>
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     : Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff }) => {
+const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates }) => {
   const [project, setProject] = useState(null);
   // storage === null  => in-memory scratch project (not yet persisted)
   //   { kind: 'path', path }      => Electron / fallback text path
@@ -592,6 +592,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff }) => {
         onUpdateProject={setProject}
         demoNonce={demoNonce}
         incomingStory={storyHandoff}
+        onPlates={onPlates}
       />
 
       {dialogs}

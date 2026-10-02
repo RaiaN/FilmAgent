@@ -206,39 +206,65 @@ export const critiqueBlueprint = async ({ blueprint, config } = {}, ctx) => {
   return { items, fix, total, max: SCORE_KEYS.length * 2 };
 };
 
-// ---- Reviser: a patch for the flagged blocks, merged by code ----------------------
-// The Reviser may only touch the blocks it was handed (plus the spine); everything else
-// is locked here, whatever the model returns.
-export const reviseBlueprint = async ({ blueprint, fix = {}, config } = {}, ctx) => {
-  const targets = Object.keys(fix).filter((k) => BLOCKS.includes(k));
-  if (!targets.length) return { blueprint, changed: [], ignored: [], problems: blueprintProblems(blueprint) };
+// ---- Fix options: one problem → 3 alternative cascades → a blind judge ------------
+// A fix starts at its ROOT block and re-derives every block after it in the skill's
+// dependency order, so each option is a whole coherent story — the blocks before the
+// root stay word for word. A blind judge ranks the options against the current version;
+// the current one stays unless an option beats it, and the filmmaker picks.
+const approaches = () => getTemplateText('story.option.approaches').split('\n').map((l) => l.trim()).filter(Boolean);
+
+const writeOption = async ({ blueprint, root, note, approach, config }, ctx) => {
   const base = tidyBlueprint(blueprint);
-  const system = renderTemplate('story.reviser.system', { skill: await storySkillLine(), cap: BLOCK_CAP, spineCap: SPINE_CAP });
-  const notes = targets.map((k) => `- ${k}: ${fix[k]}`).join('\n');
-  const prompt = inject('story.reviser.user', { blueprint: JSON.stringify(base, null, 1), notes });
-  const allowed = new Set([...targets, 'spine']);
-  const merge = (patch) => {
-    const next = { ...base };
-    const changed = [];
-    const ignored = [];
-    Object.entries(patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {}).forEach(([k0, v]) => {
-      const k = String(k0).trim().toLowerCase().replace(/[\s-]+/g, '_');
-      if (!allowed.has(k)) { ignored.push(k); return; }
-      const val = k === 'journey' ? (Array.isArray(v) ? v.map((o) => String(o || '').trim()).filter(Boolean) : null) : String(v || '').trim();
-      if (!val || (Array.isArray(val) && !val.length)) return;
-      next[k] = val;
-      changed.push(k);
-    });
-    return { next, changed, ignored };
-  };
-  let m = merge(parseJson(await ask(ctx, { system, prompt, effort: EFFORT.reviser, config })));
-  let problems = blueprintProblems(m.next);
-  if (!m.changed.length || problems.length) {
-    const why = !m.changed.length ? 'you returned none of the blocks you were asked to rewrite' : problems.join('; ');
-    const retry = merge(parseJson(await ask(ctx, { system, prompt: `${prompt}\n\nYOUR LAST ANSWER FAILED THESE CHECKS — fix them: ${why}`, effort: EFFORT.reviser, config })));
-    if (retry.changed.length) { m = retry; problems = blueprintProblems(m.next); }
-  }
-  return { blueprint: m.next, changed: m.changed, ignored: m.ignored, problems };
+  const at = BLOCKS.indexOf(root);
+  const cascade = BLOCKS.slice(at);
+  const system = renderTemplate('story.option.system', { skill: await storySkillLine(), cap: BLOCK_CAP, spineCap: SPINE_CAP });
+  const prompt = inject('story.option.user', { blueprint: JSON.stringify(base, null, 1), root, note, cascade: cascade.join(', '), approach });
+  const raw = parseJson(await ask(ctx, { system, prompt, effort: 'medium', config })) || {};
+  const next = { ...base };
+  const changed = [];
+  [...cascade, 'spine'].forEach((k) => {
+    const v = k === 'journey' ? (Array.isArray(raw[k]) ? raw[k].map((o) => String(o || '').trim()).filter(Boolean) : null) : String(raw[k] || '').trim();
+    if (!v || (Array.isArray(v) && !v.length)) return;
+    if (JSON.stringify(v) !== JSON.stringify(base[k])) changed.push(k);
+    next[k] = v;
+  });
+  return { blueprint: next, changed, approach };
+};
+
+const versionText = (bp, keys) => keys.map((k) => `${k}: ${Array.isArray(bp[k]) ? bp[k].map((o, i) => `(${i + 1}) ${o}`).join(' ') : bp[k]}`).join('\n');
+
+const judgeOptions = async ({ blueprint, options, root, note, config }, ctx) => {
+  const keys = [...BLOCKS.slice(BLOCKS.indexOf(root)), 'spine'];
+  const versions = [{ id: 'current', bp: tidyBlueprint(blueprint) }, ...options.map((o, i) => ({ id: i, bp: o.blueprint }))];
+  const order = versions.map((v, i) => ({ v, r: Math.random(), i })).sort((x, y) => x.r - y.r).map((x) => x.v); // blind: shuffled, neutral labels
+  const label = (i) => `V${i + 1}`;
+  const listed = order.map((v, i) => `${label(i)}:\n${versionText(v.bp, keys)}`).join('\n\n');
+  const out = parseJson(await ask(ctx, { system: renderTemplate('story.option.judge.system'), prompt: inject('story.option.judge.user', { note, versions: listed, before: versionText(tidyBlueprint(blueprint), BLOCKS.slice(0, BLOCKS.indexOf(root))) || '(none)' }), effort: 'medium', config })) || {};
+  const idOf = (l) => { const i = Number(String(l || '').replace(/\D/g, '')) - 1; return order[i] ? order[i].id : null; };
+  const ranking = (Array.isArray(out.ranking) ? out.ranking : []).map(idOf).filter((x) => x != null);
+  const reasons = {};
+  Object.entries(out.reasons && typeof out.reasons === 'object' ? out.reasons : {}).forEach(([l, r]) => { const id = idOf(l); if (id != null) reasons[id] = String(r || '').trim(); });
+  return { ranking, best: ranking[0] ?? null, reasons };
+};
+
+// The flagged problems, root-first: the Critic's fix notes in dependency order.
+export const flaggedFixes = (critique) => BLOCKS.filter((k) => critique?.fix?.[k]).map((k) => ({ root: k, note: critique.fix[k] }));
+
+export const fixOptions = async ({ blueprint, root, note, config, onOption } = {}, ctx) => {
+  if (!BLOCKS.includes(root)) throw new Error('Pick the block to fix.');
+  const list = approaches().slice(0, 3);
+  const options = new Array(list.length).fill(null);
+  await runWithConcurrency(list.map((approach, i) => async () => {
+    try {
+      options[i] = await writeOption({ blueprint, root, note, approach, config }, ctx);
+      if (onOption) onOption(i, options[i]);
+    } catch { /* one failed option leaves the others */ }
+  }), 3);
+  const got = options.map((o, i) => (o && o.changed.length ? { ...o, index: i } : null)).filter(Boolean);
+  if (!got.length) throw new Error('No option came back — try again.');
+  let verdict = { ranking: [], best: null, reasons: {} };
+  try { verdict = await judgeOptions({ blueprint, options: got, root, note, config }, ctx); } catch { /* the options stand without a ranking */ }
+  return { options: got, verdict };
 };
 
 // ---- Hand-off: the blueprint as a script the Storyboard can divide ----------------

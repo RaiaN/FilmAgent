@@ -690,17 +690,37 @@ Return ONLY JSON: {"q1": {"objection": "...", "score": 0}, ..., "q7": {...}, "or
     vars: ['{blueprint}'],
     text: 'THE BLUEPRINT:\n{blueprint}',
   },
-  'story.reviser.system': {
+  'story.option.approaches': {
     agent: 'Story Room',
-    label: 'Reviser — patch the flagged blocks (system)',
-    vars: ['{skill}', '{cap}', '{spineCap}'],
-    text: '{skill}\n\nYOU ARE THE REVISER. You get a story blueprint and the editor\'s notes on the blocks to rewrite. Rewrite ONLY those blocks, each so it answers its note and still fits every block you were not given to change. Each rewritten block is at most {cap} words ("journey" stays a list of 3-5 obstacles, each at most {cap} words). If the rewrites change the story\'s spine, also return "spine": ONE sentence starting "Once upon a time", at most {spineCap} words.\nReturn ONLY a JSON object whose keys are exactly the blocks you rewrote (plus "spine" when it changed): {"<block>": "..."}',
+    label: 'Fix options — one approach per option (one per line)',
+    vars: [],
+    text: `the most direct fix: change as little as the note allows
+a bolder fix: change the situation itself so the problem cannot arise
+a fix that comes out of the story's own place, culture or trade`,
   },
-  'story.reviser.user': {
+  'story.option.system': {
     agent: 'Story Room',
-    label: 'Reviser (instruction)',
-    vars: ['{blueprint}', '{notes}'],
-    text: 'THE BLUEPRINT:\n{blueprint}\n\nTHE EDITOR\'S NOTES (rewrite these blocks only):\n{notes}',
+    label: 'Fix option — rewrite from the root block down (system)',
+    vars: ['{skill}', '{cap}', '{spineCap}'],
+    text: '{skill}\n\nYOU ARE A SCRIPT DOCTOR. One block of a story blueprint has a problem an editor named. Fix it at its ROOT: rewrite the root block so the note is answered, then re-derive every block after it, in the method\'s dependency order, so the whole story still holds together and each later block follows from the new root. Keep anything in those later blocks that still works. Blocks before the root stay exactly as they are. Then rewrite the spine to match.\nLENGTH: every block at most {cap} words; journey stays a list of 3-5 obstacles, each at most {cap} words; the spine is ONE sentence starting "Once upon a time", at most {spineCap} words.\nReturn ONLY JSON with the root block, every block after it, and "spine": {"<block>": "...", "journey": ["..."], "spine": "Once upon a time, ..."}',
+  },
+  'story.option.user': {
+    agent: 'Story Room',
+    label: 'Fix option (instruction)',
+    vars: ['{blueprint}', '{root}', '{note}', '{cascade}', '{approach}'],
+    text: 'THE BLUEPRINT:\n{blueprint}\n\nTHE ROOT BLOCK: {root}\nTHE EDITOR\'S NOTE: {note}\nREWRITE, IN THIS ORDER: {cascade}, then spine\nYOUR APPROACH: {approach}',
+  },
+  'story.option.judge.system': {
+    agent: 'Story Room',
+    label: 'Fix options — blind judge (system)',
+    vars: [],
+    text: 'You are a development editor comparing versions of the same stretch of a story. Each version continues the same opening blocks. Rank ALL versions from best to worst by: does it answer the editor\'s note; does the story still hold together (each block follows from the one before, the protagonist causes the climax, the resolution mirrors the flaw); is it specific and filmable. Length is not quality. Give each version a one-line reason.\nReturn ONLY JSON: {"ranking": ["V2", "V1", ...], "reasons": {"V1": "...", "V2": "..."}}',
+  },
+  'story.option.judge.user': {
+    agent: 'Story Room',
+    label: 'Fix options — blind judge (instruction)',
+    vars: ['{note}', '{before}', '{versions}'],
+    text: 'THE EDITOR\'S NOTE: {note}\n\nTHE OPENING BLOCKS (shared by every version):\n{before}\n\nTHE VERSIONS:\n{versions}',
   },
   'story.facts.system': {
     agent: 'Story Room',

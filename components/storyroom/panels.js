@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { Button, Drawer, Input, Tag, Tooltip, Typography } from '@arco-design/web-react';
-import { IconClose, IconEye, IconImage, IconPlus, IconSound } from '@arco-design/web-react/icon';
+import { Button, Drawer, Image, Input, Tag, Tooltip, Typography } from '@arco-design/web-react';
+import { IconClose, IconEye, IconImage, IconLoading, IconPlus, IconSound } from '@arco-design/web-react/icon';
 
 const { Text } = Typography;
 
@@ -183,39 +183,77 @@ export const BeatSheet = ({ facts, shotsOfFact, onOpenShot }) => (
 
 // ---- CASTING BOARD -----------------------------------------------------------------
 // Cast, locations, props as cards; each card's look is the one source every shot copies.
-export const AssetBoard = ({ assets, setAsset, usage }) => (
-  <div style={{ display: 'grid', gap: 24 }}>
-    {['character', 'location', 'prop'].map((kind) => {
-      const list = assets.filter((a) => a.kind === kind);
-      if (!list.length) return null;
-      return (
-        <div key={kind} style={{ display: 'grid', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <Eyebrow color={KIND_COLOR[kind]}>{KIND_LABEL[kind]}</Eyebrow>
-            <Text type="secondary" style={{ fontSize: 12 }}>{list.length}</Text>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${kind === 'location' ? 300 : 240}px, 1fr))`, gap: 12 }}>
-            {list.map((a) => (
-              <div key={a.key} style={{ background: PAPER, border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto 1fr' }}>
-                <div style={{ height: kind === 'location' ? 96 : 76, background: `linear-gradient(135deg, ${KIND_COLOR[kind]}14, ${KIND_COLOR[kind]}33)`, display: 'grid', placeItems: 'center', position: 'relative' }}>
-                  {kind === 'character'
-                    ? <span style={{ width: 52, height: 52, borderRadius: 26, background: PAPER, color: KIND_COLOR[kind], display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 18, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>{initials(a.name)}</span>
-                    : <IconImage style={{ fontSize: 26, color: KIND_COLOR[kind], opacity: 0.6 }} />}
-                  <Text style={{ position: 'absolute', right: 8, bottom: 6, fontSize: 11, color: KIND_COLOR[kind], fontWeight: 600 }}>{usage(a.key)} shot{usage(a.key) === 1 ? '' : 's'}</Text>
+// When Cast & World has rendered the asset on the Film Agent board, its plates show here
+// (matched by name: "Kaan · face", "Kaan · body", "Ferry Deck"); click to enlarge.
+const plateKey = (s) => String(s || '').replace(/\s*·\s*(face|body)\s*$/i, '').trim().toLowerCase();
+export const platesFor = (asset, plates = []) => {
+  const mine = plates.filter((p) => plateKey(p.name) === plateKey(asset.name));
+  const face = mine.find((p) => /·\s*face\s*$/i.test(p.name));
+  const body = mine.find((p) => /·\s*body\s*$/i.test(p.name));
+  const main = face || mine.find((p) => !/·\s*body\s*$/i.test(p.name)) || body || null;
+  return { main, extra: main && body && main !== body ? body : null, any: mine.length > 0, loading: mine.some((p) => p.loading) };
+};
+
+const PlateHeader = ({ kind, asset, plates, onView }) => {
+  const { main, extra, loading } = platesFor(asset, plates);
+  const h = main?.url ? (kind === 'character' ? 190 : kind === 'location' ? 170 : 150) : (kind === 'location' ? 96 : 76);
+  const tint = `linear-gradient(135deg, ${KIND_COLOR[kind]}14, ${KIND_COLOR[kind]}33)`;
+  return (
+    <div style={{ height: h, background: main?.url ? '#f2f3f5' : tint, display: 'grid', placeItems: 'center', position: 'relative', overflow: 'hidden' }}>
+      {main?.url
+        ? <img src={main.url} alt={main.name} onClick={() => onView(main.url)} style={{ width: '100%', height: '100%', objectFit: kind === 'prop' ? 'contain' : 'cover', objectPosition: kind === 'character' ? 'center 20%' : 'center', cursor: 'zoom-in', display: 'block' }} />
+        : kind === 'character'
+          ? <span style={{ width: 52, height: 52, borderRadius: 26, background: PAPER, color: KIND_COLOR[kind], display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 18, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>{initials(asset.name)}</span>
+          : <IconImage style={{ fontSize: 26, color: KIND_COLOR[kind], opacity: 0.6 }} />}
+      {extra?.url && (
+        <img src={extra.url} alt={extra.name} onClick={() => onView(extra.url)} title="Turnaround" style={{ position: 'absolute', right: 8, bottom: 8, width: 84, height: 63, objectFit: 'cover', borderRadius: 6, border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', cursor: 'zoom-in', background: '#fff' }} />
+      )}
+      {loading && !main?.url && <Text style={{ position: 'absolute', left: 8, bottom: 6, fontSize: 11, color: KIND_COLOR[kind] }}><IconLoading /> rendering…</Text>}
+    </div>
+  );
+};
+
+export const AssetBoard = ({ assets, setAsset, usage, plates = [] }) => {
+  const [view, setView] = useState('');
+  const rendered = assets.filter((a) => platesFor(a, plates).main?.url).length;
+  return (
+    <div style={{ display: 'grid', gap: 24 }}>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {rendered
+          ? `${rendered} of ${assets.length} assets have plates on the Film Agent board.`
+          : 'No plates yet. Cast & World renders every asset on the Film Agent board in the Look, and the plates show up here.'}
+      </Text>
+      {['character', 'location', 'prop'].map((kind) => {
+        const list = assets.filter((a) => a.kind === kind);
+        if (!list.length) return null;
+        return (
+          <div key={kind} style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <Eyebrow color={KIND_COLOR[kind]}>{KIND_LABEL[kind]}</Eyebrow>
+              <Text type="secondary" style={{ fontSize: 12 }}>{list.length}</Text>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${kind === 'location' ? 300 : 240}px, 1fr))`, gap: 12 }}>
+              {list.map((a) => (
+                <div key={a.key} style={{ background: PAPER, border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto 1fr' }}>
+                  <PlateHeader kind={kind} asset={a} plates={plates} onView={setView} />
+                  <div style={{ padding: '10px 12px 12px', display: 'grid', gap: 4, alignContent: 'start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Input id={`story-room-asset-name-${a.key}`} value={a.name} onChange={(v) => setAsset(a.key, 'name', v)} style={{ fontWeight: 600, fontSize: 14, padding: 0, border: 'none', background: 'transparent', flex: 1 }} />
+                      <Text style={{ fontSize: 11, color: KIND_COLOR[kind], fontWeight: 600, whiteSpace: 'nowrap' }}>{usage(a.key)} shot{usage(a.key) === 1 ? '' : 's'}</Text>
+                    </div>
+                    <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 11, color: MUTED }}>{`{{${a.key}}}`}</Text>
+                    <Input.TextArea id={`story-room-asset-${a.key}`} value={a.look} onChange={(v) => setAsset(a.key, 'look', v)} autoSize={{ minRows: 2, maxRows: 7 }} placeholder="Look" style={{ fontSize: 12, lineHeight: 1.5, padding: '4px 0 0', border: 'none', background: 'transparent', resize: 'none' }} />
+                  </div>
                 </div>
-                <div style={{ padding: '10px 12px 12px', display: 'grid', gap: 4, alignContent: 'start' }}>
-                  <Input id={`story-room-asset-name-${a.key}`} value={a.name} onChange={(v) => setAsset(a.key, 'name', v)} style={{ fontWeight: 600, fontSize: 14, padding: 0, border: 'none', background: 'transparent' }} />
-                  <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 11, color: MUTED }}>{`{{${a.key}}}`}</Text>
-                  <Input.TextArea id={`story-room-asset-${a.key}`} value={a.look} onChange={(v) => setAsset(a.key, 'look', v)} autoSize={{ minRows: 2, maxRows: 7 }} placeholder="Look" style={{ fontSize: 12, lineHeight: 1.5, padding: '4px 0 0', border: 'none', background: 'transparent', resize: 'none' }} />
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      );
-    })}
-  </div>
-);
+        );
+      })}
+      <Image.Preview src={view} visible={!!view} onVisibleChange={(v) => { if (!v) setView(''); }} />
+    </div>
+  );
+};
 
 // ---- SHOT LIST ---------------------------------------------------------------------
 // Shot cards in a grid; a card opens the drawer, where the body, bindings and the

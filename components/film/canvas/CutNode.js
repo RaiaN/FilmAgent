@@ -1,6 +1,6 @@
 import { createContext, memo, useContext, useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Dropdown, Menu } from '@arco-design/web-react';
+import { Typography, Input, Select, Tag, Button, InputNumber, Checkbox, Popover, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
 import { IconLoading, IconExpand, IconEdit, IconSync, IconSound, IconMessage, IconVideoCamera } from '@arco-design/web-react/icon';
 import { BIBLE_ROLE_META, SHOT_TEMPLATES_BY_CATEGORY } from '../../../utils/film/recipes';
 import { VIDEO_MODEL_OPTIONS, RES_BY_MODEL, resDefault, imageTagOf, clampShotSeconds, maxShotSeconds, videoModelKeyOf, videoTraits, DRAFT_MODE, draftFinalsOf } from '../../../utils/film/suiteConfig';
@@ -51,7 +51,7 @@ const DurationPill = ({ value, max, onChange }) => {
 // rewrites it to carry a camera setup, lens, light or movement. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onFinalizeDraft: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, onOpenRefDrawer: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onFinalizeDraft: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, continuityStale: {}, onOpenRefDrawer: null,
 });
 
 // One keyframe slot tile: shows its picked still, or a dashed ＋ tile. Clicking opens
@@ -109,7 +109,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onFinalizeDraft, onAttachAsset, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, onOpenRefDrawer } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onFinalizeDraft, onAttachAsset, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, continuityStale, onOpenRefDrawer } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -274,6 +274,11 @@ const CutNodeInner = ({ id, data, selected }) => {
           <Tag size="small" style={{ background: '#101418', color: status.color, border: 'none', fontWeight: 700 }}>
             {data.status === 'running' ? <IconLoading style={{ marginRight: 3 }} /> : null}{status.label}
           </Tag>
+        )}
+        {continuityStale?.[id] && (
+          <Tooltip content={continuityStale[id]}>
+            <Tag size="small" style={{ background: '#101418', color: '#ff7d00', border: '1px solid #ff7d00', fontWeight: 700 }}>⟳ stale</Tag>
+          </Tooltip>
         )}
         <span style={{ flex: 1 }} />
         {/* The SHOT's length — Auto (no duration sent: the events set it) or a fixed

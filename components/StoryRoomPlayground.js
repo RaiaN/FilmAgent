@@ -50,7 +50,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
+const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -584,6 +584,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, boardPlates
         consistency={openShot != null ? consistencyOf(openShot) : null}
         onToggleScene={() => openShot != null && toggleScene(openShot)}
         onSetLink={setLink}
+        onPinTake={onPinTake}
       />
     </div>
   );

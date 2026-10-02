@@ -13,8 +13,8 @@ const { Text } = Typography;
 
 const STATUS_COLOR = { running: '#165dff', shot: '#00b42a', failed: '#f53f3f' };
 
-const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onNeedPoster, onPick }) => {
-  const { id, url, cacheUrl, posterUrl, posterScaled, loading, error, label } = take;
+const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onNeedPoster, onPick, continuity = null, onPinContinuity = null }) => {
+  const { id, url, cacheUrl, posterUrl, posterScaled, loading, error, label, continuitySent } = take;
   // Same lazy-poster contract as the board cards: ask once per session; a full-res
   // poster stamped before downscaling existed re-asks and self-heals.
   useEffect(() => {
@@ -49,7 +49,20 @@ const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemov
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '5px 8px' }}>
         <Text style={{ fontSize: 11, flex: 1, minWidth: 0 }} ellipsis={{ rows: 1 }}>{label}</Text>
+        {continuitySent === true && <span title="The continuity frame reached the model with this take" style={{ fontSize: 10, fontWeight: 700, color: '#00a870', flexShrink: 0 }}>◀ frame ✓</span>}
+        {continuitySent === false && <span title="Shot WITHOUT the continuity frame — the model's content screen rejected it" style={{ fontSize: 10, fontWeight: 700, color: '#f53f3f', flexShrink: 0 }}>⚠ no frame</span>}
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {/* A card later shots continue from: ◀ marks the take they carry — the pinned one,
+              else the newest. Click pins this take; click the pinned one to unpin. */}
+          {url && !loading && onPinContinuity && (
+            <span
+              onClick={() => onPinContinuity(id)}
+              title={continuity === 'pinned' ? 'Later shots continue from this take (pinned) — click to unpin and follow the newest take'
+                : continuity === 'newest' ? 'Later shots continue from this take (the newest) — click to pin it'
+                  : 'Pin: later shots continue from this take instead'}
+              style={{ fontSize: 12, fontWeight: 700, cursor: 'pointer', color: continuity ? '#00a870' : '#c9cdd4' }}
+            >◀{continuity === 'pinned' ? ' 📌' : ''}</span>
+          )}
           {/* Rendered take → add to / remove from the Final Cut timeline (then Stitch). */}
           {url && !loading && (onTimeline ? (
             <IconCheck
@@ -86,7 +99,7 @@ const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemov
 });
 TakeRow.displayName = 'TakeRow';
 
-const TakeLibrary = ({ pick = null, groups, focusedCardId, timelineIds, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onClearTakes, onNeedPoster, onFocusCard, onShowAll, onClose }) => {
+const TakeLibrary = ({ pick = null, groups, focusedCardId, timelineIds, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, continuityPins = {}, onPinContinuity, onClearTakes, onNeedPoster, onFocusCard, onShowAll, onClose }) => {
   const focused = focusedCardId ? groups.find((g) => g.cardId === focusedCardId) : null;
   const shown = focused ? [focused] : groups.filter((g) => g.takes.length);
   const empty = !shown.length || (focused && !focused.takes.length);
@@ -151,6 +164,8 @@ const TakeLibrary = ({ pick = null, groups, focusedCardId, timelineIds, onOpenVi
                   onDeleteTake={onDeleteTake}
                   onNeedPoster={onNeedPoster}
                   onPick={pick ? pick.onPick : null}
+                  continuity={continuityPins[g.cardId]?.takeId === t.id ? (continuityPins[g.cardId].pinned ? 'pinned' : 'newest') : null}
+                  onPinContinuity={!pick && continuityPins[g.cardId] && onPinContinuity ? (takeId) => onPinContinuity(g.cardId, takeId) : null}
                 />
               ))}
             </div>

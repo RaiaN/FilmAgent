@@ -315,6 +315,8 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
         const opens = i === 0 || scenes[i] !== scenes[i - 1];
         const cons = consistencyOf(i);
         const src = cons?.card?.take;
+        const carried = cardOf(i)?.carried;
+        const stale = cardOf(i)?.stale;
         return [
           opens && (
             <div key={`scene-${i}`} style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'baseline', gap: 10, paddingTop: i ? 10 : 0, borderTop: i ? `1px solid ${LINE}` : 'none' }}>
@@ -352,11 +354,16 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
               ))}
               {bound.length > 5 && <Text type="secondary" style={{ fontSize: 11 }}>+{bound.length - 5}</Text>}
               {cons && (
-                <Tooltip content={`${linkWords(cons)}${src?.url ? ` — SH ${pad2(cons.from + 1)} has a take, its last frame is ready` : ` — waiting: shoot SH ${pad2(cons.from + 1)} first`}`}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6, fontSize: 10, fontWeight: 600, color: src?.url ? '#00a870' : '#d25f00' }}>
-                    {src?.posterUrl ? <img src={src.posterUrl} alt="" style={{ width: 22, height: 14, objectFit: 'cover', borderRadius: 2 }} /> : null}
-                    ◀ SH {pad2(cons.from + 1)} · {cons.mode === 'open' ? 'opens on' : 'state'} {src?.url ? '✓' : '· waiting'}
+                <Tooltip content={carried ? `${carried.label} — on the card as ${cons.mode === 'open' ? 'the first frame' : 'the state of the scene'}` : `${linkWords(cons)} — waiting: shoot SH ${pad2(cons.from + 1)} first`}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6, fontSize: 10, fontWeight: 600, color: carried ? '#00a870' : '#d25f00' }}>
+                    {carried ? <img src={carried.frameUrl} alt="" style={{ width: 26, height: 15, objectFit: 'cover', borderRadius: 2 }} /> : null}
+                    ◀ SH {pad2(cons.from + 1)} · {cons.mode === 'open' ? 'opens on' : 'state'} {carried ? '✓' : src?.url ? '· syncing' : '· waiting'}
                   </span>
+                </Tooltip>
+              )}
+              {stale && (
+                <Tooltip content={stale}>
+                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#ff7d00' }}>⟳ stale</span>
                 </Tooltip>
               )}
               <span style={{ flex: 1 }} />
@@ -374,11 +381,66 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
   );
 };
 
+// THE FRAME A LINKED SHOT CARRIES — what is actually on its board card (image + which
+// take it came from + the line in its prompt), and the source shot's takes as their last
+// frames: click one to hand that take on; click the chosen one again to follow the newest.
+const CarriedFrame = ({ index, link, card, onPinTake }) => {
+  const src = link.card;
+  const carried = card?.carried;
+  const takes = src?.takes || [];
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {carried
+        ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'start' }}>
+            <Image src={carried.frameUrl} width={220} style={{ borderRadius: 6, border: `2px solid ${link.mode === 'open' ? '#165dff' : '#00a870'}` }} />
+            <div style={{ display: 'grid', gap: 4 }}>
+              <Text style={{ fontSize: 12, fontWeight: 600 }}>{carried.label.replace(/^◀\s*/, '')}</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>On SH {pad2(index + 1)}'s card as {link.mode === 'open' ? 'its FIRST FRAME' : 'the STATE OF THE SCENE (a reference)'}. In its prompt:</Text>
+              <Text style={{ fontSize: 11, color: '#4e5969', fontStyle: 'italic' }}>{carried.line}</Text>
+            </div>
+          </div>
+        )
+        : (
+          <Text style={{ fontSize: 12, color: '#d25f00' }}>
+            {!card ? 'Not on the board yet — Send shots first.'
+              : !src ? `SH ${pad2(link.from + 1)} is not on the board.`
+                : !takes.length ? `Waiting: shoot SH ${pad2(link.from + 1)} first — this shot will not shoot without its last frame.`
+                  : 'Picking up the frame…'}
+          </Text>
+        )}
+      {src && takes.length > 0 && (
+        <div style={{ display: 'grid', gap: 4 }}>
+          <Text type="secondary" style={{ fontSize: 11 }}>From which take of SH {pad2(link.from + 1)} — {src.pinned ? 'picked by you' : 'the newest, unless you pick one'}:</Text>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+            {takes.map((t) => {
+              const on = t.id === src.chosenTakeId;
+              return (
+                <div
+                  key={t.id} role="button" tabIndex={0}
+                  onClick={() => onPinTake && onPinTake(src.cardId, on && src.pinned ? null : t.id)}
+                  title={on ? (src.pinned ? 'Handed on (picked) — click to follow the newest take instead' : 'Handed on (the newest) — click to keep this one even when newer takes land') : 'Hand on this take\'s last frame instead'}
+                  style={{ flex: '0 0 auto', width: 104, cursor: 'pointer', borderRadius: 5, overflow: 'hidden', border: `2px solid ${on ? '#00a870' : LINE}`, background: '#101418' }}
+                >
+                  {t.frameUrl || t.posterUrl
+                    ? <img src={t.frameUrl || t.posterUrl} alt={t.label} style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', display: 'block' }} />
+                    : <div style={{ aspectRatio: '16 / 9' }} />}
+                  <div style={{ fontSize: 10, padding: '2px 5px', color: on ? '#00a870' : '#c9cdd4', background: '#fff', fontWeight: on ? 700 : 400 }}>{t.label}{on && src.pinned ? ' 📌' : ''}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const linkWords = (l) => (l.mode === 'open'
   ? `Opens on the last frame of SH ${pad2(l.from + 1)}`
   : `Carries the last frame of SH ${pad2(l.from + 1)} as the state of the scene`);
 
-export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, scene = null, opensScene = false, consistency = null, onToggleScene, onSetLink }) => (
+export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, scene = null, opensScene = false, consistency = null, onToggleScene, onSetLink, onPinTake }) => (
   <Drawer
     width={620}
     visible={index != null && !!shot}
@@ -437,12 +499,9 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, o
               )}
             </div>
             {consistency
-              ? (
-                <Text style={{ fontSize: 12, color: consistency.card?.take?.url ? '#00a870' : '#d25f00' }}>
-                  ◀ {linkWords(consistency)}{consistency.card?.take?.url ? ' — its take is on the board; the card picks up the frame ✓' : ` — waiting: shoot SH ${pad2(consistency.from + 1)} first, this card will not shoot without it`}
-                </Text>
-              )
+              ? <CarriedFrame index={index} link={consistency} card={boardCard} onPinTake={onPinTake} />
               : <Text type="secondary" style={{ fontSize: 12 }}>Not linked — the shot carries its plates only.</Text>}
+            {boardCard?.stale && <Text style={{ fontSize: 12, color: '#ff7d00' }}>⟳ Stale: {boardCard.stale}</Text>}
           </div>
         )}
         <div style={{ display: 'grid', gap: 6 }}>

@@ -467,3 +467,18 @@ export const consistencyFrom = (shots = [], i) => {
   const scenes = sceneNumbers(shots);
   return i > 0 && scenes[i] === scenes[i - 1] ? i - 1 : null;
 };
+
+// A shot's CONTINUITY LINK: which earlier shot's last frame it carries, and how —
+// 'state' (a reference: the place and the people as that shot left them) or 'open' (the
+// shot starts on that frame). Set by hand it wins; otherwise the scene decides
+// (the previous shot in the same scene, as state).
+export const LINK_MODES = ['state', 'open'];
+export const linkOf = (shots = [], i) => {
+  const own = shots[i]?.link;
+  if (own?.user) {
+    const from = Number.isInteger(own.from) && own.from >= 0 && own.from < i ? own.from : null;
+    return from == null ? null : { from, mode: LINK_MODES.includes(own.mode) ? own.mode : 'state', user: true };
+  }
+  const from = consistencyFrom(shots, i);
+  return from == null ? null : { from, mode: 'state', user: false };
+};

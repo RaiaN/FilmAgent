@@ -174,6 +174,7 @@ export default function Home() {
   const [boardPlates, setBoardPlates] = useState([]); // the Film Agent board's plates, shown in Story Room ▸ Assets
   const [boardStoryCards, setBoardStoryCards] = useState([]); // sent shots' status + latest take, for Story Room ▸ Shots
   const [boardFocus, setBoardFocus] = useState(null); // Story Room ▸ "Open on board"
+  const [storyLinks, setStoryLinks] = useState([]); // Story Room's continuity links for the cards it sent
   // The Story Room is saved INSIDE the open Film Agent project: load → the tab, edits → the project.
   const [storyRoomLoad, setStoryRoomLoad] = useState(null);
   const [storyRoomSave, setStoryRoomSave] = useState(null);
@@ -483,13 +484,14 @@ export default function Home() {
                         onPlates={setBoardPlates}
                         onStoryCards={setBoardStoryCards}
                         focusRequest={boardFocus}
+                        storyLinks={storyLinks}
                         onStoryRoomLoad={setStoryRoomLoad}
                         storyRoomSave={storyRoomSave}
                         onProjectTitle={setFilmProjectTitle}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
-                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} />
+                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onLinks={setStoryLinks} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />

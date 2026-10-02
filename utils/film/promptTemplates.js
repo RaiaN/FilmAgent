@@ -782,6 +782,18 @@ Watercolor: hand-painted watercolor, paper texture, soft bleeding edges, muted t
     vars: ['{name}', '{n}'],
     text: '{name} maps to @Image{n}; use only structure, material, and color.',
   },
+  'story.ref.state': {
+    agent: 'Story Room',
+    label: 'Continuity line — the previous shot\'s last frame as the state of the scene',
+    vars: ['{n}'],
+    text: '@Image{n} is the last frame of an earlier shot in this scene: the place and the people as that shot left them. Keep where everyone is, what they hold and wear, and what has changed in the place; use none of its camera position, framing or composition.',
+  },
+  'story.ref.open': {
+    agent: 'Story Room',
+    label: 'Continuity line — the shot opens on the previous shot\'s last frame',
+    vars: ['{n}'],
+    text: '@Image{n} is the first frame: the shot opens exactly where the earlier shot ended and continues from there.',
+  },
   'story.ref.location': {
     agent: 'Story Room',
     label: 'Shot reference line — location plate (Seedance 2.5 role line)',

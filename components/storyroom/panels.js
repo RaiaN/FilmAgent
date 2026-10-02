@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Button, Drawer, Image, Input, Modal, Tag, Tooltip, Typography } from '@arco-design/web-react';
+import { Button, Drawer, Image, Input, Modal, Radio, Select, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconClose, IconEye, IconImage, IconLoading, IconPlus, IconSound } from '@arco-design/web-react/icon';
 
 const { Text } = Typography;
@@ -305,7 +305,7 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
       <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>{scenes.length ? `${Math.max(...scenes)} scene${Math.max(...scenes) === 1 ? '' : 's'}` : ''} · inside a scene each shot inherits the end of the shot before it</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>{scenes.length ? `${Math.max(...scenes)} scene${Math.max(...scenes) === 1 ? '' : 's'}` : ''} · a linked shot carries the last frame of the shot it continues from</Text>
         <span style={{ flex: 1 }} />
         {onScenes && <Button size="mini" disabled={busy} onClick={onScenes} title="Find where the place or time changes">Scenes ↻</Button>}
       </div>
@@ -352,10 +352,10 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
               ))}
               {bound.length > 5 && <Text type="secondary" style={{ fontSize: 11 }}>+{bound.length - 5}</Text>}
               {cons && (
-                <Tooltip content={src?.url ? `Inherits the end of SH ${pad2(cons.from + 1)}'s take` : `Needs SH ${pad2(cons.from + 1)}'s take — film it first`}>
+                <Tooltip content={`${linkWords(cons)}${src?.url ? ` — SH ${pad2(cons.from + 1)} has a take, its last frame is ready` : ` — waiting: shoot SH ${pad2(cons.from + 1)} first`}`}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6, fontSize: 10, fontWeight: 600, color: src?.url ? '#00a870' : '#d25f00' }}>
                     {src?.posterUrl ? <img src={src.posterUrl} alt="" style={{ width: 22, height: 14, objectFit: 'cover', borderRadius: 2 }} /> : null}
-                    ◀ SH {pad2(cons.from + 1)} {src?.url ? '✓' : '· missing'}
+                    ◀ SH {pad2(cons.from + 1)} · {cons.mode === 'open' ? 'opens on' : 'state'} {src?.url ? '✓' : '· waiting'}
                   </span>
                 </Tooltip>
               )}
@@ -374,7 +374,11 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
   );
 };
 
-export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, scene = null, consistency = null, onToggleScene }) => (
+const linkWords = (l) => (l.mode === 'open'
+  ? `Opens on the last frame of SH ${pad2(l.from + 1)}`
+  : `Carries the last frame of SH ${pad2(l.from + 1)} as the state of the scene`);
+
+export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, scene = null, opensScene = false, consistency = null, onToggleScene, onSetLink }) => (
   <Drawer
     width={620}
     visible={index != null && !!shot}
@@ -403,18 +407,44 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, o
             <Eyebrow>Scene {scene || ''}</Eyebrow>
             <span style={{ flex: 1 }} />
             {index > 0 && onToggleScene && (
-              <Button size="mini" onClick={onToggleScene}>{consistency ? 'New scene here' : 'Continue previous scene'}</Button>
+              <Button size="mini" onClick={onToggleScene}>{opensScene ? 'Continue previous scene' : 'New scene here'}</Button>
             )}
           </div>
           {shot.sceneReason && <Text type="secondary" style={{ fontSize: 12 }}>{shot.sceneReason}</Text>}
-          {consistency
-            ? (
-              <Text style={{ fontSize: 12, color: consistency.card?.take?.url ? '#00a870' : '#d25f00' }}>
-                ◀ Inherits the end of SH {pad2(consistency.from + 1)}{consistency.card?.take?.url ? ' — its take is on the board ✓' : ' — missing: film SH ' + pad2(consistency.from + 1) + ' first'}
-              </Text>
-            )
-            : <Text type="secondary" style={{ fontSize: 12 }}>Opens the scene — plates only.</Text>}
         </div>
+        {index > 0 && (
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Eyebrow>Continues from</Eyebrow>
+              <span style={{ flex: 1 }} />
+              {consistency?.user || shot.link?.user
+                ? <Button size="mini" type="text" onClick={() => onSetLink && onSetLink(index, 'auto')} title="Let the scenes decide again: the previous shot in the same scene">Auto</Button>
+                : <Text type="secondary" style={{ fontSize: 11 }}>auto · from the scenes</Text>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Select
+                size="small" style={{ width: 260 }}
+                value={consistency ? consistency.from : -1}
+                onChange={(v) => onSetLink && onSetLink(index, { from: v < 0 ? null : v })}
+                options={[{ label: 'Nothing — plates only', value: -1 }, ...shots.slice(0, index).map((x, j) => ({ label: `SH ${pad2(j + 1)} · ${x.title || 'Shot'}`, value: j })).reverse()]}
+              />
+              {consistency && (
+                <Radio.Group
+                  type="button" size="small" value={consistency.mode}
+                  onChange={(v) => onSetLink && onSetLink(index, { mode: v })}
+                  options={[{ label: 'State of the scene', value: 'state' }, { label: 'Opens on its last frame', value: 'open' }]}
+                />
+              )}
+            </div>
+            {consistency
+              ? (
+                <Text style={{ fontSize: 12, color: consistency.card?.take?.url ? '#00a870' : '#d25f00' }}>
+                  ◀ {linkWords(consistency)}{consistency.card?.take?.url ? ' — its take is on the board; the card picks up the frame ✓' : ` — waiting: shoot SH ${pad2(consistency.from + 1)} first, this card will not shoot without it`}
+                </Text>
+              )
+              : <Text type="secondary" style={{ fontSize: 12 }}>Not linked — the shot carries its plates only.</Text>}
+          </div>
+        )}
         <div style={{ display: 'grid', gap: 6 }}>
           <Eyebrow>In this shot</Eyebrow>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

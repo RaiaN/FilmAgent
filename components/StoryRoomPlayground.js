@@ -4,7 +4,7 @@ import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
 import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, platesFor } from './storyroom/panels';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, consistencyFrom } from '../utils/film/core/story';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, linkOf } from '../utils/film/core/story';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -50,7 +50,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
+const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -231,8 +231,8 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
     setBusy({ role: 'scenes', at: Date.now() });
     setShots(await detectScenes({ shots: w.shots, assets: plan.assets }, ctx));
   });
-  // Scenes: where place or time changes. Inside a scene, each shot inherits the end of the
-  // shot before it (its consistency asset); a scene's first shot needs none.
+  // Scenes: where place or time changes. A shot's continuity link (linkOf) follows the
+  // scenes unless set by hand: the previous shot in the same scene, as its state.
   const runScenes = () => run('scenes', async () => { setShots(await detectScenes({ shots, assets }, ctx)); });
   const toggleScene = (i) => setShots((list) => {
     if (i < 1) return list; // the first shot always opens a scene
@@ -242,9 +242,16 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
   });
   const scenes = sceneNumbers(shots);
   const consistencyOf = (i) => {
-    const from = consistencyFrom(shots, i);
-    return from == null ? null : { from, card: cardOf(from) };
+    const l = linkOf(shots, i);
+    return l ? { ...l, card: cardOf(l.from) } : null;
   };
+  // 'auto' hands the link back to the scenes; anything else pins it by hand.
+  const setLink = (i, patch) => setShots((list) => list.map((x, j) => {
+    if (j !== i) return x;
+    if (patch === 'auto') { const { link, ...rest } = x; return rest; }
+    const cur = linkOf(list, i) || { from: null, mode: 'state' };
+    return { ...x, link: { from: cur.from, mode: cur.mode, ...patch, user: true } };
+  }));
   const setShotBody = (i, v) => setShots((list) => list.map((x, j) => (j === i ? { ...x, body: v } : x)));
   const setAsset = (key, field, v) => setAssets((list) => list.map((a) => (a.key === key ? { ...a, [field]: v } : a)));
   const toggleBinding = (i, key) => setShots((list) => list.map((x, j) => (j === i ? { ...x, assets: x.assets.includes(key) ? x.assets.filter((k) => k !== key) : [...x.assets, key] } : x)));
@@ -272,13 +279,31 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
     const label = `${i + 1} · ${shots[i]?.title || 'Shot'}`;
     return boardShots.filter((c) => c.beat === label).sort((a, b) => (a.cardId < b.cardId ? 1 : -1))[0] || null;
   };
+  // Every sent shot's link, pushed to its card on the board — cards sent earlier and
+  // links edited after Send stay in step. Pushed only when something changed.
+  const linksSent = useRef('');
+  useEffect(() => {
+    if (!onLinks) return;
+    const out = [];
+    shots.forEach((x, i) => {
+      const c = cardOf(i);
+      if (!c) return;
+      const l = linkOf(shots, i);
+      const src = l ? cardOf(l.from) : null;
+      out.push({ cardId: c.cardId, from: src ? src.cardId : null, mode: l?.mode || 'state' });
+    });
+    const key = JSON.stringify(out);
+    if (key === linksSent.current) return;
+    linksSent.current = key;
+    onLinks(out);
+  }, [shots, boardShots, sendId]); // eslint-disable-line react-hooks/exhaustive-deps
   const send = () => {
     if (!onSendToFilm) return;
     const title = blueprint.title || source?.title || '';
     if (!shots.length) { onSendToFilm({ script: blueprintScript(blueprint), title }); return; }
     const id = `send-${Date.now().toString(36)}`;
     setSendId(id);
-    onSendToFilm({ sendId: id, shots: shots.map((x, i) => { const r = shotRefs(x); return { title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId) }; }), title });
+    onSendToFilm({ sendId: id, shots: shots.map((x, i) => { const r = shotRefs(x); const l = linkOf(shots, i); return { title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId), link: l ? { from: l.from, mode: l.mode } : null }; }), title });
   };
   // Look: a preset fills the sentence; references are read by the planner into one.
   const presets = lookPresets();
@@ -555,8 +580,10 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
         boardCard={openShot != null ? cardOf(openShot) : null}
         onJump={(id) => { setOpenShot(null); onOpenOnBoard?.(id); }}
         scene={openShot != null ? scenes[openShot] : null}
+        opensScene={openShot != null && (openShot === 0 || scenes[openShot] !== scenes[openShot - 1])}
         consistency={openShot != null ? consistencyOf(openShot) : null}
         onToggleScene={() => openShot != null && toggleScene(openShot)}
+        onSetLink={setLink}
       />
     </div>
   );

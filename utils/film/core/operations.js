@@ -258,7 +258,7 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   return { taskId, prompt };
 };
 
-// DRAFT → FINAL (Seedance 2.5): render the 1080p final from a draft task. Everything
+// DRAFT → FINAL (Seedance 2.5): render the final from a draft task, at one of the draft model's draftFinals. Everything
 // that shaped the draft (prompt, refs, duration, ratio, seed, audio) is reused by the
 // model from the task itself; only the draft's own model slot is needed here.
 export const finishDraft = async ({ draftTaskId, modelKey, resolution, config } = {}, ctx) => {

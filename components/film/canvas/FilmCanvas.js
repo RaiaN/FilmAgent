@@ -4084,7 +4084,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory })
     consumedStories.add(incomingStory.nonce);
     // Assets → a Cast & World panel rendered from the Story Room's roster (planner skipped).
     if (Array.isArray(incomingStory.cast) && incomingStory.cast.length) {
-      runCastDraft({ design: { arr: incomingStory.cast, style: '' } });
+      runCastDraft({ design: { arr: incomingStory.cast, style: String(incomingStory.style || '').trim() } });
       return;
     }
     const shots = (incomingStory.shots || []).filter((x) => String(x?.prompt || '').trim());

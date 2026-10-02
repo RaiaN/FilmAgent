@@ -2,15 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, InputNumber, Message, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, reviseBlueprint, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, ASSET_KINDS } from '../utils/film/core/story';
+import { makeThumbnail } from '../utils/film/canvasModel';
+import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer } from './storyroom/panels';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, reviseBlueprint, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets } from '../utils/film/core/story';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
 
-// STORY ROOM: an idea (yours, or one the Scout finds) → the story-builder blueprint →
-// the Critic's stress test → a patch for the flagged blocks → the visual beat sheet (what
-// the viewer must see or hear) → Seedance 2.5 shots that PROVE they show it → the Film
-// Agent board. Every block and prompt stays editable; Critique / Verify re-check the screen.
+// STORY ROOM — a production binder in five departments:
+//   Story (idea → blueprint → Critic/Reviser) · Look (one style sentence) · Beat sheet (what
+//   the viewer must see or hear) · Assets (the casting board every shot binds to) · Shots
+//   (Seedance 2.5 prompts rendered from the board + the Look) → the Film Agent board.
 
 const STORAGE_KEY = 'story-room';
 const BLOCK_LABEL = {
@@ -22,6 +24,7 @@ const ITEM_LABEL = {
   q6: 'Protagonist causes climax', q7: 'Resolution shows change', originality: 'Originality', specificity: 'Place is load-bearing',
 };
 const ROLE_LABEL = {
+  look: 'Reading the references\' look',
   scout: 'Scout is finding ideas', probe: 'Checking originality', architect: 'Architect is building the blueprint', critic: 'Critic is stress-testing', reviser: 'Reviser is patching the flagged blocks',
   facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots',
 };
@@ -59,6 +62,10 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
   const [facts, setFacts] = useState([]); // the visual beat sheet: [{ id, block, kind, fact }]
   const [assets, setAssets] = useState([]); // the roster: [{ key, kind, name, look }]
   const [shots, setShots] = useState([]); // [{ title, location, assets, shows, moment, body }]
+  const [look, setLook] = useState(''); // the story's one visual style sentence
+  const [lookImages, setLookImages] = useState([]); // style references (downscaled data URLs)
+  const [tab, setTab] = useState('story');
+  const [openShot, setOpenShot] = useState(null); // the shot open in the drawer
   const [busy, setBusy] = useState(null); // { role, at }
   const [elapsed, setElapsed] = useState(0);
   const hydrated = useRef(false);
@@ -73,13 +80,17 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
     if (Array.isArray(s.revised)) setRevised(s.revised);
     if (Array.isArray(s.facts)) setFacts(s.facts);
     if (Array.isArray(s.assets)) setAssets(s.assets);
+    if (typeof s.look === 'string') setLook(s.look);
+    if (Array.isArray(s.lookImages)) setLookImages(s.lookImages);
+    else if (typeof s.lookImage === 'string' && s.lookImage) setLookImages([s.lookImage]);
+    if (typeof s.tab === 'string') setTab(s.tab);
     if (Array.isArray(s.shots)) setShots(s.shots.map((x) => ({ ...x, assets: x.assets || [], shows: x.shows || [], body: x.body ?? x.prompt ?? '' })));
     hydrated.current = true;
   }, []);
   useEffect(() => {
     if (!hydrated.current) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ idea, ideas, source, blueprint, critique, revised, facts, assets, shots })); } catch { /* quota — the session copy stands */ }
-  }, [idea, ideas, source, blueprint, critique, revised, facts, assets, shots]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab })); } catch { /* quota — the session copy stands */ }
+  }, [idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab]);
   useEffect(() => {
     if (!busy) return undefined;
     setElapsed(0);
@@ -149,12 +160,14 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
   const writeAllShots = () => run('facts', async () => {
     const f = await storyFacts({ blueprint }, ctx);
     setFacts(f);
+    setTab('beats');
     setAssets([]);
     setShots([]);
     setBusy({ role: 'plan', at: Date.now() });
     const plan = await planShots({ blueprint, facts: f }, ctx);
     setAssets(plan.assets);
     setShots(plan.shots);
+    setTab('shots');
     setBusy({ role: 'shots', at: Date.now() });
     const landShot = (i, shot) => setShots((list) => list.map((x, j) => (j === i ? shot : x)));
     const w = await writeShotBodies({ blueprint, facts: f, assets: plan.assets, shots: plan.shots, onNote: note, onShot: landShot }, ctx);
@@ -165,18 +178,28 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
   const setAsset = (key, field, v) => setAssets((list) => list.map((a) => (a.key === key ? { ...a, [field]: v } : a)));
   const toggleBinding = (i, key) => setShots((list) => list.map((x, j) => (j === i ? { ...x, assets: x.assets.includes(key) ? x.assets.filter((k) => k !== key) : [...x.assets, key] } : x)));
   const shotsOfFact = (id) => shots.map((x, i) => (x.shows.includes(id) ? i + 1 : 0)).filter(Boolean);
+  const usage = (key) => shots.filter((x) => x.location === key || x.assets.includes(key)).length;
 
   const send = () => {
     if (!onSendToFilm) return;
     const title = blueprint.title || source?.title || '';
     if (!shots.length) { onSendToFilm({ script: blueprintScript(blueprint), title }); return; }
-    onSendToFilm({ shots: shots.map((x, i) => ({ title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets) })), title });
+    onSendToFilm({ shots: shots.map((x, i) => ({ title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets, look) })), title });
   };
+  // Look: a preset fills the sentence; references are read by the planner into one.
+  const presets = lookPresets();
+  const addLookImages = async (files) => {
+    const read = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+    const imgs = await Promise.all(files.map(async (f) => { const raw = await read(f); return makeThumbnail(raw, 1024).catch(() => raw); }));
+    setLookImages((list) => [...list, ...imgs].slice(0, 6));
+  };
+  const readLook = () => run('look', async () => { setLook(await describeLook({ images: lookImages, notes: look }, ctx)); });
+
   const sendAssets = () => {
-    if (onSendToFilm && assets.length) onSendToFilm({ cast: castDesignOf(assets), title: blueprint.title || source?.title || '' });
+    if (onSendToFilm && assets.length) onSendToFilm({ cast: castDesignOf(assets), style: look, title: blueprint.title || source?.title || '' });
   };
 
-  const box = { background: '#fff', border: '1px solid #e5e6eb', borderRadius: 10, padding: 16 };
+  const box = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16 };
   const capOf = (k) => (k === 'spine' ? SPINE_CAP : BLOCK_CAP);
   const countTag = (k, v) => {
     const n = k === 'journey' ? Math.max(0, ...(v || []).map(words)) : words(v);
@@ -184,75 +207,78 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
     return <Text style={{ fontSize: 11, color: over ? '#cb2634' : '#86909c', fontVariantNumeric: 'tabular-nums' }}>{k === 'journey' ? `longest ${n}/${capOf(k)}` : `${n}/${capOf(k)}`}</Text>;
   };
 
-  return (
-    <div style={{ display: 'grid', gap: 16, textAlign: 'left' }}>
+  const TABS = [
+    { id: 'story', label: 'Story', count: null },
+    { id: 'look', label: 'Look', count: look ? '●' : null },
+    { id: 'beats', label: 'Beat sheet', count: facts.length || null },
+    { id: 'assets', label: 'Assets', count: assets.length || null },
+    { id: 'shots', label: 'Shots', count: shots.length || null },
+  ];
+  const canWrite = !!blueprint && !busy && !problems.length;
+
+  const storyPanel = (
+    <div style={{ display: 'grid', gap: 16 }}>
       <div style={{ ...box, display: 'grid', gap: 10 }}>
         <Input.TextArea
           id="story-room-idea"
           value={idea}
           onChange={setIdea}
-          autoSize={{ minRows: 3, maxRows: 10 }}
+          autoSize={{ minRows: 2, maxRows: 8 }}
           placeholder="Your idea in your own words: a line, a character, a memory, a what-if. Or a direction for the Scout (a place, a world, a theme)."
+          style={{ fontSize: 14 }}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Button type="primary" disabled={!!busy || !idea.trim()} onClick={() => develop(idea)}>Develop this idea</Button>
           <Button disabled={!!busy} onClick={scout}>Scout ideas</Button>
           <InputNumber size="small" min={2} max={10} value={count} onChange={(v) => setCount(v || 6)} style={{ width: 72 }} aria-label="How many ideas to scout" />
-          <span style={{ flex: 1 }} />
-          {busy
-            ? <Text style={{ fontSize: 12, color: '#4e5969' }}><IconLoading style={{ marginRight: 6 }} />{ROLE_LABEL[busy.role]} · {elapsed}s</Text>
-            : <Text type="secondary" style={{ fontSize: 12 }}>{plannerLabel} · effort {getRuntime().reasoningEffort} · a step takes 1–4 min</Text>}
         </div>
       </div>
 
       {ideas.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
-          {ideas.map((x, i) => (
-            <div key={`${x.title}-${i}`} style={{ ...box, padding: 14, display: 'grid', gap: 6, alignContent: 'start', borderColor: source?.title === x.title ? '#165dff' : '#e5e6eb' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <Text style={{ fontWeight: 600, flex: 1 }}>{x.title}</Text>
-                <OriginalityTag probe={x.probe} />
+        <div style={{ overflowX: 'auto', paddingBottom: 6 }}>
+          <div style={{ display: 'flex', gap: 12, width: 'max-content' }}>
+            {ideas.map((x, i) => (
+              <div key={`${x.title}-${i}`} style={{ ...box, width: 300, padding: 14, display: 'grid', gap: 6, alignContent: 'start', borderColor: source?.title === x.title ? '#165dff' : LINE }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <Text style={{ fontWeight: 600, flex: 1 }}>{x.title}</Text>
+                  <OriginalityTag probe={x.probe} />
+                </div>
+                <Text type="secondary" style={{ fontSize: 12 }}>{x.place_and_culture}</Text>
+                <Text style={{ fontSize: 13 }}>{x.logline}</Text>
+                {x.assignment && <Text type="secondary" style={{ fontSize: 11 }}>{[x.assignment.register, x.assignment.situation].filter(Boolean).join(' · ')}</Text>}
+                <div><Button size="small" disabled={!!busy} onClick={() => develop(x)}>Develop</Button></div>
               </div>
-              <Text type="secondary" style={{ fontSize: 12 }}>{x.place_and_culture}</Text>
-              <Text style={{ fontSize: 13 }}>{x.logline}</Text>
-              {x.assignment && <Text type="secondary" style={{ fontSize: 11 }}>{[x.assignment.register, x.assignment.situation].filter(Boolean).join(' · ')}</Text>}
-              <div><Button size="small" disabled={!!busy} onClick={() => develop(x)}>Develop</Button></div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
       {blueprint && (
-        <div style={{ ...box, display: 'grid', gap: 14 }}>
+        <div style={{ display: 'grid', gap: 14 }}>
+          <div style={{ ...box, display: 'grid', gap: 6, background: '#fcfcfa' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#86909c' }}>SPINE</Text>
+              <span style={{ flex: 1 }} />
+              {countTag('spine', blueprint.spine)}
+            </div>
+            <Input.TextArea id="story-room-spine" value={blueprint.spine} onChange={(v) => setBlock('spine', v)} autoSize={{ minRows: 2, maxRows: 6 }} style={{ fontFamily: SCRIPT_FONT, fontSize: 14, lineHeight: 1.6, background: 'transparent', border: 'none', padding: 0 }} />
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Input id="story-room-title" value={blueprint.title || ''} onChange={(v) => setBlock('title', v)} placeholder="Title" style={{ maxWidth: 320, fontWeight: 600 }} />
-            <OriginalityTag probe={source?.probe} />
-            {critique && <Tag size="small" color={critique.total >= 14 ? 'green' : critique.total >= 10 ? 'orange' : 'red'}>Critic {critique.total}/{critique.max}</Tag>}
-            <span style={{ flex: 1 }} />
+            {critique && <Tag color={critique.total >= 14 ? 'green' : critique.total >= 10 ? 'orange' : 'red'}>Critic {critique.total}/{critique.max}</Tag>}
             <Button size="small" disabled={!!busy} onClick={critiqueNow}>Critique</Button>
             <Button size="small" disabled={!!busy || !fixCount} onClick={revise}>Revise flagged{fixCount ? ` (${fixCount})` : ''}</Button>
-            <Button size="small" disabled={!!busy || problems.length > 0} onClick={writeAllShots} title="The visual beat sheet, the asset roster and shot plan, then one Seedance 2.5 shot per call">{shots.length ? 'Rewrite shots' : 'Write shots'}</Button>
-            {assets.length > 0 && <Button size="small" icon={<IconSend />} disabled={!!busy} onClick={sendAssets} title="Renders every asset on the Film Agent board as Cast & World plates (characters: face + turnaround), named as here and auto-tagged into the bible">{`Cast & World (${assets.length})`}</Button>}
-            <Button size="small" type="primary" icon={<IconSend />} disabled={!!busy || problems.length > 0} onClick={send} title={problems.length ? 'Fix the failing checks first' : shots.length ? 'Lands the shots on the Film Agent board as chained SHOT cards (Seedance 2.5), prompts verbatim' : 'Lands this story on the Film Agent board as a Storyboard card, verbatim'}>{shots.length ? `Send ${shots.length} shots` : 'Send to Film Agent'}</Button>
+            {problems.length > 0 && <Text style={{ fontSize: 12, color: '#cb2634' }}>Checks failing: {problems.join(' · ')}</Text>}
           </div>
 
-          <div style={{ display: 'grid', gap: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><Text style={{ fontSize: 12, fontWeight: 600 }}>Spine</Text>{countTag('spine', blueprint.spine)}</div>
-            <Input.TextArea id="story-room-spine" value={blueprint.spine} onChange={(v) => setBlock('spine', v)} autoSize={{ minRows: 2, maxRows: 6 }} style={{ fontFamily: '"Courier Prime", "Courier New", monospace', background: '#f7f8fa' }} />
-          </div>
-
-          {problems.length > 0 && (
-            <Text style={{ fontSize: 12, color: '#cb2634' }}>Checks failing: {problems.join(' · ')}</Text>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
             {BLOCKS.map((k) => {
-              const note = critique?.fix?.[k];
+              const editor = critique?.fix?.[k];
               const v = blueprint[k];
               return (
-                <div key={k} style={{ display: 'grid', gap: 4, alignContent: 'start', minWidth: 0 }}>
+                <div key={k} style={{ ...box, padding: 12, display: 'grid', gap: 4, alignContent: 'start', minWidth: 0, borderColor: editor ? '#ffcf8b' : LINE }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: 12, fontWeight: 600 }}>{BLOCK_LABEL[k]}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#4e5969' }}>{BLOCK_LABEL[k]}</Text>
                     {revised.includes(k) && <Tag size="small" color="arcoblue">revised</Tag>}
                     <span style={{ flex: 1 }} />
                     {countTag(k, v)}
@@ -264,16 +290,16 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
                     onBlur={k === 'journey' ? cleanJourney : undefined}
                     autoSize={{ minRows: k === 'journey' ? 4 : 2, maxRows: 10 }}
                     placeholder={k === 'journey' ? 'One obstacle per line, 3–5, each costlier than the last' : ''}
-                    style={note ? { borderColor: '#ff9a2e' } : undefined}
+                    style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 13, lineHeight: 1.55 }}
                   />
-                  {note && <Text style={{ fontSize: 12, color: '#d25f00' }}>Editor: {note}</Text>}
+                  {editor && <Text style={{ fontSize: 12, color: '#d25f00' }}>Editor: {editor}</Text>}
                 </div>
               );
             })}
           </div>
 
           {critique && (
-            <details>
+            <details style={{ ...box }}>
               <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#165dff' }}>Stress test · {critique.total}/{critique.max}</summary>
               <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
                 {SCORE_KEYS.map((k) => {
@@ -293,69 +319,73 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
           )}
         </div>
       )}
+    </div>
+  );
 
-      {blueprint && facts.length > 0 && (
-        <div style={{ ...box, display: 'grid', gap: 14 }}>
-          <Text style={{ fontWeight: 600 }}>Visual beat sheet</Text>
-          <div style={{ display: 'grid', gap: 6 }}>
-            {facts.map((f) => {
-              const in_ = shotsOfFact(f.id);
-              return (
-                <div key={f.id} style={{ display: 'grid', gridTemplateColumns: '34px 1fr auto', gap: 8, alignItems: 'start', fontSize: 13 }}>
-                  <Text style={{ fontSize: 12, fontWeight: 600, color: '#86909c', fontVariantNumeric: 'tabular-nums' }}>{f.id}</Text>
-                  <span style={{ minWidth: 0 }}><Text type="secondary" style={{ fontSize: 11 }}>{BLOCK_LABEL[f.block] || f.block} · {f.kind}</Text><br />{f.fact}</span>
-                  {shots.length > 0 && <Tag size="small" color={in_.length ? 'arcoblue' : 'gray'}>{in_.length ? `shot ${in_.join(', ')}` : 'no shot'}</Tag>}
-                </div>
-              );
-            })}
-          </div>
+  const needsBlueprint = <Empty title="No story yet" hint="Develop an idea on the Story tab first — the beat sheet, assets and shots all grow from its blueprint." action={<Button onClick={() => setTab('story')}>Go to Story</Button>} />;
+  const needsShots = (what) => <Empty title={`No ${what} yet`} hint="Write shots turns the blueprint into a visual beat sheet, a casting board of characters, locations and props, and one Seedance 2.5 shot per moment." action={<Button type="primary" disabled={!canWrite} onClick={writeAllShots}>Write shots</Button>} />;
 
-          {assets.length > 0 && (
-            <div style={{ display: 'grid', gap: 8 }}>
-              <Text style={{ fontWeight: 600 }}>Assets</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>Every shot that binds an asset gets its look written in, word for word. Edit a look once and every shot follows.</Text>
-              {ASSET_KINDS.map((kind) => assets.filter((a) => a.kind === kind).map((a) => (
-                <div key={a.key} style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 8, alignItems: 'start' }}>
-                  <div style={{ display: 'grid', gap: 2 }}>
-                    <Text style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</Text>
-                    <Text type="secondary" style={{ fontSize: 11 }}>{kind} · {`{{${a.key}}}`}</Text>
-                  </div>
-                  <Input.TextArea id={`story-room-asset-${a.key}`} value={a.look} onChange={(v) => setAsset(a.key, 'look', v)} autoSize={{ minRows: 1, maxRows: 5 }} />
-                </div>
-              )))}
-            </div>
-          )}
+  const panel = {
+    story: storyPanel,
+    look: <LookPanel look={look} setLook={setLook} presets={presets} images={lookImages} addImages={addLookImages} removeImage={(i) => setLookImages((l) => l.filter((_, j) => j !== i))} readImages={readLook} busy={!!busy} />,
+    beats: !blueprint ? needsBlueprint : facts.length ? <BeatSheet facts={facts} shotsOfFact={shotsOfFact} onOpenShot={(i) => { setTab('shots'); setOpenShot(i); }} /> : needsShots('beat sheet'),
+    assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} /> : needsShots('assets'),
+    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} /> : needsShots('shots'),
+  }[tab] || storyPanel;
 
-          <div style={{ display: 'grid', gap: 16 }}>
-            {shots.map((x, i) => (
-              <div key={i} style={{ display: 'grid', gap: 6, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <Text style={{ fontSize: 12, fontWeight: 600 }}>Shot {i + 1} · {x.title}</Text>
-                  {x.shows.map((id) => <Tag key={id} size="small">{id}</Tag>)}
-                </div>
-                {x.moment && <Text type="secondary" style={{ fontSize: 12 }}>{x.moment}</Text>}
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  {assets.map((a) => {
-                    const on = x.assets.includes(a.key) || x.location === a.key;
-                    return (
-                      <Tag key={a.key} size="small" checkable checked={on} onCheck={() => x.location !== a.key && toggleBinding(i, a.key)} color={a.kind === 'location' ? 'green' : a.kind === 'prop' ? 'orange' : 'arcoblue'}>
-                        {a.name}
-                      </Tag>
-                    );
-                  })}
-                </div>
-                <Input.TextArea id={`story-room-shot-${i}`} value={x.body} onChange={(v) => setShotBody(i, v)} autoSize={{ minRows: 3, maxRows: 14 }} placeholder={busy ? 'Writing…' : 'No shot yet'} />
-                {x.body && (
-                  <details>
-                    <summary style={{ cursor: 'pointer', fontSize: 12, color: '#165dff' }}>Rendered prompt</summary>
-                    <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: '6px 0 0', fontFamily: 'inherit', color: '#4e5969' }}>{renderShotPrompt(x, assets)}</pre>
-                  </details>
-                )}
-              </div>
+  return (
+    <div className="story-room" style={{ display: 'grid', gap: 14, textAlign: 'left' }}>
+      <style>{'.story-room .arco-typography, .story-room textarea { word-break: normal; overflow-wrap: break-word; }'}</style>
+      <div style={{ ...box, padding: '12px 16px', display: 'grid', gap: 10, position: 'sticky', top: 0, zIndex: 5, boxShadow: '0 2px 10px rgba(0,0,0,0.04)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {blueprint
+            ? <Input id="story-room-title" value={blueprint.title || ''} onChange={(v) => setBlock('title', v)} placeholder="Untitled" style={{ maxWidth: 360, fontFamily: SCRIPT_FONT, fontWeight: 700, fontSize: 18, textTransform: 'uppercase', border: 'none', background: 'transparent', padding: 0 }} />
+            : <Text style={{ fontFamily: SCRIPT_FONT, fontWeight: 700, fontSize: 18 }}>STORY ROOM</Text>}
+          <OriginalityTag probe={source?.probe} />
+          <span style={{ flex: 1 }} />
+          {busy
+            ? <Text style={{ fontSize: 12, color: '#4e5969' }}><IconLoading style={{ marginRight: 6 }} />{ROLE_LABEL[busy.role]} · {elapsed}s</Text>
+            : <Text type="secondary" style={{ fontSize: 12 }}>{plannerLabel} · effort {getRuntime().reasoningEffort}</Text>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div role="tablist" style={{ display: 'flex', gap: 2, background: '#f2f3f5', borderRadius: 8, padding: 3 }}>
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                onClick={() => setTab(t.id)}
+                style={{ border: 'none', cursor: 'pointer', padding: '5px 12px', borderRadius: 6, fontSize: 13, fontWeight: tab === t.id ? 600 : 500, background: tab === t.id ? '#fff' : 'transparent', color: tab === t.id ? '#1d2129' : '#4e5969', boxShadow: tab === t.id ? '0 1px 2px rgba(0,0,0,0.08)' : 'none', display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {t.label}
+                {t.count != null && <span style={{ fontSize: 11, color: t.count === '●' ? '#00b42a' : '#86909c', fontVariantNumeric: 'tabular-nums' }}>{t.count}</span>}
+              </button>
             ))}
           </div>
+          <span style={{ flex: 1 }} />
+          {blueprint && <Button size="small" disabled={!canWrite} onClick={writeAllShots} title="Beat sheet → casting board + shot plan → one Seedance 2.5 shot per moment">{shots.length ? 'Rewrite shots' : 'Write shots'}</Button>}
+          {assets.length > 0 && <Button size="small" icon={<IconSend />} disabled={!!busy} onClick={sendAssets} title="Renders every asset on the Film Agent board as Cast & World plates (characters: face + turnaround), in the Look">{`Cast & World · ${assets.length}`}</Button>}
+          {blueprint && <Button size="small" type="primary" icon={<IconSend />} disabled={!!busy || problems.length > 0} onClick={send} title={shots.length ? 'Lands the shots on the Film Agent board as chained SHOT cards (Seedance 2.5)' : 'Lands this story on the Film Agent board as a Storyboard card, verbatim'}>{shots.length ? `Send ${shots.length} shots` : 'Send to Film Agent'}</Button>}
         </div>
-      )}
+      </div>
+
+      {panel}
+
+      <ShotDrawer
+        index={openShot}
+        shot={openShot != null ? shots[openShot] : null}
+        shots={shots}
+        assets={assets}
+        facts={facts}
+        look={look}
+        onClose={() => setOpenShot(null)}
+        onPrev={() => setOpenShot((i) => Math.max(0, i - 1))}
+        onNext={() => setOpenShot((i) => Math.min(shots.length - 1, i + 1))}
+        setBody={setShotBody}
+        toggleBinding={toggleBinding}
+        renderPrompt={(x) => renderShotPrompt(x, assets, look)}
+      />
     </div>
   );
 };

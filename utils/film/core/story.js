@@ -46,10 +46,10 @@ const storySkillLine = async () => {
 // A call that dies after minutes is the route's time ceiling or a dropped connection —
 // the client only reports "Request failed", so the clock is the honest signal.
 const LONG_CALL_MS = 240000;
-const ask = async (ctx, { system, prompt, effort, config }) => {
+const ask = async (ctx, { system, prompt, effort, config, images }) => {
   const t0 = Date.now();
   try {
-    const { content } = await ctx.client.reason({ prompt, systemPrompt: system, modelId: getModel('reasoner', config), reasoningEffort: effort });
+    const { content } = await ctx.client.reason({ prompt, systemPrompt: system, images, modelId: getModel('reasoner', config), reasoningEffort: effort });
     return String(content || '');
   } catch (err) {
     const ms = Date.now() - t0;
@@ -319,13 +319,14 @@ export const boundAssets = (shot, assets = []) => {
   return assets.filter((a) => keys.has(a.key)).sort((a, b) => order(a) - order(b));
 };
 
-// The final prompt, rendered by code: the bound assets' looks, then the body with each
-// token replaced by the asset's name.
-export const renderShotPrompt = (shot, assets = []) => {
+// The final prompt, rendered by code: the bound assets' looks, the story's Look, then the
+// body with each token replaced by the asset's name.
+export const renderShotPrompt = (shot, assets = [], look = '') => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   const defs = boundAssets(shot, assets).filter((a) => a.look).map((a) => (a.kind === 'location' ? `Setting — ${a.name}: ${a.look}` : `${a.name}: ${a.look}`));
   const body = String(shot.body || '').replace(TOKEN_RE, (m, k) => byKey[keyOf(k)]?.name || k.replace(/_/g, ' ').toLowerCase()).trim();
-  return [defs.map((d) => (/[.!?]$/.test(d) ? d : `${d}.`)).join('\n'), body].filter(Boolean).join('\n\n');
+  const lookLine = String(look || '').trim() ? `Look: ${String(look).trim().replace(/[.\s]+$/, '')}.` : '';
+  return [[...defs.map((d) => (/[.!?]$/.test(d) ? d : `${d}.`)), lookLine].filter(Boolean).join('\n'), body].filter(Boolean).join('\n\n');
 };
 
 // ONE shot's body, under the Seedance 2.5 spec (whole). Assets appear only as tokens.
@@ -368,3 +369,22 @@ export const castDesignOf = (assets = []) => assets.filter((a) => a.name).map((a
   if (a.kind === 'character') return { type: 'character', name: a.name, facePrompt: inject('story.plate.face', v), bodyPrompt: inject('story.plate.body', v) };
   return { type: a.kind === 'location' ? 'location' : 'prop', name: a.name, prompt: inject(a.kind === 'location' ? 'story.plate.location' : 'story.plate.prop', v) };
 });
+
+// ---- Look: the story's one visual style ---------------------------------------------
+// Presets live in an editable template ("Name: sentence" per line). The Look rides as the
+// Cast & World `style` (appended to every plate) and as one line in every shot prompt.
+export const lookPresets = () => getTemplateText('story.look.presets').split('\n')
+  .map((l) => l.trim()).filter(Boolean)
+  .map((l) => { const i = l.indexOf(':'); return i > 0 ? { name: l.slice(0, i).trim(), text: l.slice(i + 1).trim() } : { name: l, text: l }; });
+
+// Reference images (+ the user's own notes) → one style sentence: what the references
+// SHARE, never their subjects. The planner reads the images; medium effort.
+export const describeLook = async ({ images = [], notes = '', config } = {}, ctx) => {
+  const imgs = images.filter(Boolean);
+  if (!imgs.length) throw new Error('Add a reference image first.');
+  const prompt = inject('story.look.describe.user', { count: imgs.length, notes: String(notes || '').trim() || '(none)' });
+  const text = await ask(ctx, { system: renderTemplate('story.look.describe.system'), prompt, images: imgs, effort: 'medium', config });
+  const out = String(text || '').replace(/^```\w*\s*|\s*```$/g, '').trim();
+  if (!out) throw new Error('The style description came back empty — try again.');
+  return out;
+};

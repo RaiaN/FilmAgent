@@ -750,6 +750,35 @@ YOU ARE THE DIRECTOR writing ONE shot of a story as the body of a Seedance 2.5 p
 Refer to every asset ONLY by its token exactly as given, e.g. {{KAAN}} — never describe an asset's appearance; its look is written in separately. Duration, aspect ratio and resolution are request parameters, never prompt text.
 Return ONLY the shot body text — no title, no notes, no JSON.`,
   },
+  'story.look.presets': {
+    agent: 'Story Room',
+    label: 'Look presets — the dropdown (one per line, "Name: style sentence")',
+    vars: [],
+    text: `Naturalistic film: shot on 35mm film, natural motivated light, soft contrast, true-to-life colour and skin, fine grain
+Handheld documentary: handheld 16mm documentary look, available light, muted colour, visible grain, imperfect focus, raw and immediate
+Film noir: high-contrast black-and-white, hard low-key light, deep shadows, slatted light patterns, wet reflective surfaces
+Golden hour: warm low sun, soft atmospheric haze, glowing rim light, gentle pastel highlights, shallow depth of field
+Neon night: saturated magenta and cyan neon against deep blacks, rain-slick reflections, anamorphic flares, moody haze
+Bleach bypass: desaturated colour, crushed blacks, silvery highlights, harsh daylight, gritty high contrast
+1970s Kodachrome: warm saturated reds and yellows, soft grain, slightly faded blacks, period colour film
+Storybook pastel: symmetrical frontal compositions, soft pastel palette, even flat light, crisp miniature-like detail
+Anime: 2D cel-shaded anime, clean line art, flat colour with soft gradients, painted backgrounds, luminous skies
+Stop-motion clay: handmade claymation, visible fingerprints and tool marks, miniature practical sets, soft key light
+Watercolor: hand-painted watercolor, paper texture, soft bleeding edges, muted translucent palette
+3D animated feature: stylized 3D animation, soft global illumination, expressive proportions, rich saturated colour`,
+  },
+  'story.look.describe.system': {
+    agent: 'Story Room',
+    label: 'Look — describe a reference image\'s style (system)',
+    vars: [],
+    text: 'You are a cinematographer and colourist building a lookbook. Describe the ONE VISUAL STYLE the attached reference images share, as ONE dense sentence an image or video generator can reproduce: the medium (photograph, film stock, 2D, 3D, paint), palette and colour grade, light quality and direction, contrast, texture and grain, lens feel and depth of field, era. Where the references differ, keep what they share and follow the filmmaker\'s notes. Describe the look only — never the subjects, places or stories in the images. Return only the sentence.',
+  },
+  'story.look.describe.user': {
+    agent: 'Story Room',
+    label: 'Look — describe the references\' style (instruction)',
+    vars: ['{count}', '{notes}'],
+    text: 'Describe the visual style these {count} reference images share.\nThe filmmaker\'s notes: {notes}',
+  },
   'story.plate.face': {
     agent: 'Story Room',
     label: 'Asset plate — character face (Cast & World)',

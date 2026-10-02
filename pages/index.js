@@ -352,6 +352,7 @@ export default function Home() {
   // The full-canvas Film Agent gets a compact header so the canvas gets the
   // vertical space instead of a big title + description.
   const isCanvasTool = activeModelId === 'film-agent';
+  const isWideTool = isCanvasTool || activeModelId === 'story-room';
 
   return (
     <>
@@ -362,7 +363,7 @@ export default function Home() {
         {/* The left icon rail is GONE — the top Film Agent | Story Room | Tools tabs cover
             navigation; Settings moved to the top-right corner. */}
         <Content style={{ padding: isCanvasTool ? '8px 16px 14px' : '12px 24px 16px', background: '#f6f7f9', overflowY: 'auto' }}>
-            <div style={{ maxWidth: isCanvasTool ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
+            <div style={{ maxWidth: isWideTool ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
 
 
                 <header style={{ marginBottom: isCanvasTool ? 8 : 10, textAlign: 'center' }}>

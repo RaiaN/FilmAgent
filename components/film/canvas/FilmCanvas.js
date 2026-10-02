@@ -504,6 +504,17 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
 // window so a hot reload of this module cannot replay a hand-off.
 const consumedStories = (typeof window !== 'undefined' && (window.__storyRoomConsumed = window.__storyRoomConsumed || new Set())) || new Set();
 
+// A role line joins the prompt's REFERENCE block (the leading paragraph of "@ImageN …"
+// lines and "Look:"), before the Look line; a prompt without one gets a block of its own.
+const withRoleLine = (prompt, line) => {
+  const paras = String(prompt || '').trim().split('\n\n');
+  const head = paras[0] ? paras[0].split('\n') : [];
+  if (!head.some((l) => /@Image\d+|^Look:/.test(l))) return [line, ...paras].filter(Boolean).join('\n\n');
+  const look = head.findIndex((l) => /^Look:/.test(l));
+  head.splice(look < 0 ? head.length : look, 0, line);
+  return [head.join('\n'), ...paras.slice(1)].join('\n\n');
+};
+
 // CONTINUITY — the take a card's later shots continue from: the one pinned on the card,
 // else its newest rendered take.
 const takesOfCard = (cardId, ns) => {
@@ -529,7 +540,7 @@ const staleReasonOf = (card, ns) => {
     : `this take was shot without "${name}"'s last frame — re-shoot to continue from it`;
 };
 
-const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates, onStoryCards, focusRequest, storyLinks, pinRequest }) => {
+const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates, onStoryCards, focusRequest, storyLinks, pinRequest, cardUpdate }) => {
   const wrapperRef = useRef(null);
   const fileInputRef = useRef(null);
   const [rfInstance, setRfInstance] = useState(null);
@@ -3074,7 +3085,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       if (key === card.data.continuityKey && inPrompt && line === card.data.continuityLine) return;
       const prompt = String(card.data.promptOverride || '');
       const old = card.data.continuityLine;
-      const promptOverride = old && prompt.includes(old) ? prompt.split(old).join(line) : `${prompt.trim()}\n${line}`;
+      const promptOverride = old && prompt.includes(old) ? prompt.split(old).join(line) : withRoleLine(prompt, line);
       const oldFrame = card.data.continuityFrame;
       const keyframes = (card.data.keyframes || []).filter((k) => k?.url !== oldFrame && k?.url !== frame);
       onPatchCut(card.id, {
@@ -3800,6 +3811,20 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   const pinContinuityTake = useCallback((cardId, takeId) => {
     onPatchCut(cardId, (d) => ({ continueTakeId: d.continueTakeId === takeId ? null : takeId }));
   }, [onPatchCut]);
+  // Story Room re-writes one sent card from its shot: the prompt as Story Room renders it
+  // and the shot's plates. The continuity line is then placed back by the sync above.
+  const cardUpdateSeen = useRef(null);
+  useEffect(() => {
+    if (!cardUpdate?.nonce || cardUpdate.nonce === cardUpdateSeen.current) return;
+    cardUpdateSeen.current = cardUpdate.nonce;
+    if (!nodesRef.current.some((n) => n.id === cardUpdate.cardId && isShotCard(n))) { Message.warning('That SHOT card is no longer on the board.'); return; }
+    onPatchCut(cardUpdate.cardId, {
+      promptOverride: String(cardUpdate.prompt || ''),
+      refIds: (cardUpdate.refNodeIds || []).map((nid) => bibleRef.current.find((b) => b.nodeId === nid)?.id).filter(Boolean),
+      continuityLine: null, continuityKey: null,
+    });
+    Message.success('SHOT card updated from the Story Room.');
+  }, [cardUpdate, onPatchCut]);
   // Story Room picks the source take: { cardId, takeId (null = follow the newest) }.
   const pinSeen = useRef(null);
   useEffect(() => {

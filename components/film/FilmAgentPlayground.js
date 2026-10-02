@@ -54,7 +54,7 @@ const randomId = () =>
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     : Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates, onStoryCards, focusRequest, storyLinks, pinRequest, onStoryRoomLoad, storyRoomSave, onProjectTitle }) => {
+const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates, onStoryCards, focusRequest, storyLinks, pinRequest, cardUpdate, onStoryRoomLoad, storyRoomSave, onProjectTitle }) => {
   const [project, setProject] = useState(null);
   // THE STORY ROOM LIVES IN THE PROJECT (project.storyRoom): each project load hands its
   // story to the Story Room tab; the tab's edits come back here and ride the project's
@@ -614,6 +614,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
         focusRequest={focusRequest}
         storyLinks={storyLinks}
         pinRequest={pinRequest}
+        cardUpdate={cardUpdate}
       />
 
       {dialogs}

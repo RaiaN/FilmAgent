@@ -387,7 +387,7 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
 // frames: click one to hand that take on; click the chosen one again to follow the newest.
 // HOW THE FRAME IS USED — the filmmaker's own words, cited as @ImageN (code keeps the
 // number right). Empty = the mode's standard line.
-const FrameUse = ({ index, link, carried, onSetLink }) => {
+const FrameUse = ({ index, link, carried, onSetLink, onUpdateCard }) => {
   const n = (/@Image(\d+)/.exec(carried?.line || '') || [])[1];
   const cite = n ? `@Image${n}` : '@Frame';
   const shown = link.text ? link.text.split(FRAME_TOKEN).join(cite) : (carried?.line || '');
@@ -410,7 +410,7 @@ const FrameUse = ({ index, link, carried, onSetLink }) => {
         {link.text && <Button size="mini" type="text" onClick={() => onSetLink && onSetLink(index, { text: '' })} title="Back to the standard line for this mode">Standard line</Button>}
         {carried && (onCard
           ? <Text style={{ fontSize: 11, color: '#00a870', fontWeight: 600 }}>on the card ✓</Text>
-          : <Button size="mini" type="primary" onClick={commit} title="Write this line into the board card's prompt now">Update card</Button>)}
+          : <Button size="mini" type="primary" onClick={() => { commit(); onUpdateCard && onUpdateCard(); }} title="Re-write the board card's whole prompt with this line in its reference block">Update card</Button>)}
       </div>
       <Input.TextArea
         value={draft} onChange={setDraft} onBlur={commit}
@@ -422,7 +422,7 @@ const FrameUse = ({ index, link, carried, onSetLink }) => {
   );
 };
 
-const CarriedFrame = ({ index, link, card, onPinTake, onSetLink }) => {
+const CarriedFrame = ({ index, link, card, onPinTake, onSetLink, onUpdateCard }) => {
   const src = link.card;
   const carried = card?.carried;
   const takes = src?.takes || [];
@@ -446,7 +446,7 @@ const CarriedFrame = ({ index, link, card, onPinTake, onSetLink }) => {
                   : 'Picking up the frame…'}
           </Text>
         )}
-      <FrameUse index={index} link={link} carried={carried} onSetLink={onSetLink} />
+      <FrameUse index={index} link={link} carried={carried} onSetLink={onSetLink} onUpdateCard={onUpdateCard} />
       {src && takes.length > 0 && (
         <div style={{ display: 'grid', gap: 4 }}>
           <Text type="secondary" style={{ fontSize: 11 }}>From which take of SH {pad2(link.from + 1)} — {src.pinned ? 'picked by you' : 'the newest, unless you pick one'}:</Text>
@@ -478,7 +478,7 @@ const linkWords = (l) => (l.mode === 'open'
   ? `Opens on the last frame of SH ${pad2(l.from + 1)}`
   : `Carries the last frame of SH ${pad2(l.from + 1)} as the state of the scene`);
 
-export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, scene = null, opensScene = false, consistency = null, onToggleScene, onSetLink, onPinTake }) => (
+export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, scene = null, opensScene = false, consistency = null, onToggleScene, onSetLink, onPinTake, onUpdateCard }) => (
   <Drawer
     width={620}
     visible={index != null && !!shot}
@@ -492,6 +492,11 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, o
         {onJump && (
           <Tooltip content={boardCard ? 'Select this SHOT card on the Film Agent board' : 'Not on the board yet. Send shots first.'}>
             <Button size="mini" type="primary" disabled={!boardCard} onClick={() => boardCard && onJump(boardCard.cardId)}>Open on board ↗</Button>
+          </Tooltip>
+        )}
+        {onUpdateCard && boardCard && (
+          <Tooltip content="Re-write this shot's board card from the Story Room as it is now — the whole prompt (plate lines, Look, the action, the continuity line in its place) and its plates. Replaces any edits made on the card.">
+            <Button size="mini" onClick={onUpdateCard}>Update card ↻</Button>
           </Tooltip>
         )}
         <Button size="mini" disabled={index === 0} onClick={onPrev}>‹ Prev</Button>
@@ -537,7 +542,7 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, o
               )}
             </div>
             {consistency
-              ? <CarriedFrame index={index} link={consistency} card={boardCard} onPinTake={onPinTake} onSetLink={onSetLink} />
+              ? <CarriedFrame index={index} link={consistency} card={boardCard} onPinTake={onPinTake} onSetLink={onSetLink} onUpdateCard={onUpdateCard} />
               : <Text type="secondary" style={{ fontSize: 12 }}>Not linked — the shot carries its plates only.</Text>}
             {boardCard?.stale && <Text style={{ fontSize: 12, color: '#ff7d00' }}>⟳ Stale: {boardCard.stale}</Text>}
           </div>

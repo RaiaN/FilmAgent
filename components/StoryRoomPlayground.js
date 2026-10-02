@@ -50,7 +50,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
+const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, onUpdateCard, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -297,6 +297,14 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
     linksSent.current = key;
     onLinks(out);
   }, [shots, boardShots, sendId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Re-write ONE sent card from its shot as it is now: the whole prompt (plate lines, Look,
+  // the action) and its plates. The board puts the continuity line back in the block.
+  const updateCard = (i) => {
+    const c = cardOf(i);
+    if (!c || !onUpdateCard) return;
+    const r = shotRefs(shots[i]);
+    onUpdateCard({ cardId: c.cardId, prompt: renderShotPrompt(shots[i], assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId) });
+  };
   const send = () => {
     if (!onSendToFilm) return;
     const title = blueprint.title || source?.title || '';
@@ -585,6 +593,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
         onToggleScene={() => openShot != null && toggleScene(openShot)}
         onSetLink={setLink}
         onPinTake={onPinTake}
+        onUpdateCard={onUpdateCard ? () => openShot != null && updateCard(openShot) : null}
       />
     </div>
   );

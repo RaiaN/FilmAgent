@@ -177,6 +177,8 @@ export default function Home() {
   const [storyLinks, setStoryLinks] = useState([]); // Story Room's continuity links for the cards it sent
   const [pinRequest, setPinRequest] = useState(null); // Story Room picks the take a source shot hands on
   const handlePinTake = useCallback((cardId, takeId) => setPinRequest({ cardId, takeId, nonce: Date.now() }), []);
+  const [cardUpdate, setCardUpdate] = useState(null); // Story Room re-writes one sent card from its shot
+  const handleUpdateCard = useCallback((u) => setCardUpdate({ ...u, nonce: Date.now() }), []);
   // The Story Room is saved INSIDE the open Film Agent project: load → the tab, edits → the project.
   const [storyRoomLoad, setStoryRoomLoad] = useState(null);
   const [storyRoomSave, setStoryRoomSave] = useState(null);
@@ -488,13 +490,14 @@ export default function Home() {
                         focusRequest={boardFocus}
                         storyLinks={storyLinks}
                         pinRequest={pinRequest}
+                        cardUpdate={cardUpdate}
                         onStoryRoomLoad={setStoryRoomLoad}
                         storyRoomSave={storyRoomSave}
                         onProjectTitle={setFilmProjectTitle}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
-                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onLinks={setStoryLinks} onPinTake={handlePinTake} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} />
+                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onLinks={setStoryLinks} onPinTake={handlePinTake} onUpdateCard={handleUpdateCard} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />

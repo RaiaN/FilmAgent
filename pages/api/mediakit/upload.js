@@ -1,8 +1,8 @@
 import { checkInBytes } from '../../../utils/server/mediaStore';
 
-// A local video for enhancement, sent as RAW bytes (no base64 JSON — inputs can be
-// hundreds of MB). It is checked into the media store, which mirrors it to TOS; the
-// enhance route presigns that object so MediaKit can download it.
+// A local file for a Tools tab (Video Enhance, Verify), sent as RAW bytes (no base64
+// JSON — inputs can be hundreds of MB). It is checked into the media store, which
+// mirrors it to TOS; the tab's own route then hands it to the service that needs it.
 export const config = { api: { bodyParser: false } };
 
 export default async function mediakitUploadHandler(req, res) {

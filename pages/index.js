@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useState } from 'react';
 import { Layout, Button, Card, Typography } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt, IconSafe } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
@@ -12,6 +12,7 @@ import LLMPlayground from '../components/LLMPlayground';
 import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
 import AssetUploadPlayground from '../components/AssetUploadPlayground';
 import VideoEnhancePlayground from '../components/VideoEnhancePlayground';
+import ArtifactVerifyPlayground from '../components/ArtifactVerifyPlayground';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
@@ -33,7 +34,7 @@ const buildInitialResultState = () =>
   }, {});
 
 // Raw model playgrounds grouped under the "Tools" meta tab.
-const TOOL_TABS = ['seedream', 'seedance', 'video-enhance', 'asset-upload', 'llm'];
+const TOOL_TABS = ['seedream', 'seedance', 'video-enhance', 'asset-upload', 'verify', 'llm'];
 
 export default function Home() {
   const [activeModelId, setActiveModelId] = useState('film-agent');
@@ -403,6 +404,10 @@ export default function Home() {
                                                 <IconPlus style={{ marginRight: 8 }} />
                                                 Asset Upload
                                             </Button>
+                                            <Button type={activeModelId === 'verify' ? 'primary' : 'secondary'} onClick={() => selectTool('verify')}>
+                                                <IconSafe style={{ marginRight: 8 }} />
+                                                Verify
+                                            </Button>
                                             <Button type={activeModelId === 'llm' ? 'primary' : 'secondary'} onClick={() => selectTool('llm')}>
                                                 <IconRobot style={{ marginRight: 8 }} />
                                                 AI Analysis
@@ -453,6 +458,9 @@ export default function Home() {
                 <div style={{ display: activeModelId === 'asset-upload' ? 'block' : 'none' }}>
                     <AssetUploadPlayground onUseInVideo={handleUseAssetsInVideo} />
                 </div>
+                <div style={{ display: activeModelId === 'verify' ? 'block' : 'none' }}>
+                    <ArtifactVerifyPlayground />
+                </div>
                 <div style={{ display: activeModelId === 'llm' ? 'block' : 'none' }}>
                     <LLMPlayground
                         schema={uiSchema}
@@ -468,7 +476,7 @@ export default function Home() {
                     />
                 </div>
                 <div style={{ marginTop: 24 }}>
-                     {!['llm', 'film-agent', 'asset-upload', 'video-enhance'].includes(activeModelId) && (
+                     {!['llm', 'film-agent', 'asset-upload', 'video-enhance', 'verify'].includes(activeModelId) && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}
@@ -477,7 +485,7 @@ export default function Home() {
                       )}
                 </div>
                 
-                {TOOL_TABS.includes(activeModelId) && !['asset-upload', 'video-enhance'].includes(activeModelId) && (
+                {TOOL_TABS.includes(activeModelId) && !['asset-upload', 'video-enhance', 'verify'].includes(activeModelId) && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 12, color: '#86909c', cursor: 'pointer' }}>
                         <input
                             type="checkbox"

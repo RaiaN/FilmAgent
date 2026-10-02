@@ -51,7 +51,8 @@ const SkillSettings = ({ visible, onClose }) => {
 
   return (
     <Drawer width={620} title="Skills" visible={visible} onCancel={onClose} onOk={onClose} footer={null}>
-      <div>
+      <div className="skill-settings">
+        <style>{'.skill-settings .arco-typography { word-break: normal; overflow-wrap: break-word; }'}</style>
         <Paragraph type="secondary" style={{ fontSize: 12 }}>
           A skill is a model vendor&apos;s prompt spec. Bind it to a model slot and the whole document rides
           VERBATIM in every prompt call that model makes — no summary, no paraphrase. Skills in{' '}
@@ -93,14 +94,17 @@ const SkillSettings = ({ visible, onClose }) => {
             <CollapseItem
               key={s.id}
               name={s.id}
-              header={<Text bold style={{ fontSize: 13 }}>{s.name}</Text>}
-              extra={(
-                <Space size={4}>
-                  <Tag size="small">{skillTokens(s.text).toLocaleString()} tok</Tag>
-                  {(s.models || []).length === 0 && <Tag size="small" color="gray">unbound</Tag>}
-                  {(s.models || []).map((m) => <Tag key={m} size="small" color="orange">{m}</Tag>)}
-                  {s.edited && <Tag size="small" color="orange">edited</Tag>}
-                </Space>
+              header={(
+                // Name on its own line, never squeezed; the bindings wrap underneath.
+                <div style={{ display: 'grid', gap: 4, padding: '2px 0', minWidth: 0 }}>
+                  <Text bold style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{s.name}</Text>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    <Tag size="small">{skillTokens(s.text).toLocaleString()} tok</Tag>
+                    {(s.models || []).length === 0 && <Tag size="small" color="gray">unbound</Tag>}
+                    {(s.models || []).map((m) => <Tag key={m} size="small" color="orange">{m}</Tag>)}
+                    {s.edited && <Tag size="small" color="orange">edited</Tag>}
+                  </div>
+                </div>
               )}
             >
               <div style={{ padding: 12, background: '#f7f8fa', borderRadius: 8 }}>

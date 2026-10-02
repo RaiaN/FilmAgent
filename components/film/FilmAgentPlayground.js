@@ -53,8 +53,20 @@ const randomId = () =>
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     : Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates, onStoryCards, focusRequest }) => {
+const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates, onStoryCards, focusRequest, onStoryRoomLoad, storyRoomSave, onProjectTitle }) => {
   const [project, setProject] = useState(null);
+  // THE STORY ROOM LIVES IN THE PROJECT (project.storyRoom): each project load hands its
+  // story to the Story Room tab; the tab's edits come back here and ride the project's
+  // own saves (cloud autosave, folder save, Cloud open).
+  useEffect(() => {
+    if (!project?.id || !onStoryRoomLoad) return;
+    onStoryRoomLoad({ projectId: project.id, title: project.title || '', data: project.storyRoom || null, nonce: Date.now() });
+  }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (onProjectTitle) onProjectTitle(project?.title || ''); }, [project?.title, onProjectTitle]);
+  useEffect(() => {
+    if (!storyRoomSave?.projectId) return;
+    setProject((p) => (p && p.id === storyRoomSave.projectId && JSON.stringify(p.storyRoom || null) !== JSON.stringify(storyRoomSave.data) ? { ...p, storyRoom: storyRoomSave.data } : p));
+  }, [storyRoomSave]);
   // storage === null  => in-memory scratch project (not yet persisted)
   //   { kind: 'path', path }      => Electron / fallback text path
   //   { kind: 'handle', handle }  => browser File System Access API
@@ -147,7 +159,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
   const cloudAutosave = useCallback(async (proj) => {
     const st = cloudAutoRef.current;
     if (!proj?.id || st.busy || st.disabled) return;
-    if (!(proj.canvas?.nodes || []).length) return; // an empty scratch isn't worth a manifest
+    if (!(proj.canvas?.nodes || []).length && !proj.storyRoom) return; // an empty scratch isn't worth a manifest (a Story Room story is work)
     const json = JSON.stringify(proj);
     if (json === st.lastJson) return;
     st.busy = true;

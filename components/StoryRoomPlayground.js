@@ -50,7 +50,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], boardShots = [] }) => {
+const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -71,30 +71,61 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
   const [openShot, setOpenShot] = useState(null); // the shot open in the drawer
   const [busy, setBusy] = useState(null); // { role, at }
   const [elapsed, setElapsed] = useState(0);
-  const hydrated = useRef(false);
+  const [linked, setLinked] = useState(null); // the Film Agent project this story is saved in: { projectId }
 
+  // One story per Film Agent project: it arrives with the project (projectStory) and is
+  // written back into it (onStoryChange), so it rides the project's cloud autosave.
+  const applyState = (st = {}) => {
+    setIdea(typeof st.idea === 'string' ? st.idea : '');
+    setIdeas(Array.isArray(st.ideas) ? st.ideas : []);
+    setSource(st.source || null);
+    setBlueprint(st.blueprint || null);
+    setCritique(st.critique || null);
+    setRevised(Array.isArray(st.revised) ? st.revised : []);
+    setFacts(Array.isArray(st.facts) ? st.facts : []);
+    setAssets(Array.isArray(st.assets) ? st.assets : []);
+    setLook(typeof st.look === 'string' ? st.look : '');
+    setLookImages(Array.isArray(st.lookImages) ? st.lookImages : (typeof st.lookImage === 'string' && st.lookImage ? [st.lookImage] : []));
+    setTab(typeof st.tab === 'string' ? st.tab : 'story');
+    setSendId(typeof st.sendId === 'string' ? st.sendId : '');
+    setShots(Array.isArray(st.shots) ? st.shots.map((x) => ({ ...x, assets: x.assets || [], shows: x.shows || [], body: x.body ?? x.prompt ?? '' })) : []);
+    setFixSet(null);
+    setFixRoot(null);
+    setOpenShot(null);
+  };
   useEffect(() => {
-    const s = load();
-    if (typeof s.idea === 'string') setIdea(s.idea);
-    if (Array.isArray(s.ideas)) setIdeas(s.ideas);
-    if (s.source) setSource(s.source);
-    if (s.blueprint) setBlueprint(s.blueprint);
-    if (s.critique) setCritique(s.critique);
-    if (Array.isArray(s.revised)) setRevised(s.revised);
-    if (Array.isArray(s.facts)) setFacts(s.facts);
-    if (Array.isArray(s.assets)) setAssets(s.assets);
-    if (typeof s.look === 'string') setLook(s.look);
-    if (Array.isArray(s.lookImages)) setLookImages(s.lookImages);
-    else if (typeof s.lookImage === 'string' && s.lookImage) setLookImages([s.lookImage]);
-    if (typeof s.tab === 'string') setTab(s.tab);
-    if (typeof s.sendId === 'string') setSendId(s.sendId);
-    if (Array.isArray(s.shots)) setShots(s.shots.map((x) => ({ ...x, assets: x.assets || [], shows: x.shows || [], body: x.body ?? x.prompt ?? '' })));
-    hydrated.current = true;
-  }, []);
+    if (!projectStory?.projectId) return;
+    const pid = projectStory.projectId;
+    let data = projectStory.data;
+    // The project's own copy wins; a local cache only fills in for a project that has none.
+    if (!data) { try { data = JSON.parse(window.localStorage.getItem(`${STORAGE_KEY}:${pid}`) || 'null'); } catch { data = null; } }
+    applyState(data || {});
+    setLinked({ projectId: pid });
+    // A story saved before stories lived in projects waits to be brought in — the
+    // filmmaker picks the project, it is never adopted by whichever one opened first.
+    const legacy = load();
+    setOrphan(!data && (legacy.blueprint || legacy.idea) && !legacy.adoptedBy ? legacy : null);
+  }, [projectStory?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [orphan, setOrphan] = useState(null);
+  const adoptOrphan = () => {
+    if (!orphan || !linked) return;
+    applyState(orphan);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ adoptedBy: linked.projectId })); } catch { /* noop */ }
+    setOrphan(null);
+    Message.success('The story is now saved in this Film Agent project.');
+  };
+
+  const snapshot = useMemo(() => ({ idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab, sendId }),
+    [idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab, sendId]);
+  const hasStory = !!(idea.trim() || blueprint || ideas.length || look.trim() || lookImages.length);
   useEffect(() => {
-    if (!hydrated.current) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab, sendId })); } catch { /* quota — the session copy stands */ }
-  }, [idea, ideas, source, blueprint, critique, revised, facts, assets, shots, look, lookImages, tab, sendId]);
+    if (!linked || !hasStory) return undefined;
+    const t = setTimeout(() => {
+      if (onStoryChange) onStoryChange(linked.projectId, snapshot);
+      try { window.localStorage.setItem(`${STORAGE_KEY}:${linked.projectId}`, JSON.stringify(snapshot)); } catch { /* quota — the project copy stands */ }
+    }, 800);
+    return () => clearTimeout(t);
+  }, [snapshot, linked]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!busy) return undefined;
     setElapsed(0);
@@ -229,7 +260,15 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
   const presets = lookPresets();
   const addLookImages = async (files) => {
     const read = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
-    const imgs = await Promise.all(files.map(async (f) => { const raw = await read(f); return makeThumbnail(raw, 1024).catch(() => raw); }));
+    // Checked into the media store, so the project keeps a URL, not a data blob.
+    const checkIn = async (dataUrl) => {
+      try {
+        const r = await fetch('/api/film/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: dataUrl }) });
+        const j = await r.json();
+        return r.ok && j.url ? j.url : dataUrl;
+      } catch { return dataUrl; }
+    };
+    const imgs = await Promise.all(files.map(async (f) => { const raw = await read(f); return checkIn(await makeThumbnail(raw, 1024).catch(() => raw)); }));
     setLookImages((list) => [...list, ...imgs].slice(0, 6));
   };
   const readLook = () => run('look', async () => { setLook(await describeLook({ images: lookImages, notes: look }, ctx)); });
@@ -436,6 +475,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
             ? <Input id="story-room-title" value={blueprint.title || ''} onChange={(v) => setBlock('title', v)} placeholder="Untitled" style={{ maxWidth: 360, fontFamily: SCRIPT_FONT, fontWeight: 700, fontSize: 18, textTransform: 'uppercase', border: 'none', background: 'transparent', padding: 0 }} />
             : <Text style={{ fontFamily: SCRIPT_FONT, fontWeight: 700, fontSize: 18 }}>STORY ROOM</Text>}
           <OriginalityTag probe={source?.probe} />
+          {projectTitle && <Text type="secondary" style={{ fontSize: 12 }}>Saved in {projectTitle.replace(/^Project\s+/, '')}</Text>}
           <span style={{ flex: 1 }} />
           {busy
             ? <Text style={{ fontSize: 12, color: '#4e5969' }}><IconLoading style={{ marginRight: 6 }} />{ROLE_LABEL[busy.role]} · {elapsed}s</Text>
@@ -463,6 +503,14 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
           {blueprint && <Button size="small" type="primary" icon={<IconSend />} disabled={!!busy || problems.length > 0} onClick={send} title={shots.length ? 'Lands the shots on the Film Agent board as chained SHOT cards (Seedance 2.5)' : 'Lands this story on the Film Agent board as a Storyboard card, verbatim'}>{shots.length ? `Send ${shots.length} shots` : 'Send to Film Agent'}</Button>}
         </div>
       </div>
+
+      {orphan && (
+        <div style={{ ...box, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderColor: '#bedaff', background: '#f2f7ff' }}>
+          <Text style={{ fontSize: 13 }}>A story from before stories were saved in projects: <b>{orphan.blueprint?.title || String(orphan.idea || '').slice(0, 60)}</b></Text>
+          <span style={{ flex: 1 }} />
+          <Button size="small" type="primary" onClick={adoptOrphan}>Bring it into this project</Button>
+        </div>
+      )}
 
       {panel}
 

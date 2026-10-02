@@ -186,11 +186,15 @@ export const BeatSheet = ({ facts, shotsOfFact, onOpenShot }) => (
 // When Cast & World has rendered the asset on the Film Agent board, its plates show here
 // (matched by name: "Kaan · face", "Kaan · body", "Ferry Deck"); click to enlarge.
 const plateKey = (s) => String(s || '').replace(/\s*·\s*(face|body)\s*$/i, '').trim().toLowerCase();
+// A re-run of Cast & World adds NEW plates with the same names — the board appends them,
+// so the newest ready plate is the last match. While a re-render runs, the old plate
+// stays visible under a "rendering…" mark.
 export const platesFor = (asset, plates = []) => {
   const mine = plates.filter((p) => plateKey(p.name) === plateKey(asset.name));
-  const face = mine.find((p) => /·\s*face\s*$/i.test(p.name));
-  const body = mine.find((p) => /·\s*body\s*$/i.test(p.name));
-  const main = face || mine.find((p) => !/·\s*body\s*$/i.test(p.name)) || body || null;
+  const ready = mine.filter((p) => p.url).reverse(); // newest first
+  const face = ready.find((p) => /·\s*face\s*$/i.test(p.name));
+  const body = ready.find((p) => /·\s*body\s*$/i.test(p.name));
+  const main = face || ready.find((p) => !/·\s*body\s*$/i.test(p.name)) || body || null;
   return { main, extra: main && body && main !== body ? body : null, any: mine.length > 0, loading: mine.some((p) => p.loading) };
 };
 
@@ -208,7 +212,11 @@ const PlateHeader = ({ kind, asset, plates, onView }) => {
       {extra?.url && (
         <img src={extra.url} alt={extra.name} onClick={() => onView(extra.url)} title="Turnaround" style={{ position: 'absolute', right: 8, bottom: 8, width: 84, height: 63, objectFit: 'cover', borderRadius: 6, border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', cursor: 'zoom-in', background: '#fff' }} />
       )}
-      {loading && !main?.url && <Text style={{ position: 'absolute', left: 8, bottom: 6, fontSize: 11, color: KIND_COLOR[kind] }}><IconLoading /> rendering…</Text>}
+      {loading && (
+        <Text style={{ position: 'absolute', left: 8, bottom: 6, fontSize: 11, fontWeight: 600, color: main?.url ? '#fff' : KIND_COLOR[kind], background: main?.url ? 'rgba(0,0,0,0.55)' : 'transparent', padding: main?.url ? '1px 6px' : 0, borderRadius: 4 }}>
+          <IconLoading /> {main?.url ? 're-rendering…' : 'rendering…'}
+        </Text>
+      )}
     </div>
   );
 };

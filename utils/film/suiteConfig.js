@@ -26,7 +26,6 @@ export const ROOT_CONFIG = {
     seedanceMini: null,  // Seedance 2.0 Mini                 (MODELARK_MODEL_SEEDANCE_MINI)
     seedance25: null,    // Seedance 2.5 — 30s takes, 50 refs  (MODELARK_MODEL_SEEDANCE_25)
     seedance25Premium: null, // Seedance 2.5 Premium              (MODELARK_MODEL_SEEDANCE_25_PREMIUM)
-    seedance25Draft: null, // Seedance 2.5 draft-preview        (MODELARK_MODEL_SEEDANCE_25_DRAFT)
     reasoner: null,      // Seed 2.0 Pro reasoner             (MODELARK_MODEL_REASONER)
     reasonerSC: null,    // Seed-SC reasoner                  (MODELARK_MODEL_REASONER_SC)
     reasoner21Turbo: null, // Seed 2.1 Turbo reasoner          (MODELARK_MODEL_REASONER_21_TURBO)
@@ -105,7 +104,6 @@ export const MODEL_ENV_VARS = {
   seedanceMini: 'MODELARK_MODEL_SEEDANCE_MINI',
   seedance25: 'MODELARK_MODEL_SEEDANCE_25',
   seedance25Premium: 'MODELARK_MODEL_SEEDANCE_25_PREMIUM',
-  seedance25Draft: 'MODELARK_MODEL_SEEDANCE_25_DRAFT',
   reasoner: 'MODELARK_MODEL_REASONER',
   reasonerSC: 'MODELARK_MODEL_REASONER_SC',
   reasoner21Turbo: 'MODELARK_MODEL_REASONER_21_TURBO',
@@ -206,7 +204,6 @@ export const getModel = (key, perCall) => {
 export const VIDEO_MODEL_OPTIONS = [
   { key: 'seedance25', label: 'Seedance 2.5 · 30s' },
   { key: 'seedance25Premium', label: 'Seedance 2.5 Premium · 30s' },
-  { key: 'seedance25Draft', label: 'Seedance 2.5 Draft preview · 4K finals' },
   { key: 'seedance', label: 'Seedance 2.0' },
   { key: 'seedanceMini', label: 'Seedance 2.0 Mini' },
 ];
@@ -303,17 +300,6 @@ const VIDEO_MODEL_TRAITS = {
     refCap: 30,
     draftFinals: ['1080p'],           // per the docs; a Premium draft's 4K final is unprobed
   },
-  // The draft-preview release of 2.5: same grammar, and a draft finishes up to 4K.
-  seedance25Draft: {
-    maxSeconds: 30,
-    res: ['480p', '720p', '1080p'],
-    resDefault: '720p',
-    keyframes: true,
-    refPrefix: '@',
-    overallBlock: true,
-    refCap: 30,
-    draftFinals: ['1080p', '4K'],
-  },
 };
 
 // DRAFT MODE: a draft renders ONLY at 480p; its final renders on the draft's own model,
@@ -340,9 +326,9 @@ export const clampShotSeconds = (model, v) => (String(v) === AUTO_SECONDS
 // a hardcoded model id, and an unconfigured slot is skipped, not silently used.
 // With nothing configured the seedance slot key is returned so the shoot fails
 // loudly with getModel's exact MODELARK_MODEL_SEEDANCE message.
-const VIDEO_SLOT_PREFERENCE = ['seedance25', 'seedance25Premium', 'seedance', 'seedanceFast', 'seedanceMini', 'seedance25Draft'];
+const VIDEO_SLOT_PREFERENCE = ['seedance25', 'seedance25Premium', 'seedance', 'seedanceFast', 'seedanceMini'];
 export const defaultVideoModelKey = () => VIDEO_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedance';
-export const videoModelKeyOf = (picked) => picked || defaultVideoModelKey();
+export const videoModelKeyOf = (picked) => (picked && VIDEO_MODEL_TRAITS[picked] ? picked : defaultVideoModelKey());
 // The image twin — one source for the default Seedream slot (no scattered literals).
 const IMAGE_SLOT_PREFERENCE = ['seedreamPro', 'seedream'];
 export const defaultImageModelKey = () => IMAGE_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedreamPro';

@@ -254,17 +254,15 @@ export const blueprintScript = (bp) => {
   return lines.join('\n').trim();
 };
 
-// ---- Visual beat sheet → Seedance 2.5 shots → proof -------------------------------
-// The beat sheet is the CONTRACT: the facts a viewer must see or hear to follow the
-// story. Shots claim facts; coverage is checked in code, and a claim counts only when
-// the Verifier quotes the prompt's own words for it AND those words are really there.
+// ---- Visual beat sheet → shot plan → Seedance 2.5 shots, with ASSET BINDING --------
+// One asset roster (characters, locations, props), each with a key and a look. A shot
+// binds asset keys; its prompt body names assets only as {{KEY}} tokens; code renders
+// the final prompt — every bound asset's look written in from the roster, the tokens
+// replaced by names. Same look words in every shot by construction; edit a look once and
+// every shot follows.
 export const SHOT_MODEL = 'seedance25';
-const SHOT_WORD_CAP = 300;
-const MIN_QUOTE_CHARS = 12;
-const TIMESTAMP_RE = /\b\d+(?:\.\d+)?\s*[-–~]\s*\d+(?:\.\d+)?\s*(?:s|sec|secs|seconds)\b/i;
-const INTERIOR_RE = /\b(feels?|felt|realiz(?:es|ed|e)|understands?|understood|learns?|learned|believes?|believed|decides?|decided|knows?|knew|wants?|wanted|thinks?|thought)\b/i;
-const unquoted = (s) => String(s || '').replace(/["“][^"”]*["”]/g, ' ');
-const normQuote = (s) => String(s || '').toLowerCase().replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim();
+export const ASSET_KINDS = ['character', 'location', 'prop'];
+const TOKEN_RE = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g;
 
 export const factList = (facts) => facts.map((f) => `${f.id} [${f.block}, ${f.kind}] ${f.fact}`).join('\n');
 
@@ -275,195 +273,90 @@ const tidyFacts = (raw) => (Array.isArray(raw) ? raw : (raw && Array.isArray(raw
     fact: String(f?.fact || '').trim(),
   }))
   .filter((f) => f.fact)
-  .map((f, i) => ({ id: `F${i + 1}`, ...f })); // ids are code's: sequential by construction
+  .map((f, i) => ({ id: `F${i + 1}`, ...f }));
 
-const factProblems = (facts) => {
-  if (!facts.length) return ['return a JSON list of facts'];
-  const bad = [];
-  const unknown = [...new Set(facts.filter((f) => !BLOCKS.includes(f.block)).map((f) => f.block || '(none)'))];
-  if (unknown.length) bad.push(`unknown block names: ${unknown.join(', ')}`);
-  const missing = BLOCKS.filter((b) => !facts.some((f) => f.block === b));
-  if (missing.length) bad.push(`no fact for: ${missing.join(', ')}`);
-  const interior = facts.filter((f) => INTERIOR_RE.test(unquoted(f.fact)));
-  if (interior.length) bad.push(`interior, not observable — rewrite each as what we see or hear: ${interior.map((f) => `${f.id} "${f.fact}"`).join('; ')}`);
-  return bad;
-};
-
-export const storyFacts = async ({ blueprint, config, onNote } = {}, ctx) => {
+export const storyFacts = async ({ blueprint, config } = {}, ctx) => {
   const system = renderTemplate('story.facts.system', { skill: await storySkillLine() });
   const prompt = inject('story.facts.user', { blueprint: JSON.stringify(tidyBlueprint(blueprint), null, 1) });
-  const effort = getRuntime(config).reasoningEffort;
-  let facts = tidyFacts(parseJson(await askLong(ctx, { system, prompt, effort, config, onNote })));
-  let problems = factProblems(facts);
-  if (problems.length) {
-    const again = tidyFacts(parseJson(await askLong(ctx, { system, prompt: `${prompt}\n\nYOUR LAST ANSWER FAILED THESE CHECKS — fix them: ${problems.join('; ')}`, effort, config, onNote })));
-    if (again.length) { facts = again; problems = factProblems(facts); }
-  }
+  const facts = tidyFacts(parseJson(await ask(ctx, { system, prompt, effort: 'medium', config })));
   if (!facts.length) throw new Error('The beat sheet came back empty — try again.');
-  return { facts, problems };
+  return facts;
 };
 
-const tidyCast = (raw) => (Array.isArray(raw?.cast) ? raw.cast : [])
-  .map((c) => ({ name: String(c?.name || '').trim(), look: String(c?.look || '').trim() }))
-  .filter((c) => c.name);
-const tidyShows = (list) => [...new Set((Array.isArray(list) ? list : []).map((x) => String(x || '').trim().toUpperCase()).filter(Boolean))];
-const tidyPlan = (raw) => (Array.isArray(raw?.shots) ? raw.shots : [])
-  .map((x) => ({ title: String(x?.title || '').trim(), location: String(x?.location || '').trim(), moment: String(x?.moment || '').trim(), shows: tidyShows(x?.shows), prompt: '', proofs: {}, verified: false }))
-  .filter((x) => x.title || x.moment);
-
-// The plan's gates: every fact in a shot, only real ids, story order, a place per shot.
-export const planProblems = (shots, facts, cast = []) => {
-  if (!shots.length) return ['return at least one shot'];
-  const ids = facts.map((f) => f.id);
-  const bad = [];
-  const unknown = [...new Set(shots.flatMap((x) => x.shows.filter((id) => !ids.includes(id))))];
-  if (unknown.length) bad.push(`unknown fact ids: ${unknown.join(', ')}`);
-  const covered = new Set(shots.flatMap((x) => x.shows));
-  const uncovered = ids.filter((id) => !covered.has(id));
-  if (uncovered.length) bad.push(`no shot shows: ${uncovered.join(', ')}`);
-  let prevFirst = -1;
-  shots.forEach((x, i) => {
-    const firsts = x.shows.map((id) => ids.indexOf(id)).filter((n) => n >= 0);
-    if (firsts.length) {
-      const first = Math.min(...firsts);
-      if (first < prevFirst) bad.push(`shot ${i + 1} goes back in story order`);
-      prevFirst = first;
-    }
-    if (!x.location) bad.push(`shot ${i + 1} has no location`);
-  });
-  cast.filter((c) => !c.look).forEach((c) => bad.push(`cast member ${c.name} has no look`));
-  return bad;
+const keyOf = (s) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+const tidyAssets = (raw) => {
+  const seen = new Set();
+  return (Array.isArray(raw?.assets) ? raw.assets : []).map((a) => ({
+    key: keyOf(a?.key || a?.name),
+    kind: ASSET_KINDS.includes(String(a?.kind || '').toLowerCase()) ? String(a.kind).toLowerCase() : 'prop',
+    name: String(a?.name || a?.key || '').trim(),
+    look: String(a?.look || '').trim(),
+  })).filter((a) => a.key && !seen.has(a.key) && seen.add(a.key));
 };
-// One prompt's gates: the spec forbids invented timestamps; a shot is not an essay.
-export const promptProblems = (prompt) => {
-  const bad = [];
-  if (!String(prompt || '').trim()) bad.push('the prompt is empty');
-  if (words(prompt) > SHOT_WORD_CAP) bad.push(`it is ${words(prompt)} words (cap ${SHOT_WORD_CAP})`);
-  if (TIMESTAMP_RE.test(prompt)) bad.push('it carries invented timestamps (the spec forbids them)');
-  return bad;
-};
+const tidyPlan = (raw) => (Array.isArray(raw?.shots) ? raw.shots : []).map((x) => ({
+  title: String(x?.title || '').trim(),
+  location: keyOf(x?.location),
+  assets: [...new Set((Array.isArray(x?.assets) ? x.assets : []).map(keyOf).filter(Boolean))],
+  shows: [...new Set((Array.isArray(x?.shows) ? x.shows : []).map((id) => String(id || '').trim().toUpperCase()).filter(Boolean))],
+  moment: String(x?.moment || '').trim(),
+  body: '',
+})).filter((x) => x.title || x.moment);
 
-// Step 2a — the plan: shots + which facts each shows + the cast sheet. Short output, so
-// it stays fast; the prompts are written per shot after it.
-export const planShots = async ({ blueprint, facts = [], config, onNote } = {}, ctx) => {
-  if (!facts.length) throw new Error('Write the beat sheet first.');
-  const system = renderTemplate('story.shots.system');
+// The plan: the asset roster + the shots, each binding its assets and its facts.
+export const planShots = async ({ blueprint, facts = [], config } = {}, ctx) => {
   const prompt = inject('story.shots.user', { blueprint: JSON.stringify(tidyBlueprint(blueprint), null, 1), facts: factList(facts) });
-  const effort = getRuntime(config).reasoningEffort;
-  let raw = parseJson(await askLong(ctx, { system, prompt, effort, config, onNote }));
-  let shots = tidyPlan(raw);
-  let cast = tidyCast(raw);
-  let problems = planProblems(shots, facts, cast);
-  if (problems.length) {
-    raw = parseJson(await askLong(ctx, { system, prompt: `${prompt}\n\nYOUR LAST ANSWER FAILED THESE CHECKS — fix them: ${problems.join('; ')}`, effort, config, onNote }));
-    const again = tidyPlan(raw);
-    if (again.length) { shots = again; cast = tidyCast(raw).length ? tidyCast(raw) : cast; problems = planProblems(shots, facts, cast); }
-  }
+  const raw = parseJson(await ask(ctx, { system: renderTemplate('story.shots.system'), prompt, effort: 'medium', config }));
+  const shots = tidyPlan(raw);
   if (!shots.length) throw new Error('The shot plan came back empty — try again.');
-  return { cast, shots, problems };
+  return { assets: tidyAssets(raw), shots };
 };
 
-// Step 2b — ONE shot's Seedance 2.5 prompt, under the sd25-pe spec (whole). `missing`
-// = facts a previous prompt failed to show; they are named in the retry note.
-const shotLine = (x, i) => `Shot ${i + 1} · ${x.title} @ ${x.location}: ${x.moment}`;
-export const writeShotPrompt = async ({ blueprint, facts = [], cast = [], shots = [], index, missing = [], config, onNote } = {}, ctx) => {
+// Every asset a shot binds: its declared assets, its location, and any {{KEY}} its body
+// names — so a token is never left without its look.
+export const boundAssets = (shot, assets = []) => {
+  const keys = new Set([...(shot.assets || []), shot.location, ...[...String(shot.body || '').matchAll(TOKEN_RE)].map((m) => keyOf(m[1]))].filter(Boolean));
+  const order = (a) => (a.kind === 'location' ? 2 : a.kind === 'prop' ? 1 : 0);
+  return assets.filter((a) => keys.has(a.key)).sort((a, b) => order(a) - order(b));
+};
+
+// The final prompt, rendered by code: the bound assets' looks, then the body with each
+// token replaced by the asset's name.
+export const renderShotPrompt = (shot, assets = []) => {
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const defs = boundAssets(shot, assets).filter((a) => a.look).map((a) => (a.kind === 'location' ? `Setting — ${a.name}: ${a.look}` : `${a.name}: ${a.look}`));
+  const body = String(shot.body || '').replace(TOKEN_RE, (m, k) => byKey[keyOf(k)]?.name || k.replace(/_/g, ' ').toLowerCase()).trim();
+  return [defs.map((d) => (/[.!?]$/.test(d) ? d : `${d}.`)).join('\n'), body].filter(Boolean).join('\n\n');
+};
+
+// ONE shot's body, under the Seedance 2.5 spec (whole). Assets appear only as tokens.
+const shotLine = (x, i) => `Shot ${i + 1} · ${x.title}: ${x.moment}`;
+export const writeShotBody = async ({ blueprint, facts = [], assets = [], shots = [], index, config, onNote } = {}, ctx) => {
   const shot = shots[index];
   const bp = tidyBlueprint(blueprint);
-  const mine = facts.filter((f) => shot.shows.includes(f.id));
-  const neighbours = [index > 0 ? `Before: ${shotLine(shots[index - 1], index - 1)}` : 'This is the opening shot.', index < shots.length - 1 ? `After: ${shotLine(shots[index + 1], index + 1)}` : 'This is the final shot.'].join('\n');
-  const slots = (retry) => ({
+  const bound = boundAssets(shot, assets);
+  const slots = {
     story: [bp.title, bp.spine].filter(Boolean).join('\n'),
-    cast: cast.map((c) => `${c.name}: ${c.look}`).join('\n') || '(none)',
+    assets: bound.map((a) => `{{${a.key}}} — ${a.kind}: ${a.name}`).join('\n') || '(none)',
     shot: shotLine(shot, index),
-    facts: factList(mine) || '(none)',
-    neighbours,
-    retry,
-  });
+    facts: factList(facts.filter((f) => shot.shows.includes(f.id))) || '(none)',
+    neighbours: [index > 0 ? `Before: ${shotLine(shots[index - 1], index - 1)}` : 'This is the opening shot.', index < shots.length - 1 ? `After: ${shotLine(shots[index + 1], index + 1)}` : 'This is the final shot.'].join('\n'),
+  };
   const system = renderTemplate('story.shot.system', { skill: await requireSkillLine(SHOT_MODEL) });
-  const effort = getRuntime(config).reasoningEffort;
-  const firstNote = missing.length ? `\n\nYOUR LAST PROMPT FOR THIS SHOT DID NOT SHOW: ${factList(facts.filter((f) => missing.includes(f.id)))} — make each of them visible or audible.` : '';
-  const clean = (t) => String(t || '').replace(/^```\w*\s*|\s*```$/g, '').trim();
-  let text = clean(await askLong(ctx, { system, prompt: inject('story.shot.user', slots(firstNote)), effort, config, onNote }));
-  let problems = promptProblems(text);
-  if (problems.length) {
-    const again = clean(await askLong(ctx, { system, prompt: inject('story.shot.user', slots(`${firstNote}\n\nYOUR LAST ANSWER FAILED THESE CHECKS — fix them: ${problems.join('; ')}`)), effort, config, onNote }));
-    if (again) { text = again; problems = promptProblems(text); }
-  }
-  return { prompt: text, problems };
+  const text = await askLong(ctx, { system, prompt: inject('story.shot.user', slots), effort: getRuntime(config).reasoningEffort, config, onNote });
+  return String(text || '').replace(/^```\w*\s*|\s*```$/g, '').trim();
 };
 
-// Every shot's prompt, three at a time (more parallel high-effort calls stall upstream).
-// onShot(i, result) fires as each lands, so the UI fills in shot by shot.
-export const writeShotPrompts = async ({ blueprint, facts, cast, shots, only = null, missingByShot = {}, config, onNote, onShot } = {}, ctx) => {
+// Every shot body, three at a time; onShot(i, shot) fires as each lands.
+export const writeShotBodies = async ({ blueprint, facts, assets, shots, config, onNote, onShot } = {}, ctx) => {
   const out = shots.map((x) => ({ ...x }));
-  const problems = [];
-  const idx = only || shots.map((_, i) => i);
-  await runWithConcurrency(idx.map((i) => async () => {
+  const failed = [];
+  await runWithConcurrency(shots.map((_, i) => async () => {
     try {
-      const r = await writeShotPrompt({ blueprint, facts, cast, shots: out, index: i, missing: missingByShot[i] || [], config, onNote }, ctx);
-      out[i] = { ...out[i], prompt: r.prompt, proofs: {}, verified: false };
-      r.problems.forEach((p) => problems.push(`shot ${i + 1}: ${p}`));
+      out[i] = { ...out[i], body: await writeShotBody({ blueprint, facts, assets, shots: out, index: i, config, onNote }, ctx) };
       if (onShot) onShot(i, out[i]);
     } catch (err) {
-      problems.push(`shot ${i + 1}: ${err.message || err}`);
+      failed.push(`shot ${i + 1}: ${err.message || err}`);
     }
   }), 3);
-  return { shots: out, problems };
-};
-
-// The proof: per claimed fact, the Verifier quotes the prompt; code keeps the quote only
-// when it really is in that prompt. `only` = shot indices to (re)check; others untouched.
-export const verifyShots = async ({ facts = [], shots = [], only = null, config } = {}, ctx) => {
-  const idx = (only || shots.map((_, i) => i)).filter((i) => shots[i] && shots[i].shows.length && shots[i].prompt);
-  if (!idx.length) return shots;
-  const listed = idx.map((i) => `SHOT ${i + 1} — claims ${shots[i].shows.join(', ')}:\n${shots[i].prompt}`).join('\n\n');
-  const claimed = facts.filter((f) => idx.some((i) => shots[i].shows.includes(f.id)));
-  const out = parseJson(await ask(ctx, { system: renderTemplate('story.verify.system'), prompt: inject('story.verify.user', { facts: factList(claimed), shots: listed }), effort: 'medium', config }));
-  const rows = Array.isArray(out) ? out : (out && Array.isArray(out.proofs) ? out.proofs : []);
-  if (!rows.length) throw new Error('The check came back empty — try Verify again.');
-  return shots.map((x, i) => {
-    if (!idx.includes(i)) return x;
-    const hay = normQuote(x.prompt);
-    const proofs = {};
-    x.shows.forEach((f) => {
-      const hit = rows.find((r) => Number(r?.shot) === i + 1 && String(r?.fact || '').trim().toUpperCase() === f);
-      const q = String(hit?.quote || '').trim();
-      proofs[f] = q.length >= MIN_QUOTE_CHARS && hay.includes(normQuote(q)) ? q : '';
-    });
-    return { ...x, proofs, verified: true };
-  });
-};
-
-// Per fact: which shots claim it, which PROVE it. A shot whose prompt changed since its
-// check is 'unverified' — never counted as shown.
-export const factCoverage = (facts = [], shots = []) => facts.map((f) => {
-  const claimedBy = shots.map((x, i) => (x.shows.includes(f.id) ? i + 1 : 0)).filter(Boolean);
-  const provenIn = shots.map((x, i) => (x.verified && x.proofs?.[f.id] ? i + 1 : 0)).filter(Boolean);
-  const pending = claimedBy.some((n) => !shots[n - 1].verified);
-  const status = provenIn.length ? 'shown' : !claimedBy.length ? 'unassigned' : pending ? 'unverified' : 'missing';
-  return { id: f.id, claimedBy, provenIn, status };
-});
-
-// Fix: a fact in no shot joins the shot holding the nearest EARLIER fact (story order,
-// decided by code); then only the shots that miss facts are rewritten, naming what they
-// missed. Every other shot stays locked.
-export const fixShots = async ({ blueprint, facts = [], cast = [], shots = [], config, onNote, onShot } = {}, ctx) => {
-  const ids = facts.map((f) => f.id);
-  const next = shots.map((x) => ({ ...x, shows: [...x.shows] }));
-  const missingByShot = {};
-  factCoverage(facts, shots).filter((c) => c.status === 'unassigned').forEach((c) => {
-    const pos = ids.indexOf(c.id);
-    let home = 0;
-    next.forEach((x, i) => { if (x.shows.some((id) => ids.indexOf(id) < pos)) home = i; });
-    next[home].shows = [...next[home].shows, c.id].sort((a, b) => ids.indexOf(a) - ids.indexOf(b));
-    (missingByShot[home] = missingByShot[home] || []).push(c.id);
-  });
-  next.forEach((x, i) => {
-    const miss = x.verified ? x.shows.filter((f) => shots[i]?.shows.includes(f) && !x.proofs?.[f]) : [];
-    if (miss.length) missingByShot[i] = [...new Set([...(missingByShot[i] || []), ...miss])];
-  });
-  const only = Object.keys(missingByShot).map(Number);
-  if (!only.length) return { shots, changed: [], problems: [] };
-  const r = await writeShotPrompts({ blueprint, facts, cast, shots: next, only, missingByShot, config, onNote, onShot }, ctx);
-  return { shots: r.shots, changed: only, problems: r.problems };
+  return { shots: out, failed };
 };

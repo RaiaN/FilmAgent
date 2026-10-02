@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, InputNumber, Message, Modal, Tag, Tooltip, Typography } from '@arco-design/web-react';
+import { Button, Input, InputNumber, Message, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, factCoverage, fixShots, ideaText, planShots, probeOriginality, reviseBlueprint, scoutIdeas, storyFacts, verifyShots, writeShotPrompts } from '../utils/film/core/story';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, reviseBlueprint, scoutIdeas, storyFacts, writeShotBodies, ASSET_KINDS } from '../utils/film/core/story';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -23,9 +23,8 @@ const ITEM_LABEL = {
 };
 const ROLE_LABEL = {
   scout: 'Scout is finding ideas', probe: 'Checking originality', architect: 'Architect is building the blueprint', critic: 'Critic is stress-testing', reviser: 'Reviser is patching the flagged blocks',
-  facts: 'Listing what the viewer must see and hear', plan: 'Planning the shots', shots: 'Writing the Seedance 2.5 prompts', verify: 'Checking each shot shows its facts', fix: 'Rewriting the shots that miss facts',
+  facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots',
 };
-const FACT_CHIP = { shown: 'green', unverified: 'gold', missing: 'red', unassigned: 'red' };
 const SCORE_COLOR = ['#cb2634', '#d25f00', '#00a870'];
 
 const words = (s) => String(s || '').trim().split(/\s+/).filter(Boolean).length;
@@ -58,9 +57,8 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
   const [critique, setCritique] = useState(null);
   const [revised, setRevised] = useState([]); // blocks the last revision rewrote
   const [facts, setFacts] = useState([]); // the visual beat sheet: [{ id, block, kind, fact }]
-  const [cast, setCast] = useState([]); // [{ name, look }]
-  const [shots, setShots] = useState([]); // [{ title, location, shows, prompt, proofs, verified }]
-  const [shotIssues, setShotIssues] = useState([]); // gate problems left after the retry
+  const [assets, setAssets] = useState([]); // the roster: [{ key, kind, name, look }]
+  const [shots, setShots] = useState([]); // [{ title, location, assets, shows, moment, body }]
   const [busy, setBusy] = useState(null); // { role, at }
   const [elapsed, setElapsed] = useState(0);
   const hydrated = useRef(false);
@@ -74,15 +72,14 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
     if (s.critique) setCritique(s.critique);
     if (Array.isArray(s.revised)) setRevised(s.revised);
     if (Array.isArray(s.facts)) setFacts(s.facts);
-    if (Array.isArray(s.cast)) setCast(s.cast);
-    if (Array.isArray(s.shots)) setShots(s.shots);
-    if (Array.isArray(s.shotIssues)) setShotIssues(s.shotIssues);
+    if (Array.isArray(s.assets)) setAssets(s.assets);
+    if (Array.isArray(s.shots)) setShots(s.shots.map((x) => ({ ...x, assets: x.assets || [], shows: x.shows || [], body: x.body ?? x.prompt ?? '' })));
     hydrated.current = true;
   }, []);
   useEffect(() => {
     if (!hydrated.current) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ idea, ideas, source, blueprint, critique, revised, facts, cast, shots, shotIssues })); } catch { /* quota — the session copy stands */ }
-  }, [idea, ideas, source, blueprint, critique, revised, facts, cast, shots, shotIssues]);
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ idea, ideas, source, blueprint, critique, revised, facts, assets, shots })); } catch { /* quota — the session copy stands */ }
+  }, [idea, ideas, source, blueprint, critique, revised, facts, assets, shots]);
   useEffect(() => {
     if (!busy) return undefined;
     setElapsed(0);
@@ -121,9 +118,8 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
     setCritique(null);
     setRevised([]);
     setFacts([]);
-    setCast([]);
+    setAssets([]);
     setShots([]);
-    setShotIssues([]);
     if (left.length) Message.warning(`The blueprint still breaks ${left.length} check${left.length === 1 ? '' : 's'} — see below.`);
     setBusy({ role: 'critic', at: Date.now() });
     setCritique(await critiqueBlueprint({ blueprint: bp }, ctx));
@@ -146,55 +142,35 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
   };
   const cleanJourney = () => setBlueprint((b) => (b ? { ...b, journey: (b.journey || []).map((x) => x.trim()).filter(Boolean) } : b));
 
-  // Write shots: the beat sheet (the contract) → the shot plan (which shot shows which
-  // facts, coverage gated in code) → one Seedance 2.5 prompt per shot, three at a time →
-  // the proof that each prompt shows what it claims.
+  // Write shots: the beat sheet → the plan (asset roster + shots, each binding its assets
+  // and facts) → one Seedance 2.5 shot body per shot, three at a time. Prompts are
+  // RENDERED from the roster, so every shot carries the same look words.
   const note = (text) => Message.info({ content: text, duration: 6000 });
-  const landShot = (i, shot) => setShots((list) => list.map((x, j) => (j === i ? shot : x)));
   const writeAllShots = () => run('facts', async () => {
-    const f = await storyFacts({ blueprint, onNote: note }, ctx);
-    setFacts(f.facts);
-    setCast([]);
+    const f = await storyFacts({ blueprint }, ctx);
+    setFacts(f);
+    setAssets([]);
     setShots([]);
     setBusy({ role: 'plan', at: Date.now() });
-    const plan = await planShots({ blueprint, facts: f.facts, onNote: note }, ctx);
-    setCast(plan.cast);
+    const plan = await planShots({ blueprint, facts: f }, ctx);
+    setAssets(plan.assets);
     setShots(plan.shots);
     setBusy({ role: 'shots', at: Date.now() });
-    const w = await writeShotPrompts({ blueprint, facts: f.facts, cast: plan.cast, shots: plan.shots, onNote: note, onShot: landShot }, ctx);
+    const landShot = (i, shot) => setShots((list) => list.map((x, j) => (j === i ? shot : x)));
+    const w = await writeShotBodies({ blueprint, facts: f, assets: plan.assets, shots: plan.shots, onNote: note, onShot: landShot }, ctx);
     setShots(w.shots);
-    setShotIssues([...f.problems, ...plan.problems, ...w.problems]);
-    setBusy({ role: 'verify', at: Date.now() });
-    setShots(await verifyShots({ facts: f.facts, shots: w.shots }, ctx));
+    if (w.failed.length) Message.warning({ content: w.failed.join(' · '), duration: 8000 });
   });
-  const verifyNow = () => run('verify', async () => { setShots(await verifyShots({ facts, shots }, ctx)); });
-  const fixNow = () => run('fix', async () => {
-    const out = await fixShots({ blueprint, facts, cast, shots, onNote: note, onShot: landShot }, ctx);
-    if (!out.changed.length) { Message.info('Every fact is already in a shot that shows it.'); return; }
-    setShots(out.shots);
-    if (out.problems.length) setShotIssues(out.problems);
-    setBusy({ role: 'verify', at: Date.now() });
-    setShots(await verifyShots({ facts, shots: out.shots, only: out.changed }, ctx));
-  });
-  const setShotPrompt = (i, v) => setShots((list) => list.map((x, j) => (j === i ? { ...x, prompt: v, proofs: {}, verified: false } : x)));
-
-  const coverage = factCoverage(facts, shots);
-  const shownCount = coverage.filter((c) => c.status === 'shown').length;
-  const fixable = coverage.some((c) => c.status === 'missing' || c.status === 'unassigned');
+  const setShotBody = (i, v) => setShots((list) => list.map((x, j) => (j === i ? { ...x, body: v } : x)));
+  const setAsset = (key, field, v) => setAssets((list) => list.map((a) => (a.key === key ? { ...a, [field]: v } : a)));
+  const toggleBinding = (i, key) => setShots((list) => list.map((x, j) => (j === i ? { ...x, assets: x.assets.includes(key) ? x.assets.filter((k) => k !== key) : [...x.assets, key] } : x)));
+  const shotsOfFact = (id) => shots.map((x, i) => (x.shows.includes(id) ? i + 1 : 0)).filter(Boolean);
 
   const send = () => {
     if (!onSendToFilm) return;
     const title = blueprint.title || source?.title || '';
     if (!shots.length) { onSendToFilm({ script: blueprintScript(blueprint), title }); return; }
-    const go = () => onSendToFilm({ shots: shots.map((x, i) => ({ title: `${i + 1} · ${x.title || 'Shot'}`, prompt: x.prompt })), title });
-    const open = coverage.filter((c) => c.status !== 'shown');
-    if (!open.length) { go(); return; }
-    Modal.confirm({
-      title: `${open.length} fact${open.length === 1 ? ' is' : 's are'} not shown`,
-      content: <div style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>{open.map((o) => `${o.id} ${facts.find((f) => f.id === o.id)?.fact || ''}`).join('\n')}</div>,
-      okText: 'Send anyway',
-      onOk: go,
-    });
+    onSendToFilm({ shots: shots.map((x, i) => ({ title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets) })), title });
   };
 
   const box = { background: '#fff', border: '1px solid #e5e6eb', borderRadius: 10, padding: 16 };
@@ -316,57 +292,61 @@ const StoryRoomPlayground = ({ onSendToFilm }) => {
 
       {blueprint && facts.length > 0 && (
         <div style={{ ...box, display: 'grid', gap: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Text style={{ fontWeight: 600 }}>Visual beat sheet</Text>
-            <Tag size="small" color={shownCount === facts.length ? 'green' : 'orange'}>{shownCount}/{facts.length} facts shown</Tag>
-            <span style={{ flex: 1 }} />
-            {shots.length > 0 && <Button size="small" disabled={!!busy} onClick={verifyNow}>Verify</Button>}
-            {fixable && shots.length > 0 && <Button size="small" disabled={!!busy} onClick={fixNow}>Fix uncovered</Button>}
-          </div>
-          {shotIssues.length > 0 && <Text style={{ fontSize: 12, color: '#d25f00' }}>Still failing after the retry: {shotIssues.join(' · ')}</Text>}
-
+          <Text style={{ fontWeight: 600 }}>Visual beat sheet</Text>
           <div style={{ display: 'grid', gap: 6 }}>
-            {facts.map((f, i) => {
-              const c = coverage[i];
-              const label = c.status === 'shown' ? `✓ shot ${c.provenIn.join(', ')}`
-                : c.status === 'unverified' ? `? shot ${c.claimedBy.join(', ')} — verify`
-                  : c.status === 'missing' ? `✗ claimed by shot ${c.claimedBy.join(', ')}, not in its prompt` : '✗ in no shot';
+            {facts.map((f) => {
+              const in_ = shotsOfFact(f.id);
               return (
                 <div key={f.id} style={{ display: 'grid', gridTemplateColumns: '34px 1fr auto', gap: 8, alignItems: 'start', fontSize: 13 }}>
                   <Text style={{ fontSize: 12, fontWeight: 600, color: '#86909c', fontVariantNumeric: 'tabular-nums' }}>{f.id}</Text>
                   <span style={{ minWidth: 0 }}><Text type="secondary" style={{ fontSize: 11 }}>{BLOCK_LABEL[f.block] || f.block} · {f.kind}</Text><br />{f.fact}</span>
-                  <Tag size="small" color={FACT_CHIP[c.status]}>{label}</Tag>
+                  {shots.length > 0 && <Tag size="small" color={in_.length ? 'arcoblue' : 'gray'}>{in_.length ? `shot ${in_.join(', ')}` : 'no shot'}</Tag>}
                 </div>
               );
             })}
           </div>
 
-          {cast.length > 0 && (
-            <div style={{ display: 'grid', gap: 4 }}>
-              <Text style={{ fontSize: 12, fontWeight: 600 }}>Cast sheet</Text>
-              {cast.map((c) => <Text key={c.name} style={{ fontSize: 12 }}><b>{c.name}</b> — {c.look}</Text>)}
+          {assets.length > 0 && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              <Text style={{ fontWeight: 600 }}>Assets</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>Every shot that binds an asset gets its look written in, word for word. Edit a look once and every shot follows.</Text>
+              {ASSET_KINDS.map((kind) => assets.filter((a) => a.kind === kind).map((a) => (
+                <div key={a.key} style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 8, alignItems: 'start' }}>
+                  <div style={{ display: 'grid', gap: 2 }}>
+                    <Text style={{ fontSize: 12, fontWeight: 600 }}>{a.name}</Text>
+                    <Text type="secondary" style={{ fontSize: 11 }}>{kind} · {`{{${a.key}}}`}</Text>
+                  </div>
+                  <Input.TextArea id={`story-room-asset-${a.key}`} value={a.look} onChange={(v) => setAsset(a.key, 'look', v)} autoSize={{ minRows: 1, maxRows: 5 }} />
+                </div>
+              )))}
             </div>
           )}
 
-          <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 16 }}>
             {shots.map((x, i) => (
-              <div key={i} style={{ display: 'grid', gap: 4, minWidth: 0 }}>
+              <div key={i} style={{ display: 'grid', gap: 6, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <Text style={{ fontSize: 12, fontWeight: 600 }}>Shot {i + 1} · {x.title}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>{x.location}</Text>
-                  {x.shows.map((id) => {
-                    const proven = x.verified && x.proofs?.[id];
-                    return (
-                      <Tooltip key={id} content={proven ? `“${x.proofs[id]}”` : x.verified ? 'Not in this prompt' : 'Not checked since the last edit'}>
-                        <Tag size="small" color={proven ? 'green' : x.verified ? 'red' : 'gold'}>{id}</Tag>
-                      </Tooltip>
-                    );
-                  })}
-                  <span style={{ flex: 1 }} />
-                  <Text style={{ fontSize: 11, color: words(x.prompt) > 300 ? '#cb2634' : '#86909c', fontVariantNumeric: 'tabular-nums' }}>{words(x.prompt)}/300</Text>
+                  {x.shows.map((id) => <Tag key={id} size="small">{id}</Tag>)}
                 </div>
                 {x.moment && <Text type="secondary" style={{ fontSize: 12 }}>{x.moment}</Text>}
-                <Input.TextArea id={`story-room-shot-${i}`} value={x.prompt} onChange={(v) => setShotPrompt(i, v)} autoSize={{ minRows: 3, maxRows: 14 }} placeholder={busy ? 'Writing…' : 'No prompt yet'} />
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {assets.map((a) => {
+                    const on = x.assets.includes(a.key) || x.location === a.key;
+                    return (
+                      <Tag key={a.key} size="small" checkable checked={on} onCheck={() => x.location !== a.key && toggleBinding(i, a.key)} color={a.kind === 'location' ? 'green' : a.kind === 'prop' ? 'orange' : 'arcoblue'}>
+                        {a.name}
+                      </Tag>
+                    );
+                  })}
+                </div>
+                <Input.TextArea id={`story-room-shot-${i}`} value={x.body} onChange={(v) => setShotBody(i, v)} autoSize={{ minRows: 3, maxRows: 14 }} placeholder={busy ? 'Writing…' : 'No shot yet'} />
+                {x.body && (
+                  <details>
+                    <summary style={{ cursor: 'pointer', fontSize: 12, color: '#165dff' }}>Rendered prompt</summary>
+                    <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: '6px 0 0', fontFamily: 'inherit', color: '#4e5969' }}>{renderShotPrompt(x, assets)}</pre>
+                  </details>
+                )}
               </div>
             ))}
           </div>

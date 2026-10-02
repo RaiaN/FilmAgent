@@ -727,44 +727,34 @@ Return ONLY JSON: [{"block": "protagonist|flaw|internal_need|inciting_incident|e
   },
   'story.shots.system': {
     agent: 'Story Room',
-    label: 'Shot plan — which shot shows which facts (system)',
+    label: 'Shot plan — assets + shots (system)',
     vars: [],
-    text: `YOU ARE THE DIRECTOR planning a story's shots for Seedance 2.5 from its VISUAL BEAT SHEET. Each shot is ONE generation: one place, one continuous moment, at most 30 seconds. Decide how many shots the story needs: a beat gets as many shots as its facts need, and one shot may show several facts that share a place and moment. Every fact is shown by at least one shot, and the shots run in story order.
-Also write the cast sheet: one look line per recurring character (age, build, face, hair, wardrobe), so every shot can describe them with the same words.
-Return ONLY JSON: {"cast": [{"name": "...", "look": "..."}], "shots": [{"title": "2-5 words", "location": "the place", "moment": "one sentence: what happens in this shot", "shows": ["F1"]}]}`,
+    text: `YOU ARE THE DIRECTOR planning a story's shots for Seedance 2.5 from its VISUAL BEAT SHEET. Each shot is ONE generation: one place, one continuous moment, at most 30 seconds. A beat gets as many shots as its facts need; one shot may show several facts that share a place and moment. Every fact goes in a shot; the shots run in story order.
+First list the ASSETS that recur across shots: every character, every location, every important prop. Each gets a KEY (UPPER_SNAKE_CASE), a name, and one look line: for a character age, build, face, hair, wardrobe; for a location its space, materials, era, light; for a prop its shape, material, colour, wear.
+Then the shots: each names its location key, the asset keys it uses, and the fact ids it shows.
+Return ONLY JSON: {"assets": [{"key": "KAAN", "kind": "character|location|prop", "name": "Kaan", "look": "..."}], "shots": [{"title": "2-5 words", "location": "FERRY_DECK", "assets": ["KAAN"], "moment": "one sentence: what happens in this shot", "shows": ["F1"]}]}`,
   },
   'story.shots.user': {
     agent: 'Story Room',
     label: 'Shot plan (instruction)',
     vars: ['{blueprint}', '{facts}'],
-    text: 'THE BLUEPRINT:\n{blueprint}\n\nTHE VISUAL BEAT SHEET (every fact must be shown):\n{facts}',
+    text: 'THE BLUEPRINT:\n{blueprint}\n\nTHE VISUAL BEAT SHEET:\n{facts}',
   },
   'story.shot.system': {
     agent: 'Story Room',
-    label: 'Shot prompt — one Seedance 2.5 prompt (system)',
+    label: 'Shot prompt — one Seedance 2.5 shot body (system)',
     vars: ['{skill}'],
     text: `{skill}
 
-YOU ARE THE DIRECTOR writing ONE shot of a story as a Seedance 2.5 prompt, following the spec above. The shot is one generation: one place, one continuous moment, at most 30 seconds. It must visibly or audibly show every fact listed for it. Describe each character with the cast sheet's look words. Duration, aspect ratio and resolution are request parameters, never prompt text.
-Return ONLY the prompt text — no title, no notes, no JSON.`,
+YOU ARE THE DIRECTOR writing ONE shot of a story as the body of a Seedance 2.5 prompt, following the spec above. The shot is one generation: one place, one continuous moment, at most 30 seconds, and it shows the facts listed for it.
+Refer to every asset ONLY by its token exactly as given, e.g. {{KAAN}} — never describe an asset's appearance; its look is written in separately. Duration, aspect ratio and resolution are request parameters, never prompt text.
+Return ONLY the shot body text — no title, no notes, no JSON.`,
   },
   'story.shot.user': {
     agent: 'Story Room',
     label: 'Shot prompt (instruction)',
-    vars: ['{story}', '{cast}', '{shot}', '{facts}', '{neighbours}', '{retry}'],
-    text: 'THE STORY:\n{story}\n\nTHE CAST SHEET:\n{cast}\n\nTHIS SHOT:\n{shot}\n\nFACTS THIS SHOT MUST SHOW:\n{facts}\n\nAROUND IT:\n{neighbours}{retry}',
-  },
-  'story.verify.system': {
-    agent: 'Story Room',
-    label: 'Verify — prove each shot shows its facts (system)',
-    vars: [],
-    text: 'You are a script supervisor checking Seedance shot prompts against the story\'s visual beat sheet. For every shot and every fact it claims, copy the EXACT words from that shot\'s prompt that make the fact visible or audible on screen: one verbatim phrase of at most 30 words, copied character for character. If the prompt does not show the fact (it is missing, only implied, or only stated as a thought), return an empty quote. Never paraphrase, never join separate phrases.\nReturn ONLY JSON: [{"shot": 1, "fact": "F3", "quote": "..."}]',
-  },
-  'story.verify.user': {
-    agent: 'Story Room',
-    label: 'Verify (instruction)',
-    vars: ['{facts}', '{shots}'],
-    text: 'THE FACTS:\n{facts}\n\nTHE SHOTS:\n{shots}',
+    vars: ['{story}', '{assets}', '{shot}', '{facts}', '{neighbours}'],
+    text: 'THE STORY:\n{story}\n\nASSETS IN THIS SHOT (use these tokens):\n{assets}\n\nTHIS SHOT:\n{shot}\n\nFACTS THIS SHOT SHOWS:\n{facts}\n\nAROUND IT:\n{neighbours}',
   },
 };
 

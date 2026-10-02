@@ -4,7 +4,7 @@ import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
 import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, platesFor } from './storyroom/panels';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets } from '../utils/film/core/story';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, consistencyFrom } from '../utils/film/core/story';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -26,7 +26,7 @@ const ITEM_LABEL = {
 const ROLE_LABEL = {
   look: 'Reading the references\' look',
   scout: 'Scout is finding ideas', probe: 'Checking originality', architect: 'Architect is building the blueprint', critic: 'Critic is stress-testing', options: 'Writing 3 fix options and judging them blind',
-  facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots',
+  facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots', scenes: 'Finding the scene changes',
 };
 const SCORE_COLOR = ['#cb2634', '#d25f00', '#00a870'];
 
@@ -228,7 +228,23 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
     const w = await writeShotBodies({ blueprint, facts: f, assets: plan.assets, shots: plan.shots, onNote: note, onShot: landShot }, ctx);
     setShots(w.shots);
     if (w.failed.length) Message.warning({ content: w.failed.join(' · '), duration: 8000 });
+    setBusy({ role: 'scenes', at: Date.now() });
+    setShots(await detectScenes({ shots: w.shots, assets: plan.assets }, ctx));
   });
+  // Scenes: where place or time changes. Inside a scene, each shot inherits the end of the
+  // shot before it (its consistency asset); a scene's first shot needs none.
+  const runScenes = () => run('scenes', async () => { setShots(await detectScenes({ shots, assets }, ctx)); });
+  const toggleScene = (i) => setShots((list) => {
+    if (i < 1) return list; // the first shot always opens a scene
+    const nums = sceneNumbers(list);
+    const breaksNow = nums[i] !== nums[i - 1];
+    return list.map((x, j) => (j === i ? { ...x, newScene: !breaksNow, sceneUser: true, sceneReason: 'Set by you.' } : x));
+  });
+  const scenes = sceneNumbers(shots);
+  const consistencyOf = (i) => {
+    const from = consistencyFrom(shots, i);
+    return from == null ? null : { from, card: cardOf(from) };
+  };
   const setShotBody = (i, v) => setShots((list) => list.map((x, j) => (j === i ? { ...x, body: v } : x)));
   const setAsset = (key, field, v) => setAssets((list) => list.map((a) => (a.key === key ? { ...a, [field]: v } : a)));
   const toggleBinding = (i, key) => setShots((list) => list.map((x, j) => (j === i ? { ...x, assets: x.assets.includes(key) ? x.assets.filter((k) => k !== key) : [...x.assets, key] } : x)));
@@ -471,7 +487,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
     look: <LookPanel look={look} setLook={setLook} presets={presets} images={lookImages} addImages={addLookImages} removeImage={(i) => setLookImages((l) => l.filter((_, j) => j !== i))} readImages={readLook} busy={!!busy} />,
     beats: !blueprint ? needsBlueprint : facts.length ? <BeatSheet facts={facts} shotsOfFact={shotsOfFact} onOpenShot={(i) => { setTab('shots'); setOpenShot(i); }} /> : needsShots('beat sheet'),
     assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} plates={boardPlates} /> : needsShots('assets'),
-    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} refsOf={(x) => shotRefs(x).list} cardOf={cardOf} onJump={onOpenOnBoard} /> : needsShots('shots'),
+    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} refsOf={(x) => shotRefs(x).list} cardOf={cardOf} onJump={onOpenOnBoard} scenes={scenes} consistencyOf={consistencyOf} locationName={(x) => assets.find((a) => a.key === x.location)?.name || ''} onScenes={runScenes} /> : needsShots('shots'),
   }[tab] || storyPanel;
 
   return (
@@ -538,6 +554,9 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, boardPlates = [], bo
         refsOf={(x) => shotRefs(x).list}
         boardCard={openShot != null ? cardOf(openShot) : null}
         onJump={(id) => { setOpenShot(null); onOpenOnBoard?.(id); }}
+        scene={openShot != null ? scenes[openShot] : null}
+        consistency={openShot != null ? consistencyOf(openShot) : null}
+        onToggleScene={() => openShot != null && toggleScene(openShot)}
       />
     </div>
   );

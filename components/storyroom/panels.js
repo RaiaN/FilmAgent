@@ -299,15 +299,30 @@ const ShotPreview = ({ refs, card, onPlay }) => {
   );
 };
 
-export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], cardOf = () => null, onJump }) => {
+export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], cardOf = () => null, onJump, scenes = [], consistencyOf = () => null, locationName = () => '', onScenes }) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   const [playing, setPlaying] = useState('');
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+      <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>{scenes.length ? `${Math.max(...scenes)} scene${Math.max(...scenes) === 1 ? '' : 's'}` : ''} · inside a scene each shot inherits the end of the shot before it</Text>
+        <span style={{ flex: 1 }} />
+        {onScenes && <Button size="mini" disabled={busy} onClick={onScenes} title="Find where the place or time changes">Scenes ↻</Button>}
+      </div>
       {shots.map((x, i) => {
         const loc = byKey[x.location];
         const bound = x.assets.map((k) => byKey[k]).filter((a) => a && a.kind !== 'location');
-        return (
+        const opens = i === 0 || scenes[i] !== scenes[i - 1];
+        const cons = consistencyOf(i);
+        const src = cons?.card?.take;
+        return [
+          opens && (
+            <div key={`scene-${i}`} style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'baseline', gap: 10, paddingTop: i ? 10 : 0, borderTop: i ? `1px solid ${LINE}` : 'none' }}>
+              <Eyebrow color={INK}>Scene {scenes[i]}</Eyebrow>
+              <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, color: KIND_COLOR.location, textTransform: 'uppercase' }}>{locationName(x)}</Text>
+              {x.sceneReason && <Text type="secondary" style={{ fontSize: 11 }}>{x.sceneReason}</Text>}
+            </div>
+          ),
           <div
             key={i}
             role="button"
@@ -336,13 +351,21 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
                 </Tooltip>
               ))}
               {bound.length > 5 && <Text type="secondary" style={{ fontSize: 11 }}>+{bound.length - 5}</Text>}
+              {cons && (
+                <Tooltip content={src?.url ? `Inherits the end of SH ${pad2(cons.from + 1)}'s take` : `Needs SH ${pad2(cons.from + 1)}'s take — film it first`}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6, fontSize: 10, fontWeight: 600, color: src?.url ? '#00a870' : '#d25f00' }}>
+                    {src?.posterUrl ? <img src={src.posterUrl} alt="" style={{ width: 22, height: 14, objectFit: 'cover', borderRadius: 2 }} /> : null}
+                    ◀ SH {pad2(cons.from + 1)} {src?.url ? '✓' : '· missing'}
+                  </span>
+                </Tooltip>
+              )}
               <span style={{ flex: 1 }} />
               {cardOf(i) && onJump
                 ? <Button size="mini" type="text" onClick={(e) => { e.stopPropagation(); onJump(cardOf(i).cardId); }} title="Select this SHOT card on the Film Agent board">Open on board ↗</Button>
                 : <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 10, color: MUTED }}>{x.shows.join(' ')}</Text>}
             </div>
-          </div>
-        );
+          </div>,
+        ];
       })}
       <Modal visible={!!playing} footer={null} onCancel={() => setPlaying('')} style={{ width: 'min(960px, 94vw)' }} title="Take">
         {playing && <video src={playing} controls autoPlay style={{ width: '100%', borderRadius: 6, background: '#000' }} />}
@@ -351,7 +374,7 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
   );
 };
 
-export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump }) => (
+export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, scene = null, consistency = null, onToggleScene }) => (
   <Drawer
     width={620}
     visible={index != null && !!shot}
@@ -375,6 +398,23 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, o
     {shot && (
       <div style={{ display: 'grid', gap: 16 }}>
         {shot.moment && <Text type="secondary" style={{ fontSize: 13 }}>{shot.moment}</Text>}
+        <div style={{ display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Eyebrow>Scene {scene || ''}</Eyebrow>
+            <span style={{ flex: 1 }} />
+            {index > 0 && onToggleScene && (
+              <Button size="mini" onClick={onToggleScene}>{consistency ? 'New scene here' : 'Continue previous scene'}</Button>
+            )}
+          </div>
+          {shot.sceneReason && <Text type="secondary" style={{ fontSize: 12 }}>{shot.sceneReason}</Text>}
+          {consistency
+            ? (
+              <Text style={{ fontSize: 12, color: consistency.card?.take?.url ? '#00a870' : '#d25f00' }}>
+                ◀ Inherits the end of SH {pad2(consistency.from + 1)}{consistency.card?.take?.url ? ' — its take is on the board ✓' : ' — missing: film SH ' + pad2(consistency.from + 1) + ' first'}
+              </Text>
+            )
+            : <Text type="secondary" style={{ fontSize: 12 }}>Opens the scene — plates only.</Text>}
+        </div>
         <div style={{ display: 'grid', gap: 6 }}>
           <Eyebrow>In this shot</Eyebrow>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

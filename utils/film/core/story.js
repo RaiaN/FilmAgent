@@ -422,3 +422,48 @@ export const describeLook = async ({ images = [], notes = '', config } = {}, ctx
   if (!out) throw new Error('The style description came back empty — try again.');
   return out;
 };
+
+// ---- Scenes: where the story changes place or time --------------------------------
+// A light pass over the written shots marks scene breaks. Inside a scene each shot's
+// CONSISTENCY ASSET is the previous shot in that scene — its take's end frame; a shot
+// that opens a scene needs none. A break the user set by hand (sceneUser) is kept.
+const plainBody = (shot, assets) => {
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  return String(shot.body || shot.moment || '').replace(TOKEN_RE, (m, k) => byKey[keyOf(k)]?.name || k).replace(/\s+/g, ' ').trim();
+};
+
+export const detectScenes = async ({ shots = [], assets = [], config } = {}, ctx) => {
+  if (!shots.length) return shots;
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const listed = shots.map((x, i) => {
+    const words = plainBody(x, assets).split(' ').slice(0, 40).join(' ');
+    const who = (x.assets || []).map((k) => byKey[k]).filter((a) => a && a.kind !== 'location').map((a) => a.name).join(', ');
+    return `${i + 1}. @ ${byKey[x.location]?.name || x.location || 'unknown place'}${who ? ` — with ${who}` : ''}: ${words}`;
+  }).join('\n');
+  const out = parseJson(await ask(ctx, { system: renderTemplate('story.scenes.system'), prompt: inject('story.scenes.user', { shots: listed }), effort: 'low', config }));
+  const rows = Array.isArray(out) ? out : [];
+  return shots.map((x, i) => {
+    if (x.sceneUser) return x;
+    if (i === 0) return { ...x, newScene: true, sceneReason: 'Opens the film.' };
+    const r = rows.find((y) => Number(y?.shot) === i + 1);
+    const fallback = x.location !== shots[i - 1].location;
+    return { ...x, newScene: r ? !!r.newScene : fallback, sceneReason: String(r?.reason || (fallback ? 'The place changes.' : 'Same place.')).trim() };
+  });
+};
+
+// Scene number (1-based) for every shot; a shot without a verdict yet breaks only on a
+// change of place.
+export const sceneNumbers = (shots = []) => {
+  let n = 0;
+  return shots.map((x, i) => {
+    const breaks = i === 0 || (typeof x.newScene === 'boolean' ? x.newScene : x.location !== shots[i - 1]?.location);
+    if (breaks) n += 1;
+    return n;
+  });
+};
+
+// The shot whose end this shot must inherit: the previous shot in the same scene.
+export const consistencyFrom = (shots = [], i) => {
+  const scenes = sceneNumbers(shots);
+  return i > 0 && scenes[i] === scenes[i - 1] ? i - 1 : null;
+};

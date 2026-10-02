@@ -757,6 +757,18 @@ Watercolor: hand-painted watercolor, paper texture, soft bleeding edges, muted t
     vars: ['{name}', '{n}'],
     text: '{name} references @Image{n}; use only spatial layout, architecture, and lighting, and do not use the people in the image.',
   },
+  'story.scenes.system': {
+    agent: 'Story Room',
+    label: 'Scene pass — where scenes change (system)',
+    vars: [],
+    text: 'You are a script supervisor reading a shot list in order. For each shot, say whether it starts a NEW scene — a different place, or a jump in time — or CONTINUES the scene of the shot before it: the same place, with time running on. A new camera angle in the same place and moment is NOT a new scene. Give a one-line reason.\nReturn ONLY JSON: [{"shot": 1, "newScene": true, "reason": "..."}]',
+  },
+  'story.scenes.user': {
+    agent: 'Story Room',
+    label: 'Scene pass (instruction)',
+    vars: ['{shots}'],
+    text: 'THE SHOTS, IN ORDER:\n{shots}',
+  },
   'story.plate.face': {
     agent: 'Story Room',
     label: 'Asset plate — character face (Cast & World)',

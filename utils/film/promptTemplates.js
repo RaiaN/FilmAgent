@@ -105,14 +105,8 @@ Return ONLY JSON — no prose, no code fences:
   'previz.animatic': {
     agent: 'Previz',
     label: 'Previz animatic — the Seedance prompt',
-    vars: ['{style}', '{key}', '{shots}', '{fix}'],
-    text: 'An ANIMATIC of one scene. {style}\n@Image1 is a top-down floor plan of this scene: use only its layout, where each actor stands, the paths the arrows show and where each camera stands. Never show the plan itself — no lines, labels, circles or arrows on screen.\n{key} Each block keeps its colour for the whole video; only colour tells them apart.\n{shots}\n{fix}',
-  },
-  'previz.animatic.fix': {
-    agent: 'Previz',
-    label: 'Previz animatic — the director\'s correction',
-    vars: ['{note}'],
-    text: 'THE DIRECTOR\'S CORRECTION — this must hold over everything above: {note}',
+    vars: ['{style}', '{key}', '{shots}'],
+    text: 'An ANIMATIC of one scene. {style}\n@Image1 is a top-down floor plan of this scene: use only its layout, where each actor starts and the paths the arrows show; the shots below decide the cameras. Never show the plan itself — no lines, labels, circles or arrows on screen.\n{key} Each block keeps its colour for the whole video; only colour tells them apart.\n{shots}',
   },
   'previz.describe.system': {
     agent: 'Previz',

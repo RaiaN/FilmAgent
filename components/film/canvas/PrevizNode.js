@@ -8,7 +8,7 @@ import { maxShotSeconds } from '../../../utils/film/suiteConfig';
 const { Text } = Typography;
 
 export const PrevizContext = createContext({
-  onPlan: null, onDrawSchematic: null, onPatchPreviz: null, onEditSchematic: null, onAnimatic: null, onPlay: null, onToCut: null, onPickAnimatic: null, onNeedPoster: null, posters: {},
+  onPlan: null, onDrawSchematic: null, onPatchPreviz: null, onEditSchematic: null, onAnimatic: null, onPlay: null, onToCut: null, onPickAnimatic: null, onCorrect: null, onNeedPoster: null, posters: {},
 });
 
 // THE PREVIZ CARD — block the scene, see it move. Scene words → a plan (set, actors, who
@@ -20,7 +20,7 @@ const SWATCH = {
 };
 
 const PrevizNodeInner = ({ id, data, selected }) => {
-  const { onPlan, onDrawSchematic, onPatchPreviz, onEditSchematic, onAnimatic, onPlay, onToCut, onPickAnimatic, onNeedPoster, posters } = useContext(PrevizContext);
+  const { onPlan, onDrawSchematic, onPatchPreviz, onEditSchematic, onAnimatic, onPlay, onToCut, onPickAnimatic, onCorrect, onNeedPoster, posters } = useContext(PrevizContext);
   const patch = (p) => onPatchPreviz && onPatchPreviz(id, p);
   // A plan from the old page-of-plates Previz has no shots — treat it as unplanned.
   const plan = Array.isArray(data.plan?.shots) ? { ...data.plan, actors: data.plan.actors || [], set: data.plan.set || [] } : null;
@@ -117,19 +117,30 @@ const PrevizNodeInner = ({ id, data, selected }) => {
                   </div>
                 </div>
                 <div style={{ display: 'grid', gap: 6 }}>
-                  <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>{anim ? 'HOW TO CORRECT · for the next render' : 'NOTES · for the render'}</Text>
-                  <DraftText
-                    textarea value={data.animaticNote} onCommit={(v) => patch({ animaticNote: v })}
-                    placeholder="e.g. Robber 2 reaches the counter before the teller turns; the camera stays behind the counter"
-                    autoSize={{ minRows: 4, maxRows: 8 }} style={{ fontSize: 11 }}
-                  />
+                  {anim?.takeId && (
+                    <>
+                      <Text style={{ ...BLOCK_LABEL, color: '#86909c' }}>HOW TO CORRECT · edits {anim.label || 'the animatic'}</Text>
+                      <DraftText
+                        textarea value={data.animaticNote} onCommit={(v) => patch({ animaticNote: v })}
+                        placeholder="e.g. at the end, cut to a close-up of Robber 2; Robber 1 stops at the counter instead of walking past it"
+                        autoSize={{ minRows: 4, maxRows: 8 }} style={{ fontSize: 11 }}
+                      />
+                      <Button
+                        size="small" type="primary" long loading={!!data.animaticBusy}
+                        disabled={!onCorrect || !String(data.animaticNote || '').trim()}
+                        onClick={() => onCorrect && onCorrect(id)}
+                        title="Edit this animatic: the model watches it, the edit skill writes the change against it, and Seedance re-renders it with only that change (same length, 480p, no audio)"
+                        style={{ background: '#165dff', borderColor: '#165dff' }}
+                      >Apply correction</Button>
+                    </>
+                  )}
                   <Button
-                    size="small" type="primary" long icon={<IconVideoCamera />} loading={!!data.animaticBusy}
-                    disabled={!onAnimatic || !schem.url || total > maxS}
+                    size="small" long={!anim?.takeId} type={anim?.takeId ? 'text' : 'primary'} icon={<IconVideoCamera />} loading={!anim?.takeId && !!data.animaticBusy}
+                    disabled={!onAnimatic || !schem.url || total > maxS || !!data.animaticBusy}
                     onClick={() => onAnimatic && onAnimatic(id)}
-                    title="Seedance 2.5 reads the schematic and moves the blocks through the shots — a cheap 480p draft, no audio"
-                    style={{ background: '#165dff', borderColor: '#165dff' }}
-                  >{anim ? 'Render a new animatic' : 'Render animatic'}</Button>
+                    title="Render a fresh animatic from the schematic and the blocking — a cheap 480p draft, no audio"
+                    style={anim?.takeId ? undefined : { background: '#165dff', borderColor: '#165dff' }}
+                  >{anim?.takeId ? 'Render a new one from the schematic' : 'Render animatic'}</Button>
                   {data.animaticError && <Text style={{ fontSize: 10, color: '#f53f3f' }}>{data.animaticError}</Text>}
                 </div>
               </div>

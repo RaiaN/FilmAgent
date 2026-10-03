@@ -2033,6 +2033,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     onAnimatic: (id) => previzDispatchRef.current.animatic(id),
     onPlay: (id, takeId) => previzDispatchRef.current.play(id, takeId),
     onPickAnimatic: (id) => previzDispatchRef.current.pick(id),
+    onCorrect: (id) => previzDispatchRef.current.correct(id),
     onToCut: (id) => previzDispatchRef.current.toCut(id),
     onNeedPoster: (takeId) => previzDispatchRef.current.poster?.(takeId),
     posters: previzPosters,
@@ -3365,7 +3366,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     (async () => {
       try {
         const shot = {
-          motion: previzAnimaticPrompt({ plan, note: card.data?.animaticNote }),
+          motion: previzAnimaticPrompt({ plan }),
           refUrls: [src], refAssetIds: [null], refRoles: [],
           durationSec: clampShotSeconds(ANIMATIC_MODEL, totalSecondsOf(plan)),
           resolution: DRAFT_MODE.resolution, ratio: ANIMATIC_RATIO,
@@ -3386,6 +3387,57 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       }
     })();
   }, [addLoadingTake, patchPreviz, setNodes]);
+
+  // HOW TO CORRECT = an EDIT of the chosen animatic, through the same path as an EDIT card:
+  // the vision model watches it, the edit skill writes the instruction against @video1,
+  // and Seedance re-renders that video with only the correction changed (480p, no audio,
+  // its own length and ratio). The result is a new take and becomes the chosen animatic.
+  const correctPrevizAnimatic = useCallback(async (cardId) => {
+    await new Promise((r) => { setTimeout(r, 0); }); // a note typed just before the click commits on blur
+    const card = nodesRef.current.find((n) => n.id === cardId);
+    const anim = card?.data?.animatic;
+    const src = anim?.takeId ? nodesRef.current.find((n) => n.id === anim.takeId) : null;
+    const note = String(card?.data?.animaticNote || '').trim();
+    if (!src) { Message.warning('Choose the animatic to correct first.'); return; }
+    if (!note) { Message.warning('Write what to correct first.'); return; }
+    if (card.data?.animaticBusy) return;
+    const masterUrl = durableVideoUrl(src.data.cacheUrl || src.data.url || anim.url);
+    const meta = await new Promise((res) => {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => res({ duration: Number(v.duration) || 0, ratio: v.videoWidth && v.videoHeight ? `${v.videoWidth}×${v.videoHeight}` : null });
+      v.onerror = () => res({ duration: 0, ratio: null });
+      v.src = masterUrl;
+    });
+    if (meta.duration && meta.duration < 4) { Message.warning(`${anim.label} is ${meta.duration.toFixed(1)}s — an edit needs a 4–30s source.`); return; }
+    const { takeId, takeNo } = addLoadingTake(card, 'Animatic');
+    patchPreviz(cardId, { animaticBusy: true, animaticError: '' });
+    traceRef.current.startRun({ note: `Agent · Previz · correct ${anim.label} (edit)` });
+    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
+    try {
+      const master = { url: masterUrl, label: anim.label || 'the animatic', duration: meta.duration || null, ratio: meta.ratio };
+      const { text: analysis } = await analyzeEditMaster({ videoUrl: masterUrl, seconds: meta.duration }, ctx);
+      const out = await editShotAction({ text: note, master, analysis, references: [], roster: [], modelKey: ANIMATIC_MODEL }, ctx);
+      const shot = {
+        motion: out.action, refUrls: [], refAssetIds: [], refRoles: [],
+        durationSec: AUTO_SECONDS, resolution: clampResolution(ANIMATIC_MODEL, DRAFT_MODE.resolution), ratio: null,
+        generateAudio: false, modelKey: ANIMATIC_MODEL,
+        videoRefUrls: [masterUrl], videoRefAssetIds: [src.data.assetId || null],
+      };
+      const { taskId } = await animateWithRefFallback(shot, [], ctx);
+      resumedTakesRef.current.add(takeId);
+      setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId: cardId } } : n)));
+      const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
+      const label = `Animatic ${takeNo} · edit of ${anim.label}`;
+      setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, editPrompt: out.action } } : n)));
+      patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, seconds: meta.duration ? Math.round(meta.duration) : anim.seconds, createdAt: Date.now() } });
+      Message.success(`${label} — the correction is on the board and chosen.`);
+    } catch (err) {
+      setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Correction failed' } } : n)));
+      patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
+      Message.error(`Correction failed: ${err.message}`);
+    }
+  }, [addLoadingTake, patchPreviz, setNodes, durableVideoUrl]);
 
   // PICK THE ANIMATIC in the Take Library — any video on the board; that one is what
   // Final (when it is a draft) and To CUT card use.
@@ -3486,7 +3538,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     }
   }, [previzCtxOf, previzPool, patchPreviz]);
 
-  previzDispatchRef.current = { pick: pickPrevizAnimatic, toCut: previzToCut, edit: previzEditSchematic, animatic: makePrevizAnimatic, play: playPrevizAnimatic };
+  previzDispatchRef.current = { correct: correctPrevizAnimatic, pick: pickPrevizAnimatic, toCut: previzToCut, edit: previzEditSchematic, animatic: makePrevizAnimatic, play: playPrevizAnimatic };
 
   // ANALYZE an EDIT card's master: the reasoner watches the video itself and describes
   // the shot — the footage only, never THE EDIT — and that description goes on the card

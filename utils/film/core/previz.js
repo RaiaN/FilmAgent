@@ -39,8 +39,12 @@ export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) 
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
-  const raw = parseJson(content) || {};
+  return normalizePlan(parseJson(content) || {}, maxSeconds);
+};
 
+// Plan JSON from the planner → the card's plan: actors dealt their colours by order, shots
+// trimmed, the cut fitted into one generation.
+const normalizePlan = (raw, maxSeconds) => {
   const actors = (Array.isArray(raw.actors) ? raw.actors : [])
     .map((a) => ({ name: clean(a?.name, 40), description: clean(a?.description, 200), start: clean(a?.start, 160) }))
     .filter((a) => a.name)
@@ -98,14 +102,11 @@ export const previzSchematic = async ({ plan, imageModel = defaultImageModelKey(
 
 // THE ANIMATIC PROMPT — built by code from the plan: the schematic's role (Seedance 2.5
 // reference grammar), the colour key, the style, and one line per shot.
-// The director's correction rides last, as a constraint the new render must hold.
-export const previzAnimaticPrompt = ({ plan, note = '' } = {}) => {
-  const fix = String(note || '').trim();
+export const previzAnimaticPrompt = ({ plan } = {}) => {
   return renderTemplate('previz.animatic', {
     style: renderTemplate(`previz.animatic.style.${ANIMATIC_STYLE}`),
     key: (plan?.actors || []).length ? `The colour key: ${plan.actors.map((a) => `the ${colorWord(a)} block is ${a.name}`).join('; ')}.` : '',
     shots: (plan?.shots || []).map((s, i) => `Shot ${i + 1} (${cameraLine(s, i)}): ${s.action}`).join('\n'),
-    fix: fix ? renderTemplate('previz.animatic.fix', { note: fix }) : '',
   }).trim();
 };
 

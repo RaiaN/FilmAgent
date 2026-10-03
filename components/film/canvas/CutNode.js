@@ -51,7 +51,7 @@ const DurationPill = ({ value, max, onChange }) => {
 // rewrites it to carry a camera setup, lens, light or movement. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onFinalizeDraft: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, continuityStale: {}, onOpenRefDrawer: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onFinalizeDraft: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, continuityStale: {}, onOpenRefDrawer: null, onOpenInStoryRoom: null,
 });
 
 // One keyframe slot tile: shows its picked still, or a dashed ＋ tile. Clicking opens
@@ -109,7 +109,9 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onFinalizeDraft, onAttachAsset, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, continuityStale, onOpenRefDrawer } = useContext(CutContext);
+  const { onPatchCut, bibleEntries, onShootCut, onFinalizeDraft, onAttachAsset, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, continuityStale, onOpenRefDrawer, onOpenInStoryRoom } = useContext(CutContext);
+  // A card the Story Room sent is written THERE: its prompt is read-only here.
+  const fromStory = !!data.storyRef?.sendId;
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -360,8 +362,11 @@ const CutNodeInner = ({ id, data, selected }) => {
 
         <div>
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
+            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT{fromStory ? ' · from the Story Room' : ''}</Text>
             <span style={{ display: 'inline-flex', gap: 2 }}>
+              {fromStory ? (
+                <Button className="nodrag" size="mini" type="text" onClick={() => onOpenInStoryRoom && onOpenInStoryRoom(id)} style={{ color: '#7ee2b8', height: 18, padding: '0 4px' }} title="This shot is written in the Story Room — every change there lands here">Edit in Story Room ↗</Button>
+              ) : (<>
               <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onComposeCut || data.developing} onClick={() => onComposeCut && onComposeCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Compose — with keyframes: 2 visible calls (DERIVE the events from the keyframes alone, then WRITE it with the reference chips + your dialogue/names verbatim); without: 1 call, your text as the material. What comes back IS the prompt — it ships to the model verbatim. Overridden text is reported, previous text stashed.">Compose</Button>
               <Popover
                 trigger="click" position="bl" color="#161b22"
@@ -410,6 +415,7 @@ const CutNodeInner = ({ id, data, selected }) => {
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
+              </>)}
             </span>
           </div>
           {(data.developing || data.composePending) ? (
@@ -420,6 +426,8 @@ const CutNodeInner = ({ id, data, selected }) => {
                 <Text style={{ color: '#6e7b8b', fontSize: 10 }} ellipsis>under the skill bound to {VIDEO_MODEL_OPTIONS.find((o) => o.key === videoModel)?.label || videoModel}</Text>
               </div>
             </div>
+          ) : fromStory ? (
+            <div className="nodrag nowheel" style={{ ...promptArea, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto', padding: '6px 8px', borderRadius: 4, border: '1px solid #21262d' }}>{data.promptOverride}</div>
           ) : (
           <DraftText textarea className="nodrag nowheel" value={data.promptOverride} onCommit={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt — Expand to @-mention references" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
           )}

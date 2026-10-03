@@ -720,6 +720,7 @@ Return ONLY JSON: {"assets": [{"key": "KAAN", "kind": "character|location|prop",
     text: `{skill}
 
 YOU ARE THE DIRECTOR writing ONE shot of a story as the body of a Seedance 2.5 prompt, following the spec above. The shot is one generation: one place, one continuous moment, at most 30 seconds, and it shows the facts listed for it.
+When THE SHOT THIS ONE CONTINUES is given, this shot opens exactly where it ends: open by placing every person and prop where that shot left them, holding what they held, with every change it made still true — and never restart, repeat or contradict an action it finished.
 Refer to every asset ONLY by its token exactly as given, e.g. {{KAAN}} — never describe an asset's appearance; its look is written in separately. Duration, aspect ratio and resolution are request parameters, never prompt text.
 Return ONLY the shot body text — no title, no notes, no JSON.`,
   },
@@ -818,11 +819,28 @@ Watercolor: hand-painted watercolor, paper texture, soft bleeding edges, muted t
     vars: ['{name}', '{look}'],
     text: 'Clean reference of {name}, three-quarter view on a neutral ground, even light, no people: {look}. No on-image text.',
   },
+  'story.reopen.system': {
+    agent: 'Story Room',
+    label: 'Re-open a shot from the take it continues (system)',
+    vars: [],
+    text: `You correct the OPENING of one shot prompt so the shot starts from IMAGE 1: the real last frame of the shot it continues. The other images show each person and prop of the shot, so you can tell who and what is who in IMAGE 1 — use them only for that.
+
+Rewrite only the opening — the words that say where each person and prop is when the shot starts, how they stand or sit and face, what they hold, which doors are open, what has changed in the place — so it matches what IMAGE 1 shows. Write only position, pose, facing, what they hold and what has changed — never clothing, hair, face, build or any look: the tokens carry the looks. Someone the prompt needs who is not in IMAGE 1 stays out of the opening until the action brings them in. Where the action that follows would contradict the image (someone "enters" who is already inside, someone picks up what they already hold), change only the fewest words needed for it to continue from the image.
+
+Keep every other word exactly as written: the action and its order, dialogue, sound, camera, timing. Refer to people, props and places only by their tokens exactly as given, e.g. {{KAAN}}, and keep every token the prompt uses. Never describe how an asset looks. Never mention the image, a frame, a take or an earlier shot — write the scene.
+Return ONLY the full corrected prompt — no notes.`,
+  },
+  'story.reopen.user': {
+    agent: 'Story Room',
+    label: 'Re-open a shot (instruction)',
+    vars: ['{assets}', '{images}', '{body}'],
+    text: 'ASSETS IN THIS SHOT (tokens):\n{assets}\n\nTHE ATTACHED IMAGES, in order:\n{images}\n\nTHE SHOT PROMPT:\n"""\n{body}\n"""\n\nIMAGE 1 is where this shot must start. Return the corrected prompt.',
+  },
   'story.shot.user': {
     agent: 'Story Room',
     label: 'Shot prompt (instruction)',
-    vars: ['{story}', '{assets}', '{shot}', '{facts}', '{neighbours}'],
-    text: 'THE STORY:\n{story}\n\nASSETS IN THIS SHOT (use these tokens):\n{assets}\n\nTHIS SHOT:\n{shot}\n\nFACTS THIS SHOT SHOWS:\n{facts}\n\nAROUND IT:\n{neighbours}',
+    vars: ['{story}', '{assets}', '{shot}', '{facts}', '{neighbours}', '{previous}'],
+    text: 'THE STORY:\n{story}\n\nASSETS IN THIS SHOT (use these tokens):\n{assets}\n\nTHIS SHOT:\n{shot}\n\nFACTS THIS SHOT SHOWS:\n{facts}\n\nAROUND IT:\n{neighbours}\n\n{previous}',
   },
 };
 

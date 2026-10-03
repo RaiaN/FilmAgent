@@ -61,17 +61,6 @@ const ask = async (ctx, { system, prompt, effort, config, images }) => {
     throw err;
   }
 };
-// The writing calls: a long-call failure retries ONCE at medium, and says so through
-// onNote — a slower answer beats none, but never silently.
-const askLong = async (ctx, { system, prompt, effort, config, onNote }) => {
-  try {
-    return await ask(ctx, { system, prompt, effort, config });
-  } catch (err) {
-    if (!err.longCall || ['medium', 'low', 'minimal'].includes(effort)) throw err;
-    if (onNote) onNote(`A call failed after minutes at ${effort} effort — retrying at medium.`);
-    return ask(ctx, { system, prompt, effort: 'medium', config });
-  }
-};
 
 // ---- the gates (code, not model) -------------------------------------------------
 export const blueprintProblems = (bp) => {
@@ -365,7 +354,17 @@ export const renderShotPrompt = (shot, assets = [], look = '', refs = {}) => {
 
 // ONE shot's body, under the Seedance 2.5 spec (whole). Assets appear only as tokens.
 const shotLine = (x, i) => `Shot ${i + 1} · ${x.title}: ${x.moment}`;
-export const writeShotBody = async ({ blueprint, facts = [], assets = [], shots = [], index, config, onNote } = {}, ctx) => {
+// What this shot opens from: the full body of the shot it continues (written first),
+// else it opens a new scene.
+const previousOf = (shots, index) => {
+  const l = linkOf(shots, index);
+  if (!l) return index === 0 ? 'This is the opening shot of the film.' : 'This shot opens a new scene.';
+  const prev = shots[l.from];
+  if (!String(prev.body || '').trim()) throw new Error(`shot ${index + 1} continues shot ${l.from + 1}, which has no prompt yet`);
+  return `THE SHOT THIS ONE CONTINUES (shot ${l.from + 1}) — this shot opens exactly where it ends:\n"""\n${prev.body}\n"""`;
+};
+
+export const writeShotBody = async ({ blueprint, facts = [], assets = [], shots = [], index, config } = {}, ctx) => {
   const shot = shots[index];
   const bp = tidyBlueprint(blueprint);
   const bound = boundAssets(shot, assets);
@@ -375,25 +374,70 @@ export const writeShotBody = async ({ blueprint, facts = [], assets = [], shots 
     shot: shotLine(shot, index),
     facts: factList(facts.filter((f) => shot.shows.includes(f.id))) || '(none)',
     neighbours: [index > 0 ? `Before: ${shotLine(shots[index - 1], index - 1)}` : 'This is the opening shot.', index < shots.length - 1 ? `After: ${shotLine(shots[index + 1], index + 1)}` : 'This is the final shot.'].join('\n'),
+    previous: previousOf(shots, index),
   };
   const system = renderTemplate('story.shot.system', { skill: await requireSkillLine(SHOT_MODEL) });
-  const text = await askLong(ctx, { system, prompt: inject('story.shot.user', slots), effort: getRuntime(config).reasoningEffort, config, onNote });
+  const text = await ask(ctx, { system, prompt: inject('story.shot.user', slots), effort: getRuntime(config).reasoningEffort, config });
   return String(text || '').replace(/^```\w*\s*|\s*```$/g, '').trim();
 };
 
-// Every shot body, three at a time; onShot(i, shot) fires as each lands.
-export const writeShotBodies = async ({ blueprint, facts, assets, shots, config, onNote, onShot } = {}, ctx) => {
+// Every shot body. A shot that continues another is written after it and opens where it
+// ends; independent shots run three at a time. The links must be set first (detectScenes
+// or by hand). onShot(i, shot) fires as each lands.
+export const writeShotBodies = async ({ blueprint, facts, assets, shots, config, onShot } = {}, ctx) => {
   const out = shots.map((x) => ({ ...x }));
   const failed = [];
-  await runWithConcurrency(shots.map((_, i) => async () => {
-    try {
-      out[i] = { ...out[i], body: await writeShotBody({ blueprint, facts, assets, shots: out, index: i, config, onNote }, ctx) };
-      if (onShot) onShot(i, out[i]);
-    } catch (err) {
-      failed.push(`shot ${i + 1}: ${err.message || err}`);
-    }
-  }), 3);
+  let active = 0;
+  const waiting = [];
+  const take = () => new Promise((go) => { if (active < 3) { active += 1; go(); } else waiting.push(go); });
+  const give = () => { const next = waiting.shift(); if (next) next(); else active -= 1; };
+  const done = [];
+  shots.forEach((_, i) => {
+    const l = linkOf(shots, i);
+    done[i] = (async () => {
+      if (l && !(await done[l.from])) { failed.push(`shot ${i + 1}: not written — it continues shot ${l.from + 1}, which failed`); return false; }
+      await take();
+      try {
+        out[i] = { ...out[i], body: await writeShotBody({ blueprint, facts, assets, shots: out, index: i, config }, ctx) };
+        if (onShot) onShot(i, out[i]);
+        return true;
+      } catch (err) {
+        failed.push(`shot ${i + 1}: ${err.message || err}`);
+        return false;
+      } finally { give(); }
+    })();
+  });
+  await Promise.all(done);
   return { shots: out, failed };
+};
+
+// RE-OPEN A SHOT FROM THE TAKE IT CONTINUES — a vision call reads that take's real last
+// frame and rewrites only this shot's OPENING so it starts from what the frame shows;
+// the rest of the prompt stays as written. The shot's plates ride along so the model can
+// tell who and what is who in the frame. Every asset token must survive.
+export const reopenShot = async ({ shot, assets = [], frameUrl, plates = [], config } = {}, ctx) => {
+  const body = String(shot?.body || '').trim();
+  if (!body) throw new Error('This shot has no prompt yet.');
+  if (!frameUrl) throw new Error('The shot it continues has no take yet.');
+  const bound = boundAssets(shot, assets);
+  const known = plates.filter((p) => p.url && bound.some((a) => a.key === p.key));
+  const text = await ask(ctx, {
+    system: renderTemplate('story.reopen.system'),
+    prompt: inject('story.reopen.user', {
+      assets: bound.map((a) => `{{${a.key}}} — ${a.kind}: ${a.name}`).join('\n') || '(none)',
+      images: ['image 1 = THE FRAME this shot starts from', ...known.map((p, i) => `image ${i + 2} = {{${p.key}}} — only to recognise it in the frame`)].join('\n'),
+      body,
+    }),
+    images: [frameUrl, ...known.map((p) => p.url)],
+    effort: 'medium',
+    config,
+  });
+  const out = String(text || '').replace(/^```\w*\s*|\s*```$/g, '').trim().replace(/^"""\s*|\s*"""$/g, '').trim();
+  if (!out) throw new Error('The re-opened prompt came back empty — try again.');
+  const tokens = (t) => new Set([...t.matchAll(TOKEN_RE)].map((m) => keyOf(m[1])));
+  const lost = [...tokens(body)].filter((k) => !tokens(out).has(k));
+  if (lost.length) throw new Error(`The re-opened prompt dropped ${lost.map((k) => `{{${k}}}`).join(', ')} — try again.`);
+  return out;
 };
 
 // The roster as a Cast & World design — one asset per roster entry, names verbatim (they
@@ -423,55 +467,16 @@ export const describeLook = async ({ images = [], notes = '', config } = {}, ctx
   return out;
 };
 
-// ---- Scenes: where the story changes place or time --------------------------------
-// A light pass over the written shots marks scene breaks. Inside a scene each shot's
-// CONSISTENCY ASSET is the previous shot in that scene — its take's end frame; a shot
-// that opens a scene needs none. A break the user set by hand (sceneUser) is kept.
+// ---- Scenes and continuity links ---------------------------------------------------
+// ONE continuity control per shot — its LINK: the earlier shot it continues (that take's
+// last frame rides into it, as the state of the scene or as its first frame), or none:
+// it opens a new scene. Scenes are where the links break. The scene pass sets the links
+// it is allowed to; a link you set (user) is yours and the pass leaves it.
 const plainBody = (shot, assets) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   return String(shot.body || shot.moment || '').replace(TOKEN_RE, (m, k) => byKey[keyOf(k)]?.name || k).replace(/\s+/g, ' ').trim();
 };
 
-export const detectScenes = async ({ shots = [], assets = [], config } = {}, ctx) => {
-  if (!shots.length) return shots;
-  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
-  const listed = shots.map((x, i) => {
-    const words = plainBody(x, assets).split(' ').slice(0, 40).join(' ');
-    const who = (x.assets || []).map((k) => byKey[k]).filter((a) => a && a.kind !== 'location').map((a) => a.name).join(', ');
-    return `${i + 1}. @ ${byKey[x.location]?.name || x.location || 'unknown place'}${who ? ` — with ${who}` : ''}: ${words}`;
-  }).join('\n');
-  const out = parseJson(await ask(ctx, { system: renderTemplate('story.scenes.system'), prompt: inject('story.scenes.user', { shots: listed }), effort: 'low', config }));
-  const rows = Array.isArray(out) ? out : [];
-  return shots.map((x, i) => {
-    if (x.sceneUser) return x;
-    if (i === 0) return { ...x, newScene: true, sceneReason: 'Opens the film.' };
-    const r = rows.find((y) => Number(y?.shot) === i + 1);
-    const fallback = x.location !== shots[i - 1].location;
-    return { ...x, newScene: r ? !!r.newScene : fallback, sceneReason: String(r?.reason || (fallback ? 'The place changes.' : 'Same place.')).trim() };
-  });
-};
-
-// Scene number (1-based) for every shot; a shot without a verdict yet breaks only on a
-// change of place.
-export const sceneNumbers = (shots = []) => {
-  let n = 0;
-  return shots.map((x, i) => {
-    const breaks = i === 0 || (typeof x.newScene === 'boolean' ? x.newScene : x.location !== shots[i - 1]?.location);
-    if (breaks) n += 1;
-    return n;
-  });
-};
-
-// The shot whose end this shot must inherit: the previous shot in the same scene.
-export const consistencyFrom = (shots = [], i) => {
-  const scenes = sceneNumbers(shots);
-  return i > 0 && scenes[i] === scenes[i - 1] ? i - 1 : null;
-};
-
-// A shot's CONTINUITY LINK: which earlier shot's last frame it carries, and how —
-// 'state' (a reference: the place and the people as that shot left them) or 'open' (the
-// shot starts on that frame). Set by hand it wins; otherwise the scene decides
-// (the previous shot in the same scene, as state).
 export const LINK_MODES = ['state', 'open'];
 // The filmmaker's own wording for how the frame is used. Stored with {frame} where the
 // frame is cited; the board writes its @ImageN there.
@@ -481,12 +486,48 @@ export const linkTextOf = (raw = '') => {
   if (!t) return '';
   return t.includes(FRAME_TOKEN) ? t : `${FRAME_TOKEN}: ${t}`;
 };
+// A link is decided once the pass or you set it (shots from before links were stored keep
+// their scene verdict: continuing = the shot before, as state).
+const decided = (x) => !!(x?.link && 'from' in x.link) || typeof x?.newScene === 'boolean';
 export const linkOf = (shots = [], i) => {
   const own = shots[i]?.link;
-  if (own?.user) {
+  if (own && 'from' in own) {
     const from = Number.isInteger(own.from) && own.from >= 0 && own.from < i ? own.from : null;
-    return from == null ? null : { from, mode: LINK_MODES.includes(own.mode) ? own.mode : 'state', text: String(own.text || ''), user: true };
+    return from == null ? null : { from, mode: LINK_MODES.includes(own.mode) ? own.mode : 'state', text: String(own.text || ''), user: !!own.user };
   }
-  const from = consistencyFrom(shots, i);
-  return from == null ? null : { from, mode: 'state', text: '', user: false };
+  return i > 0 && shots[i]?.newScene === false ? { from: i - 1, mode: 'state', text: '', user: false } : null;
+};
+export const scenesFound = (shots = []) => shots.slice(1).every(decided);
+// Scene number (1-based) per shot: a decided shot without a link opens a scene.
+export const sceneNumbers = (shots = []) => {
+  let n = 0;
+  return shots.map((x, i) => {
+    if (i === 0 || (decided(x) && !linkOf(shots, i))) n += 1;
+    return n;
+  });
+};
+
+export const detectScenes = async ({ shots = [], assets = [], config } = {}, ctx) => {
+  if (!shots.length) return shots;
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const mine = (x) => !!(x.link?.user || x.sceneUser);
+  const listed = shots.map((x, i) => {
+    const words = plainBody(x, assets).split(' ').slice(0, 40).join(' ');
+    const who = (x.assets || []).map((k) => byKey[k]).filter((a) => a && a.kind !== 'location').map((a) => a.name).join(', ');
+    return `${i + 1}. @ ${byKey[x.location]?.name || x.location || 'unknown place'}${who ? ` — with ${who}` : ''}: ${words}`;
+  }).join('\n');
+  const out = parseJson(await ask(ctx, { system: renderTemplate('story.scenes.system'), prompt: inject('story.scenes.user', { shots: listed }), effort: 'low', config }));
+  const rows = Array.isArray(out) ? out : [];
+  // Every shot needs the model's verdict — a gap is an error, never a guess.
+  const missing = shots.map((x, i) => i).filter((i) => i > 0 && !mine(shots[i])
+    && !rows.some((y) => Number(y?.shot) === i + 1 && typeof y?.newScene === 'boolean' && String(y?.reason || '').trim()));
+  if (missing.length) throw new Error(`The scene pass gave no verdict for shot${missing.length === 1 ? '' : 's'} ${missing.map((i) => i + 1).join(', ')} — run Scenes ↻ again.`);
+  return shots.map((x, i) => {
+    if (mine(x)) return x;
+    const { newScene, ...rest } = x;
+    if (i === 0) return { ...rest, link: { from: null }, sceneReason: 'Opens the film.' };
+    const r = rows.find((y) => Number(y?.shot) === i + 1);
+    const keep = x.link || {};
+    return { ...rest, link: { from: r.newScene ? null : i - 1, mode: LINK_MODES.includes(keep.mode) ? keep.mode : 'state', text: String(keep.text || '') }, sceneReason: String(r.reason).trim() };
+  });
 };

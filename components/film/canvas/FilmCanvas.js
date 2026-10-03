@@ -390,7 +390,8 @@ const applyVisibility = (nodes, visibility) =>
 // screen. content order is [motion, (first_frame?), (last_frame?), …refs], so a complaint
 // index maps back through however many ROLE-locked frames lead the array.
 // Returns { taskId, droppedRefs, droppedUrls } — the caller surfaces what the screen dropped.
-const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
+// `mustKeep`: reference urls the take may not lose — a screened one fails the take.
+const animateWithRefFallback = async (shot, refAssetIds, ctx, { mustKeep = [] } = {}) => {
   const inputScreened = (m) => /may contain (sensitive|real person)/i.test(m) && !/audio/i.test(m);
   // Only STANDALONE frames lead the array; a re-roled reference sits at its own index.
   const roleFrames = (shot.firstFrameUrl ? 1 : 0) + (shot.lastFrameUrl ? 1 : 0);
@@ -467,6 +468,7 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx) => {
         }
       }
       const i = inputScreened(m) ? refIndexOf(m) : -1;
+      if (i >= 0 && i < urls.length && mustKeep.includes(urls[i])) throw new Error("Seedance's content screen rejected the continuity frame — the shot is not taken without it");
       if (i >= 0 && i < urls.length) { droppedUrls.push(urls[i]); urls.splice(i, 1); ids.splice(i, 1); roles.splice(i, 1); droppedRefs += 1; continue; }
       throw e;
     }
@@ -504,6 +506,19 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
 // window so a hot reload of this module cannot replay a hand-off.
 const consumedStories = (typeof window !== 'undefined' && (window.__storyRoomConsumed = window.__storyRoomConsumed || new Set())) || new Set();
 
+// A video's real length and frame size, read from the file. Unreadable = an error.
+const readVideoMeta = (url) => new Promise((resolve, reject) => {
+  const v = document.createElement('video');
+  v.preload = 'metadata';
+  v.onloadedmetadata = () => {
+    const duration = Number(v.duration) || 0;
+    if (!duration) { reject(new Error('the video has no readable length')); return; }
+    resolve({ duration, ratio: v.videoWidth && v.videoHeight ? `${v.videoWidth}×${v.videoHeight}` : null });
+  };
+  v.onerror = () => reject(new Error('the video could not be read'));
+  v.src = url;
+});
+
 // A role line joins the prompt's REFERENCE block (the leading paragraph of "@ImageN …"
 // lines and "Look:"), before the Look line; a prompt without one gets a block of its own.
 const withRoleLine = (prompt, line) => {
@@ -523,9 +538,10 @@ const takesOfCard = (cardId, ns) => {
   const docked = ns.find((n) => n.id === `shot-${cardId}` && n.data?.kind === 'video' && n.data.url);
   return docked && !takes.some((t) => t.data.url === docked.data.url) ? [docked, ...takes] : takes;
 };
+const circledOf = (d) => d?.circledTakeId || d?.continueTakeId || null;
 const chosenTakeOf = (card, ns) => {
   const takes = takesOfCard(card.id, ns);
-  return takes.find((t) => t.id === card.data?.continueTakeId) || takes[takes.length - 1] || null;
+  return takes.find((t) => t.id === circledOf(card.data)) || takes[takes.length - 1] || null;
 };
 // Why a linked card's chosen take no longer matches what it continues from ('' = fine).
 const staleReasonOf = (card, ns) => {
@@ -540,7 +556,7 @@ const staleReasonOf = (card, ns) => {
     : `this take was shot without "${name}"'s last frame — re-shoot to continue from it`;
 };
 
-const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates, onStoryCards, focusRequest, storyLinks, pinRequest, cardUpdate }) => {
+const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates, onStoryCards, focusRequest, storySync, circleRequest, onOpenInStoryRoom }) => {
   const wrapperRef = useRef(null);
   const fileInputRef = useRef(null);
   const [rfInstance, setRfInstance] = useState(null);
@@ -981,22 +997,21 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   useEffect(() => {
     if (!onStoryCards) return;
     const byId = new Map(takeGroups.map((g) => [g.cardId, g]));
-    // Stamped cards carry {sendId, index}; cards sent before stamping are known by their
-    // "N · Title" label (the Story Room's own naming) and the story- id prefix.
-    const list = nodes.filter((n) => n.type === 'cut' && (n.data?.storyRef?.sendId || String(n.id).startsWith('story-'))).map((n) => {
+    // Cards the Story Room sent carry {sendId, index}.
+    const list = nodes.filter((n) => n.type === 'cut' && n.data?.storyRef?.sendId).map((n) => {
       const g = byId.get(n.id);
-      const take = g ? [...g.takes].reverse().find((t) => t.url || t.loading) : null;
-      // Continuity, both ways: the frame this card carries (and from which take), and —
-      // as a source — its rendered takes and the one it hands on.
+      // The preview is the circled take; a take rendering right now shows as rendering.
       const chosen = chosenTakeOf(n, nodes);
+      const rendering = !!g?.takes.some((t) => t.loading);
+      const take = chosen ? { url: chosen.data.cacheUrl || chosen.data.url, posterUrl: chosen.data.posterUrl || '', loading: rendering } : (rendering ? { url: '', posterUrl: '', loading: true } : null);
       const chip = (n.data.assetRefs || []).find((r) => r.continuity);
       return {
         sendId: n.data.storyRef?.sendId || null, index: n.data.storyRef?.index ?? null, beat: n.data.beat || '', cardId: n.id, status: n.data.status || '', stale: staleReasonOf(n, nodes),
-        take: take ? { url: take.cacheUrl || take.url, posterUrl: take.posterUrl, loading: take.loading } : null,
+        take,
         carried: n.data.continuityFrame ? { frameUrl: n.data.continuityFrame, label: chip?.label || '', mode: n.data.continuesFrom?.mode || 'state', line: n.data.continuityLine || '' } : null,
-        takes: takesOfCard(n.id, nodes).map((t) => ({ id: t.id, label: String(t.data.label || 'Take').replace(/…$/, ''), posterUrl: t.data.posterUrl || '', frameUrl: t.data.lastFrameUrl || '' })),
+        takes: takesOfCard(n.id, nodes).map((t) => ({ id: t.id, label: String(t.data.label || 'Take').replace(/…$/, ''), url: t.data.cacheUrl || t.data.url, posterUrl: t.data.posterUrl || '', frameUrl: t.data.lastFrameUrl || '' })),
         chosenTakeId: chosen?.id || null,
-        pinned: !!(chosen && n.data.continueTakeId === chosen.id),
+        circled: !!(chosen && circledOf(n.data) === chosen.id),
       };
     });
     const key = JSON.stringify(list);
@@ -3060,19 +3075,21 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const link = card?.data?.continuesFrom;
     if (!link?.cardId) return '';
     const src = nodesRef.current.find((n) => n.id === link.cardId && isShotCard(n));
-    if (!src) return '';
-    return card.data.continuityFrame ? '' : (src.data?.beat || 'the shot before');
+    if (!src) return 'a shot that is no longer on the board — re-link it in the Story Room';
+    return card.data.continuityFrame ? '' : src.data.beat;
   }, []);
   // A source with a take but no last frame on record (a take that landed without one)
   // gets it extracted from its newest take, once.
+  const capReportedRef = useRef(new Set());
   const frameFlightRef = useRef(new Set());
+  const frameFailedRef = useRef(new Set()); // reported once; a reload retries
   const extractTakeFrame = useCallback((take) => {
     const url = take.data.cacheUrl || take.data.url;
-    if (!url || frameFlightRef.current.has(take.id)) return;
+    if (!url || frameFlightRef.current.has(take.id) || frameFailedRef.current.has(take.id)) return;
     frameFlightRef.current.add(take.id);
     createBrowserTransport().lastFrame(durableVideoUrl(url))
-      .then((r) => { if (r?.url) setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, lastFrameUrl: r.url } } : n))); })
-      .catch(() => {})
+      .then((r) => { setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, lastFrameUrl: r.url } } : n))); })
+      .catch((e) => { frameFailedRef.current.add(take.id); Message.error(`Could not take the last frame of ${take.data.label}: ${e.message}`); })
       .finally(() => frameFlightRef.current.delete(take.id));
   }, [durableVideoUrl, setNodes]);
   useEffect(() => {
@@ -3093,7 +3110,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       const at = refs.findIndex((r) => r.continuity);
       const assetRefs = at < 0 ? [...refs, chip] : refs.map((r, i) => (i === at ? chip : r));
       const n = shotReferences({ ...card.data, assetRefs }, bibleRef.current).findIndex((r) => r.url === frame) + 1;
-      if (!n) return; // over the model's reference cap — nothing to point at
+      if (!n) { if (!capReportedRef.current.has(card.id)) { capReportedRef.current.add(card.id); Message.error(`"${card.data.beat}" is over the model's reference cap — its continuity frame cannot ride. Remove a reference.`); } return; }
       // The filmmaker's wording when given ({frame} = this frame's @ImageN), else the mode's line.
       const line = text ? text.split('{frame}').join(`@Image${n}`) : renderTemplate(`story.ref.${mode}`, { n });
       // Settled when the key, the line and its presence in the prompt all still hold.
@@ -3115,13 +3132,25 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     });
   }, [nodes, onPatchCut, extractTakeFrame]);
 
-  // THE STORY ROOM'S LINKS for the cards it sent: set, re-pointed or dropped on the card.
-  // Dropping takes the frame chip, its prompt line and its keyframe off with it.
+  // THE STORY ROOM OWNS THE CARDS IT SENT: every shot's title, prompt, plates and
+  // continuity link land on its card as they change there (the prompt is read-only on
+  // the card). A plate missing from the bible is an error, not a smaller prompt.
+  const plateErrRef = useRef(new Set());
   useEffect(() => {
-    (storyLinks || []).forEach(({ cardId, from, mode, text = '' }) => {
+    (storySync || []).forEach(({ cardId, title, prompt, refNodeIds = [], from, mode, text = '' }) => {
       const card = nodesRef.current.find((n) => n.id === cardId && isShotCard(n));
       if (!card) return;
-      const want = from && nodesRef.current.some((n) => n.id === from) ? { cardId: from, mode: mode === 'open' ? 'open' : 'state', text: String(text || '') } : null;
+      const refKey = JSON.stringify(refNodeIds);
+      if (card.data.storyPrompt !== prompt || card.data.storyRefNodes !== refKey || card.data.beat !== title) {
+        const refIds = refNodeIds.map((nid) => bibleEntries.find((b) => b.nodeId === nid)?.id);
+        if (refIds.some((x) => !x)) {
+          if (!plateErrRef.current.has(cardId)) { plateErrRef.current.add(cardId); Message.error(`"${title}": a plate it uses is not a reference on the board — the card is not updated until it is.`); }
+        } else {
+          plateErrRef.current.delete(cardId);
+          onPatchCut(cardId, { beat: title, promptOverride: prompt, storyPrompt: prompt, storyRefNodes: refKey, refIds, continuityLine: null, continuityKey: null });
+        }
+      }
+      const want = from ? { cardId: from, mode: mode === 'open' ? 'open' : 'state', text: String(text || '') } : null;
       const cf = card.data.continuesFrom;
       const have = cf ? { cardId: cf.cardId, mode: cf.mode === 'open' ? 'open' : 'state', text: String(cf.text || '') } : null;
       if (JSON.stringify(want) === JSON.stringify(have)) return;
@@ -3135,17 +3164,17 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       }
       onPatchCut(cardId, (d) => {
         const line = d.continuityLine;
-        const prompt = String(d.promptOverride || '');
+        const p = String(d.promptOverride || '');
         return {
           continuesFrom: null, continuityFrame: null, continuityLine: null, continuityKey: null,
           assetRefs: (d.assetRefs || []).filter((r) => !r.continuity),
-          promptOverride: line && prompt.includes(line) ? prompt.split(`\n${line}`).join('').split(line).join('').trim() : prompt,
+          promptOverride: line && p.includes(line) ? p.split(`\n${line}`).join('').split(line).join('').trim() : p,
           keyframes: (d.keyframes || []).filter((k) => k?.url !== d.continuityFrame),
         };
       });
       applyEdges((es) => es.filter((e) => !(e.type === 'continuity' && e.target === cardId)));
     });
-  }, [storyLinks, onPatchCut, applyEdges]);
+  }, [storySync, bibleEntries, onPatchCut, applyEdges]);
 
   // 🎬 SHOOT a take. `draft` (Seedance 2.5 only) renders the 480p Draft instead: the
   // take remembers its task id, and the card offers the 1080p Final from it.
@@ -3190,7 +3219,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         // registered asset:// refs (this endpoint has no consented-identity bypass). It reports
         // the FIRST offender as `content[N].image_url`; so DROP that ref and retry, looping
         // until the take renders. Report how many refs the screen skipped (consistency hit).
-        const { taskId, droppedRefs, droppedUrls = [], healedAssets } = await animateWithRefFallback(shot, refAssetIds, ctx);
+        const { taskId, droppedRefs, droppedUrls = [], healedAssets } = await animateWithRefFallback(shot, refAssetIds, ctx, { mustKeep: card.data.continuityFrame ? [card.data.continuityFrame] : [] });
         // THE CONTINUITY FRAME must be seen to arrive: record what reached the model on the
         // take, and if the content screen dropped the frame, say so — the take is then NOT
         // continuous (no continuity key), so the card reads stale.
@@ -3372,14 +3401,15 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
           resolution: DRAFT_MODE.resolution, ratio: ANIMATIC_RATIO,
           generateAudio: false, modelKey: ANIMATIC_MODEL, draft: true,
         };
-        const { taskId } = await animateWithRefFallback(shot, [null], ctx);
+        // No ref-dropping retries: the schematic rides, or the render fails.
+        const { taskId } = await animateOp({ motion: shot.motion, camera: 'auto', refUrls: shot.refUrls, refAssetIds: shot.refAssetIds, refRoles: shot.refRoles, duration: shot.durationSec, resolution: shot.resolution, ratio: shot.ratio, generateAudio: false, modelKey: ANIMATIC_MODEL, draft: true }, ctx);
         resumedTakesRef.current.add(takeId);
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId: cardId } } : n)));
         const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
         const label = `Animatic ${takeNo}`;
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, draft: { ...draftMeta.draft, taskId } } } : n)));
         // The newest animatic is the chosen one until another is picked from the Library.
-        patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, label, seconds: shot.durationSec, createdAt: Date.now() } });
+        patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, label, createdAt: Date.now() } });
       } catch (err) {
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Animatic failed' } } : n)));
         patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
@@ -3401,36 +3431,31 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     if (!src) { Message.warning('Choose the animatic to correct first.'); return; }
     if (!note) { Message.warning('Write what to correct first.'); return; }
     if (card.data?.animaticBusy) return;
-    const masterUrl = durableVideoUrl(src.data.cacheUrl || src.data.url || anim.url);
-    const meta = await new Promise((res) => {
-      const v = document.createElement('video');
-      v.preload = 'metadata';
-      v.onloadedmetadata = () => res({ duration: Number(v.duration) || 0, ratio: v.videoWidth && v.videoHeight ? `${v.videoWidth}×${v.videoHeight}` : null });
-      v.onerror = () => res({ duration: 0, ratio: null });
-      v.src = masterUrl;
-    });
-    if (meta.duration && meta.duration < 4) { Message.warning(`${anim.label} is ${meta.duration.toFixed(1)}s — an edit needs a 4–30s source.`); return; }
+    const masterUrl = durableVideoUrl(src.data.cacheUrl || src.data.url);
+    let meta;
+    try { meta = await readVideoMeta(masterUrl); } catch (e) { Message.error(`Cannot correct ${anim.label}: ${e.message}.`); return; }
+    if (meta.duration < 4 || meta.duration > 30) { Message.error(`${anim.label} is ${meta.duration.toFixed(1)}s — an edit needs a 4–30s source.`); return; }
     const { takeId, takeNo } = addLoadingTake(card, 'Animatic');
     patchPreviz(cardId, { animaticBusy: true, animaticError: '' });
     traceRef.current.startRun({ note: `Agent · Previz · correct ${anim.label} (edit)` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
-      const master = { url: masterUrl, label: anim.label || 'the animatic', duration: meta.duration || null, ratio: meta.ratio };
+      const master = { url: masterUrl, label: anim.label, duration: meta.duration, ratio: meta.ratio };
       const { text: analysis } = await analyzeEditMaster({ videoUrl: masterUrl, seconds: meta.duration }, ctx);
       const out = await editShotAction({ text: note, master, analysis, references: [], roster: [], modelKey: ANIMATIC_MODEL }, ctx);
-      const shot = {
-        motion: out.action, refUrls: [], refAssetIds: [], refRoles: [],
-        durationSec: AUTO_SECONDS, resolution: clampResolution(ANIMATIC_MODEL, DRAFT_MODE.resolution), ratio: null,
-        generateAudio: false, modelKey: ANIMATIC_MODEL,
-        videoRefUrls: [masterUrl], videoRefAssetIds: [src.data.assetId || null],
-      };
-      const { taskId } = await animateWithRefFallback(shot, [], ctx);
+      // No ref-dropping retries: the source rides as @video1, or the edit fails — it never
+      // degrades into a fresh generation.
+      const { taskId } = await animateOp({
+        motion: out.action, camera: 'auto', videoRefUrls: [masterUrl],
+        duration: AUTO_SECONDS, resolution: clampResolution(ANIMATIC_MODEL, DRAFT_MODE.resolution), ratio: null,
+        generateAudio: false, modelKey: ANIMATIC_MODEL, draft: false,
+      }, ctx);
       resumedTakesRef.current.add(takeId);
       setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId: cardId } } : n)));
       const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
       const label = `Animatic ${takeNo} · edit of ${anim.label}`;
       setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, editPrompt: out.action } } : n)));
-      patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, seconds: meta.duration ? Math.round(meta.duration) : anim.seconds, createdAt: Date.now() } });
+      patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, createdAt: Date.now() } });
       Message.success(`${label} — the correction is on the board and chosen.`);
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Correction failed' } } : n)));
@@ -3449,10 +3474,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     setTakeLibOpen(true);
   }, []);
   const adoptAnimatic = useCallback((cardId, take) => {
-    const node = nodesRef.current.find((n) => n.id === take.id);
-    const url = take.url || node?.data?.url;
-    if (!url) { Message.warning('That video has not rendered yet.'); return; }
-    patchPreviz(cardId, { animatic: { takeId: take.id, url, cacheUrl: take.cacheUrl || node?.data?.cacheUrl || null, label: String(take.label || 'Animatic').replace(/…$/, ''), taskId: node?.data?.draft?.taskId || null } });
+    const node = nodesRef.current.find((n) => n.id === take.id && n.data?.kind === 'video');
+    if (!node?.data?.url) { Message.error('That video is not rendered on the board.'); return; }
+    patchPreviz(cardId, { animatic: { takeId: node.id, url: node.data.url, cacheUrl: node.data.cacheUrl || null, label: String(node.data.label || take.label).replace(/…$/, '') } });
     setAnimaticPickFor(null);
     setTakeLibOpen(false);
   }, [patchPreviz]);
@@ -3471,9 +3495,11 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const plan = card?.data?.plan;
     const anim = card?.data?.animatic;
     const animNode = anim?.takeId ? nodesRef.current.find((n) => n.id === anim.takeId) : null;
-    if (!plan?.shots?.length || !animNode) { Message.warning(anim ? `${anim.label || 'The chosen animatic'} is no longer on the board — pick another.` : 'Make an animatic first — it is what the CUT card follows.'); return; }
+    if (!plan?.shots?.length || !animNode) { Message.error(anim ? `${anim.label} is no longer on the board — pick another.` : 'Make an animatic first — it is what the CUT card follows.'); return; }
     if (card.data?.cutBusy) return;
-    const animUrl = durableVideoUrl(animNode.data?.cacheUrl || animNode.data?.url || anim.url);
+    const animUrl = durableVideoUrl(animNode.data.cacheUrl || animNode.data.url);
+    let meta;
+    try { meta = await readVideoMeta(animUrl); } catch (e) { Message.error(`Cannot hand ${anim.label} on: ${e.message}.`); return; }
     patchPreviz(cardId, { cutBusy: true, animaticError: '' });
     traceRef.current.startRun({ note: 'Agent · Previz · animatic → CUT card' });
     try {
@@ -3484,9 +3510,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       storyboardPanelRef.current({
         index: 0, cut, idPrefix, cols: 1,
         title: 'Previz', action: '', promptOverride: prompt,
-        framing: '', durationSec: anim.seconds || clampShotSeconds(ANIMATIC_MODEL, totalSecondsOf(plan)), refEntryIds: [], audio: '', videoModel: ANIMATIC_MODEL,
+        framing: '', durationSec: clampShotSeconds(ANIMATIC_MODEL, Math.round(meta.duration)), refEntryIds: [], audio: '', videoModel: ANIMATIC_MODEL,
       }, base);
-      onPatchCut(`${idPrefix}-0`, { videoRefs: [{ nodeId: anim.takeId, url: animUrl, label: anim.label || 'Animatic' }] });
+      onPatchCut(`${idPrefix}-0`, { videoRefs: [{ nodeId: anim.takeId, url: animUrl, label: anim.label }] });
       Message.success('CUT card laid — it rides the animatic as its motion reference. Add plates for the faces and the place.');
     } catch (e) {
       patchPreviz(cardId, { animaticError: e.message });
@@ -3859,41 +3885,29 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     nodes.forEach((n) => { if (isShotCard(n)) { const r = staleReasonOf(n, nodes); if (r) map[n.id] = r; } });
     return map;
   }, [nodes]);
-  // Take Library: which cards are continued from, and the take each one hands on.
-  const continuityPins = useMemo(() => {
-    const sources = new Set(nodes.filter((n) => isShotCard(n) && n.data?.continuesFrom?.cardId).map((n) => n.data.continuesFrom.cardId));
+  // THE CIRCLED TAKE — one per shot card: the newest until you circle another. It is what
+  // the next shot continues from, the shot's clip in the cut, and its Story Room preview.
+  const circles = useMemo(() => {
     const map = {};
-    sources.forEach((id) => {
-      const card = nodes.find((n) => n.id === id);
-      const take = card && chosenTakeOf(card, nodes);
-      if (take) map[id] = { takeId: take.id, pinned: card.data.continueTakeId === take.id };
+    nodes.forEach((card) => {
+      if (!isShotCard(card)) return;
+      const take = chosenTakeOf(card, nodes);
+      if (take) map[card.id] = { takeId: take.id, circled: circledOf(card.data) === take.id };
     });
     return map;
   }, [nodes]);
-  const pinContinuityTake = useCallback((cardId, takeId) => {
-    onPatchCut(cardId, (d) => ({ continueTakeId: d.continueTakeId === takeId ? null : takeId }));
+  const addTakeRef = useRef(null);
+  // Circle a take (null = follow the newest again); a circled take joins the cut.
+  const circleTake = useCallback((cardId, takeId) => {
+    onPatchCut(cardId, { circledTakeId: takeId || null, continueTakeId: null });
+    if (takeId) addTakeRef.current?.(takeId, { quiet: true });
   }, [onPatchCut]);
-  // Story Room re-writes one sent card from its shot: the prompt as Story Room renders it
-  // and the shot's plates. The continuity line is then placed back by the sync above.
-  const cardUpdateSeen = useRef(null);
+  const circleSeen = useRef(null);
   useEffect(() => {
-    if (!cardUpdate?.nonce || cardUpdate.nonce === cardUpdateSeen.current) return;
-    cardUpdateSeen.current = cardUpdate.nonce;
-    if (!nodesRef.current.some((n) => n.id === cardUpdate.cardId && isShotCard(n))) { Message.warning('That SHOT card is no longer on the board.'); return; }
-    onPatchCut(cardUpdate.cardId, {
-      promptOverride: String(cardUpdate.prompt || ''),
-      refIds: (cardUpdate.refNodeIds || []).map((nid) => bibleRef.current.find((b) => b.nodeId === nid)?.id).filter(Boolean),
-      continuityLine: null, continuityKey: null,
-    });
-    Message.success('SHOT card updated from the Story Room.');
-  }, [cardUpdate, onPatchCut]);
-  // Story Room picks the source take: { cardId, takeId (null = follow the newest) }.
-  const pinSeen = useRef(null);
-  useEffect(() => {
-    if (!pinRequest?.nonce || pinRequest.nonce === pinSeen.current) return;
-    pinSeen.current = pinRequest.nonce;
-    onPatchCut(pinRequest.cardId, { continueTakeId: pinRequest.takeId || null });
-  }, [pinRequest, onPatchCut]);
+    if (!circleRequest?.nonce || circleRequest.nonce === circleSeen.current) return;
+    circleSeen.current = circleRequest.nonce;
+    circleTake(circleRequest.cardId, circleRequest.takeId);
+  }, [circleRequest, circleTake]);
 
   // Every board image the anchor picker can offer (newest first) — the anchor slots
   // on a SHOT card ground its opening/closing composition in ANY board still.
@@ -3918,11 +3932,12 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     onAnalyzeCut: analyzeEditCard,
     onDirectCut: directCutPrompt,
     onOpenTakes: openTakesForCard,
+    onOpenInStoryRoom,
     boardImages,
     prevTakeFrames,
     continuityStale,
     onOpenRefDrawer: openRefDrawer,
-  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, handleFinalizeDraft, attachRefToCut, pickMasterFor, detachCardRef, composeCutPrompt, analyzeEditCard, directCutPrompt, openTakesForCard, boardImages, prevTakeFrames, continuityStale, openRefDrawer]);
+  }), [onPatchCut, bibleEntries, mediaEntries, handleShootCut, handleFinalizeDraft, attachRefToCut, pickMasterFor, detachCardRef, composeCutPrompt, analyzeEditCard, directCutPrompt, openTakesForCard, onOpenInStoryRoom, boardImages, prevTakeFrames, continuityStale, openRefDrawer]);
   composeCutRef.current = composeCutPrompt;
 
   const filmMode = true; // Short-Film-only suite.
@@ -4324,11 +4339,11 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     Message.success('Storyboard on the board — Divide lays the shot list as editable text cards (no renders); stills are rendered per card, or all at once.');
   }, [rfInstance, freeOrigin, setNodes]);
 
-  // STORY ROOM hand-off. Shots land as SHOT cards on Seedance 2.5 — prompts verbatim (they
-  // were written under its spec), duration left to the model, chained in story order (the
-  // edges carry order only). A story without shots lands as a Storyboard card, verbatim,
-  // with the Storyboard panel's current settings — the same element the rail adds.
-  // Consumed nonces are module-scoped so a remount never lands the same story twice.
+  // STORY ROOM → BOARD. "Sync to board" lays a SHOT card (Seedance 2.5) for every shot
+  // that has none yet, stamped {sendId, index}; the Story Room's sync then writes each
+  // card's title, prompt, plates and continuity link, and keeps them in step. A story
+  // without shots lands as a Storyboard card, verbatim, with the Storyboard panel's
+  // current settings. Consumed nonces are module-scoped so a remount never lands twice.
   useEffect(() => {
     if (!incomingStory?.nonce || consumedStories.has(incomingStory.nonce)) return;
     consumedStories.add(incomingStory.nonce);
@@ -4337,34 +4352,22 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       runCastDraft({ design: { arr: incomingStory.cast, style: String(incomingStory.style || '').trim() } });
       return;
     }
-    const shots = (incomingStory.shots || []).map((x, at) => ({ ...x, at })).filter((x) => String(x?.prompt || '').trim());
+    const shots = incomingStory.shots || [];
     if (shots.length) {
+      const videoModel = resolveModelId('seedance25') ? 'seedance25' : null;
+      if (!videoModel) { Message.error('Seedance 2.5 is not configured — Story Room shots are written for it. Configure it, then sync again.'); return; }
       const idPrefix = `story-${Date.now().toString(36)}`;
       const cols = Math.min(5, shots.length);
       const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 220, y: 200 }) : { x: 160, y: 160 };
       const base = freeOrigin({ w: cols * CUT_COL_W, h: Math.ceil(shots.length / cols) * CUT_ROW_H, preferred: pref });
       const cutBase = nodesRef.current.filter((n) => n.type === 'cut').reduce((m, n) => Math.max(m, Number.isFinite(n.data?.cut) ? n.data.cut : -1), -1) + 1;
-      const videoModel = resolveModelId('seedance25') ? 'seedance25' : undefined;
-      // A Story Room link points at a shot by its story index → the card laid for it.
-      const cardAt = new Map(shots.map((x, i) => [x.at, `${idPrefix}-${i}`]));
-      const linkOfShot = (x) => (x.link && cardAt.has(x.link.from) ? { cardId: cardAt.get(x.link.from), mode: x.link.mode === 'open' ? 'open' : 'state', text: String(x.link.text || '') } : null);
-      if (!videoModel) Message.warning('Seedance 2.5 is not configured — the cards use the default video model.');
       shots.forEach((x, i) => storyboardPanelRef.current({
-        index: i, cut: cutBase + i, idPrefix, cols, title: x.title || `Shot ${i + 1}`,
-        action: '', promptOverride: x.prompt, framing: '', durationSec: AUTO_SECONDS,
-        refEntryIds: (x.refNodeIds || []).map((nid) => bibleRef.current.find((b) => b.nodeId === nid)?.id).filter(Boolean),
-        audio: '', videoModel,
-        storyRef: incomingStory.sendId ? { sendId: incomingStory.sendId, index: x.at } : null,
-        continuesFrom: linkOfShot(x),
+        index: i, cut: cutBase + i, idPrefix, cols, title: x.title,
+        action: '', promptOverride: '', framing: '', durationSec: AUTO_SECONDS,
+        refEntryIds: [], audio: '', videoModel,
+        storyRef: { sendId: incomingStory.sendId, index: x.index },
       }, base));
-      // Each continuity link is drawn as a bond from the shot it continues from.
-      const links = shots.map((x, i) => ({ i, l: linkOfShot(x) })).filter((y) => y.l);
-      if (links.length) {
-        applyEdges((es) => es.concat(links.map(({ i, l }) => ({
-          id: `cont-${l.cardId}-${idPrefix}-${i}`, source: l.cardId, target: `${idPrefix}-${i}`, type: 'continuity',
-        })).filter((e) => !es.some((y) => y.id === e.id))));
-      }
-      Message.success(`${shots.length} SHOT card${shots.length === 1 ? '' : 's'} from the Story Room — prompts verbatim${links.length ? `; ${links.length} continue${links.length === 1 ? 's' : ''} from an earlier shot's last frame` : ''}.`);
+      Message.success(`${shots.length} SHOT card${shots.length === 1 ? '' : 's'} on the board — the Story Room writes them and keeps them in step.`);
       return;
     }
     const d = { ...(AGENT_MAP.storyboard?.defaultSettings || {}), ...(layerSettings.storyboard || {}) };
@@ -5052,21 +5055,50 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // A rendered TAKE → the Final Cut timeline (the EDL that Stitch concatenates, in order).
   // The take's NODE id rides on the event, so removing the take (from the board or just the
   // timeline) drops the clip — and an empty timeline makes Stitch inactive again.
-  const addTakeToTimeline = useCallback((takeId) => {
+  const addTakeToTimeline = useCallback((takeId, { quiet = false } = {}) => {
     const take = nodesRef.current.find((n) => n.id === takeId && n.data?.kind === 'video' && n.data?.url);
     if (!take) return;
+    const sibling = (n) => n.id !== takeId && n.parentId && n.parentId === take.parentId;
     updateTimeline((cur) => {
       const evs = cur.events || [];
       if (evs.some((e) => e.shotNodeId === takeId)) return cur; // already on the timeline
+      // The card already has its clip in the cut — the cut-follows effect swaps it in place.
+      if (take.parentId?.startsWith('grid-') && evs.some((e) => nodesRef.current.some((n) => n.id === e.shotNodeId && sibling(n)))) return cur;
       const nextOrder = evs.length ? Math.max(...evs.map((e) => e.order || 0)) + 1 : 0;
       return { ...cur, events: [...evs, timelineEvent({ order: nextOrder, beat: take.data.label || `Shot ${nextOrder + 1}`, shotUrl: take.data.url, shotNodeId: takeId, status: 'shot' })] };
     });
-    Message.success('Added to the Final Cut timeline');
+    if (!quiet) Message.success('Added to the Final Cut timeline');
   }, [updateTimeline]);
 
   const removeTakeFromTimeline = useCallback((takeId) => {
     updateTimeline((cur) => ({ ...cur, events: (cur.events || []).filter((e) => e.shotNodeId !== takeId) }));
   }, [updateTimeline]);
+  addTakeRef.current = addTakeToTimeline;
+  // THE CUT FOLLOWS THE CIRCLED TAKE: a shot card's clip on the timeline is its circled
+  // take — one clip per card, in place.
+  useEffect(() => {
+    // A take sits in its card's grid (grid-<card>) or is docked under it (shot-<card>).
+    const cardIdOf = (takeId) => {
+      const t = nodes.find((n) => n.id === takeId);
+      if (!t?.parentId) return null;
+      if (t.parentId.startsWith('grid-')) return t.parentId.slice(5);
+      return t.id === `shot-${t.parentId}` ? t.parentId : null;
+    };
+    const seen = new Set();
+    let changed = false;
+    const next = (timelineEvents || []).flatMap((e) => {
+      const cid = e.shotNodeId ? cardIdOf(e.shotNodeId) : null;
+      const card = cid && nodes.find((n) => n.id === cid && isShotCard(n));
+      if (!card) return [e];
+      if (seen.has(cid)) { changed = true; return []; }
+      seen.add(cid);
+      const chosen = chosenTakeOf(card, nodes);
+      if (!chosen || chosen.id === e.shotNodeId) return [e];
+      changed = true;
+      return [{ ...e, shotNodeId: chosen.id, shotUrl: chosen.data.url, beat: chosen.data.label || e.beat }];
+    });
+    if (changed) updateTimeline((cur) => ({ ...cur, events: next }));
+  }, [nodes, timelineEvents, updateTimeline]);
 
   const setEventDuration = useCallback((id, sec) => {
     const secs = Math.max(1, Math.min(60, Number(sec) || 5));
@@ -5921,11 +5953,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
             focusedCardId={animaticPickFor || takeLibFocusId || focusedCutId}
             timelineIds={onTimelineNodeIds}
             onOpenViewer={setViewerId}
-            onAddToTimeline={addTakeToTimeline}
-            onRemoveFromTimeline={removeTakeFromTimeline}
             onDeleteTake={deleteTakeById}
-            continuityPins={continuityPins}
-            onPinContinuity={pinContinuityTake}
+            circles={circles}
+            onCircle={circleTake}
             onClearTakes={clearTakes}
             onNeedPoster={ensurePoster}
             onFocusCard={selectAndCenter}

@@ -300,15 +300,16 @@ const ShotPreview = ({ refs, card, onPlay }) => {
   );
 };
 
-export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], cardOf = () => null, onJump, scenes = [], consistencyOf = () => null, locationName = () => '', onScenes }) => {
+export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], cardOf = () => null, onJump, scenes = [], scenesKnown = false, consistencyOf = () => null, needsReopen = () => false, locationName = () => '', onScenes, onRewritePrompts }) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   const [playing, setPlaying] = useState('');
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
       <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>{scenes.length ? `${Math.max(...scenes)} scene${Math.max(...scenes) === 1 ? '' : 's'}` : ''} · a linked shot carries the last frame of the shot it continues from</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>{scenesKnown ? `${Math.max(...scenes)} scene${Math.max(...scenes) === 1 ? '' : 's'} · a linked shot carries the last frame of the shot it continues from` : 'Scenes not found yet — press Scenes ↻ to find them and link the shots'}</Text>
         <span style={{ flex: 1 }} />
         {onScenes && <Button size="mini" disabled={busy} onClick={onScenes} title="Find where the place or time changes">Scenes ↻</Button>}
+        {onRewritePrompts && <Button size="mini" disabled={busy || !scenesKnown} onClick={onRewritePrompts} title="Re-write every shot's prompt in scene order: each shot that continues its scene opens exactly where the one before it ends. Same shots, assets and scenes; replaces hand edits to the prompts.">Prompts ↻</Button>}
       </div>
       {shots.map((x, i) => {
         const loc = byKey[x.location];
@@ -362,6 +363,11 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
                   </span>
                 </Tooltip>
               )}
+              {needsReopen(i) && (
+                <Tooltip content="The frame now riding into this shot is not where its prompt opens — open the shot and Re-open from this frame">
+                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#d25f00' }}>↻ re-open</span>
+                </Tooltip>
+              )}
               {stale && (
                 <Tooltip content={stale}>
                   <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#ff7d00' }}>⟳ stale</span>
@@ -387,7 +393,7 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
 // frames: click one to hand that take on; click the chosen one again to follow the newest.
 // HOW THE FRAME IS USED — the filmmaker's own words, cited as @ImageN (code keeps the
 // number right). Empty = the mode's standard line.
-const FrameUse = ({ index, link, carried, onSetLink, onUpdateCard }) => {
+const FrameUse = ({ index, link, carried, onSetLink }) => {
   const n = (/@Image(\d+)/.exec(carried?.line || '') || [])[1];
   const cite = n ? `@Image${n}` : '@Frame';
   const shown = link.text ? link.text.split(FRAME_TOKEN).join(cite) : (carried?.line || '');
@@ -397,203 +403,189 @@ const FrameUse = ({ index, link, carried, onSetLink, onUpdateCard }) => {
     const next = linkTextOf(draft);
     const standard = !next || (carried?.line && draft.trim() === carried.line.trim() && !link.text);
     if (standard ? !link.text : next === link.text) return;
-    onSetLink && onSetLink(index, { text: standard ? '' : next });
+    onSetLink(index, { text: standard ? '' : next });
   };
-  // On the card when the card's line reads what this box says (its @ImageN filled in).
-  const pending = linkTextOf(draft) !== (link.text || '') && !(carried?.line && draft.trim() === carried.line.trim());
-  const onCard = !!carried?.line && !pending;
   return (
-    <div style={{ display: 'grid', gap: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontSize: 11, fontWeight: 700, color: MUTED }}>HOW TO USE IT — in SH {pad2(index + 1)}'s prompt</Text>
-        <span style={{ flex: 1 }} />
-        {link.text && <Button size="mini" type="text" onClick={() => onSetLink && onSetLink(index, { text: '' })} title="Back to the standard line for this mode">Standard line</Button>}
-        {carried && (onCard
-          ? <Text style={{ fontSize: 11, color: '#00a870', fontWeight: 600 }}>on the card ✓</Text>
-          : <Button size="mini" type="primary" onClick={() => { commit(); onUpdateCard && onUpdateCard(); }} title="Re-write the board card's whole prompt with this line in its reference block">Update card</Button>)}
+    <details>
+      <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>How the frame is used{link.text ? ' · your words' : ''}</summary>
+      <div style={{ display: 'grid', gap: 4, marginTop: 6 }}>
+        <Input.TextArea
+          value={draft} onChange={setDraft} onBlur={commit}
+          autoSize={{ minRows: 2, maxRows: 6 }} style={{ fontSize: 12 }}
+          placeholder={`e.g. ${cite}: keep the guard frozen at the door and the dropped bag where it lies`}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Text type="secondary" style={{ fontSize: 10, flex: 1 }}>Cite the frame as {cite}; this line rides in the prompt word for word.</Text>
+          {link.text && <Button size="mini" type="text" onClick={() => onSetLink(index, { text: '' })}>Standard line</Button>}
+        </div>
       </div>
-      <Input.TextArea
-        value={draft} onChange={setDraft} onBlur={commit}
-        autoSize={{ minRows: 2, maxRows: 6 }} style={{ fontSize: 12 }}
-        placeholder={`e.g. ${cite}: keep the guard frozen at the door and the dropped bag where it lies; the camera now looks from behind the counter.`}
-      />
-      <Text type="secondary" style={{ fontSize: 10 }}>Cite the frame as {cite}. This line rides in the prompt word for word; the mode above decides whether the frame is a reference or the exact first frame.</Text>
-    </div>
+    </details>
   );
 };
 
-const CarriedFrame = ({ index, link, card, onPinTake, onSetLink, onUpdateCard }) => {
-  const src = link.card;
-  const carried = card?.carried;
-  const takes = src?.takes || [];
-  return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      {carried
-        ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 10, alignItems: 'start' }}>
-            <Image src={carried.frameUrl} width={220} style={{ borderRadius: 6, border: `2px solid ${link.mode === 'open' ? '#165dff' : '#00a870'}` }} />
-            <div style={{ display: 'grid', gap: 4 }}>
-              <Text style={{ fontSize: 12, fontWeight: 600 }}>{carried.label.replace(/^◀\s*/, '')}</Text>
-              <Text type="secondary" style={{ fontSize: 11 }}>On SH {pad2(index + 1)}'s card as {link.mode === 'open' ? 'its FIRST FRAME' : 'the STATE OF THE SCENE (a reference)'}.</Text>
-            </div>
+// THIS SHOT'S TAKES on the board — click one to circle it (the next shot continues from
+// it, it is the shot's clip in the cut); ▶ plays it.
+const TakeStrip = ({ card, onCircle, onPlay }) => (
+  <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+    {card.takes.map((t) => {
+      const on = t.id === card.chosenTakeId;
+      return (
+        <div key={t.id} style={{ flex: '0 0 auto', width: 132, borderRadius: 6, overflow: 'hidden', border: `2px solid ${on ? '#f7ba1e' : LINE}`, background: '#101418' }}>
+          <div
+            role="button" tabIndex={0}
+            onClick={() => onCircle(card.cardId, on && card.circled ? null : t.id)}
+            title={on ? (card.circled ? 'Circled — click to follow the newest take instead' : 'The newest stands in as circled — click to circle it for good') : 'Circle this take'}
+            style={{ position: 'relative', cursor: 'pointer' }}
+          >
+            {t.posterUrl ? <img src={t.posterUrl} alt={t.label} style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', display: 'block' }} /> : <div style={{ aspectRatio: '16 / 9' }} />}
+            <span style={{ position: 'absolute', top: 4, left: 6, fontSize: 16, color: on ? '#f7ba1e' : 'rgba(255,255,255,0.7)', textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}>{on && card.circled ? '★' : '☆'}</span>
           </div>
-        )
-        : (
-          <Text style={{ fontSize: 12, color: '#d25f00' }}>
-            {!card ? 'Not on the board yet — Send shots first.'
-              : !src ? `SH ${pad2(link.from + 1)} is not on the board.`
-                : !takes.length ? `Waiting: shoot SH ${pad2(link.from + 1)} first — this shot will not shoot without its last frame.`
-                  : 'Picking up the frame…'}
-          </Text>
-        )}
-      <FrameUse index={index} link={link} carried={carried} onSetLink={onSetLink} onUpdateCard={onUpdateCard} />
-      {src && takes.length > 0 && (
-        <div style={{ display: 'grid', gap: 4 }}>
-          <Text type="secondary" style={{ fontSize: 11 }}>From which take of SH {pad2(link.from + 1)} — {src.pinned ? 'picked by you' : 'the newest, unless you pick one'}:</Text>
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-            {takes.map((t) => {
-              const on = t.id === src.chosenTakeId;
-              return (
-                <div
-                  key={t.id} role="button" tabIndex={0}
-                  onClick={() => onPinTake && onPinTake(src.cardId, on && src.pinned ? null : t.id)}
-                  title={on ? (src.pinned ? 'Handed on (picked) — click to follow the newest take instead' : 'Handed on (the newest) — click to keep this one even when newer takes land') : 'Hand on this take\'s last frame instead'}
-                  style={{ flex: '0 0 auto', width: 104, cursor: 'pointer', borderRadius: 5, overflow: 'hidden', border: `2px solid ${on ? '#00a870' : LINE}`, background: '#101418' }}
-                >
-                  {t.frameUrl || t.posterUrl
-                    ? <img src={t.frameUrl || t.posterUrl} alt={t.label} style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover', display: 'block' }} />
-                    : <div style={{ aspectRatio: '16 / 9' }} />}
-                  <div style={{ fontSize: 10, padding: '2px 5px', color: on ? '#00a870' : '#c9cdd4', background: '#fff', fontWeight: on ? 700 : 400 }}>{t.label}{on && src.pinned ? ' 📌' : ''}</div>
-                </div>
-              );
-            })}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 6px', background: '#fff' }}>
+            <Text style={{ fontSize: 10, flex: 1, minWidth: 0, color: on ? '#b07d00' : MUTED, fontWeight: on ? 700 : 400 }} ellipsis>{t.label}</Text>
+            {t.url && <Button size="mini" type="text" onClick={() => onPlay(t.url)} style={{ padding: '0 2px', height: 16 }}>▶</Button>}
           </div>
         </div>
-      )}
-    </div>
-  );
-};
+      );
+    })}
+  </div>
+);
 
 const linkWords = (l) => (l.mode === 'open'
   ? `Opens on the last frame of SH ${pad2(l.from + 1)}`
   : `Carries the last frame of SH ${pad2(l.from + 1)} as the state of the scene`);
 
-export const ShotDrawer = ({ index, shot, shots, assets, facts, look, onClose, onPrev, onNext, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, scene = null, opensScene = false, consistency = null, onToggleScene, onSetLink, onPinTake, onUpdateCard }) => (
-  <Drawer
-    width={620}
-    visible={index != null && !!shot}
-    onCancel={onClose}
-    footer={null}
-    title={shot ? (
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <Text style={{ fontFamily: SCRIPT_FONT, fontWeight: 700 }}>SH {pad2(index + 1)}</Text>
-        <Text style={{ fontWeight: 600 }}>{shot.title}</Text>
-        <span style={{ flex: 1 }} />
-        {onJump && (
-          <Tooltip content={boardCard ? 'Select this SHOT card on the Film Agent board' : 'Not on the board yet. Send shots first.'}>
-            <Button size="mini" type="primary" disabled={!boardCard} onClick={() => boardCard && onJump(boardCard.cardId)}>Open on board ↗</Button>
-          </Tooltip>
-        )}
-        {onUpdateCard && boardCard && (
-          <Tooltip content="Re-write this shot's board card from the Story Room as it is now — the whole prompt (plate lines, Look, the action, the continuity line in its place) and its plates. Replaces any edits made on the card.">
-            <Button size="mini" onClick={onUpdateCard}>Update card ↻</Button>
-          </Tooltip>
-        )}
-        <Button size="mini" disabled={index === 0} onClick={onPrev}>‹ Prev</Button>
-        <Button size="mini" disabled={index >= shots.length - 1} onClick={onNext}>Next ›</Button>
-      </div>
-    ) : null}
-  >
-    {shot && (
-      <div style={{ display: 'grid', gap: 16 }}>
-        {shot.moment && <Text type="secondary" style={{ fontSize: 13 }}>{shot.moment}</Text>}
-        <div style={{ display: 'grid', gap: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Eyebrow>Scene {scene || ''}</Eyebrow>
-            <span style={{ flex: 1 }} />
-            {index > 0 && onToggleScene && (
-              <Button size="mini" onClick={onToggleScene}>{opensScene ? 'Continue previous scene' : 'New scene here'}</Button>
-            )}
-          </div>
-          {shot.sceneReason && <Text type="secondary" style={{ fontSize: 12 }}>{shot.sceneReason}</Text>}
+export const ShotDrawer = ({ index, shot, shots, assets, facts, look, busy, onClose, onGoto, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, link = null, onSetLink, onCircle, needsReopen = false, onReopen }) => {
+  const [playing, setPlaying] = useState('');
+  const carried = boardCard?.carried;
+  return (
+    <Drawer
+      width={640}
+      visible={index != null && !!shot}
+      onCancel={onClose}
+      footer={null}
+      title={shot ? (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <Text style={{ fontFamily: SCRIPT_FONT, fontWeight: 700 }}>SH {pad2(index + 1)}</Text>
+          <Text style={{ fontWeight: 600 }}>{shot.title}</Text>
+          <span style={{ flex: 1 }} />
+          {onJump && boardCard && <Button size="mini" type="primary" onClick={() => onJump(boardCard.cardId)}>Open on board ↗</Button>}
+          <Button size="mini" disabled={index === 0} onClick={() => onGoto(index - 1)}>‹ Prev</Button>
+          <Button size="mini" disabled={index >= shots.length - 1} onClick={() => onGoto(index + 1)}>Next ›</Button>
         </div>
-        {index > 0 && (
+      ) : null}
+    >
+      {shot && (
+        <div style={{ display: 'grid', gap: 18 }}>
+          {shot.moment && <Text type="secondary" style={{ fontSize: 13 }}>{shot.moment}</Text>}
+
+          {/* 1 · THE TAKES — circle the one that counts. */}
           <div style={{ display: 'grid', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Eyebrow>Continues from</Eyebrow>
-              <span style={{ flex: 1 }} />
-              {consistency?.user || shot.link?.user
-                ? <Button size="mini" type="text" onClick={() => onSetLink && onSetLink(index, 'auto')} title="Let the scenes decide again: the previous shot in the same scene">Auto</Button>
-                : <Text type="secondary" style={{ fontSize: 11 }}>auto · from the scenes</Text>}
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <Select
-                size="small" style={{ width: 260 }}
-                value={consistency ? consistency.from : -1}
-                onChange={(v) => onSetLink && onSetLink(index, { from: v < 0 ? null : v })}
-                options={[{ label: 'Nothing — plates only', value: -1 }, ...shots.slice(0, index).map((x, j) => ({ label: `SH ${pad2(j + 1)} · ${x.title || 'Shot'}`, value: j })).reverse()]}
-              />
-              {consistency && (
-                <Radio.Group
-                  type="button" size="small" value={consistency.mode}
-                  onChange={(v) => onSetLink && onSetLink(index, { mode: v })}
-                  options={[{ label: 'State of the scene', value: 'state' }, { label: 'Opens on its last frame', value: 'open' }]}
-                />
-              )}
-            </div>
-            {consistency
-              ? <CarriedFrame index={index} link={consistency} card={boardCard} onPinTake={onPinTake} onSetLink={onSetLink} onUpdateCard={onUpdateCard} />
-              : <Text type="secondary" style={{ fontSize: 12 }}>Not linked — the shot carries its plates only.</Text>}
+            <Eyebrow>Takes{boardCard?.takes?.length ? ` · ${boardCard.takes.length}` : ''}</Eyebrow>
+            {!boardCard
+              ? <Text type="secondary" style={{ fontSize: 12 }}>Not on the board yet — Sync to board.</Text>
+              : boardCard.takes.length
+                ? <TakeStrip card={boardCard} onCircle={onCircle} onPlay={setPlaying} />
+                : <Text type="secondary" style={{ fontSize: 12 }}>{boardCard.take?.loading ? 'Rendering…' : 'No takes yet — shoot it on the board.'}</Text>}
             {boardCard?.stale && <Text style={{ fontSize: 12, color: '#ff7d00' }}>⟳ Stale: {boardCard.stale}</Text>}
           </div>
-        )}
-        <div style={{ display: 'grid', gap: 6 }}>
-          <Eyebrow>In this shot</Eyebrow>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {assets.map((a) => {
-              const isLoc = shot.location === a.key;
-              const on = shot.assets.includes(a.key) || isLoc;
-              return (
-                <Tag key={a.key} checkable checked={on} onCheck={() => !isLoc && toggleBinding(index, a.key)} style={on ? { background: `${KIND_COLOR[a.kind]}1f`, color: KIND_COLOR[a.kind], borderColor: 'transparent' } : undefined}>
-                  {a.name}
-                </Tag>
-              );
-            })}
-          </div>
-        </div>
-        <div style={{ display: 'grid', gap: 6 }}>
-          <Eyebrow>Shows</Eyebrow>
-          {shot.shows.map((id) => {
-            const f = facts.find((x) => x.id === id);
-            return f ? <Text key={id} style={{ fontSize: 12 }}><b style={{ fontFamily: SCRIPT_FONT }}>{id}</b> {f.fact}</Text> : null;
-          })}
-        </div>
-        <div style={{ display: 'grid', gap: 6 }}>
-          <Eyebrow>Shot</Eyebrow>
-          <Input.TextArea id={`story-room-shot-${index}`} value={shot.body} onChange={(v) => setBody(index, v)} autoSize={{ minRows: 8, maxRows: 22 }} style={{ fontSize: 13, lineHeight: 1.6 }} />
-          <Text type="secondary" style={{ fontSize: 11 }}>Name assets as {'{{KEY}}'}; their looks are written in from the casting board.</Text>
-        </div>
-        <div style={{ display: 'grid', gap: 6 }}>
-          <Eyebrow>References sent</Eyebrow>
-          {refsOf(shot).length
-            ? (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {refsOf(shot).map((p, i) => (
-                  <div key={p.nodeId} style={{ width: 96, display: 'grid', gap: 2 }}>
-                    <img src={p.url} alt={p.name} style={{ width: 96, height: 72, objectFit: 'cover', borderRadius: 6, border: `1px solid ${LINE}` }} />
-                    <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 11, fontWeight: 700 }}>@Image{i + 1}</Text>
-                    <Text type="secondary" style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.asset}</Text>
-                  </div>
-                ))}
+
+          {/* 2 · CONTINUITY — the one control. */}
+          {index > 0 && (
+            <div style={{ display: 'grid', gap: 8 }}>
+              <Eyebrow>Continues from</Eyebrow>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Select
+                  size="small" style={{ width: 300 }}
+                  value={link ? link.from : -1}
+                  onChange={(v) => onSetLink(index, { from: v < 0 ? null : v })}
+                  options={[{ label: '— Opens a new scene', value: -1 }, ...shots.slice(0, index).map((x, j) => ({ label: `SH ${pad2(j + 1)} · ${x.title || 'Shot'}`, value: j })).reverse()]}
+                />
+                {link && (
+                  <Radio.Group
+                    type="button" size="small" value={link.mode}
+                    onChange={(v) => onSetLink(index, { mode: v })}
+                    options={[{ label: 'State of the scene', value: 'state' }, { label: 'First frame', value: 'open' }]}
+                  />
+                )}
               </div>
-            )
-            : <Text type="secondary" style={{ fontSize: 12 }}>None yet. Cast & World renders the plates on the Film Agent board; every asset with a plate rides as a reference.</Text>}
+              {!link && shot.sceneReason && <Text type="secondary" style={{ fontSize: 12 }}>{shot.sceneReason}</Text>}
+              {link && (
+                carried ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, alignItems: 'start' }}>
+                    <Image src={carried.frameUrl} width={220} style={{ borderRadius: 6, border: `2px solid ${link.mode === 'open' ? '#165dff' : '#00a870'}` }} />
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <Text style={{ fontSize: 12, fontWeight: 600 }}>{carried.label.replace(/^◀\s*/, '')}</Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}>On this shot's card as {link.mode === 'open' ? 'its first frame' : 'the state of the scene'}.</Text>
+                      {needsReopen
+                        ? (
+                          <div style={{ display: 'grid', gap: 4, padding: 8, borderRadius: 6, background: '#fff7e8', border: '1px solid #ffcf8b' }}>
+                            <Text style={{ fontSize: 12, color: '#b25d00' }}>This prompt was not opened from this frame yet.</Text>
+                            <Button size="mini" type="primary" loading={busy} onClick={onReopen} style={{ background: '#d25f00', borderColor: '#d25f00' }} title="A vision call reads the frame and rewrites only how this shot opens — who is where, holding what — so it starts from it; the rest of the prompt stays">Re-open from this frame</Button>
+                          </div>
+                        )
+                        : <Text style={{ fontSize: 12, color: '#00a870' }}>✓ The prompt opens from this frame.</Text>}
+                      <Button size="mini" type="text" onClick={() => onGoto(link.from)} style={{ justifySelf: 'start', padding: 0 }}>Circle another take of SH {pad2(link.from + 1)} ↗</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Text style={{ fontSize: 12, color: '#d25f00' }}>
+                    {!boardCard ? 'Not on the board yet — Sync to board.'
+                      : !link.card ? `SH ${pad2(link.from + 1)} is not on the board.`
+                        : !link.card.takes?.length ? `Waiting: shoot SH ${pad2(link.from + 1)} first — this shot will not shoot without its last frame.`
+                          : 'Taking the last frame…'}
+                  </Text>
+                )
+              )}
+              {link && <FrameUse index={index} link={link} carried={carried} onSetLink={onSetLink} />}
+            </div>
+          )}
+
+          {/* 3 · THE SHOT — what this shot does. */}
+          <div style={{ display: 'grid', gap: 6 }}>
+            <Eyebrow>Shot</Eyebrow>
+            <Input.TextArea id={`story-room-shot-${index}`} value={shot.body} onChange={(v) => setBody(index, v)} autoSize={{ minRows: 8, maxRows: 22 }} style={{ fontSize: 13, lineHeight: 1.6 }} />
+            <Text type="secondary" style={{ fontSize: 11 }}>Name assets as {'{{KEY}}'}; their looks are written in from the casting board. Changes land on the board card.</Text>
+          </div>
+
+          <details>
+            <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>In this shot · shows · references · full prompt</summary>
+            <div style={{ display: 'grid', gap: 14, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {assets.map((a) => {
+                  const isLoc = shot.location === a.key;
+                  const on = shot.assets.includes(a.key) || isLoc;
+                  return (
+                    <Tag key={a.key} checkable checked={on} onCheck={() => !isLoc && toggleBinding(index, a.key)} style={on ? { background: `${KIND_COLOR[a.kind]}1f`, color: KIND_COLOR[a.kind], borderColor: 'transparent' } : undefined}>
+                      {a.name}
+                    </Tag>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'grid', gap: 4 }}>
+                {shot.shows.map((id) => {
+                  const f = facts.find((x) => x.id === id);
+                  return f ? <Text key={id} style={{ fontSize: 12 }}><b style={{ fontFamily: SCRIPT_FONT }}>{id}</b> {f.fact}</Text> : null;
+                })}
+              </div>
+              {refsOf(shot).length > 0 && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {refsOf(shot).map((p, i) => (
+                    <div key={p.nodeId} style={{ width: 96, display: 'grid', gap: 2 }}>
+                      <img src={p.url} alt={p.name} style={{ width: 96, height: 72, objectFit: 'cover', borderRadius: 6, border: `1px solid ${LINE}` }} />
+                      <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 11, fontWeight: 700 }}>@Image{i + 1}</Text>
+                      <Text type="secondary" style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.asset}</Text>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, margin: 0, padding: 12, borderRadius: 8, background: '#f7f8fa', color: '#4e5969', fontFamily: 'inherit' }}>{renderPrompt(shot)}</pre>
+            </div>
+          </details>
         </div>
-        <div style={{ display: 'grid', gap: 6 }}>
-          <Eyebrow>Prompt sent to Seedance 2.5{look ? ' · with the Look' : ''}</Eyebrow>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, margin: 0, padding: 12, borderRadius: 8, background: '#f7f8fa', color: '#4e5969', fontFamily: 'inherit' }}>{renderPrompt(shot)}</pre>
-        </div>
-      </div>
-    )}
-  </Drawer>
-);
+      )}
+      <Modal visible={!!playing} footer={null} onCancel={() => setPlaying('')} style={{ width: 'min(960px, 94vw)' }} title="Take">
+        {playing && <video src={playing} controls autoPlay style={{ width: '100%', borderRadius: 6, background: '#000' }} />}
+      </Modal>
+    </Drawer>
+  );
+};

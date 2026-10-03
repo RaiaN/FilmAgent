@@ -4,7 +4,7 @@ import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
 import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, platesFor } from './storyroom/panels';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, linkOf } from '../utils/film/core/story';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, scenesFound, linkOf, reopenShot } from '../utils/film/core/story';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -26,7 +26,7 @@ const ITEM_LABEL = {
 const ROLE_LABEL = {
   look: 'Reading the references\' look',
   scout: 'Scout is finding ideas', probe: 'Checking originality', architect: 'Architect is building the blueprint', critic: 'Critic is stress-testing', options: 'Writing 3 fix options and judging them blind',
-  facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots', scenes: 'Finding the scene changes',
+  facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots', scenes: 'Finding the scene changes', reopen: 'Re-opening the shot from the take',
 };
 const SCORE_COLOR = ['#cb2634', '#d25f00', '#00a870'];
 
@@ -50,7 +50,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, onUpdateCard, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
+const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake, focusShot, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -223,34 +223,43 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
     setAssets(plan.assets);
     setShots(plan.shots);
     setTab('shots');
+    // Scenes first (from the plan): a scene's shots are then written in order, each
+    // continuing shot opening where the one before it ends.
+    setBusy({ role: 'scenes', at: Date.now() });
+    const scened = await detectScenes({ shots: plan.shots, assets: plan.assets }, ctx);
+    setShots(scened);
     setBusy({ role: 'shots', at: Date.now() });
     const landShot = (i, shot) => setShots((list) => list.map((x, j) => (j === i ? shot : x)));
-    const w = await writeShotBodies({ blueprint, facts: f, assets: plan.assets, shots: plan.shots, onNote: note, onShot: landShot }, ctx);
+    const w = await writeShotBodies({ blueprint, facts: f, assets: plan.assets, shots: scened, onShot: landShot }, ctx);
     setShots(w.shots);
-    if (w.failed.length) Message.warning({ content: w.failed.join(' · '), duration: 8000 });
-    setBusy({ role: 'scenes', at: Date.now() });
-    setShots(await detectScenes({ shots: w.shots, assets: plan.assets }, ctx));
+    if (w.failed.length) Message.error({ content: w.failed.join(' · '), duration: 10000 });
   });
   // Scenes: where place or time changes. A shot's continuity link (linkOf) follows the
   // scenes unless set by hand: the previous shot in the same scene, as its state.
   const runScenes = () => run('scenes', async () => { setShots(await detectScenes({ shots, assets }, ctx)); });
-  const toggleScene = (i) => setShots((list) => {
-    if (i < 1) return list; // the first shot always opens a scene
-    const nums = sceneNumbers(list);
-    const breaksNow = nums[i] !== nums[i - 1];
-    return list.map((x, j) => (j === i ? { ...x, newScene: !breaksNow, sceneUser: true, sceneReason: 'Set by you.' } : x));
+  // Re-write every shot's prompt in scene order — same shots, assets and scenes; each
+  // continuing shot opens where the one before it now ends. Replaces hand edits.
+  const rewritePrompts = () => run('shots', async () => {
+    if (!scenesFound(shots)) throw new Error('Find the scenes first (Scenes ↻) — the prompts are written in scene order.');
+    const landShot = (i, shot) => setShots((list) => list.map((x, j) => (j === i ? shot : x)));
+    const w = await writeShotBodies({ blueprint, facts, assets, shots: shots.map(({ body, openedFrom, ...x }) => x), onShot: landShot }, ctx);
+    setShots(w.shots);
+    if (w.failed.length) Message.error({ content: w.failed.join(' · '), duration: 10000 });
   });
   const scenes = sceneNumbers(shots);
+  // A shot's link with the card of the shot it continues (the drawer and the footer).
   const consistencyOf = (i) => {
     const l = linkOf(shots, i);
     return l ? { ...l, card: cardOf(l.from) } : null;
   };
-  // 'auto' hands the link back to the scenes; anything else pins it by hand.
+  // THE ONE CONTINUITY CONTROL: which earlier shot this one continues (null = it opens a
+  // new scene), how its frame rides (mode) and the line that says how (text). Set by you.
   const setLink = (i, patch) => setShots((list) => list.map((x, j) => {
     if (j !== i) return x;
-    if (patch === 'auto') { const { link, ...rest } = x; return rest; }
     const cur = linkOf(list, i) || { from: null, mode: 'state', text: '' };
-    return { ...x, link: { from: cur.from, mode: cur.mode, text: cur.text || '', ...patch, user: true } };
+    const link = { from: cur.from, mode: cur.mode, text: cur.text || '', ...patch, user: true };
+    const { newScene, sceneUser, ...rest } = x;
+    return { ...rest, link, ...(link.from == null && i > 0 ? { sceneReason: 'Set by you.' } : {}) };
   }));
   const setShotBody = (i, v) => setShots((list) => list.map((x, j) => (j === i ? { ...x, body: v } : x)));
   const setAsset = (key, field, v) => setAssets((list) => list.map((a) => (a.key === key ? { ...a, [field]: v } : a)));
@@ -271,48 +280,70 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
     });
     return { list, numbers };
   };
-  // A shot's card on the board: the one stamped by the last Send, else the newest card
-  // carrying this shot's "N · Title" label.
-  const cardOf = (i) => {
-    const stamped = boardShots.find((c) => sendId && c.sendId === sendId && c.index === i);
-    if (stamped) return stamped;
-    const label = `${i + 1} · ${shots[i]?.title || 'Shot'}`;
-    return boardShots.filter((c) => c.beat === label).sort((a, b) => (a.cardId < b.cardId ? 1 : -1))[0] || null;
-  };
-  // Every sent shot's link, pushed to its card on the board — cards sent earlier and
-  // links edited after Send stay in step. Pushed only when something changed.
-  const linksSent = useRef('');
+  // A shot's card on the board: the one stamped with this story's board key.
+  const cardOf = (i) => boardShots.find((c) => sendId && c.sendId === sendId && c.index === i) || null;
+  // THE STORY ROOM OWNS ITS CARDS: every shot that has a card pushes its title, prompt,
+  // plates and continuity link there whenever they change (a beat after the last edit).
+  const syncSent = useRef('');
   useEffect(() => {
-    if (!onLinks) return;
-    const out = [];
-    shots.forEach((x, i) => {
-      const c = cardOf(i);
-      if (!c) return;
-      const l = linkOf(shots, i);
-      const src = l ? cardOf(l.from) : null;
-      out.push({ cardId: c.cardId, from: src ? src.cardId : null, mode: l?.mode || 'state', text: l?.text || '' });
-    });
-    const key = JSON.stringify(out);
-    if (key === linksSent.current) return;
-    linksSent.current = key;
-    onLinks(out);
-  }, [shots, boardShots, sendId]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Re-write ONE sent card from its shot as it is now: the whole prompt (plate lines, Look,
-  // the action) and its plates. The board puts the continuity line back in the block.
-  const updateCard = (i) => {
-    const c = cardOf(i);
-    if (!c || !onUpdateCard) return;
-    const r = shotRefs(shots[i]);
-    onUpdateCard({ cardId: c.cardId, prompt: renderShotPrompt(shots[i], assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId) });
-  };
-  const send = () => {
+    if (!onSync) return undefined;
+    const t = setTimeout(() => {
+      const out = [];
+      shots.forEach((x, i) => {
+        const c = cardOf(i);
+        if (!c) return;
+        const r = shotRefs(x);
+        const l = linkOf(shots, i);
+        const src = l ? cardOf(l.from) : null;
+        out.push({
+          cardId: c.cardId, title: `${i + 1} · ${x.title || 'Shot'}`,
+          prompt: renderShotPrompt(x, assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId),
+          from: src ? src.cardId : null, mode: l?.mode || 'state', text: l?.text || '',
+        });
+      });
+      const key = JSON.stringify(out);
+      if (key === syncSent.current) return;
+      syncSent.current = key;
+      onSync(out);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [shots, assets, look, boardPlates, boardShots, sendId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // SYNC TO BOARD — a card for every shot that has none yet (the same shot keeps the same
+  // card for good); the sync above then writes it. A story without shots lands as a
+  // Storyboard card.
+  const missingCards = shots.filter((_, i) => !cardOf(i)).length;
+  const syncToBoard = () => {
     if (!onSendToFilm) return;
     const title = blueprint.title || source?.title || '';
     if (!shots.length) { onSendToFilm({ script: blueprintScript(blueprint), title }); return; }
-    const id = `send-${Date.now().toString(36)}`;
-    setSendId(id);
-    onSendToFilm({ sendId: id, shots: shots.map((x, i) => { const r = shotRefs(x); const l = linkOf(shots, i); return { title: `${i + 1} · ${x.title || 'Shot'}`, prompt: renderShotPrompt(x, assets, look, r.numbers), refNodeIds: r.list.map((p) => p.nodeId), link: l ? { from: l.from, mode: l.mode, text: l.text } : null }; }), title });
+    const id = sendId || `story-${Date.now().toString(36)}`;
+    if (!sendId) setSendId(id);
+    const shotsOut = shots.map((x, i) => ({ index: i, title: `${i + 1} · ${x.title || 'Shot'}` })).filter((x) => !cardOf(x.index));
+    if (shotsOut.length) onSendToFilm({ sendId: id, shots: shotsOut, title });
   };
+  // RE-OPEN FROM THE TAKE: the frame now riding into this shot (the circled take of the
+  // shot it continues) rewrites only this shot's opening to start from it.
+  const needsReopen = (i) => {
+    const frame = linkOf(shots, i) ? cardOf(i)?.carried?.frameUrl : '';
+    return !!frame && shots[i].openedFrom?.frame !== frame;
+  };
+  const reopen = (i) => run('reopen', async () => {
+    const frame = cardOf(i)?.carried?.frameUrl;
+    if (!frame) throw new Error(`SH ${i + 1} carries no frame yet — circle a take of the shot it continues.`);
+    const plates = boundAssets(shots[i], assets).map((a) => ({ key: a.key, url: platesFor(a, boardPlates).main?.url })).filter((p) => p.url);
+    const body = await reopenShot({ shot: shots[i], assets, frameUrl: frame, plates }, ctx);
+    setShots((list) => list.map((x, j) => (j === i ? { ...x, body, openedFrom: { frame } } : x)));
+  });
+  // A board card asked to be edited here: open its shot.
+  const focusSeen = useRef(null);
+  useEffect(() => {
+    if (!focusShot?.nonce || focusShot.nonce === focusSeen.current) return;
+    focusSeen.current = focusShot.nonce;
+    const c = boardShots.find((b) => b.cardId === focusShot.cardId && b.sendId === sendId);
+    if (!c) { Message.error('That card belongs to a different story than the one open here.'); return; }
+    setTab('shots');
+    setOpenShot(c.index);
+  }, [focusShot]); // eslint-disable-line react-hooks/exhaustive-deps
   // Look: a preset fills the sentence; references are read by the planner into one.
   const presets = lookPresets();
   const addLookImages = async (files) => {
@@ -520,7 +551,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
     look: <LookPanel look={look} setLook={setLook} presets={presets} images={lookImages} addImages={addLookImages} removeImage={(i) => setLookImages((l) => l.filter((_, j) => j !== i))} readImages={readLook} busy={!!busy} />,
     beats: !blueprint ? needsBlueprint : facts.length ? <BeatSheet facts={facts} shotsOfFact={shotsOfFact} onOpenShot={(i) => { setTab('shots'); setOpenShot(i); }} /> : needsShots('beat sheet'),
     assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} plates={boardPlates} /> : needsShots('assets'),
-    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} refsOf={(x) => shotRefs(x).list} cardOf={cardOf} onJump={onOpenOnBoard} scenes={scenes} consistencyOf={consistencyOf} locationName={(x) => assets.find((a) => a.key === x.location)?.name || ''} onScenes={runScenes} /> : needsShots('shots'),
+    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} refsOf={(x) => shotRefs(x).list} cardOf={cardOf} onJump={onOpenOnBoard} scenes={scenes} scenesKnown={scenesFound(shots)} consistencyOf={consistencyOf} needsReopen={needsReopen} locationName={(x) => assets.find((a) => a.key === x.location)?.name || ''} onScenes={runScenes} onRewritePrompts={rewritePrompts} /> : needsShots('shots'),
   }[tab] || storyPanel;
 
   return (
@@ -557,7 +588,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
           <span style={{ flex: 1 }} />
           {blueprint && <Button size="small" disabled={!canWrite} onClick={writeAllShots} title="Beat sheet → casting board + shot plan → one Seedance 2.5 shot per moment">{shots.length ? 'Rewrite shots' : 'Write shots'}</Button>}
           {assets.length > 0 && <Button size="small" icon={<IconSend />} disabled={!!busy} onClick={sendAssets} title="Renders every asset on the Film Agent board as Cast & World plates (characters: face + turnaround), in the Look">{`Cast & World · ${assets.length}`}</Button>}
-          {blueprint && <Button size="small" type="primary" icon={<IconSend />} disabled={!!busy || problems.length > 0} onClick={send} title={shots.length ? 'Lands the shots on the Film Agent board as chained SHOT cards (Seedance 2.5)' : 'Lands this story on the Film Agent board as a Storyboard card, verbatim'}>{shots.length ? `Send ${shots.length} shots` : 'Send to Film Agent'}</Button>}
+          {blueprint && <Button size="small" type="primary" icon={<IconSend />} disabled={!!busy || problems.length > 0 || (shots.length > 0 && !missingCards)} onClick={syncToBoard} title={shots.length ? 'A SHOT card (Seedance 2.5) for every shot that has none yet — every shot then stays in step with its card' : 'Lands this story on the Film Agent board as a Storyboard card, verbatim'}>{!shots.length ? 'Send to Film Agent' : missingCards ? `Sync to board · +${missingCards}` : 'On the board ✓'}</Button>}
         </div>
       </div>
 
@@ -578,22 +609,20 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onLinks, onPinTake, 
         assets={assets}
         facts={facts}
         look={look}
+        busy={!!busy}
         onClose={() => setOpenShot(null)}
-        onPrev={() => setOpenShot((i) => Math.max(0, i - 1))}
-        onNext={() => setOpenShot((i) => Math.min(shots.length - 1, i + 1))}
+        onGoto={(i) => setOpenShot(i)}
         setBody={setShotBody}
         toggleBinding={toggleBinding}
         renderPrompt={(x) => renderShotPrompt(x, assets, look, shotRefs(x).numbers)}
         refsOf={(x) => shotRefs(x).list}
         boardCard={openShot != null ? cardOf(openShot) : null}
         onJump={(id) => { setOpenShot(null); onOpenOnBoard?.(id); }}
-        scene={openShot != null ? scenes[openShot] : null}
-        opensScene={openShot != null && (openShot === 0 || scenes[openShot] !== scenes[openShot - 1])}
-        consistency={openShot != null ? consistencyOf(openShot) : null}
-        onToggleScene={() => openShot != null && toggleScene(openShot)}
+        link={openShot != null ? consistencyOf(openShot) : null}
         onSetLink={setLink}
-        onPinTake={onPinTake}
-        onUpdateCard={onUpdateCard ? () => openShot != null && updateCard(openShot) : null}
+        onCircle={onCircleTake}
+        needsReopen={openShot != null && needsReopen(openShot)}
+        onReopen={() => openShot != null && reopen(openShot)}
       />
     </div>
   );

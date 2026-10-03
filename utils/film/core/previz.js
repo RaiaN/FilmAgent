@@ -42,37 +42,30 @@ export const previzPlan = async ({ brief = '', camera = '', config } = {}, ctx) 
   return normalizePlan(parseJson(content) || {}, maxSeconds);
 };
 
-// Plan JSON from the planner → the card's plan: actors dealt their colours by order, shots
-// trimmed, the cut fitted into one generation.
+// Plan JSON from the planner → the card's plan, actors dealt their colours by order.
+// Nothing is guessed, trimmed or rescaled: a plan that breaks a rule is an error.
 const normalizePlan = (raw, maxSeconds) => {
   const actors = (Array.isArray(raw.actors) ? raw.actors : [])
-    .map((a) => ({ name: clean(a?.name, 40), description: clean(a?.description, 200), start: clean(a?.start, 160) }))
-    .filter((a) => a.name)
-    .slice(0, BLOCKOUT_COLORS.length)
-    .map((a, i) => ({ ...a, color: blockoutColorOf(i) }));
+    .map((a) => ({ name: clean(a?.name, 40), description: clean(a?.description, 200), start: clean(a?.start, 160) }));
+  if (actors.some((a) => !a.name)) throw new Error('The plan has an actor without a name — block the scene again.');
+  if (actors.length > BLOCKOUT_COLORS.length) throw new Error(`The plan has ${actors.length} actors; the animatic tells at most ${BLOCKOUT_COLORS.length} apart by colour — merge some in the scene text and block again.`);
   const set = (Array.isArray(raw.set) ? raw.set : [])
-    .map((s) => ({ name: clean(s?.name, 40), where: clean(s?.where, 160) }))
-    .filter((s) => s.name)
-    .slice(0, 12);
-  let shots = (Array.isArray(raw.shots) ? raw.shots : [])
-    .map((s) => ({
-      camera: {
-        from: clean(s?.camera?.from, 160),
-        framing: clean(s?.camera?.framing, 80),
-        move: clean(s?.camera?.move, 120),
-      },
+    .map((s) => ({ name: clean(s?.name, 40), where: clean(s?.where, 160) }));
+  if (set.some((s) => !s.name)) throw new Error('The plan has a set piece without a name — block the scene again.');
+  const shots = (Array.isArray(raw.shots) ? raw.shots : []).map((s, i) => {
+    const shot = {
+      camera: { from: clean(s?.camera?.from, 160), framing: clean(s?.camera?.framing, 80), move: clean(s?.camera?.move, 120) },
       action: clean(s?.action, 600),
-      seconds: Math.max(2, Math.round(Number(s?.seconds) || 4)),
-    }))
-    .filter((s) => s.action)
-    .slice(0, 8);
-  // Fit the cut into one generation: scale every shot down proportionally.
+      seconds: Math.round(Number(s?.seconds)),
+    };
+    if (!shot.action) throw new Error(`Shot ${i + 1} of the plan has no action — block the scene again.`);
+    if (!(shot.seconds >= 1)) throw new Error(`Shot ${i + 1} of the plan has no length — block the scene again.`);
+    return shot;
+  });
+  if (!shots.length) throw new Error('The plan came back with no shots — block the scene again.');
   const total = shots.reduce((n, s) => n + s.seconds, 0);
-  if (total > maxSeconds) shots = shots.map((s) => ({ ...s, seconds: Math.max(2, Math.floor((s.seconds * maxSeconds) / total)) }));
-
-  const plan = { scene: clean(raw.scene, 1200), axis: clean(raw.axis, 300), set, actors, shots };
-  if (!plan.shots.length) throw new Error('The previz plan came back with no shots — try again.');
-  return plan;
+  if (total > maxSeconds) throw new Error(`The plan runs ${total}s — over the ${maxSeconds}s one animatic can render. Block the scene again.`);
+  return { scene: clean(raw.scene, 1200), axis: clean(raw.axis, 300), set, actors: actors.map((a, i) => ({ ...a, color: blockoutColorOf(i) })), shots };
 };
 
 export const totalSecondsOf = (plan) => (plan?.shots || []).reduce((n, s) => n + (Number(s.seconds) || 0), 0);

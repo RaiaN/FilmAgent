@@ -13,7 +13,7 @@ const { Text } = Typography;
 
 const STATUS_COLOR = { running: '#165dff', shot: '#00b42a', failed: '#f53f3f' };
 
-const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, onNeedPoster, onPick, continuity = null, onPinContinuity = null }) => {
+const TakeRow = memo(({ take, onTimeline, onOpenViewer, onDeleteTake, onNeedPoster, onPick, circle = null, onCircle = null }) => {
   const { id, url, cacheUrl, posterUrl, posterScaled, loading, error, label, continuitySent } = take;
   // Same lazy-poster contract as the board cards: ask once per session; a full-res
   // poster stamped before downscaling existed re-asks and self-heals.
@@ -52,31 +52,18 @@ const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemov
         {continuitySent === true && <span title="The continuity frame reached the model with this take" style={{ fontSize: 10, fontWeight: 700, color: '#00a870', flexShrink: 0 }}>◀ frame ✓</span>}
         {continuitySent === false && <span title="Shot WITHOUT the continuity frame — the model's content screen rejected it" style={{ fontSize: 10, fontWeight: 700, color: '#f53f3f', flexShrink: 0 }}>⚠ no frame</span>}
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {/* A card later shots continue from: ◀ marks the take they carry — the pinned one,
-              else the newest. Click pins this take; click the pinned one to unpin. */}
-          {url && !loading && onPinContinuity && (
+          {/* THE CIRCLED TAKE — ★ circled by you, ☆ (gold) the newest standing in until you
+              circle one. It continues into the next shot and is the shot's clip in the cut. */}
+          {url && !loading && onCircle && (
             <span
-              onClick={() => onPinContinuity(id)}
-              title={continuity === 'pinned' ? 'Later shots continue from this take (pinned) — click to unpin and follow the newest take'
-                : continuity === 'newest' ? 'Later shots continue from this take (the newest) — click to pin it'
-                  : 'Pin: later shots continue from this take instead'}
-              style={{ fontSize: 12, fontWeight: 700, cursor: 'pointer', color: continuity ? '#00a870' : '#c9cdd4' }}
-            >◀{continuity === 'pinned' ? ' 📌' : ''}</span>
+              onClick={() => onCircle(circle === 'circled' ? null : id)}
+              title={circle === 'circled' ? 'Circled — the next shot continues from it and it is this shot\'s clip in the cut. Click to follow the newest take instead.'
+                : circle === 'newest' ? 'The newest take stands in as circled — click to circle it for good'
+                  : 'Circle this take: the next shot continues from it and it becomes this shot\'s clip in the cut'}
+              style={{ fontSize: 15, lineHeight: 1, cursor: 'pointer', color: circle ? '#f7ba1e' : '#c9cdd4' }}
+            >{circle === 'circled' ? '★' : '☆'}</span>
           )}
-          {/* Rendered take → add to / remove from the Final Cut timeline (then Stitch). */}
-          {url && !loading && (onTimeline ? (
-            <IconCheck
-              onClick={() => onRemoveFromTimeline(id)}
-              title="On the Final Cut timeline — click to remove this clip"
-              style={{ fontSize: 15, cursor: 'pointer', color: '#00b42a' }}
-            />
-          ) : (
-            <IconPlus
-              onClick={() => onAddToTimeline(id)}
-              title="Add this take to the Final Cut timeline (then Stitch the film)"
-              style={{ fontSize: 15, cursor: 'pointer', color: '#165dff' }}
-            />
-          ))}
+          {onTimeline && <span title="In the cut" style={{ fontSize: 10, fontWeight: 700, color: '#00b42a' }}>in cut</span>}
           {url && !loading && (
             <IconDownload
               onClick={() => downloadMedia(cacheUrl || url, label || 'take', 'mp4')}
@@ -99,7 +86,7 @@ const TakeRow = memo(({ take, onTimeline, onOpenViewer, onAddToTimeline, onRemov
 });
 TakeRow.displayName = 'TakeRow';
 
-const TakeLibrary = ({ pick = null, groups, focusedCardId, timelineIds, onOpenViewer, onAddToTimeline, onRemoveFromTimeline, onDeleteTake, continuityPins = {}, onPinContinuity, onClearTakes, onNeedPoster, onFocusCard, onShowAll, onClose }) => {
+const TakeLibrary = ({ pick = null, groups, focusedCardId, timelineIds, onOpenViewer, onDeleteTake, circles = {}, onCircle, onClearTakes, onNeedPoster, onFocusCard, onShowAll, onClose }) => {
   const focused = focusedCardId ? groups.find((g) => g.cardId === focusedCardId) : null;
   const shown = focused ? [focused] : groups.filter((g) => g.takes.length);
   const empty = !shown.length || (focused && !focused.takes.length);
@@ -159,13 +146,11 @@ const TakeLibrary = ({ pick = null, groups, focusedCardId, timelineIds, onOpenVi
                   take={t}
                   onTimeline={!!(timelineIds && timelineIds.has && timelineIds.has(t.id))}
                   onOpenViewer={onOpenViewer}
-                  onAddToTimeline={onAddToTimeline}
-                  onRemoveFromTimeline={onRemoveFromTimeline}
                   onDeleteTake={onDeleteTake}
                   onNeedPoster={onNeedPoster}
                   onPick={pick ? pick.onPick : null}
-                  continuity={continuityPins[g.cardId]?.takeId === t.id ? (continuityPins[g.cardId].pinned ? 'pinned' : 'newest') : null}
-                  onPinContinuity={!pick && continuityPins[g.cardId] && onPinContinuity ? (takeId) => onPinContinuity(g.cardId, takeId) : null}
+                  circle={circles[g.cardId]?.takeId === t.id ? (circles[g.cardId].circled ? 'circled' : 'newest') : null}
+                  onCircle={!pick && circles[g.cardId] && onCircle ? (takeId) => onCircle(g.cardId, takeId) : null}
                 />
               ))}
             </div>

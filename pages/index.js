@@ -174,11 +174,11 @@ export default function Home() {
   const [boardPlates, setBoardPlates] = useState([]); // the Film Agent board's plates, shown in Story Room ▸ Assets
   const [boardStoryCards, setBoardStoryCards] = useState([]); // sent shots' status + latest take, for Story Room ▸ Shots
   const [boardFocus, setBoardFocus] = useState(null); // Story Room ▸ "Open on board"
-  const [storyLinks, setStoryLinks] = useState([]); // Story Room's continuity links for the cards it sent
-  const [pinRequest, setPinRequest] = useState(null); // Story Room picks the take a source shot hands on
-  const handlePinTake = useCallback((cardId, takeId) => setPinRequest({ cardId, takeId, nonce: Date.now() }), []);
-  const [cardUpdate, setCardUpdate] = useState(null); // Story Room re-writes one sent card from its shot
-  const handleUpdateCard = useCallback((u) => setCardUpdate({ ...u, nonce: Date.now() }), []);
+  const [storySync, setStorySync] = useState([]); // Story Room → the cards it sent: title, prompt, plates, link
+  const [circleRequest, setCircleRequest] = useState(null); // Story Room circles a take on a card
+  const handleCircleTake = useCallback((cardId, takeId) => setCircleRequest({ cardId, takeId, nonce: Date.now() }), []);
+  const [storyFocus, setStoryFocus] = useState(null); // board card → its shot in Story Room ▸ Shots
+  const handleOpenInStoryRoom = useCallback((cardId) => { setStoryFocus({ cardId, nonce: Date.now() }); handleModelFamilyChange('story-room'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // The Story Room is saved INSIDE the open Film Agent project: load → the tab, edits → the project.
   const [storyRoomLoad, setStoryRoomLoad] = useState(null);
   const [storyRoomSave, setStoryRoomSave] = useState(null);
@@ -488,16 +488,16 @@ export default function Home() {
                         onPlates={setBoardPlates}
                         onStoryCards={setBoardStoryCards}
                         focusRequest={boardFocus}
-                        storyLinks={storyLinks}
-                        pinRequest={pinRequest}
-                        cardUpdate={cardUpdate}
+                        storySync={storySync}
+                        circleRequest={circleRequest}
+                        onOpenInStoryRoom={handleOpenInStoryRoom}
                         onStoryRoomLoad={setStoryRoomLoad}
                         storyRoomSave={storyRoomSave}
                         onProjectTitle={setFilmProjectTitle}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
-                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onLinks={setStoryLinks} onPinTake={handlePinTake} onUpdateCard={handleUpdateCard} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} />
+                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onSync={setStorySync} onCircleTake={handleCircleTake} focusShot={storyFocus} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />

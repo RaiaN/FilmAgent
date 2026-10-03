@@ -1996,10 +1996,30 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
 
   const previzCtxOf = useCallback(() => ({ client: traceRef.current.wrapClient(createBrowserClient()) }), []);
 
+  // WHAT IS REALLY RUNNING on a Previz card: runs started in this tab (by card + kind).
+  // A busy flag with no run behind it — left by a reload mid-run — is cleared, unless a
+  // submitted render is still being resumed (a loading take with its task id).
+  const previzFlightRef = useRef(new Set());
+  const flight = (cardId, kind, on) => { const k = `${cardId}:${kind}`; if (on) previzFlightRef.current.add(k); else previzFlightRef.current.delete(k); };
+  useEffect(() => {
+    nodes.forEach((c) => {
+      if (c.type !== 'previz') return;
+      const live = (kind) => previzFlightRef.current.has(`${c.id}:${kind}`);
+      const resuming = nodes.some((n) => n.parentId === `grid-${c.id}` && n.data?.loading && n.data?.taskId);
+      const patch = {};
+      if (c.data.busy && !live('plan')) Object.assign(patch, { busy: false, step: '' });
+      if (c.data.animaticBusy && !live('animatic') && !resuming) Object.assign(patch, { animaticBusy: false, animaticStep: '' });
+      if (c.data.cutBusy && !live('cut')) patch.cutBusy = false;
+      if (c.data.schematic?.loading && !live('schematic')) patch.schematic = { ...c.data.schematic, loading: false };
+      if (Object.keys(patch).length) patchPreviz(c.id, patch);
+    });
+  }, [nodes, patchPreviz]);
+
   const drawPrevizSchematic = useCallback(async (cardId) => {
     const card = nodesRef.current.find((n) => n.id === cardId);
     const plan = card?.data?.plan;
     if (!Array.isArray(plan?.shots)) { Message.warning('Block the scene first.'); return; }
+    flight(cardId, 'schematic', true);
     patchPreviz(cardId, (d) => ({ schematic: { ...(d.schematic || {}), loading: true, error: '' } }));
     traceRef.current.startRun({ note: 'Agent · Previz · schematic' });
     try {
@@ -2008,7 +2028,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     } catch (e) {
       patchPreviz(cardId, (d) => ({ schematic: { ...(d.schematic || {}), loading: false, error: e.message } }));
       Message.error(`Schematic failed: ${e.message}`);
-    }
+    } finally { flight(cardId, 'schematic', false); }
   }, [patchPreviz, previzCtxOf]);
 
   // PLAN, then draw the schematic straight away — one tap from words to a floor plan.
@@ -2017,6 +2037,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const brief = String(card?.data?.brief || '').trim();
     if (!brief) { Message.warning('Write the scene description first.'); return; }
     if (card?.data?.busy) return;
+    flight(cardId, 'plan', true);
     patchPreviz(cardId, { busy: true, step: 'blocking', error: '' });
     traceRef.current.startRun({ note: 'Agent · Previz · plan' });
     try {
@@ -2028,6 +2049,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       patchPreviz(cardId, { error: e.message });
       Message.error(`Previz plan failed: ${e.message}`);
     } finally {
+      flight(cardId, 'plan', false);
       patchPreviz(cardId, { busy: false, step: '' });
     }
   }, [patchPreviz, previzCtxOf, drawPrevizSchematic]);
@@ -3048,7 +3070,10 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         try {
           const { videoUrl, lastFrameUrl, videoCacheUrl, lastFrameCacheUrl } = await client.pollVideo({ taskId: take.data.taskId });
           setNodes((ns) => ns.map((n) => (n.id === take.id ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null, loading: false, taskId: null, label: String(n.data.label || 'Take').replace(/…$/, '') } } : n)));
-          if (take.data.cutId) {
+          const previzOwner = take.data.cutId && nodesRef.current.find((n) => n.id === take.data.cutId && n.type === 'previz');
+          if (previzOwner) {
+            patchPreviz(previzOwner.id, { animatic: { takeId: take.id, url: videoUrl, cacheUrl: videoCacheUrl || null, label: String(take.data.label || 'Animatic').replace(/…$/, ''), taskId: take.data.draft ? take.data.taskId : null, createdAt: Date.now() } });
+          } else if (take.data.cutId) {
             onPatchCut(take.data.cutId, { status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null });
             if (take.data.draft) addCardDraft(take.data.cutId, { takeId: take.id, label: String(take.data.label || 'Draft').replace(/…$/, ''), taskId: take.data.taskId, ...take.data.draft });
             if (take.data.finalOfDraft) patchCardDraft(take.data.cutId, take.data.finalOfDraft.taskId, { finalizing: false });
@@ -3389,7 +3414,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     if (!Array.isArray(plan?.shots) || !src) { Message.warning('Block the scene and draw the schematic first.'); return; }
     const draftMeta = { draft: { modelKey: ANIMATIC_MODEL, createdAt: Date.now() } };
     const { takeId, takeNo } = addLoadingTake(card, 'Animatic', draftMeta);
-    patchPreviz(cardId, { animaticBusy: true, animaticError: '' });
+    flight(cardId, 'animatic', true);
+    patchPreviz(cardId, { animaticBusy: true, animaticStep: 'rendering the animatic', animaticError: '' });
     traceRef.current.startRun({ note: `Agent · Previz · animatic ${takeNo}` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     (async () => {
@@ -3409,12 +3435,12 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         const label = `Animatic ${takeNo}`;
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, draft: { ...draftMeta.draft, taskId } } } : n)));
         // The newest animatic is the chosen one until another is picked from the Library.
-        patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, label, createdAt: Date.now() } });
+        patchPreviz(cardId, { animaticBusy: false, animaticStep: '', animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, taskId, label, createdAt: Date.now() } });
       } catch (err) {
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Animatic failed' } } : n)));
-        patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
+        patchPreviz(cardId, { animaticBusy: false, animaticStep: '', animaticError: err.message });
         Message.error(`Animatic failed: ${err.message}`);
-      }
+      } finally { flight(cardId, 'animatic', false); }
     })();
   }, [addLoadingTake, patchPreviz, setNodes]);
 
@@ -3436,13 +3462,16 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     try { meta = await readVideoMeta(masterUrl); } catch (e) { Message.error(`Cannot correct ${anim.label}: ${e.message}.`); return; }
     if (meta.duration < 4 || meta.duration > 30) { Message.error(`${anim.label} is ${meta.duration.toFixed(1)}s — an edit needs a 4–30s source.`); return; }
     const { takeId, takeNo } = addLoadingTake(card, 'Animatic');
-    patchPreviz(cardId, { animaticBusy: true, animaticError: '' });
+    flight(cardId, 'animatic', true);
+    patchPreviz(cardId, { animaticBusy: true, animaticStep: 'watching the animatic', animaticError: '' });
     traceRef.current.startRun({ note: `Agent · Previz · correct ${anim.label} (edit)` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
       const master = { url: masterUrl, label: anim.label, duration: meta.duration, ratio: meta.ratio };
       const { text: analysis } = await analyzeEditMaster({ videoUrl: masterUrl, seconds: meta.duration }, ctx);
+      patchPreviz(cardId, { animaticStep: 'writing the edit' });
       const out = await editShotAction({ text: note, master, analysis, references: [], roster: [], modelKey: ANIMATIC_MODEL }, ctx);
+      patchPreviz(cardId, { animaticStep: 'rendering the edit' });
       // No ref-dropping retries: the source rides as @video1, or the edit fails — it never
       // degrades into a fresh generation.
       const { taskId } = await animateOp({
@@ -3455,13 +3484,13 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       const { videoUrl, videoCacheUrl } = await ctx.client.pollVideo({ taskId });
       const label = `Animatic ${takeNo} · edit of ${anim.label}`;
       setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, loading: false, taskId: null, label, editPrompt: out.action } } : n)));
-      patchPreviz(cardId, { animaticBusy: false, animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, createdAt: Date.now() } });
+      patchPreviz(cardId, { animaticBusy: false, animaticStep: '', animatic: { takeId, url: videoUrl, cacheUrl: videoCacheUrl || null, label, createdAt: Date.now() } });
       Message.success(`${label} — the correction is on the board and chosen.`);
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Correction failed' } } : n)));
-      patchPreviz(cardId, { animaticBusy: false, animaticError: err.message });
+      patchPreviz(cardId, { animaticBusy: false, animaticStep: '', animaticError: err.message });
       Message.error(`Correction failed: ${err.message}`);
-    }
+    } finally { flight(cardId, 'animatic', false); }
   }, [addLoadingTake, patchPreviz, setNodes, durableVideoUrl]);
 
   // PICK THE ANIMATIC in the Take Library — any video on the board; that one is what
@@ -3500,6 +3529,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const animUrl = durableVideoUrl(animNode.data.cacheUrl || animNode.data.url);
     let meta;
     try { meta = await readVideoMeta(animUrl); } catch (e) { Message.error(`Cannot hand ${anim.label} on: ${e.message}.`); return; }
+    flight(cardId, 'cut', true);
     patchPreviz(cardId, { cutBusy: true, animaticError: '' });
     traceRef.current.startRun({ note: 'Agent · Previz · animatic → CUT card' });
     try {
@@ -3518,6 +3548,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       patchPreviz(cardId, { animaticError: e.message });
       Message.error(`To CUT card failed: ${e.message}`);
     } finally {
+      flight(cardId, 'cut', false);
       patchPreviz(cardId, { cutBusy: false });
     }
   }, [freeOrigin, onPatchCut, durableVideoUrl, patchPreviz, previzCtxOf]);
@@ -3545,6 +3576,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const frameSrc = edits.annotatedFrame || schem.cacheUrl || schem.url;
     const frameEdit = !!(edits.useFrame !== false && frameSrc);
     if (frameEdit) ({ body: text, refs: ordered } = lockBodyToFrame(text, ordered, frameSrc));
+    flight(cardId, 'schematic', true);
     mark({ editBody: body, editPool: previzPool, loading: true, error: '' });
     setPrevizEdit(null);
     traceRef.current.startRun({ note: 'Agent · Previz · edit schematic' });
@@ -3561,7 +3593,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     } catch (e) {
       mark({ loading: false, error: e.message });
       Message.error(`Schematic edit failed: ${e.message} — it kept its current drawing.`);
-    }
+    } finally { flight(cardId, 'schematic', false); }
   }, [previzCtxOf, previzPool, patchPreviz]);
 
   previzDispatchRef.current = { correct: correctPrevizAnimatic, pick: pickPrevizAnimatic, toCut: previzToCut, edit: previzEditSchematic, animatic: makePrevizAnimatic, play: playPrevizAnimatic };

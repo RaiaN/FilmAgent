@@ -41,7 +41,7 @@ const PrevizNodeInner = ({ id, data, selected }) => {
           {plan ? `${plan.actors.length} actor${plan.actors.length === 1 ? '' : 's'} · ${total}s` : 'blocking schematic → animatic'}
         </Text>
         <span style={{ flex: 1 }} />
-        {(data.busy || data.animaticBusy) && <Tag size="small" color="blue"><IconLoading style={{ marginRight: 3 }} />{data.busy ? `${data.step || 'working'}…` : 'animatic rendering…'}</Tag>}
+        {(data.busy || data.animaticBusy || data.cutBusy) && <Tag size="small" color="blue"><IconLoading style={{ marginRight: 3 }} />{data.busy ? `${data.step || 'working'}…` : data.cutBusy ? 'writing the CUT card…' : `${data.animaticStep || 'animatic rendering'}…`}</Tag>}
       </div>
 
       <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 900, overflowY: 'auto' }}>

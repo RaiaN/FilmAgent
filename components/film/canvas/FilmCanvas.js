@@ -1009,6 +1009,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         sendId: n.data.storyRef?.sendId || null, index: n.data.storyRef?.index ?? null, beat: n.data.beat || '', cardId: n.id, status: n.data.status || '', stale: staleReasonOf(n, nodes),
         take,
         carried: n.data.continuityFrame ? { frameUrl: n.data.continuityFrame, label: chip?.label || '', mode: n.data.continuesFrom?.mode || 'state', line: n.data.continuityLine || '' } : null,
+        prompt: String(n.data.promptOverride || ''),
         takes: takesOfCard(n.id, nodes).map((t) => ({ id: t.id, label: String(t.data.label || 'Take').replace(/…$/, ''), url: t.data.cacheUrl || t.data.url, posterUrl: t.data.posterUrl || '', frameUrl: t.data.lastFrameUrl || '' })),
         chosenTakeId: chosen?.id || null,
         circled: !!(chosen && circledOf(n.data) === chosen.id),

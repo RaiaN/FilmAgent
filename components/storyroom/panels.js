@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { linkTextOf, FRAME_TOKEN, parseBlocking } from '../../utils/film/core/story';
-import { Button, Drawer, Image, Input, Modal, Radio, Select, Tag, Tooltip, Typography } from '@arco-design/web-react';
+import { parseBlocking } from '../../utils/film/core/story';
+import { Button, Checkbox, Drawer, Image, Input, InputNumber, Modal, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconClose, IconEye, IconImage, IconLoading, IconPlus, IconSound } from '@arco-design/web-react/icon';
 
 const { Text } = Typography;
@@ -269,37 +269,6 @@ export const AssetBoard = ({ assets, setAsset, usage, plates = [] }) => {
 // rendered prompt live.
 // The card's picture: the latest take once the shot is filmed on the board (click to
 // play), else its reference plates — the location as the frame, cast faces as avatars.
-const ShotPreview = ({ refs, card, onPlay }) => {
-  const take = card?.take;
-  const loc = refs.find((p) => p.role === 'location') || refs[0];
-  const frame = { height: 150, background: '#11141a', position: 'relative', overflow: 'hidden', display: 'grid', placeItems: 'center' };
-  const badge = (text, color) => <span style={{ position: 'absolute', left: 8, top: 8, padding: '1px 7px', borderRadius: 4, background: 'rgba(0,0,0,0.6)', color, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em' }}>{text}</span>;
-  if (take?.url) {
-    return (
-      <div style={frame} onClick={(e) => { e.stopPropagation(); onPlay(take.url); }} title="Play the take">
-        {take.posterUrl
-          ? <img src={take.posterUrl} alt="Take" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <video src={take.url} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-        <span style={{ position: 'absolute', width: 40, height: 40, borderRadius: 20, background: 'rgba(0,0,0,0.55)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 16 }}>▶</span>
-        {badge('FILMED', '#7be3a0')}
-      </div>
-    );
-  }
-  const rolling = card && (card.status === 'running' || take?.loading);
-  if (!loc && !rolling) return null;
-  return (
-    <div style={frame}>
-      {loc && <img src={loc.url} alt={loc.asset} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: rolling ? 0.45 : 0.9 }} />}
-      {rolling ? badge('ROLLING…', '#8fb8ff') : card ? badge('ON THE BOARD', '#c9cdd4') : null}
-      <div style={{ position: 'absolute', left: 8, bottom: 8, display: 'flex', gap: 4 }}>
-        {refs.filter((p) => p.role === 'character').slice(0, 5).map((p) => (
-          <img key={p.nodeId} src={p.url} alt={p.asset} title={p.asset} style={{ width: 30, height: 30, borderRadius: 15, objectFit: 'cover', objectPosition: 'center 20%', border: '2px solid #fff' }} />
-        ))}
-      </div>
-    </div>
-  );
-};
-
 // THE SCENE'S BLOCKING — staged once before any shot: the marks, each character's path
 // across them, the axis. Every shot of the scene is written against it. Edit the lines;
 // Draw shows them as the top-down floor plan.
@@ -344,134 +313,8 @@ const BlockingPanel = ({ start, shot, assets, busy, onBlock, onDraw, setBlocking
   );
 };
 
-export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], cardOf = () => null, onJump, scenes = [], scenesKnown = false, consistencyOf = () => null, needsReopen = () => false, locationName = () => '', onScenes, onRewritePrompts, onBlock, onDrawBlocking, setBlocking }) => {
-  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
-  const [playing, setPlaying] = useState('');
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-      <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>{scenesKnown ? `${Math.max(...scenes)} scene${Math.max(...scenes) === 1 ? '' : 's'} · a linked shot carries the last frame of the shot it continues from` : 'Scenes not found yet — press Scenes ↻ to find them and link the shots'}</Text>
-        <span style={{ flex: 1 }} />
-        {onScenes && <Button size="mini" disabled={busy} onClick={onScenes} title="Find where the place or time changes">Scenes ↻</Button>}
-        {onRewritePrompts && <Button size="mini" disabled={busy || !scenesKnown} onClick={onRewritePrompts} title="Re-write every shot's prompt in scene order: each shot that continues its scene opens exactly where the one before it ends. Same shots, assets and scenes; replaces hand edits to the prompts.">Prompts ↻</Button>}
-      </div>
-      {shots.map((x, i) => {
-        const loc = byKey[x.location];
-        const bound = x.assets.map((k) => byKey[k]).filter((a) => a && a.kind !== 'location');
-        const opens = i === 0 || scenes[i] !== scenes[i - 1];
-        const cons = consistencyOf(i);
-        const src = cons?.card?.take;
-        const carried = cardOf(i)?.carried;
-        const stale = cardOf(i)?.stale;
-        return [
-          opens && (
-            <div key={`scene-${i}`} style={{ gridColumn: '1 / -1', display: 'grid', gap: 8, paddingTop: i ? 10 : 0, borderTop: i ? `1px solid ${LINE}` : 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                <Eyebrow color={INK}>Scene {scenes[i]}</Eyebrow>
-                <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, color: KIND_COLOR.location, textTransform: 'uppercase' }}>{locationName(x)}</Text>
-                {x.sceneReason && <Text type="secondary" style={{ fontSize: 11 }}>{x.sceneReason}</Text>}
-              </div>
-              {scenesKnown && onBlock && <BlockingPanel start={i} shot={x} assets={assets} busy={busy} onBlock={onBlock} onDraw={onDrawBlocking} setBlocking={setBlocking} />}
-            </div>
-          ),
-          <div
-            key={i}
-            role="button"
-            tabIndex={0}
-            onClick={() => onOpen(i)}
-            onKeyDown={(e) => { if (e.key === 'Enter') onOpen(i); }}
-            style={{ textAlign: 'left', cursor: 'pointer', padding: 0, background: PAPER, border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', display: 'grid', gridTemplateRows: 'auto auto auto 1fr auto', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
-          >
-            <ShotPreview refs={refsOf(x)} card={cardOf(i)} onPlay={setPlaying} />
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '10px 12px 4px' }}>
-              <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 13, fontWeight: 700 }}>SH {pad2(i + 1)}</Text>
-              <Text style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.title}</Text>
-            </div>
-            <div style={{ padding: '0 12px 6px' }}>
-              <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 11, color: KIND_COLOR.location, textTransform: 'uppercase' }}>{loc ? loc.name : x.location || '—'}</Text>
-            </div>
-            <div style={{ padding: '0 12px 10px' }}>
-              {x.body
-                ? <Text style={{ fontSize: 12, lineHeight: 1.5, color: '#4e5969', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{x.body.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, k) => byKey[k]?.name || k)}</Text>
-                : <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>{busy ? 'Writing…' : x.moment || 'No shot yet'}</Text>}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 12px', borderTop: `1px solid ${LINE}`, background: '#fafbfc' }}>
-              {bound.slice(0, 5).map((a) => (
-                <Tooltip key={a.key} content={a.name}>
-                  <span style={{ width: 22, height: 22, borderRadius: a.kind === 'character' ? 11 : 5, background: `${KIND_COLOR[a.kind]}1f`, color: KIND_COLOR[a.kind], fontSize: 10, fontWeight: 700, display: 'grid', placeItems: 'center' }}>{initials(a.name)}</span>
-                </Tooltip>
-              ))}
-              {bound.length > 5 && <Text type="secondary" style={{ fontSize: 11 }}>+{bound.length - 5}</Text>}
-              {cons && (
-                <Tooltip content={carried ? `${carried.label} — on the card as ${cons.mode === 'open' ? 'the first frame' : 'the state of the scene'}` : `${linkWords(cons)} — waiting: shoot SH ${pad2(cons.from + 1)} first`}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6, fontSize: 10, fontWeight: 600, color: carried ? '#00a870' : '#d25f00' }}>
-                    {carried ? <img src={carried.frameUrl} alt="" style={{ width: 26, height: 15, objectFit: 'cover', borderRadius: 2 }} /> : null}
-                    ◀ SH {pad2(cons.from + 1)} · {cons.mode === 'open' ? 'opens on' : 'state'} {carried ? '✓' : src?.url ? '· syncing' : '· waiting'}
-                  </span>
-                </Tooltip>
-              )}
-              {needsReopen(i) && (
-                <Tooltip content="The frame now riding into this shot is not where its prompt opens — open the shot and Re-open from this frame">
-                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#d25f00' }}>↻ re-open</span>
-                </Tooltip>
-              )}
-              {stale && (
-                <Tooltip content={stale}>
-                  <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#ff7d00' }}>⟳ stale</span>
-                </Tooltip>
-              )}
-              <span style={{ flex: 1 }} />
-              {cardOf(i) && onJump
-                ? <Button size="mini" type="text" onClick={(e) => { e.stopPropagation(); onJump(cardOf(i).cardId); }} title="Select this SHOT card on the Film Agent board">Open on board ↗</Button>
-                : <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 10, color: MUTED }}>{x.shows.join(' ')}</Text>}
-            </div>
-          </div>,
-        ];
-      })}
-      <Modal visible={!!playing} footer={null} onCancel={() => setPlaying('')} style={{ width: 'min(960px, 94vw)' }} title="Take">
-        {playing && <video src={playing} controls autoPlay style={{ width: '100%', borderRadius: 6, background: '#000' }} />}
-      </Modal>
-    </div>
-  );
-};
-
-// THE FRAME A LINKED SHOT CARRIES — what is actually on its board card (image + which
-// take it came from + the line in its prompt), and the source shot's takes as their last
-// frames: click one to hand that take on; click the chosen one again to follow the newest.
-// HOW THE FRAME IS USED — the filmmaker's own words, cited as @ImageN (code keeps the
-// number right). Empty = the mode's standard line.
-const FrameUse = ({ index, link, carried, onSetLink }) => {
-  const n = (/@Image(\d+)/.exec(carried?.line || '') || [])[1];
-  const cite = n ? `@Image${n}` : '@Frame';
-  const shown = link.text ? link.text.split(FRAME_TOKEN).join(cite) : (carried?.line || '');
-  const [draft, setDraft] = useState(shown);
-  useEffect(() => { setDraft(shown); }, [shown]);
-  const commit = () => {
-    const next = linkTextOf(draft);
-    const standard = !next || (carried?.line && draft.trim() === carried.line.trim() && !link.text);
-    if (standard ? !link.text : next === link.text) return;
-    onSetLink(index, { text: standard ? '' : next });
-  };
-  return (
-    <details>
-      <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>How the frame is used{link.text ? ' · your words' : ''}</summary>
-      <div style={{ display: 'grid', gap: 4, marginTop: 6 }}>
-        <Input.TextArea
-          value={draft} onChange={setDraft} onBlur={commit}
-          autoSize={{ minRows: 2, maxRows: 6 }} style={{ fontSize: 12 }}
-          placeholder={`e.g. ${cite}: keep the guard frozen at the door and the dropped bag where it lies`}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Text type="secondary" style={{ fontSize: 10, flex: 1 }}>Cite the frame as {cite}; this line rides in the prompt word for word.</Text>
-          {link.text && <Button size="mini" type="text" onClick={() => onSetLink(index, { text: '' })}>Standard line</Button>}
-        </div>
-      </div>
-    </details>
-  );
-};
-
-// THIS SHOT'S TAKES on the board — click one to circle it (the next shot continues from
-// it, it is the shot's clip in the cut); ▶ plays it.
+// THE CARD'S TAKES on the board — click one to circle it (the next card continues from
+// it, it is the card's clip in the cut); ▶ plays it.
 const TakeStrip = ({ card, onCircle, onPlay }) => (
   <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
     {card.takes.map((t) => {
@@ -497,16 +340,120 @@ const TakeStrip = ({ card, onCircle, onPlay }) => (
   </div>
 );
 
-const linkWords = (l) => (l.mode === 'open'
-  ? `Opens on the last frame of SH ${pad2(l.from + 1)}`
-  : `Carries the last frame of SH ${pad2(l.from + 1)} as the state of the scene`);
+// ONE CARD — a scene (or a chunk of one) as one generation: its board card (takes, the
+// hand-off from the card before), its length, and its shots as lines.
+const CardBlock = ({ card, shots, assets, board, secs, busy, refs, needsReopen, onReopen, onRewrite, onCircle, onJump, onOpen, onPlay }) => {
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const named = (t) => String(t || '').replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, k) => byKey[k]?.name || k);
+  const over = secs > 30;
+  return (
+    <div style={{ gridColumn: '1 / -1', border: `1px solid ${LINE}`, borderRadius: 10, background: PAPER, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#fafbfc', borderBottom: `1px solid ${LINE}` }}>
+        <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 13, fontWeight: 700 }}>CARD {card.k + 1}</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>SH {pad2(card.start + 1)}{card.end > card.start ? `–${pad2(card.end + 1)}` : ''} · {card.idx.length} shot{card.idx.length === 1 ? '' : 's'}</Text>
+        <Text style={{ fontSize: 12, fontWeight: 700, color: over ? '#f53f3f' : '#4e5969' }}>{secs ? `${secs}s` : '—'}{over ? ' · over 30s — start the next card at a later shot' : ''}</Text>
+        {!card.opensScene && <Text style={{ fontSize: 11, color: MUTED }}>◀ opens from the card before</Text>}
+        {refs.length > 0 && (
+          <span style={{ display: 'inline-flex', gap: 2 }}>
+            {refs.slice(0, 8).map((p) => <img key={p.nodeId} src={p.url} alt={p.asset} title={p.asset} style={{ width: 20, height: 20, borderRadius: 10, objectFit: 'cover', border: '1px solid #fff' }} />)}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        {board?.stale && <Tooltip content={board.stale}><span style={{ fontSize: 11, fontWeight: 700, color: '#ff7d00' }}>⟳ stale</span></Tooltip>}
+        <Button size="mini" disabled={busy} onClick={() => onRewrite(card.start)} title="Write this card's shot lines again against the blocking (replaces your edits to them)">Write ↻</Button>
+        {board && onJump && <Button size="mini" type="text" onClick={() => onJump(board.cardId)}>Open on board ↗</Button>}
+      </div>
+      {(board?.takes?.length > 0 || (!card.opensScene && board)) && (
+        <div style={{ display: 'grid', gridTemplateColumns: !card.opensScene ? '1fr 300px' : '1fr', gap: 12, padding: '10px 12px', borderBottom: `1px solid ${LINE}` }}>
+          {board?.takes?.length ? <TakeStrip card={board} onCircle={onCircle} onPlay={onPlay} /> : <Text type="secondary" style={{ fontSize: 12 }}>{board?.take?.loading ? 'Rendering…' : 'No takes yet — Draft it on the board.'}</Text>}
+          {!card.opensScene && (
+            board?.carried ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8, alignItems: 'start' }}>
+                <Image src={board.carried.frameUrl} width={110} style={{ borderRadius: 4, border: '2px solid #165dff' }} />
+                <div style={{ display: 'grid', gap: 4 }}>
+                  <Text style={{ fontSize: 11 }}>Opens on {board.carried.label.replace(/^◀\s*/, '')}</Text>
+                  {needsReopen
+                    ? <Button size="mini" type="primary" loading={busy} onClick={onReopen} style={{ background: '#d25f00', borderColor: '#d25f00', justifySelf: 'start' }} title="A vision call reads the frame and rewrites only this card's first line so it starts from it">Re-open from this frame</Button>
+                    : <Text style={{ fontSize: 11, color: '#00a870' }}>✓ The first line opens from it.</Text>}
+                </div>
+              </div>
+            ) : <Text style={{ fontSize: 12, color: '#d25f00' }}>Waiting for a take of the card before — this card opens from its last frame.</Text>
+          )}
+        </div>
+      )}
+      {!board && <div style={{ padding: '6px 12px', borderBottom: `1px solid ${LINE}` }}><Text type="secondary" style={{ fontSize: 12 }}>Not on the board yet — Sync to board.</Text></div>}
+      <div style={{ display: 'grid' }}>
+        {card.idx.map((i, n) => {
+          const x = shots[i];
+          return (
+            <div
+              key={i} role="button" tabIndex={0}
+              onClick={() => onOpen(i)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(i); }}
+              style={{ display: 'grid', gridTemplateColumns: '64px 1fr 44px', gap: 10, padding: '8px 12px', cursor: 'pointer', borderTop: n ? `1px solid ${LINE}` : 'none', alignItems: 'baseline' }}
+            >
+              <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, fontWeight: 700 }}>SH {pad2(i + 1)}</Text>
+              <div style={{ minWidth: 0 }}>
+                <Text style={{ fontSize: 12, fontWeight: 600, display: 'block' }}>{x.title}</Text>
+                {x.line
+                  ? <Text style={{ fontSize: 12, lineHeight: 1.5, color: '#4e5969' }}>{named(x.line)}</Text>
+                  : <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>{busy ? 'Writing…' : x.moment || 'Not written yet'}</Text>}
+              </div>
+              <Text style={{ fontSize: 11, color: MUTED, textAlign: 'right' }}>{x.seconds ? `${x.seconds}s` : ''}</Text>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
-export const ShotDrawer = ({ index, shot, shots, assets, facts, look, busy, onClose, onGoto, setBody, toggleBinding, renderPrompt, refsOf = () => [], boardCard = null, onJump, link = null, onSetLink, onCircle, needsReopen = false, onReopen }) => {
+export const ShotBoard = ({ shots, assets, cards = [], scenes = [], scenesKnown = false, busy, onOpen, refsOf = () => [], boardCardOf = () => null, onJump, locationName = () => '', onScenes, onRewriteCards, onRewriteCard, onBlock, onDrawBlocking, setBlocking, needsReopen = () => false, onReopen, onCircle, secondsOf = () => 0 }) => {
   const [playing, setPlaying] = useState('');
-  const carried = boardCard?.carried;
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {scenesKnown ? `${Math.max(...scenes)} scene${Math.max(...scenes) === 1 ? '' : 's'} · ${cards.length} card${cards.length === 1 ? '' : 's'} — each card is one generation (up to 30 s); its shots are the cuts inside it` : 'Scenes not found yet — press Scenes ↻'}
+        </Text>
+        <span style={{ flex: 1 }} />
+        {onScenes && <Button size="mini" disabled={busy} onClick={onScenes} title="Find where the place or time changes">Scenes ↻</Button>}
+        {onRewriteCards && <Button size="mini" disabled={busy || !scenesKnown} onClick={onRewriteCards} title="Write every card's shot lines again against its scene's blocking. Same shots, scenes and blocking; replaces hand edits to the lines.">Write cards ↻</Button>}
+      </div>
+      {cards.map((card) => {
+        const x = shots[card.start];
+        return [
+          card.opensScene && (
+            <div key={`scene-${card.start}`} style={{ display: 'grid', gap: 8, paddingTop: card.start ? 10 : 0, borderTop: card.start ? `1px solid ${LINE}` : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                <Eyebrow color={INK}>Scene {card.scene}</Eyebrow>
+                <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, color: KIND_COLOR.location, textTransform: 'uppercase' }}>{locationName(x)}</Text>
+                {x.sceneReason && <Text type="secondary" style={{ fontSize: 11 }}>{x.sceneReason}</Text>}
+              </div>
+              {scenesKnown && onBlock && <BlockingPanel start={card.start} shot={x} assets={assets} busy={busy} onBlock={onBlock} onDraw={onDrawBlocking} setBlocking={setBlocking} />}
+            </div>
+          ),
+          <CardBlock
+            key={`card-${card.start}`} card={card} shots={shots} assets={assets} board={boardCardOf(card)} secs={secondsOf(card)} busy={busy}
+            refs={refsOf(card)} needsReopen={needsReopen(card)} onReopen={() => onReopen(card)} onRewrite={onRewriteCard}
+            onCircle={onCircle} onJump={onJump} onOpen={onOpen} onPlay={setPlaying}
+          />,
+        ];
+      })}
+      <Modal visible={!!playing} footer={null} onCancel={() => setPlaying('')} style={{ width: 'min(960px, 94vw)' }} title="Take">
+        {playing && <video src={playing} controls autoPlay style={{ width: '100%', borderRadius: 6, background: '#000' }} />}
+      </Modal>
+    </div>
+  );
+};
+
+// ONE SHOT — its line (what this cut shows) and seconds, whether it opens a new scene or
+// starts the next card, and what it binds. The card's full prompt is one click away.
+export const ShotDrawer = ({ index, shot, shots, assets, facts, card, cardPrompt, boardCardOf, onClose, onGoto, setField, toggleBinding, onOpensScene, onNewCard, onJump }) => {
+  const board = card ? boardCardOf(card) : null;
+  const opensScene = index === 0 || (card && card.opensScene && card.start === index);
   return (
     <Drawer
-      width={640}
+      width={620}
       visible={index != null && !!shot}
       onCancel={onClose}
       footer={null}
@@ -515,7 +462,7 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, busy, onCl
           <Text style={{ fontFamily: SCRIPT_FONT, fontWeight: 700 }}>SH {pad2(index + 1)}</Text>
           <Text style={{ fontWeight: 600 }}>{shot.title}</Text>
           <span style={{ flex: 1 }} />
-          {onJump && boardCard && <Button size="mini" type="primary" onClick={() => onJump(boardCard.cardId)}>Open on board ↗</Button>}
+          {onJump && board && <Button size="mini" type="primary" onClick={() => onJump(board.cardId)}>Open on board ↗</Button>}
           <Button size="mini" disabled={index === 0} onClick={() => onGoto(index - 1)}>‹ Prev</Button>
           <Button size="mini" disabled={index >= shots.length - 1} onClick={() => onGoto(index + 1)}>Next ›</Button>
         </div>
@@ -524,85 +471,27 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, busy, onCl
       {shot && (
         <div style={{ display: 'grid', gap: 18 }}>
           {shot.moment && <Text type="secondary" style={{ fontSize: 13 }}>{shot.moment}</Text>}
-
-          {/* 1 · THE TAKES — circle the one that counts. */}
           <div style={{ display: 'grid', gap: 6 }}>
-            <Eyebrow>Takes{boardCard?.takes?.length ? ` · ${boardCard.takes.length}` : ''}</Eyebrow>
-            {!boardCard
-              ? <Text type="secondary" style={{ fontSize: 12 }}>Not on the board yet — Sync to board.</Text>
-              : boardCard.takes.length
-                ? <TakeStrip card={boardCard} onCircle={onCircle} onPlay={setPlaying} />
-                : <Text type="secondary" style={{ fontSize: 12 }}>{boardCard.take?.loading ? 'Rendering…' : 'No takes yet — shoot it on the board.'}</Text>}
-            {boardCard?.stale && <Text style={{ fontSize: 12, color: '#ff7d00' }}>⟳ Stale: {boardCard.stale}</Text>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Eyebrow>The cut</Eyebrow>
+              <span style={{ flex: 1 }} />
+              <InputNumber size="mini" min={2} max={10} value={shot.seconds} suffix="s" style={{ width: 80 }} onChange={(v) => setField(index, 'seconds', Math.round(Number(v) || 0) || null)} />
+            </div>
+            <Input.TextArea value={shot.line} onChange={(v) => setField(index, 'line', v)} autoSize={{ minRows: 3, maxRows: 10 }} style={{ fontSize: 13, lineHeight: 1.6 }} placeholder="framing and camera, then what happens — e.g. Medium close-up of {{JINN}} at Opposite Wall: he snaps his fingers…" />
+            <Text type="secondary" style={{ fontSize: 11 }}>One line of {card ? `card ${card.k + 1}` : 'its card'}. Name assets as {'{{KEY}}'}; changes land on the board card.</Text>
           </div>
-
-          {/* 2 · CONTINUITY — the one control. */}
           {index > 0 && (
-            <div style={{ display: 'grid', gap: 8 }}>
-              <Eyebrow>Continues from</Eyebrow>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Select
-                  size="small" style={{ width: 300 }}
-                  value={link ? link.from : -1}
-                  onChange={(v) => onSetLink(index, { from: v < 0 ? null : v })}
-                  options={[{ label: '— Opens a new scene', value: -1 }, ...shots.slice(0, index).map((x, j) => ({ label: `SH ${pad2(j + 1)} · ${x.title || 'Shot'}`, value: j })).reverse()]}
-                />
-                {link && (
-                  <Radio.Group
-                    type="button" size="small" value={link.mode}
-                    onChange={(v) => onSetLink(index, { mode: v })}
-                    options={[{ label: 'State of the scene', value: 'state' }, { label: 'First frame', value: 'open' }]}
-                  />
-                )}
-              </div>
-              {!link && shot.sceneReason && <Text type="secondary" style={{ fontSize: 12 }}>{shot.sceneReason}</Text>}
-              {link && (
-                carried ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, alignItems: 'start' }}>
-                    <Image src={carried.frameUrl} width={220} style={{ borderRadius: 6, border: `2px solid ${link.mode === 'open' ? '#165dff' : '#00a870'}` }} />
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <Text style={{ fontSize: 12, fontWeight: 600 }}>{carried.label.replace(/^◀\s*/, '')}</Text>
-                      <Text type="secondary" style={{ fontSize: 11 }}>On this shot's card as {link.mode === 'open' ? 'its first frame' : 'the state of the scene'}.</Text>
-                      {needsReopen
-                        ? (
-                          <div style={{ display: 'grid', gap: 4, padding: 8, borderRadius: 6, background: '#fff7e8', border: '1px solid #ffcf8b' }}>
-                            <Text style={{ fontSize: 12, color: '#b25d00' }}>This prompt was not opened from this frame yet.</Text>
-                            <Button size="mini" type="primary" loading={busy} onClick={onReopen} style={{ background: '#d25f00', borderColor: '#d25f00' }} title="A vision call reads the frame and rewrites only how this shot opens — who is where, holding what — so it starts from it; the rest of the prompt stays">Re-open from this frame</Button>
-                          </div>
-                        )
-                        : shot.openedFrom?.body !== shot.body
-                          ? (
-                            <div style={{ display: 'grid', gap: 4 }}>
-                              <Text type="secondary" style={{ fontSize: 12 }}>{shot.openedFrom?.body ? 'Re-opened from this frame, then edited by hand — the opening is yours now.' : 'Re-opened from this frame earlier; edits since then are not tracked.'}</Text>
-                              <Button size="mini" loading={busy} onClick={onReopen} style={{ justifySelf: 'start' }} title="Rewrite only how this shot opens from the frame again — replaces your hand edits to the opening">Re-open again</Button>
-                            </div>
-                          )
-                          : <Text style={{ fontSize: 12, color: '#00a870' }}>✓ The prompt opens from this frame.</Text>}
-                      <Button size="mini" type="text" onClick={() => onGoto(link.from)} style={{ justifySelf: 'start', padding: 0 }}>Circle another take of SH {pad2(link.from + 1)} ↗</Button>
-                    </div>
-                  </div>
-                ) : (
-                  <Text style={{ fontSize: 12, color: '#d25f00' }}>
-                    {!boardCard ? 'Not on the board yet — Sync to board.'
-                      : !link.card ? `SH ${pad2(link.from + 1)} is not on the board.`
-                        : !link.card.takes?.length ? `Waiting: shoot SH ${pad2(link.from + 1)} first — this shot will not shoot without its last frame.`
-                          : 'Taking the last frame…'}
-                  </Text>
-                )
+            <div style={{ display: 'grid', gap: 6 }}>
+              <Checkbox checked={!!opensScene} onChange={(on) => onOpensScene(index, on)}>Opens a new scene</Checkbox>
+              {!opensScene && (
+                <Checkbox checked={!!shot.newCard} onChange={(on) => onNewCard(index, on)}>
+                  Next card from here — the scene is too long for one generation; this card opens on the last frame of the card before
+                </Checkbox>
               )}
-              {link && <FrameUse index={index} link={link} carried={carried} onSetLink={onSetLink} />}
             </div>
           )}
-
-          {/* 3 · THE SHOT — what this shot does. */}
-          <div style={{ display: 'grid', gap: 6 }}>
-            <Eyebrow>Shot</Eyebrow>
-            <Input.TextArea id={`story-room-shot-${index}`} value={shot.body} onChange={(v) => setBody(index, v)} autoSize={{ minRows: 8, maxRows: 22 }} style={{ fontSize: 13, lineHeight: 1.6 }} />
-            <Text type="secondary" style={{ fontSize: 11 }}>Name assets as {'{{KEY}}'}; their looks are written in from the casting board. Changes land on the board card.</Text>
-          </div>
-
           <details>
-            <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>In this shot · shows · references · {boardCard ? 'the prompt on the board card' : 'full prompt'}</summary>
+            <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>In this shot · shows · {board ? "the card's prompt on the board" : "the card's prompt"}</summary>
             <div style={{ display: 'grid', gap: 14, marginTop: 10 }}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {assets.map((a) => {
@@ -617,34 +506,20 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, busy, onCl
               </div>
               <div style={{ display: 'grid', gap: 4 }}>
                 {shot.shows.map((id) => {
-                  const f = facts.find((x) => x.id === id);
+                  const f = facts.find((y) => y.id === id);
                   return f ? <Text key={id} style={{ fontSize: 12 }}><b style={{ fontFamily: SCRIPT_FONT }}>{id}</b> {f.fact}</Text> : null;
                 })}
               </div>
-              {refsOf(shot).length > 0 && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {refsOf(shot).map((p, i) => (
-                    <div key={p.nodeId} style={{ width: 96, display: 'grid', gap: 2 }}>
-                      <img src={p.url} alt={p.name} style={{ width: 96, height: 72, objectFit: 'cover', borderRadius: 6, border: `1px solid ${LINE}` }} />
-                      <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 11, fontWeight: 700 }}>@Image{i + 1}</Text>
-                      <Text type="secondary" style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.asset}</Text>
-                    </div>
-                  ))}
+              {card && (
+                <div style={{ display: 'grid', gap: 4 }}>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{board ? 'On the board card — exactly what Seedance gets' : 'Not on the board yet — the prompt as it will land'}</Text>
+                  <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, margin: 0, padding: 12, borderRadius: 8, background: '#f7f8fa', color: '#4e5969', fontFamily: 'inherit' }}>{board ? board.prompt : cardPrompt(card)}</pre>
                 </div>
               )}
-              {/* What Seedance gets: the card's own prompt (with the continuity line) once the
-                  shot is on the board, else Story Room's render of it. */}
-              <div style={{ display: 'grid', gap: 4 }}>
-                <Text type="secondary" style={{ fontSize: 11 }}>{boardCard ? 'On the board card — exactly what Seedance gets' : 'Not on the board yet — the prompt as it will land'}</Text>
-                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, margin: 0, padding: 12, borderRadius: 8, background: '#f7f8fa', color: '#4e5969', fontFamily: 'inherit' }}>{boardCard ? boardCard.prompt : renderPrompt(shot)}</pre>
-              </div>
             </div>
           </details>
         </div>
       )}
-      <Modal visible={!!playing} footer={null} onCancel={() => setPlaying('')} style={{ width: 'min(960px, 94vw)' }} title="Take">
-        {playing && <video src={playing} controls autoPlay style={{ width: '100%', borderRadius: 6, background: '#000' }} />}
-      </Modal>
     </Drawer>
   );
 };

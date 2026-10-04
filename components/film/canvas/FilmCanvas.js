@@ -1006,7 +1006,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       const take = chosen ? { url: chosen.data.cacheUrl || chosen.data.url, posterUrl: chosen.data.posterUrl || '', loading: rendering } : (rendering ? { url: '', posterUrl: '', loading: true } : null);
       const chip = (n.data.assetRefs || []).find((r) => r.continuity);
       return {
-        sendId: n.data.storyRef?.sendId || null, index: n.data.storyRef?.index ?? null, beat: n.data.beat || '', cardId: n.id, status: n.data.status || '', stale: staleReasonOf(n, nodes),
+        sendId: n.data.storyRef?.sendId || null, index: n.data.storyRef?.index ?? null, card: !!n.data.storyRef?.card, beat: n.data.beat || '', cardId: n.id, status: n.data.status || '', stale: staleReasonOf(n, nodes),
         take,
         carried: n.data.continuityFrame ? { frameUrl: n.data.continuityFrame, label: chip?.label || '', mode: n.data.continuesFrom?.mode || 'state', line: n.data.continuityLine || '' } : null,
         prompt: String(n.data.promptOverride || ''),
@@ -3163,17 +3163,17 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // the card). A plate missing from the bible is an error, not a smaller prompt.
   const plateErrRef = useRef(new Set());
   useEffect(() => {
-    (storySync || []).forEach(({ cardId, title, prompt, refNodeIds = [], from, mode, text = '' }) => {
+    (storySync || []).forEach(({ cardId, title, prompt, refNodeIds = [], durationSec, from, mode, text = '' }) => {
       const card = nodesRef.current.find((n) => n.id === cardId && isShotCard(n));
       if (!card) return;
       const refKey = JSON.stringify(refNodeIds);
-      if (card.data.storyPrompt !== prompt || card.data.storyRefNodes !== refKey || card.data.beat !== title) {
+      if (card.data.storyPrompt !== prompt || card.data.storyRefNodes !== refKey || card.data.beat !== title || (durationSec && card.data.durationSec !== durationSec)) {
         const refIds = refNodeIds.map((nid) => bibleEntries.find((b) => b.nodeId === nid)?.id);
         if (refIds.some((x) => !x)) {
           if (!plateErrRef.current.has(cardId)) { plateErrRef.current.add(cardId); Message.error(`"${title}": a plate it uses is not a reference on the board — the card is not updated until it is.`); }
         } else {
           plateErrRef.current.delete(cardId);
-          onPatchCut(cardId, { beat: title, promptOverride: prompt, storyPrompt: prompt, storyRefNodes: refKey, refIds, continuityLine: null, continuityKey: null });
+          onPatchCut(cardId, { beat: title, promptOverride: prompt, storyPrompt: prompt, storyRefNodes: refKey, refIds, continuityLine: null, continuityKey: null, ...(durationSec ? { durationSec } : {}) });
         }
       }
       const want = from ? { cardId: from, mode: mode === 'open' ? 'open' : 'state', text: String(text || '') } : null;
@@ -4385,7 +4385,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       runCastDraft({ design: { arr: incomingStory.cast, style: String(incomingStory.style || '').trim() } });
       return;
     }
-    const shots = incomingStory.shots || [];
+    const shots = incomingStory.cards || [];
     if (shots.length) {
       const videoModel = resolveModelId('seedance25') ? 'seedance25' : null;
       if (!videoModel) { Message.error('Seedance 2.5 is not configured — Story Room shots are written for it. Configure it, then sync again.'); return; }
@@ -4398,9 +4398,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         index: i, cut: cutBase + i, idPrefix, cols, title: x.title,
         action: '', promptOverride: '', framing: '', durationSec: AUTO_SECONDS,
         refEntryIds: [], audio: '', videoModel,
-        storyRef: { sendId: incomingStory.sendId, index: x.index },
+        storyRef: { sendId: incomingStory.sendId, index: x.index, card: true },
       }, base));
-      Message.success(`${shots.length} SHOT card${shots.length === 1 ? '' : 's'} on the board — the Story Room writes them and keeps them in step.`);
+      Message.success(`${shots.length} card${shots.length === 1 ? '' : 's'} on the board — each one generation of a scene; the Story Room writes them and keeps them in step.`);
       return;
     }
     const d = { ...(AGENT_MAP.storyboard?.defaultSettings || {}), ...(layerSettings.storyboard || {}) };

@@ -339,12 +339,42 @@ const TakeStrip = ({ card, onCircle, onPlay }) => (
   </div>
 );
 
+// THE CONTACT SHEET — one frame per shot from the card's circled take, at the middle of
+// each shot's seconds. Extracted once per take (cached for the session).
+const sheetCache = new Map();
+const useContactSheet = (takeUrl, stamps) => {
+  const key = takeUrl && stamps.length ? `${takeUrl}|${stamps.join(',')}` : '';
+  const [frames, setFrames] = useState(() => (key && sheetCache.get(key)?.frames) || null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!key) { setFrames(null); return; }
+    const hit = sheetCache.get(key);
+    if (hit?.frames) { setFrames(hit.frames); return; }
+    let live = true;
+    const job = hit?.job || fetch('/api/film/frames', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: takeUrl, timestamps: stamps, maxWidth: 480 }) })
+      .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.details || j.error || 'frames failed'); return j.frames; });
+    sheetCache.set(key, { job });
+    job.then((f) => { sheetCache.set(key, { frames: f }); if (live) setFrames(f); })
+      .catch((e) => { sheetCache.delete(key); if (live) setError(e.message); });
+    return () => { live = false; };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { frames, error };
+};
+
 // ONE CARD — a scene (or a chunk of one) as one generation: its board card (takes, the
 // hand-off from the card before), its length, and its shots as lines.
 const CardBlock = ({ card, shots, assets, board, secs, busy, writing, refs, needsReopen, onReopen, onRewrite, onCircle, onJump, onOpen, onPlay }) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   const named = (t) => bindKeys(t, assets).replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, k) => byKey[k]?.name || k);
   const over = secs > 30;
+  // The circled take, and where each shot sits in it.
+  const take = board?.takes?.find((t) => t.id === board.chosenTakeId);
+  let at = 0;
+  const stamps = card.idx.every((i) => Number(shots[i].seconds) > 0)
+    ? card.idx.map((i) => { const s = Number(shots[i].seconds); const mid = at + s / 2; at += s; return Math.round(mid * 10) / 10; })
+    : [];
+  const { frames, error: sheetError } = useContactSheet(take?.url, stamps);
+  const frameAt = (t) => frames?.find((f) => Math.abs(f.t - t) < 0.05)?.url;
   return (
     <div style={{ gridColumn: '1 / -1', border: `1px solid ${LINE}`, borderRadius: 10, background: PAPER, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#fafbfc', borderBottom: `1px solid ${LINE}` }}>
@@ -381,14 +411,23 @@ const CardBlock = ({ card, shots, assets, board, secs, busy, writing, refs, need
         </div>
       )}
       <div style={{ display: 'grid' }}>
+        {sheetError && <Text style={{ fontSize: 11, color: '#f53f3f', padding: '4px 12px' }}>Contact sheet: {sheetError}</Text>}
         {card.idx.map((i, n) => {
           const x = shots[i];
+          const frame = stamps.length ? frameAt(stamps[n]) : null;
           return (
             <div
               key={i} role="button" tabIndex={0}
               onClick={() => onOpen(i)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(i); }}
-              style={{ display: 'grid', gridTemplateColumns: '64px 1fr 44px', gap: 10, padding: '8px 12px', cursor: 'pointer', borderTop: n ? `1px solid ${LINE}` : 'none', alignItems: 'baseline' }}
+              style={{ display: 'grid', gridTemplateColumns: take ? '128px 64px 1fr 44px' : '64px 1fr 44px', gap: 10, padding: '8px 12px', cursor: 'pointer', borderTop: n ? `1px solid ${LINE}` : 'none', alignItems: take ? 'start' : 'baseline' }}
             >
+              {take && (
+                <div onClick={(e) => e.stopPropagation()} style={{ width: 128, aspectRatio: '16 / 9', borderRadius: 4, overflow: 'hidden', background: '#11141a', display: 'grid', placeItems: 'center' }}>
+                  {frame
+                    ? <Image src={frame} width={128} style={{ display: 'block' }} />
+                    : <Text style={{ fontSize: 10, color: '#6e7b8b' }}>{stamps.length ? (sheetError ? '—' : '…') : 'no timing'}</Text>}
+                </div>
+              )}
               <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, fontWeight: 700 }}>SH {pad2(i + 1)}</Text>
               <div style={{ minWidth: 0 }}>
                 <Text style={{ fontSize: 12, fontWeight: 600, display: 'block' }}>{x.title}</Text>

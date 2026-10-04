@@ -134,6 +134,14 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     return () => clearInterval(t);
   }, [busy]);
 
+  // Per-scene / per-card work runs side by side: each key (block:3, draw:3, card:3) is
+  // busy on its own; the whole-story runs above still take the room.
+  const [working, setWorking] = useState({});
+  const runFor = async (key, fn) => {
+    if (busy || working[key]) return null;
+    setWorking((w) => ({ ...w, [key]: true }));
+    try { return await fn(); } catch (err) { Message.error({ content: err.message || String(err), duration: 8000 }); return null; } finally { setWorking((w) => { const { [key]: done, ...rest } = w; return rest; }); }
+  };
   const run = async (role, fn) => {
     if (busy) return null;
     setBusy({ role, at: Date.now() });
@@ -235,9 +243,6 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     if (w.failed.length) Message.error({ content: w.failed.join(' · '), duration: 10000 });
   });
   const landCard = (rows) => setShots((list) => list.map((x, i) => { const r = rows.find((y) => y.i === i); return r ? { ...x, line: r.line, seconds: r.seconds } : x; }));
-  // Scenes: where place or time changes (a shot either continues the shot before it or
-  // opens a new scene).
-  const runScenes = () => run('scenes', async () => { setShots(await detectScenes({ shots, assets }, ctx)); });
   // BLOCKING — one sheet per scene, on the shot that opens it (marks · paths · axis).
   const sceneStarts = (list) => { const nums = sceneNumbers(list); return list.map((x, i) => i).filter((i) => i === 0 || nums[i] !== nums[i - 1]); };
   const blockAll = async (list, roster) => {
@@ -245,13 +250,13 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     const sheets = await Promise.all(starts.map((start) => blockScene({ shots: list, start, assets: roster }, ctx)));
     return list.map((x, i) => (starts.includes(i) ? { ...x, blocking: sheets[starts.indexOf(i)] } : x));
   };
-  const blockOne = (start) => run('block', async () => {
+  const blockOne = (start) => runFor(`block:${start}`, async () => {
     const sheet = await blockScene({ shots, start, assets }, ctx);
     setShots((list) => list.map((x, i) => (i === start ? { ...x, blocking: sheet } : x)));
   });
   const setBlocking = (start, sheet) => setShots((list) => list.map((x, i) => (i === start ? { ...x, blocking: sheet } : x)));
   // The blocking drawn as a top-down schematic (the Previz floor plan): marks, paths, axis.
-  const drawBlocking = (start) => run('draw', async () => {
+  const drawBlocking = (start) => runFor(`draw:${start}`, async () => {
     const sheet = String(shots[start].blocking || '').trim();
     if (!sheet) throw new Error('Block the scene first.');
     const { url, cacheUrl } = await previzSchematic({ plan: blockingPlan(sheet, assets) }, ctx);
@@ -262,15 +267,8 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     const unblocked = sceneStarts(shots).filter((i) => !String(shots[i].blocking || '').trim());
     if (unblocked.length) throw new Error(`Block ${unblocked.length === 1 ? 'the scene' : 'the scenes'} opening at SH ${unblocked.map((i) => i + 1).join(', SH ')} first — every card is written against its scene's blocking.`);
   };
-  // Write every card again — same shots, scenes and blocking. Replaces hand edits.
-  const rewriteCards = () => run('shots', async () => {
-    checkBlocked();
-    const w = await writeCards({ blueprint, facts, assets, shots: shots.map(({ line, seconds, openedFrom, ...x }) => x), onCard: landCard }, ctx);
-    setShots(w.shots);
-    if (w.failed.length) Message.error({ content: w.failed.join(' · '), duration: 10000 });
-  });
   // Write ONE card again (the card it continues must be written).
-  const rewriteCard = (start) => run('shots', async () => {
+  const rewriteCard = (start) => runFor(`card:${start}`, async () => {
     if (!scenesFound(shots)) throw new Error('Find the scenes first (Scenes ↻).');
     const card = cardsOf(shots).find((c) => c.start === start);
     landCard(await writeCard({ blueprint, facts, assets, shots, card }, ctx));
@@ -356,7 +354,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     const frame = !card.opensScene ? boardCardOf(card)?.carried?.frameUrl : '';
     return !!frame && shots[card.start].openedFrom?.frame !== frame;
   };
-  const reopen = (card) => run('reopen', async () => {
+  const reopen = (card) => runFor(`card:${card.start}`, async () => {
     const frame = boardCardOf(card)?.carried?.frameUrl;
     if (!frame) throw new Error('This card carries no frame yet — circle a take of the card before it.');
     const before = cards.find((b) => b.end === card.start - 1);
@@ -587,10 +585,10 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} plates={boardPlates} /> : needsShots('assets'),
     shots: !blueprint ? needsBlueprint : shots.length ? (
       <ShotBoard
-        shots={shots} assets={assets} cards={cards} scenes={scenes} scenesKnown={scenesFound(shots)} busy={!!busy}
+        shots={shots} assets={assets} cards={cards} scenes={scenes} scenesKnown={scenesFound(shots)} busy={!!busy} working={working}
         onOpen={setOpenShot} refsOf={(card) => cardRefs(card).list} boardCardOf={boardCardOf} onJump={onOpenOnBoard}
         locationName={(x) => assets.find((a) => a.key === x.location)?.name || ''}
-        onScenes={runScenes} onRewriteCards={rewriteCards} onRewriteCard={rewriteCard}
+        onRewriteCard={rewriteCard}
         onBlock={blockOne} onDrawBlocking={drawBlocking} setBlocking={setBlocking}
         needsReopen={needsReopen} onReopen={reopen} onCircle={onCircleTake} secondsOf={(card) => secondsOfCard(shots, card)}
       />

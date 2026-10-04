@@ -582,8 +582,9 @@ export const parseBlocking = (text = '') => {
     } else if (/^axis$/i.test(head)) {
       out.axis = rest;
     } else {
-      const key = keyOf((/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/.exec(head) || [])[1] || '');
-      if (!key) throw new Error(`Blocking line does not name a character token: "${line}"`);
+      // A character: {{KAEL}} or the bare key KAEL.
+      const key = keyOf((/^\{\{\s*([A-Za-z0-9_]+)\s*\}\}$/.exec(head) || /^([A-Za-z0-9_]+)$/.exec(head) || [])[1] || '');
+      if (!key) throw new Error(`Blocking line does not name a character: "${line}" — write it as {{KEY}}: mark → mark`);
       out.paths.push({ key, marks: rest.split('→').map((x) => x.trim()).filter(Boolean) });
     }
   });

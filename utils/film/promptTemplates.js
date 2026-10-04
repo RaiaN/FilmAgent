@@ -878,7 +878,8 @@ AXIS: <the line of action>; cameras stay on <the side>`,
 
 YOU ARE THE DIRECTOR writing ONE generation of a scene: its shots as consecutive cuts of one Seedance 2.5 prompt, at most {maxSeconds} seconds in all. Inside one generation the model keeps one world — the same people, places and props across every cut — so each line only says what this cut shows.
 For each shot write ONE line: the framing and the camera, then what happens, in one or two plain sentences of observable action.
-THE SCENE'S BLOCKING is fixed: people stand on their marks and move only along their paths, in order; name the marks where people are; every cut keeps the camera on the stated side of the axis.
+THE SCENE'S BLOCKING is fixed: people stand on their marks and move only along their paths, in order; name the marks where people are. Keep every camera on the stated side of the axis by WHERE you put it — write the framing plainly as the camera sees it (e.g. "Wide shot from behind the teller counter toward the doors"); never write the axis or its side into a line (the prompt states it once).
+Write plain sentences: no placeholder brackets like <…>.
 When THE CARD BEFORE is given, the first shot opens exactly where it ends.
 Give every shot its seconds — a whole number from 2 to 10 — together at most {maxSeconds}.
 Refer to every person, prop and place ONLY by its token exactly as given, e.g. {{KAAN}}; never describe how anyone or anything looks — the looks are written in separately.

@@ -273,7 +273,7 @@ export const AssetBoard = ({ assets, setAsset, usage, plates = [] }) => {
 // across them, the axis. Every shot of the scene is written against it. Edit the lines;
 // Draw shows them as the top-down floor plan.
 const PATH_COLORS = ['#3491fa', '#00b42a', '#d9a406', '#f53f3f', '#722ed1', '#ff7d00'];
-const BlockingPanel = ({ start, shot, assets, busy, onBlock, onDraw, setBlocking }) => {
+const BlockingPanel = ({ start, shot, assets, busy, blocking, drawing, onBlock, onDraw, setBlocking }) => {
   const sheet = String(shot.blocking || '');
   const [draft, setDraft] = useState(sheet);
   useEffect(() => { setDraft(sheet); }, [sheet]);
@@ -282,33 +282,32 @@ const BlockingPanel = ({ start, shot, assets, busy, onBlock, onDraw, setBlocking
   try { parsed = sheet.trim() ? parseBlocking(sheet) : null; } catch (e) { problem = e.message; }
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   const drawn = shot.blockingSchematic;
+  const [open, setOpen] = useState(false);
   return (
-    <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 240px', gap: 12, alignItems: 'start' }}>
+    <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: open ? '1fr 240px' : '1fr', gap: 12, alignItems: 'start' }}>
       <div style={{ display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Text style={{ fontSize: 10, fontWeight: 700, color: MUTED, letterSpacing: 0.6 }}>BLOCKING</Text>
+          <Text role="button" tabIndex={0} onClick={() => setOpen((v) => !v)} style={{ fontSize: 10, fontWeight: 700, color: problem ? '#f53f3f' : MUTED, letterSpacing: 0.6, cursor: 'pointer' }}>{open ? '▾' : '▸'} BLOCKING</Text>
           {parsed && parsed.paths.map((p, k) => (
             <span key={p.key} style={{ fontSize: 10, fontWeight: 600, color: '#fff', background: PATH_COLORS[k % PATH_COLORS.length], borderRadius: 4, padding: '1px 6px' }}>{byKey[p.key]?.name || p.key}</span>
           ))}
           <span style={{ flex: 1 }} />
-          <Button size="mini" disabled={busy} onClick={() => onBlock(start)} title="Block the scene again from its shots — marks, paths, axis (replaces your edits to the sheet)">{sheet ? 'Block ↻' : 'Block the scene'}</Button>
-          <Button size="mini" disabled={busy || !parsed} onClick={() => onDraw(start)} title="Draw the blocking as a top-down floor plan — marks, colour-coded paths, the axis">{drawn ? 'Redraw' : 'Draw'}</Button>
+          <Button size="mini" type={sheet ? 'default' : 'primary'} disabled={busy || drawing} loading={blocking} onClick={() => onBlock(start)} title="Block the scene from its shots — marks, paths, axis (replaces your edits to the sheet)">{sheet ? 'Block ↻' : 'Block'}</Button>
+          <Button size="mini" disabled={busy || blocking || !parsed} loading={drawing} onClick={() => { setOpen(true); onDraw(start); }} title="Draw the blocking as a top-down floor plan — marks, colour-coded paths, the axis">{drawn ? (drawn.sheet !== sheet ? 'Redraw ●' : 'Redraw') : 'Draw'}</Button>
         </div>
-        <Input.TextArea
+        {open && <Input.TextArea
           value={draft} onChange={setDraft} onBlur={() => { if (draft !== sheet) setBlocking(start, draft); }}
           placeholder={'MARKS: door (front wall, left) · pillar (centre) · counter (back wall)\n{{KAEL}}: door → pillar → counter\nAXIS: Kael ↔ Jinn; cameras stay on the entrance side'}
           autoSize={{ minRows: 3, maxRows: 8 }}
           style={{ fontSize: 12, fontFamily: '"Courier Prime", "Courier New", monospace' }}
-        />
-        {problem && <Text style={{ fontSize: 11, color: '#f53f3f' }}>{problem}</Text>}
-        {!sheet && <Text type="secondary" style={{ fontSize: 11 }}>Not blocked — the shots of this scene are written against its blocking.</Text>}
+        />}
+        {open && problem && <Text style={{ fontSize: 11, color: '#f53f3f' }}>{problem}</Text>}
       </div>
-      <div style={{ aspectRatio: '16 / 9', borderRadius: 8, border: `1px solid ${LINE}`, background: '#f7f8fa', display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
-        {drawn?.url
-          ? <Image src={drawn.cacheUrl || drawn.url} width={240} style={{ display: 'block' }} />
-          : <Text type="secondary" style={{ fontSize: 11 }}>No floor plan yet</Text>}
-      </div>
-      {drawn?.url && drawn.sheet !== sheet && <Text style={{ gridColumn: '1 / -1', fontSize: 11, color: '#d25f00' }}>The sheet changed since the floor plan was drawn — Redraw.</Text>}
+      {open && (
+        <div style={{ aspectRatio: '16 / 9', borderRadius: 8, border: `1px solid ${LINE}`, background: '#f7f8fa', display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
+          {drawn?.url ? <Image src={drawn.cacheUrl || drawn.url} width={240} style={{ display: 'block' }} /> : null}
+        </div>
+      )}
     </div>
   );
 };
@@ -342,7 +341,7 @@ const TakeStrip = ({ card, onCircle, onPlay }) => (
 
 // ONE CARD — a scene (or a chunk of one) as one generation: its board card (takes, the
 // hand-off from the card before), its length, and its shots as lines.
-const CardBlock = ({ card, shots, assets, board, secs, busy, refs, needsReopen, onReopen, onRewrite, onCircle, onJump, onOpen, onPlay }) => {
+const CardBlock = ({ card, shots, assets, board, secs, busy, writing, refs, needsReopen, onReopen, onRewrite, onCircle, onJump, onOpen, onPlay }) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   const named = (t) => String(t || '').replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, k) => byKey[k]?.name || k);
   const over = secs > 30;
@@ -351,8 +350,8 @@ const CardBlock = ({ card, shots, assets, board, secs, busy, refs, needsReopen, 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#fafbfc', borderBottom: `1px solid ${LINE}` }}>
         <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 13, fontWeight: 700 }}>CARD {card.k + 1}</Text>
         <Text type="secondary" style={{ fontSize: 12 }}>SH {pad2(card.start + 1)}{card.end > card.start ? `–${pad2(card.end + 1)}` : ''} · {card.idx.length} shot{card.idx.length === 1 ? '' : 's'}</Text>
-        <Text style={{ fontSize: 12, fontWeight: 700, color: over ? '#f53f3f' : '#4e5969' }}>{secs ? `${secs}s` : '—'}{over ? ' · over 30s — start the next card at a later shot' : ''}</Text>
-        {!card.opensScene && <Text style={{ fontSize: 11, color: MUTED }}>◀ opens from the card before</Text>}
+        <Tooltip content={over ? 'Over 30 s — start the next card at a later shot' : 'One generation'}><Text style={{ fontSize: 12, fontWeight: 700, color: over ? '#f53f3f' : '#4e5969' }}>{secs ? `${secs}s` : '—'}</Text></Tooltip>
+        {!card.opensScene && <Tooltip content="Opens on the last frame of the card before"><Text style={{ fontSize: 11, color: MUTED }}>◀</Text></Tooltip>}
         {refs.length > 0 && (
           <span style={{ display: 'inline-flex', gap: 2 }}>
             {refs.slice(0, 8).map((p) => <img key={p.nodeId} src={p.url} alt={p.asset} title={p.asset} style={{ width: 20, height: 20, borderRadius: 10, objectFit: 'cover', border: '1px solid #fff' }} />)}
@@ -360,28 +359,27 @@ const CardBlock = ({ card, shots, assets, board, secs, busy, refs, needsReopen, 
         )}
         <span style={{ flex: 1 }} />
         {board?.stale && <Tooltip content={board.stale}><span style={{ fontSize: 11, fontWeight: 700, color: '#ff7d00' }}>⟳ stale</span></Tooltip>}
-        <Button size="mini" disabled={busy} onClick={() => onRewrite(card.start)} title="Write this card's shot lines again against the blocking (replaces your edits to them)">Write ↻</Button>
-        {board && onJump && <Button size="mini" type="text" onClick={() => onJump(board.cardId)}>Open on board ↗</Button>}
+        <Button size="mini" disabled={busy} loading={writing} onClick={() => onRewrite(card.start)} title="Write this card's shot lines again against the blocking (replaces your edits to them)">Write ↻</Button>
+        {board ? (onJump && <Button size="mini" type="text" onClick={() => onJump(board.cardId)}>Open on board ↗</Button>) : <Text type="secondary" style={{ fontSize: 11 }}>not on the board</Text>}
       </div>
       {(board?.takes?.length > 0 || (!card.opensScene && board)) && (
         <div style={{ display: 'grid', gridTemplateColumns: !card.opensScene ? '1fr 300px' : '1fr', gap: 12, padding: '10px 12px', borderBottom: `1px solid ${LINE}` }}>
-          {board?.takes?.length ? <TakeStrip card={board} onCircle={onCircle} onPlay={onPlay} /> : <Text type="secondary" style={{ fontSize: 12 }}>{board?.take?.loading ? 'Rendering…' : 'No takes yet — Draft it on the board.'}</Text>}
+          {board?.takes?.length ? <TakeStrip card={board} onCircle={onCircle} onPlay={onPlay} /> : <Text type="secondary" style={{ fontSize: 12 }}>{board?.take?.loading ? 'Rendering…' : 'No takes'}</Text>}
           {!card.opensScene && (
             board?.carried ? (
               <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8, alignItems: 'start' }}>
                 <Image src={board.carried.frameUrl} width={110} style={{ borderRadius: 4, border: '2px solid #165dff' }} />
                 <div style={{ display: 'grid', gap: 4 }}>
-                  <Text style={{ fontSize: 11 }}>Opens on {board.carried.label.replace(/^◀\s*/, '')}</Text>
+                  <Text style={{ fontSize: 11 }}>{board.carried.label.replace(/^◀\s*/, '')}</Text>
                   {needsReopen
-                    ? <Button size="mini" type="primary" loading={busy} onClick={onReopen} style={{ background: '#d25f00', borderColor: '#d25f00', justifySelf: 'start' }} title="A vision call reads the frame and rewrites only this card's first line so it starts from it">Re-open from this frame</Button>
-                    : <Text style={{ fontSize: 11, color: '#00a870' }}>✓ The first line opens from it.</Text>}
+                    ? <Button size="mini" type="primary" loading={writing} disabled={busy} onClick={onReopen} style={{ background: '#d25f00', borderColor: '#d25f00', justifySelf: 'start' }} title="A vision call reads the frame and rewrites only this card's first line so it starts from it">Re-open from this frame</Button>
+                    : <Text style={{ fontSize: 11, color: '#00a870' }}>✓</Text>}
                 </div>
               </div>
-            ) : <Text style={{ fontSize: 12, color: '#d25f00' }}>Waiting for a take of the card before — this card opens from its last frame.</Text>
+            ) : <Text style={{ fontSize: 12, color: '#d25f00' }}>◀ waiting for the card before</Text>
           )}
         </div>
       )}
-      {!board && <div style={{ padding: '6px 12px', borderBottom: `1px solid ${LINE}` }}><Text type="secondary" style={{ fontSize: 12 }}>Not on the board yet — Sync to board.</Text></div>}
       <div style={{ display: 'grid' }}>
         {card.idx.map((i, n) => {
           const x = shots[i];
@@ -396,7 +394,7 @@ const CardBlock = ({ card, shots, assets, board, secs, busy, refs, needsReopen, 
                 <Text style={{ fontSize: 12, fontWeight: 600, display: 'block' }}>{x.title}</Text>
                 {x.line
                   ? <Text style={{ fontSize: 12, lineHeight: 1.5, color: '#4e5969' }}>{named(x.line)}</Text>
-                  : <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>{busy ? 'Writing…' : x.moment || 'Not written yet'}</Text>}
+                  : <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>{busy || writing ? 'Writing…' : x.moment || 'Not written yet'}</Text>}
               </div>
               <Text style={{ fontSize: 11, color: MUTED, textAlign: 'right' }}>{x.seconds ? `${x.seconds}s` : ''}</Text>
             </div>
@@ -407,37 +405,72 @@ const CardBlock = ({ card, shots, assets, board, secs, busy, refs, needsReopen, 
   );
 };
 
-export const ShotBoard = ({ shots, assets, cards = [], scenes = [], scenesKnown = false, busy, onOpen, refsOf = () => [], boardCardOf = () => null, onJump, locationName = () => '', onScenes, onRewriteCards, onRewriteCard, onBlock, onDrawBlocking, setBlocking, needsReopen = () => false, onReopen, onCircle, secondsOf = () => 0 }) => {
+export const ShotBoard = ({ shots, assets, cards = [], scenes = [], scenesKnown = false, busy, working = {}, onOpen, refsOf = () => [], boardCardOf = () => null, onJump, locationName = () => '', onRewriteCard, onBlock, onDrawBlocking, setBlocking, needsReopen = () => false, onReopen, onCircle, secondsOf = () => 0 }) => {
   const [playing, setPlaying] = useState('');
+  // THE SCENE CATALOGUE — one row per scene; open one to work in it.
+  const groups = cards.reduce((m, c) => { (m[c.scene] = m[c.scene] || []).push(c); return m; }, {});
+  const list = Object.keys(groups).map(Number).sort((a, b) => a - b).map((n) => ({ n, cards: groups[n] }));
+  const [open, setOpen] = useState(() => new Set(list.length ? [list[0].n] : []));
+  const toggle = (n) => setOpen((s) => { const t = new Set(s); if (t.has(n)) t.delete(n); else t.add(n); return t; });
+  const allOpen = list.length > 0 && list.every((g) => open.has(g.n));
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
+    <div style={{ display: 'grid', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {scenesKnown ? `${Math.max(...scenes)} scene${Math.max(...scenes) === 1 ? '' : 's'} · ${cards.length} card${cards.length === 1 ? '' : 's'} — each card is one generation (up to 30 s); its shots are the cuts inside it` : 'Scenes not found yet — press Scenes ↻'}
-        </Text>
+        {scenesKnown && <Text type="secondary" style={{ fontSize: 12 }}>{list.length} scenes · {cards.length} cards</Text>}
         <span style={{ flex: 1 }} />
-        {onScenes && <Button size="mini" disabled={busy} onClick={onScenes} title="Find where the place or time changes">Scenes ↻</Button>}
-        {onRewriteCards && <Button size="mini" disabled={busy || !scenesKnown} onClick={onRewriteCards} title="Write every card's shot lines again against its scene's blocking. Same shots, scenes and blocking; replaces hand edits to the lines.">Write cards ↻</Button>}
+        {list.length > 1 && <Button size="mini" type="text" onClick={() => setOpen(allOpen ? new Set() : new Set(list.map((g) => g.n)))}>{allOpen ? 'Collapse all' : 'Expand all'}</Button>}
       </div>
-      {cards.map((card) => {
-        const x = shots[card.start];
-        return [
-          card.opensScene && (
-            <div key={`scene-${card.start}`} style={{ display: 'grid', gap: 8, paddingTop: card.start ? 10 : 0, borderTop: card.start ? `1px solid ${LINE}` : 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                <Eyebrow color={INK}>Scene {card.scene}</Eyebrow>
-                <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, color: KIND_COLOR.location, textTransform: 'uppercase' }}>{locationName(x)}</Text>
-                {x.sceneReason && <Text type="secondary" style={{ fontSize: 11 }}>{x.sceneReason}</Text>}
+      {list.map(({ n, cards: sc }) => {
+        const first = sc[0];
+        const x = shots[first.start];
+        const shotCount = sc.reduce((k, c) => k + c.idx.length, 0);
+        const secs = sc.reduce((k, c) => k + secondsOf(c), 0);
+        const onBoard = sc.filter((c) => boardCardOf(c)).length;
+        const circled = sc.filter((c) => boardCardOf(c)?.takes?.length).length;
+        const blocked = !!String(x.blocking || '').trim();
+        const isOpen = open.has(n);
+        const plates = refsOf(first);
+        const poster = sc.map((c) => boardCardOf(c)?.take?.posterUrl).find(Boolean) || (plates.find((p) => p.role === 'location') || plates[plates.length - 1])?.url;
+        const dot = (on, label, tip) => (
+          <Tooltip content={tip}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: on ? '#00a870' : MUTED }}><span style={{ width: 6, height: 6, borderRadius: 3, background: on ? '#00a870' : '#c9cdd4' }} />{label}</span></Tooltip>
+        );
+        return (
+          <div key={n} style={{ border: `1px solid ${LINE}`, borderRadius: 10, background: PAPER, overflow: 'hidden' }}>
+            <div
+              role="button" tabIndex={0} onClick={() => toggle(n)} onKeyDown={(e) => { if (e.key === 'Enter') toggle(n); }}
+              style={{ display: 'grid', gridTemplateColumns: '16px 72px 1fr auto', gap: 12, alignItems: 'center', padding: '10px 14px', cursor: 'pointer', background: isOpen ? '#fafbfc' : PAPER }}
+            >
+              <Text style={{ fontSize: 11, color: MUTED }}>{isOpen ? '▾' : '▸'}</Text>
+              <div style={{ width: 72, height: 40, borderRadius: 5, overflow: 'hidden', background: '#11141a' }}>
+                {poster ? <img src={poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : null}
               </div>
-              {scenesKnown && onBlock && <BlockingPanel start={card.start} shot={x} assets={assets} busy={busy} onBlock={onBlock} onDraw={onDrawBlocking} setBlocking={setBlocking} />}
+              <div style={{ minWidth: 0, display: 'grid', gap: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
+                  <Tooltip content={x.sceneReason || ''} disabled={!x.sceneReason}><span><Eyebrow color={INK}>Scene {n}</Eyebrow></span></Tooltip>
+                  <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, color: KIND_COLOR.location, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{locationName(x)}</Text>
+                </div>
+                <Text type="secondary" style={{ fontSize: 11 }}>SH {pad2(first.start + 1)}{sc[sc.length - 1].end > first.start ? `–${pad2(sc[sc.length - 1].end + 1)}` : ''} · {shotCount} shot{shotCount === 1 ? '' : 's'} · {sc.length} card{sc.length === 1 ? '' : 's'}{secs ? ` · ${secs}s` : ''}</Text>
+              </div>
+              <div style={{ display: 'flex', gap: 12 }} onClick={(e) => e.stopPropagation()}>
+                {dot(blocked, 'blocked', blocked ? 'Blocked' : 'Not blocked yet')}
+                {dot(onBoard === sc.length, `${onBoard}/${sc.length} on board`, 'Cards on the board')}
+                {dot(circled === sc.length, `${circled}/${sc.length} shot`, 'Cards with a take')}
+              </div>
             </div>
-          ),
-          <CardBlock
-            key={`card-${card.start}`} card={card} shots={shots} assets={assets} board={boardCardOf(card)} secs={secondsOf(card)} busy={busy}
-            refs={refsOf(card)} needsReopen={needsReopen(card)} onReopen={() => onReopen(card)} onRewrite={onRewriteCard}
-            onCircle={onCircle} onJump={onJump} onOpen={onOpen} onPlay={setPlaying}
-          />,
-        ];
+            {isOpen && (
+              <div style={{ display: 'grid', gap: 10, padding: '10px 14px 14px', borderTop: `1px solid ${LINE}` }}>
+                {scenesKnown && onBlock && <BlockingPanel start={first.start} shot={x} assets={assets} busy={busy} blocking={!!working[`block:${first.start}`]} drawing={!!working[`draw:${first.start}`]} onBlock={onBlock} onDraw={onDrawBlocking} setBlocking={setBlocking} />}
+                {sc.map((card) => (
+                  <CardBlock
+                    key={`card-${card.start}`} card={card} shots={shots} assets={assets} board={boardCardOf(card)} secs={secondsOf(card)} busy={busy} writing={!!working[`card:${card.start}`]}
+                    refs={refsOf(card)} needsReopen={needsReopen(card)} onReopen={() => onReopen(card)} onRewrite={onRewriteCard}
+                    onCircle={onCircle} onJump={onJump} onOpen={onOpen} onPlay={setPlaying}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
       })}
       <Modal visible={!!playing} footer={null} onCancel={() => setPlaying('')} style={{ width: 'min(960px, 94vw)' }} title="Take">
         {playing && <video src={playing} controls autoPlay style={{ width: '100%', borderRadius: 6, background: '#000' }} />}
@@ -478,20 +511,17 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, card, cardPrompt
               <InputNumber size="mini" min={2} max={10} value={shot.seconds} suffix="s" style={{ width: 80 }} onChange={(v) => setField(index, 'seconds', Math.round(Number(v) || 0) || null)} />
             </div>
             <Input.TextArea value={shot.line} onChange={(v) => setField(index, 'line', v)} autoSize={{ minRows: 3, maxRows: 10 }} style={{ fontSize: 13, lineHeight: 1.6 }} placeholder="framing and camera, then what happens — e.g. Medium close-up of {{JINN}} at Opposite Wall: he snaps his fingers…" />
-            <Text type="secondary" style={{ fontSize: 11 }}>One line of {card ? `card ${card.k + 1}` : 'its card'}. Name assets as {'{{KEY}}'}; changes land on the board card.</Text>
           </div>
           {index > 0 && (
             <div style={{ display: 'grid', gap: 6 }}>
               <Checkbox checked={!!opensScene} onChange={(on) => onOpensScene(index, on)}>Opens a new scene</Checkbox>
               {!opensScene && (
-                <Checkbox checked={!!shot.newCard} onChange={(on) => onNewCard(index, on)}>
-                  Next card from here — the scene is too long for one generation; this card opens on the last frame of the card before
-                </Checkbox>
+                <Checkbox checked={!!shot.newCard} onChange={(on) => onNewCard(index, on)}>Next card from here</Checkbox>
               )}
             </div>
           )}
           <details>
-            <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>In this shot · shows · {board ? "the card's prompt on the board" : "the card's prompt"}</summary>
+            <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>Assets · shows · prompt</summary>
             <div style={{ display: 'grid', gap: 14, marginTop: 10 }}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {assets.map((a) => {
@@ -512,7 +542,6 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, card, cardPrompt
               </div>
               {card && (
                 <div style={{ display: 'grid', gap: 4 }}>
-                  <Text type="secondary" style={{ fontSize: 11 }}>{board ? 'On the board card — exactly what Seedance gets' : 'Not on the board yet — the prompt as it will land'}</Text>
                   <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, margin: 0, padding: 12, borderRadius: 8, background: '#f7f8fa', color: '#4e5969', fontFamily: 'inherit' }}>{board ? board.prompt : cardPrompt(card)}</pre>
                 </div>
               )}

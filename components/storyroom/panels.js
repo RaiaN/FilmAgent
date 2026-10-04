@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { parseBlocking } from '../../utils/film/core/story';
+import { parseBlocking, bindKeys } from '../../utils/film/core/story';
 import { Button, Checkbox, Drawer, Image, Input, InputNumber, Modal, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconClose, IconEye, IconImage, IconLoading, IconPlus, IconSound } from '@arco-design/web-react/icon';
 
@@ -343,7 +343,7 @@ const TakeStrip = ({ card, onCircle, onPlay }) => (
 // hand-off from the card before), its length, and its shots as lines.
 const CardBlock = ({ card, shots, assets, board, secs, busy, writing, refs, needsReopen, onReopen, onRewrite, onCircle, onJump, onOpen, onPlay }) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
-  const named = (t) => String(t || '').replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, k) => byKey[k]?.name || k);
+  const named = (t) => bindKeys(t, assets).replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (m, k) => byKey[k]?.name || k);
   const over = secs > 30;
   return (
     <div style={{ gridColumn: '1 / -1', border: `1px solid ${LINE}`, borderRadius: 10, background: PAPER, overflow: 'hidden' }}>

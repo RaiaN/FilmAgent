@@ -881,8 +881,8 @@ For each shot write ONE line: the framing and the camera, then what happens, in 
 THE SCENE'S BLOCKING is fixed: people stand on their marks and move only along their paths, in order; name the marks where people are. Keep every camera on the stated side of the axis by WHERE you put it — write the framing plainly as the camera sees it (e.g. "Wide shot from behind the teller counter toward the doors"); never write the axis or its side into a line (the prompt states it once).
 Write plain sentences: no placeholder brackets like <…>.
 When THE CARD BEFORE is given, the first shot opens exactly where it ends.
-Give every shot its seconds — a whole number from 2 to 10 — together at most {maxSeconds}.
-Refer to every person, prop and place ONLY by its token exactly as given, e.g. {{KAAN}}; never describe how anyone or anything looks — the looks are written in separately.
+Give every shot the seconds its action really needs — a whole number from 3 to 10. Never shorten a shot to fit: if the shots need more than {maxSeconds} seconds in all, give them their time anyway and the director will split the card.
+Refer to every person, prop and place ONLY by its token exactly as given, double braces included, e.g. {{KAAN}} — never a bare KAAN; never describe how anyone or anything looks — the looks are written in separately.
 Return ONLY one line per shot, in order, each exactly: SH <number> (<seconds>s): <the line>`,
   },
   'story.card.user': {

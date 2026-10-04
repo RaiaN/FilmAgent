@@ -641,6 +641,10 @@ export const blockingPlan = (sheet, assets = []) => {
     shots: b.paths.filter((p) => p.marks.length > 1).map((p) => ({ camera: {}, action: `${nameOf(p.key)} moves ${p.marks.join(' → ')}`, seconds: 1 })),
   };
 };
+// An asset written as its bare key (KAEL) is the same asset as {{KAEL}}: bind it.
+export const bindKeys = (text, assets = []) => assets.map((a) => a.key).sort((a, b) => b.length - a.length)
+  .reduce((acc, k) => acc.replace(new RegExp(`(?<![{A-Za-z0-9_])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_}])`, 'g'), `{{${k}}}`), String(text || ''));
+
 // ---- Cards: the unit of generation --------------------------------------------------
 // A scene goes to Seedance as ONE generation: its shots are the "Shot N" lines of one
 // prompt, and inside one generation the model keeps one world across the cuts. A scene
@@ -680,7 +684,7 @@ export const renderCardPrompt = ({ shots, card, assets = [], look = '', refs = {
   const sheet = String(shots[sceneStartOf(shots, card.start)]?.blocking || '').trim();
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   const named = (t) => String(t || '').replace(TOKEN_RE, (m, k) => byKey[keyOf(k)]?.name || k.replace(/_/g, ' ').toLowerCase()).trim();
-  const lines = card.idx.map((i, n) => `Shot ${n + 1}: ${named(shots[i].line)}`);
+  const lines = card.idx.map((i, n) => `Shot ${n + 1}: ${named(bindKeys(shots[i].line, assets))}`);
   return [head, sheet ? stagingOf(sheet, assets) : '', '', ...lines, renderTemplate('story.card.tail')].filter((x, n) => x || n === 2).join('\n').trim();
 };
 
@@ -707,15 +711,19 @@ export const writeCard = async ({ blueprint, facts = [], assets = [], shots = []
     effort: getRuntime(config).reasoningEffort,
     config,
   });
+  const bind = (t) => bindKeys(t, assets);
   const rows = String(text || '').split('\n').map((l) => /^\s*SH\s*(\d+)\s*\((\d+)\s*s\)\s*:\s*(.+)$/i.exec(l)).filter(Boolean)
-    .map((m) => ({ i: Number(m[1]) - 1, seconds: Number(m[2]), line: m[3].trim() }));
+    .map((m) => ({ i: Number(m[1]) - 1, seconds: Number(m[2]), line: bind(m[3].trim()) }));
   const missing = card.idx.filter((i) => !rows.some((r) => r.i === i));
   if (missing.length) throw new Error(`The card came back without SH ${missing.map((i) => i + 1).join(', SH ')} — write it again.`);
   const known = new Set(assets.map((a) => a.key));
   const stray = [...new Set(rows.flatMap((r) => [...r.line.matchAll(TOKEN_RE)].map((m) => keyOf(m[1]))).filter((k) => !known.has(k)))];
   if (stray.length) throw new Error(`The card names ${stray.map((k) => `{{${k}}}`).join(', ')}, which is not in the story — write it again.`);
-  const total = card.idx.reduce((n, i) => n + rows.find((r) => r.i === i).seconds, 0);
-  if (total > CARD_MAX_SECONDS) throw new Error(`The card runs ${total}s — over the ${CARD_MAX_SECONDS}s of one generation. Start the next card at a later shot ("Next card from here"), then write it again.`);
+  const short = card.idx.filter((i) => rows.find((r) => r.i === i).seconds < 3);
+  if (short.length) throw new Error(`SH ${short.map((i) => i + 1).join(', SH ')} came back under 3 s — too short for its action. Write the card again.`);
+  let total = 0;
+  const over = card.idx.find((i) => { total += rows.find((r) => r.i === i).seconds; return total > CARD_MAX_SECONDS; });
+  if (over != null) throw new Error(`The card runs past ${CARD_MAX_SECONDS}s at SH ${over + 1} — open SH ${over + 1} and tick "Next card from here", then write both cards.`);
   return card.idx.map((i) => ({ i, ...rows.find((r) => r.i === i) }));
 };
 

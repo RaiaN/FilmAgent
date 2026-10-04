@@ -720,6 +720,7 @@ Return ONLY JSON: {"assets": [{"key": "KAAN", "kind": "character|location|prop",
     text: `{skill}
 
 YOU ARE THE DIRECTOR writing ONE shot of a story as the body of a Seedance 2.5 prompt, following the spec above. The shot is one generation: one place, one continuous moment, at most 30 seconds, and it shows the facts listed for it.
+THE SCENE'S BLOCKING is fixed: every person stands on their marks and moves only along their path, in its order — this shot takes the part of the path its moment covers, names the marks where people stand, and keeps the camera on the stated side of the axis.
 When THE SHOT THIS ONE CONTINUES is given, this shot opens exactly where it ends: open by placing every person and prop where that shot left them, holding what they held, with every change it made still true — and never restart, repeat or contradict an action it finished.
 Refer to every asset ONLY by its token exactly as given, e.g. {{KAAN}} — never describe an asset's appearance; its look is written in separately. Duration, aspect ratio and resolution are request parameters, never prompt text.
 Return ONLY the shot body text — no title, no notes, no JSON.`,
@@ -822,13 +823,25 @@ Watercolor: hand-painted watercolor, paper texture, soft bleeding edges, muted t
   'story.reopen.system': {
     agent: 'Story Room',
     label: 'Re-open a shot from the take it continues (system)',
+    vars: ['{modeRule}'],
+    text: `You correct the OPENING of one shot prompt so the shot starts from IMAGE 1: the real last frame of the shot it continues. The other images show the people and props of this shot and of the shot it continues — use them only to recognise who and what is in IMAGE 1. Name a person only when they match a reference; never give one person's token to another.
+
+{modeRule}
+
+Write only framing, position, pose, facing, what they hold and what has changed — never clothing, hair, face, build or any look: the tokens carry the looks. Keep every other word of the prompt exactly as written: the action and its order, dialogue, sound, timing — changing only the fewest words needed for the action to follow from the opening (someone "enters" who is already inside, someone picks up what they already hold). Refer to people, props and places only by their tokens exactly as given, e.g. {{KAAN}}, and keep every token the prompt uses. Never mention an image, a frame, a take or an earlier shot — write the scene.
+Return ONLY the full corrected prompt — no notes, no quotes.`,
+  },
+  'story.reopen.open': {
+    agent: 'Story Room',
+    label: 'Re-open rule — the frame is the FIRST FRAME',
     vars: [],
-    text: `You correct the OPENING of one shot prompt so the shot starts from IMAGE 1: the real last frame of the shot it continues. The other images show each person and prop of the shot, so you can tell who and what is who in IMAGE 1 — use them only for that.
-
-Rewrite only the opening — the words that say where each person and prop is when the shot starts, how they stand or sit and face, what they hold, which doors are open, what has changed in the place — so it matches what IMAGE 1 shows. Write only position, pose, facing, what they hold and what has changed — never clothing, hair, face, build or any look: the tokens carry the looks. Someone the prompt needs who is not in IMAGE 1 stays out of the opening until the action brings them in. Where the action that follows would contradict the image (someone "enters" who is already inside, someone picks up what they already hold), change only the fewest words needed for it to continue from the image.
-
-Keep every other word exactly as written: the action and its order, dialogue, sound, camera, timing. Refer to people, props and places only by their tokens exactly as given, e.g. {{KAAN}}, and keep every token the prompt uses. Never describe how an asset looks. Never mention the image, a frame, a take or an earlier shot — write the scene.
-Return ONLY the full corrected prompt — no notes.`,
+    text: 'IMAGE 1 IS THIS SHOT\'S FIRST FRAME — the shot begins on exactly that picture. Open with a sentence that states it as the camera sees it: the shot size, who is in frame and where, which way they face, and where the camera looks. Then say how the shot gets from that picture to its action — the camera moving (pan, push, pull back) or people moving into or out of frame — so nothing the action needs appears from nowhere. Someone the action needs who is not in IMAGE 1 enters frame in a stated way.',
+  },
+  'story.reopen.state': {
+    agent: 'Story Room',
+    label: 'Re-open rule — the frame is the STATE OF THE SCENE',
+    vars: [],
+    text: 'IMAGE 1 IS THE STATE OF THE SCENE — this shot has its own camera. Rewrite only the opening words that place each person and prop where IMAGE 1 leaves them, holding what they hold, with what has changed still true. Someone the prompt needs who is not in IMAGE 1 stays out of the opening until the action brings them in.',
   },
   'story.reopen.user': {
     agent: 'Story Room',
@@ -836,11 +849,58 @@ Return ONLY the full corrected prompt — no notes.`,
     vars: ['{assets}', '{images}', '{body}'],
     text: 'ASSETS IN THIS SHOT (tokens):\n{assets}\n\nTHE ATTACHED IMAGES, in order:\n{images}\n\nTHE SHOT PROMPT:\n"""\n{body}\n"""\n\nIMAGE 1 is where this shot must start. Return the corrected prompt.',
   },
+  'story.block.system': {
+    agent: 'Story Room',
+    label: 'Block a scene — marks, paths, axis (system)',
+    vars: [],
+    text: `You are the director BLOCKING one scene before it is shot — the stopping rehearsal. Decide once, for the whole scene:
+- the MARKS: the few named spots in the place where people stand or stop (3 to 7), each with where it is in the place;
+- every character's PATH: the marks they stand on, in order, from where they are when the scene opens to where they are when it ends — a character who never moves has one mark;
+- the AXIS: the line of action between the two principal characters, and the side of it the cameras keep to.
+Use only what the shots need. Name each character by their token exactly as given.
+
+Return ONLY these lines — no prose, no code fences:
+MARKS: <mark> (<where it is>) · <mark> (<where it is>) · …
+{{TOKEN}}: <mark> → <mark> → …
+AXIS: <the line of action>; cameras stay on <the side>`,
+  },
+  'story.block.user': {
+    agent: 'Story Room',
+    label: 'Block a scene (instruction)',
+    vars: ['{place}', '{cast}', '{shots}'],
+    text: 'THE PLACE:\n{place}\n\nTHE CHARACTERS (one PATH line each):\n{cast}\n\nTHE SHOTS OF THE SCENE, in order:\n{shots}\n\nReturn the blocking lines.',
+  },
+  'story.card.system': {
+    agent: 'Story Room',
+    label: 'Card — a scene as one Seedance 2.5 generation, one line per shot (system)',
+    vars: ['{skill}', '{maxSeconds}'],
+    text: `{skill}
+
+YOU ARE THE DIRECTOR writing ONE generation of a scene: its shots as consecutive cuts of one Seedance 2.5 prompt, at most {maxSeconds} seconds in all. Inside one generation the model keeps one world — the same people, places and props across every cut — so each line only says what this cut shows.
+For each shot write ONE line: the framing and the camera, then what happens, in one or two plain sentences of observable action.
+THE SCENE'S BLOCKING is fixed: people stand on their marks and move only along their paths, in order; name the marks where people are; every cut keeps the camera on the stated side of the axis.
+When THE CARD BEFORE is given, the first shot opens exactly where it ends.
+Give every shot its seconds — a whole number from 2 to 10 — together at most {maxSeconds}.
+Refer to every person, prop and place ONLY by its token exactly as given, e.g. {{KAAN}}; never describe how anyone or anything looks — the looks are written in separately.
+Return ONLY one line per shot, in order, each exactly: SH <number> (<seconds>s): <the line>`,
+  },
+  'story.card.user': {
+    agent: 'Story Room',
+    label: 'Card (instruction)',
+    vars: ['{story}', '{assets}', '{blocking}', '{shots}', '{before}'],
+    text: 'THE STORY:\n{story}\n\nTHE TOKENS:\n{assets}\n\nTHE SCENE\'S BLOCKING (fixed):\n{blocking}\n\nTHE SHOTS OF THIS CARD, in order:\n{shots}\n\nTHE CARD BEFORE:\n{before}\n\nReturn one line per shot.',
+  },
+  'story.card.tail': {
+    agent: 'Story Room',
+    label: 'Card — the closing line of every card prompt',
+    vars: [],
+    text: 'The same people, places, props and positions carry through every cut.',
+  },
   'story.shot.user': {
     agent: 'Story Room',
     label: 'Shot prompt (instruction)',
-    vars: ['{story}', '{assets}', '{shot}', '{facts}', '{neighbours}', '{previous}'],
-    text: 'THE STORY:\n{story}\n\nASSETS IN THIS SHOT (use these tokens):\n{assets}\n\nTHIS SHOT:\n{shot}\n\nFACTS THIS SHOT SHOWS:\n{facts}\n\nAROUND IT:\n{neighbours}\n\n{previous}',
+    vars: ['{story}', '{assets}', '{shot}', '{facts}', '{neighbours}', '{blocking}', '{previous}'],
+    text: 'THE STORY:\n{story}\n\nASSETS IN THIS SHOT (use these tokens):\n{assets}\n\nTHIS SHOT:\n{shot}\n\nFACTS THIS SHOT SHOWS:\n{facts}\n\nAROUND IT:\n{neighbours}\n\nTHE SCENE\'S BLOCKING (fixed):\n{blocking}\n\n{previous}',
   },
 };
 

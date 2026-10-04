@@ -4,7 +4,8 @@ import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
 import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, platesFor } from './storyroom/panels';
-import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, scenesFound, linkOf, reopenShot } from '../utils/film/core/story';
+import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, scenesFound, linkOf, reopenShot, blockScene, blockingPlan } from '../utils/film/core/story';
+import { previzSchematic } from '../utils/film/core/previz';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
 
 const { Text } = Typography;
@@ -26,7 +27,7 @@ const ITEM_LABEL = {
 const ROLE_LABEL = {
   look: 'Reading the references\' look',
   scout: 'Scout is finding ideas', probe: 'Checking originality', architect: 'Architect is building the blueprint', critic: 'Critic is stress-testing', options: 'Writing 3 fix options and judging them blind',
-  facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots', scenes: 'Finding the scene changes', reopen: 'Re-opening the shot from the take',
+  facts: 'Listing what the viewer must see and hear', plan: 'Planning the assets and shots', shots: 'Writing the Seedance 2.5 shots', scenes: 'Finding the scene changes', reopen: 'Re-opening the shot from the take', block: 'Blocking the scenes', draw: 'Drawing the blocking',
 };
 const SCORE_COLOR = ['#cb2634', '#d25f00', '#00a870'];
 
@@ -226,7 +227,10 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     // Scenes first (from the plan): a scene's shots are then written in order, each
     // continuing shot opening where the one before it ends.
     setBusy({ role: 'scenes', at: Date.now() });
-    const scened = await detectScenes({ shots: plan.shots, assets: plan.assets }, ctx);
+    let scened = await detectScenes({ shots: plan.shots, assets: plan.assets }, ctx);
+    setShots(scened);
+    setBusy({ role: 'block', at: Date.now() });
+    scened = await blockAll(scened, plan.assets);
     setShots(scened);
     setBusy({ role: 'shots', at: Date.now() });
     const landShot = (i, shot) => setShots((list) => list.map((x, j) => (j === i ? shot : x)));
@@ -237,10 +241,31 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
   // Scenes: where place or time changes. A shot's continuity link (linkOf) follows the
   // scenes unless set by hand: the previous shot in the same scene, as its state.
   const runScenes = () => run('scenes', async () => { setShots(await detectScenes({ shots, assets }, ctx)); });
+  // BLOCKING — one sheet per scene, on the shot that opens it (marks · paths · axis).
+  const sceneStarts = (list) => { const nums = sceneNumbers(list); return list.map((x, i) => i).filter((i) => i === 0 || nums[i] !== nums[i - 1]); };
+  const blockAll = async (list, roster) => {
+    const starts = sceneStarts(list);
+    const sheets = await Promise.all(starts.map((start) => blockScene({ shots: list, start, assets: roster }, ctx)));
+    return list.map((x, i) => (starts.includes(i) ? { ...x, blocking: sheets[starts.indexOf(i)] } : x));
+  };
+  const blockOne = (start) => run('block', async () => {
+    const sheet = await blockScene({ shots, start, assets }, ctx);
+    setShots((list) => list.map((x, i) => (i === start ? { ...x, blocking: sheet } : x)));
+  });
+  const setBlocking = (start, sheet) => setShots((list) => list.map((x, i) => (i === start ? { ...x, blocking: sheet } : x)));
+  // The blocking drawn as a top-down schematic (the Previz floor plan): marks, paths, axis.
+  const drawBlocking = (start) => run('draw', async () => {
+    const sheet = String(shots[start].blocking || '').trim();
+    if (!sheet) throw new Error('Block the scene first.');
+    const { url, cacheUrl } = await previzSchematic({ plan: blockingPlan(sheet, assets) }, ctx);
+    setShots((list) => list.map((x, i) => (i === start ? { ...x, blockingSchematic: { url, cacheUrl: cacheUrl || null, sheet } } : x)));
+  });
   // Re-write every shot's prompt in scene order — same shots, assets and scenes; each
   // continuing shot opens where the one before it now ends. Replaces hand edits.
   const rewritePrompts = () => run('shots', async () => {
     if (!scenesFound(shots)) throw new Error('Find the scenes first (Scenes ↻) — the prompts are written in scene order.');
+    const unblocked = sceneStarts(shots).filter((i) => !String(shots[i].blocking || '').trim());
+    if (unblocked.length) throw new Error(`Block ${unblocked.length === 1 ? 'the scene' : 'the scenes'} opening at SH ${unblocked.map((i) => i + 1).join(', SH ')} first — every shot is written against its scene's blocking.`);
     const landShot = (i, shot) => setShots((list) => list.map((x, j) => (j === i ? shot : x)));
     const w = await writeShotBodies({ blueprint, facts, assets, shots: shots.map(({ body, openedFrom, ...x }) => x), onShot: landShot }, ctx);
     setShots(w.shots);
@@ -330,9 +355,13 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
   const reopen = (i) => run('reopen', async () => {
     const frame = cardOf(i)?.carried?.frameUrl;
     if (!frame) throw new Error(`SH ${i + 1} carries no frame yet — circle a take of the shot it continues.`);
-    const plates = boundAssets(shots[i], assets).map((a) => ({ key: a.key, url: platesFor(a, boardPlates).main?.url })).filter((p) => p.url);
-    const body = await reopenShot({ shot: shots[i], assets, frameUrl: frame, plates }, ctx);
-    setShots((list) => list.map((x, j) => (j === i ? { ...x, body, openedFrom: { frame } } : x)));
+    const l = linkOf(shots, i);
+    const fromShot = shots[l.from];
+    const plates = [...boundAssets(shots[i], assets), ...boundAssets(fromShot, assets)]
+      .filter((a, k, arr) => arr.findIndex((b) => b.key === a.key) === k)
+      .map((a) => ({ key: a.key, url: platesFor(a, boardPlates).main?.url })).filter((p) => p.url);
+    const body = await reopenShot({ shot: shots[i], assets, frameUrl: frame, mode: l.mode, plates, fromShot }, ctx);
+    setShots((list) => list.map((x, j) => (j === i ? { ...x, body, openedFrom: { frame, body } } : x)));
   });
   // A board card asked to be edited here: open its shot.
   const focusSeen = useRef(null);
@@ -551,7 +580,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     look: <LookPanel look={look} setLook={setLook} presets={presets} images={lookImages} addImages={addLookImages} removeImage={(i) => setLookImages((l) => l.filter((_, j) => j !== i))} readImages={readLook} busy={!!busy} />,
     beats: !blueprint ? needsBlueprint : facts.length ? <BeatSheet facts={facts} shotsOfFact={shotsOfFact} onOpenShot={(i) => { setTab('shots'); setOpenShot(i); }} /> : needsShots('beat sheet'),
     assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} plates={boardPlates} /> : needsShots('assets'),
-    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} refsOf={(x) => shotRefs(x).list} cardOf={cardOf} onJump={onOpenOnBoard} scenes={scenes} scenesKnown={scenesFound(shots)} consistencyOf={consistencyOf} needsReopen={needsReopen} locationName={(x) => assets.find((a) => a.key === x.location)?.name || ''} onScenes={runScenes} onRewritePrompts={rewritePrompts} /> : needsShots('shots'),
+    shots: !blueprint ? needsBlueprint : shots.length ? <ShotBoard shots={shots} assets={assets} onOpen={setOpenShot} busy={!!busy} refsOf={(x) => shotRefs(x).list} cardOf={cardOf} onJump={onOpenOnBoard} scenes={scenes} scenesKnown={scenesFound(shots)} consistencyOf={consistencyOf} needsReopen={needsReopen} locationName={(x) => assets.find((a) => a.key === x.location)?.name || ''} onScenes={runScenes} onRewritePrompts={rewritePrompts} onBlock={blockOne} onDrawBlocking={drawBlocking} setBlocking={setBlocking} /> : needsShots('shots'),
   }[tab] || storyPanel;
 
   return (

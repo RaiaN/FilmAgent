@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { linkTextOf, FRAME_TOKEN } from '../../utils/film/core/story';
+import { linkTextOf, FRAME_TOKEN, parseBlocking } from '../../utils/film/core/story';
 import { Button, Drawer, Image, Input, Modal, Radio, Select, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconClose, IconEye, IconImage, IconLoading, IconPlus, IconSound } from '@arco-design/web-react/icon';
 
@@ -300,7 +300,51 @@ const ShotPreview = ({ refs, card, onPlay }) => {
   );
 };
 
-export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], cardOf = () => null, onJump, scenes = [], scenesKnown = false, consistencyOf = () => null, needsReopen = () => false, locationName = () => '', onScenes, onRewritePrompts }) => {
+// THE SCENE'S BLOCKING — staged once before any shot: the marks, each character's path
+// across them, the axis. Every shot of the scene is written against it. Edit the lines;
+// Draw shows them as the top-down floor plan.
+const PATH_COLORS = ['#3491fa', '#00b42a', '#d9a406', '#f53f3f', '#722ed1', '#ff7d00'];
+const BlockingPanel = ({ start, shot, assets, busy, onBlock, onDraw, setBlocking }) => {
+  const sheet = String(shot.blocking || '');
+  const [draft, setDraft] = useState(sheet);
+  useEffect(() => { setDraft(sheet); }, [sheet]);
+  let parsed = null;
+  let problem = '';
+  try { parsed = sheet.trim() ? parseBlocking(sheet) : null; } catch (e) { problem = e.message; }
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const drawn = shot.blockingSchematic;
+  return (
+    <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 240px', gap: 12, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Text style={{ fontSize: 10, fontWeight: 700, color: MUTED, letterSpacing: 0.6 }}>BLOCKING</Text>
+          {parsed && parsed.paths.map((p, k) => (
+            <span key={p.key} style={{ fontSize: 10, fontWeight: 600, color: '#fff', background: PATH_COLORS[k % PATH_COLORS.length], borderRadius: 4, padding: '1px 6px' }}>{byKey[p.key]?.name || p.key}</span>
+          ))}
+          <span style={{ flex: 1 }} />
+          <Button size="mini" disabled={busy} onClick={() => onBlock(start)} title="Block the scene again from its shots — marks, paths, axis (replaces your edits to the sheet)">{sheet ? 'Block ↻' : 'Block the scene'}</Button>
+          <Button size="mini" disabled={busy || !parsed} onClick={() => onDraw(start)} title="Draw the blocking as a top-down floor plan — marks, colour-coded paths, the axis">{drawn ? 'Redraw' : 'Draw'}</Button>
+        </div>
+        <Input.TextArea
+          value={draft} onChange={setDraft} onBlur={() => { if (draft !== sheet) setBlocking(start, draft); }}
+          placeholder={'MARKS: door (front wall, left) · pillar (centre) · counter (back wall)\n{{KAEL}}: door → pillar → counter\nAXIS: Kael ↔ Jinn; cameras stay on the entrance side'}
+          autoSize={{ minRows: 3, maxRows: 8 }}
+          style={{ fontSize: 12, fontFamily: '"Courier Prime", "Courier New", monospace' }}
+        />
+        {problem && <Text style={{ fontSize: 11, color: '#f53f3f' }}>{problem}</Text>}
+        {!sheet && <Text type="secondary" style={{ fontSize: 11 }}>Not blocked — the shots of this scene are written against its blocking.</Text>}
+      </div>
+      <div style={{ aspectRatio: '16 / 9', borderRadius: 8, border: `1px solid ${LINE}`, background: '#f7f8fa', display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
+        {drawn?.url
+          ? <Image src={drawn.cacheUrl || drawn.url} width={240} style={{ display: 'block' }} />
+          : <Text type="secondary" style={{ fontSize: 11 }}>No floor plan yet</Text>}
+      </div>
+      {drawn?.url && drawn.sheet !== sheet && <Text style={{ gridColumn: '1 / -1', fontSize: 11, color: '#d25f00' }}>The sheet changed since the floor plan was drawn — Redraw.</Text>}
+    </div>
+  );
+};
+
+export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], cardOf = () => null, onJump, scenes = [], scenesKnown = false, consistencyOf = () => null, needsReopen = () => false, locationName = () => '', onScenes, onRewritePrompts, onBlock, onDrawBlocking, setBlocking }) => {
   const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
   const [playing, setPlaying] = useState('');
   return (
@@ -321,10 +365,13 @@ export const ShotBoard = ({ shots, assets, onOpen, busy, refsOf = () => [], card
         const stale = cardOf(i)?.stale;
         return [
           opens && (
-            <div key={`scene-${i}`} style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'baseline', gap: 10, paddingTop: i ? 10 : 0, borderTop: i ? `1px solid ${LINE}` : 'none' }}>
-              <Eyebrow color={INK}>Scene {scenes[i]}</Eyebrow>
-              <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, color: KIND_COLOR.location, textTransform: 'uppercase' }}>{locationName(x)}</Text>
-              {x.sceneReason && <Text type="secondary" style={{ fontSize: 11 }}>{x.sceneReason}</Text>}
+            <div key={`scene-${i}`} style={{ gridColumn: '1 / -1', display: 'grid', gap: 8, paddingTop: i ? 10 : 0, borderTop: i ? `1px solid ${LINE}` : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                <Eyebrow color={INK}>Scene {scenes[i]}</Eyebrow>
+                <Text style={{ fontFamily: SCRIPT_FONT, fontSize: 12, color: KIND_COLOR.location, textTransform: 'uppercase' }}>{locationName(x)}</Text>
+                {x.sceneReason && <Text type="secondary" style={{ fontSize: 11 }}>{x.sceneReason}</Text>}
+              </div>
+              {scenesKnown && onBlock && <BlockingPanel start={i} shot={x} assets={assets} busy={busy} onBlock={onBlock} onDraw={onDrawBlocking} setBlocking={setBlocking} />}
             </div>
           ),
           <div
@@ -523,7 +570,14 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, busy, onCl
                             <Button size="mini" type="primary" loading={busy} onClick={onReopen} style={{ background: '#d25f00', borderColor: '#d25f00' }} title="A vision call reads the frame and rewrites only how this shot opens — who is where, holding what — so it starts from it; the rest of the prompt stays">Re-open from this frame</Button>
                           </div>
                         )
-                        : <Text style={{ fontSize: 12, color: '#00a870' }}>✓ The prompt opens from this frame.</Text>}
+                        : shot.openedFrom?.body !== shot.body
+                          ? (
+                            <div style={{ display: 'grid', gap: 4 }}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>{shot.openedFrom?.body ? 'Re-opened from this frame, then edited by hand — the opening is yours now.' : 'Re-opened from this frame earlier; edits since then are not tracked.'}</Text>
+                              <Button size="mini" loading={busy} onClick={onReopen} style={{ justifySelf: 'start' }} title="Rewrite only how this shot opens from the frame again — replaces your hand edits to the opening">Re-open again</Button>
+                            </div>
+                          )
+                          : <Text style={{ fontSize: 12, color: '#00a870' }}>✓ The prompt opens from this frame.</Text>}
                       <Button size="mini" type="text" onClick={() => onGoto(link.from)} style={{ justifySelf: 'start', padding: 0 }}>Circle another take of SH {pad2(link.from + 1)} ↗</Button>
                     </div>
                   </div>
@@ -548,7 +602,7 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, busy, onCl
           </div>
 
           <details>
-            <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>In this shot · shows · references · full prompt</summary>
+            <summary style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: MUTED }}>In this shot · shows · references · {boardCard ? 'the prompt on the board card' : 'full prompt'}</summary>
             <div style={{ display: 'grid', gap: 14, marginTop: 10 }}>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {assets.map((a) => {
@@ -578,7 +632,12 @@ export const ShotDrawer = ({ index, shot, shots, assets, facts, look, busy, onCl
                   ))}
                 </div>
               )}
-              <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, margin: 0, padding: 12, borderRadius: 8, background: '#f7f8fa', color: '#4e5969', fontFamily: 'inherit' }}>{renderPrompt(shot)}</pre>
+              {/* What Seedance gets: the card's own prompt (with the continuity line) once the
+                  shot is on the board, else Story Room's render of it. */}
+              <div style={{ display: 'grid', gap: 4 }}>
+                <Text type="secondary" style={{ fontSize: 11 }}>{boardCard ? 'On the board card — exactly what Seedance gets' : 'Not on the board yet — the prompt as it will land'}</Text>
+                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, margin: 0, padding: 12, borderRadius: 8, background: '#f7f8fa', color: '#4e5969', fontFamily: 'inherit' }}>{boardCard ? boardCard.prompt : renderPrompt(shot)}</pre>
+              </div>
             </div>
           </details>
         </div>

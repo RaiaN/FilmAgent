@@ -74,13 +74,15 @@ const cameraLine = (s, i) => [`CAM ${i + 1}`, s.camera?.from, s.camera?.framing,
 
 // THE SCHEMATIC — every fact of the plan as a mark on a floor plan.
 export const previzSchematic = async ({ plan, imageModel = defaultImageModelKey(), config } = {}, ctx) => {
-  if (!plan?.shots?.length) throw new Error('Plan the scene first.');
+  // Something to draw: the set or the people. Moves and cameras are drawn when there are any.
+  if (!(plan?.set || []).length && !(plan?.actors || []).length) throw new Error('Plan the scene first.');
+  const shots = plan.shots || [];
   const model = imageModelKeyOf(imageModel);
   const prompt = renderTemplate('previz.schematic', {
     set: (plan.set || []).length ? `The set: ${plan.set.map((s) => `${s.name.toUpperCase()}${s.where ? ` (${s.where})` : ''}`).join('; ')}.` : (plan.scene ? `The set: ${plan.scene}` : ''),
     actors: (plan.actors || []).length ? `The actors: ${plan.actors.map((a) => `${a.name} — a solid ${colorWord(a)} circle${a.start ? `, starting ${a.start}` : ''}`).join('; ')}.` : '',
-    moves: `The movements, numbered in order: ${plan.shots.map((s, i) => `${i + 1}. ${s.action}`).join(' ')}`,
-    cameras: `The cameras: ${plan.shots.map((s, i) => cameraLine(s, i)).join('; ')}.`,
+    moves: shots.length ? `The movements, numbered in order: ${shots.map((s, i) => `${i + 1}. ${s.action}`).join(' ')}` : 'Nobody moves: no arrows are drawn.',
+    cameras: shots.some((s) => s.camera?.from) ? `The cameras: ${shots.map((s, i) => cameraLine(s, i)).join('; ')}.` : 'No cameras are drawn.',
     axis: plan.axis ? `The line of action: ${plan.axis}.` : '',
   });
   const { url, cacheUrl } = await ctx.client.generateImage({

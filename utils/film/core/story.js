@@ -364,6 +364,14 @@ const previousOf = (shots, index) => {
   return `THE SHOT THIS ONE CONTINUES (shot ${l.from + 1}) — this shot opens exactly where it ends:\n"""\n${prev.body}\n"""`;
 };
 
+// The blocking of this shot's scene — every shot is written against it.
+const blockingOf = (shots, index) => {
+  const start = sceneStartOf(shots, index);
+  const sheet = String(shots[start]?.blocking || '').trim();
+  if (!sheet) throw new Error(`the scene of shot ${index + 1} is not blocked yet — block it first`);
+  return sheet;
+};
+
 export const writeShotBody = async ({ blueprint, facts = [], assets = [], shots = [], index, config } = {}, ctx) => {
   const shot = shots[index];
   const bp = tidyBlueprint(blueprint);
@@ -375,6 +383,7 @@ export const writeShotBody = async ({ blueprint, facts = [], assets = [], shots 
     facts: factList(facts.filter((f) => shot.shows.includes(f.id))) || '(none)',
     neighbours: [index > 0 ? `Before: ${shotLine(shots[index - 1], index - 1)}` : 'This is the opening shot.', index < shots.length - 1 ? `After: ${shotLine(shots[index + 1], index + 1)}` : 'This is the final shot.'].join('\n'),
     previous: previousOf(shots, index),
+    blocking: blockingOf(shots, index),
   };
   const system = renderTemplate('story.shot.system', { skill: await requireSkillLine(SHOT_MODEL) });
   const text = await ask(ctx, { system, prompt: inject('story.shot.user', slots), effort: getRuntime(config).reasoningEffort, config });
@@ -412,19 +421,26 @@ export const writeShotBodies = async ({ blueprint, facts, assets, shots, config,
 };
 
 // RE-OPEN A SHOT FROM THE TAKE IT CONTINUES — a vision call reads that take's real last
-// frame and rewrites only this shot's OPENING so it starts from what the frame shows;
-// the rest of the prompt stays as written. The shot's plates ride along so the model can
-// tell who and what is who in the frame. Every asset token must survive.
-export const reopenShot = async ({ shot, assets = [], frameUrl, plates = [], config } = {}, ctx) => {
+// frame and rewrites only this shot's OPENING so it starts from what the frame shows; the
+// rest of the prompt stays as written. The plates of this shot AND of the shot it
+// continues ride along, so everyone in the frame can be recognised. As the FIRST FRAME the
+// opening also states the picture itself (framing, camera direction) and how the shot gets
+// from it to its action; as the STATE OF THE SCENE it states positions only. Every asset
+// token must survive.
+export const reopenShot = async ({ shot, assets = [], frameUrl, mode = 'state', plates = [], fromShot = null, config } = {}, ctx) => {
   const body = String(shot?.body || '').trim();
   if (!body) throw new Error('This shot has no prompt yet.');
   if (!frameUrl) throw new Error('The shot it continues has no take yet.');
-  const bound = boundAssets(shot, assets);
-  const known = plates.filter((p) => p.url && bound.some((a) => a.key === p.key));
+  const own = boundAssets(shot, assets);
+  const prior = fromShot ? boundAssets(fromShot, assets).filter((a) => !own.some((b) => b.key === a.key)) : [];
+  const known = plates.filter((p) => p.url && [...own, ...prior].some((a) => a.key === p.key));
   const text = await ask(ctx, {
-    system: renderTemplate('story.reopen.system'),
+    system: renderTemplate('story.reopen.system', { modeRule: renderTemplate(mode === 'open' ? 'story.reopen.open' : 'story.reopen.state') }),
     prompt: inject('story.reopen.user', {
-      assets: bound.map((a) => `{{${a.key}}} — ${a.kind}: ${a.name}`).join('\n') || '(none)',
+      assets: [
+        ...own.map((a) => `{{${a.key}}} — ${a.kind}: ${a.name}`),
+        ...prior.map((a) => `{{${a.key}}} — ${a.kind}: ${a.name} (from the shot this one continues; may appear in IMAGE 1)`),
+      ].join('\n') || '(none)',
       images: ['image 1 = THE FRAME this shot starts from', ...known.map((p, i) => `image ${i + 2} = {{${p.key}}} — only to recognise it in the frame`)].join('\n'),
       body,
     }),
@@ -531,3 +547,196 @@ export const detectScenes = async ({ shots = [], assets = [], config } = {}, ctx
     return { ...rest, link: { from: r.newScene ? null : i - 1, mode: LINK_MODES.includes(keep.mode) ? keep.mode : 'state', text: String(keep.text || '') }, sceneReason: String(r.reason).trim() };
   });
 };
+// ---- Blocking: the scene staged once, before any shot ------------------------------
+// One short sheet per scene, kept on the shot that opens it — the MARKS (named spots in
+// the place, each with where it is), every character's PATH across those marks in order,
+// and the AXIS (the line of action and the side the cameras keep to). Every shot of the
+// scene is written against it: a mark fixes where a person IS, as a plate fixes how they
+// LOOK. Plain lines, editable:
+//   MARKS: door (front wall, left) · pillar 2 (centre-right) · counter (back wall)
+//   {{KAEL}}: door → pillar 2 → counter
+//   AXIS: Kael ↔ Jinn; cameras stay on the entrance side
+export const sceneStartOf = (shots = [], i) => {
+  const nums = sceneNumbers(shots);
+  return nums.findIndex((n) => n === nums[i]);
+};
+export const sceneShotsOf = (shots = [], start) => {
+  const nums = sceneNumbers(shots);
+  return shots.map((x, i) => i).filter((i) => nums[i] === nums[start]);
+};
+// The sheet → { marks: [{ name, where }], paths: [{ key, marks }], axis }. A line that does
+// not read is an error naming it — the sheet is the scene's truth, never guessed at.
+export const parseBlocking = (text = '') => {
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const out = { marks: [], paths: [], axis: '' };
+  lines.forEach((line) => {
+    const m = /^([^:]+):\s*(.*)$/.exec(line);
+    if (!m) throw new Error(`Blocking line does not read: "${line}"`);
+    const head = m[1].trim();
+    const rest = m[2].trim();
+    if (/^marks$/i.test(head)) {
+      out.marks = rest.split('·').map((x) => x.trim()).filter(Boolean).map((x) => {
+        const w = /^(.+?)\s*\((.+)\)$/.exec(x);
+        return w ? { name: w[1].trim(), where: w[2].trim() } : { name: x, where: '' };
+      });
+    } else if (/^axis$/i.test(head)) {
+      out.axis = rest;
+    } else {
+      const key = keyOf((/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/.exec(head) || [])[1] || '');
+      if (!key) throw new Error(`Blocking line does not name a character token: "${line}"`);
+      out.paths.push({ key, marks: rest.split('→').map((x) => x.trim()).filter(Boolean) });
+    }
+  });
+  if (!out.marks.length) throw new Error('The blocking has no MARKS line.');
+  if (!out.axis) throw new Error('The blocking has no AXIS line.');
+  const names = new Set(out.marks.map((x) => x.name.toLowerCase()));
+  out.paths.forEach((p) => p.marks.forEach((mk) => {
+    if (!names.has(mk.toLowerCase())) throw new Error(`{{${p.key}}} goes to "${mk}", which is not one of the MARKS.`);
+  }));
+  return out;
+};
+
+// BLOCK ONE SCENE — one planner call: the marks, each character's path, the axis, from
+// the scene's shots. The sheet must read and use only the scene's cast.
+export const blockScene = async ({ shots = [], start, assets = [], config } = {}, ctx) => {
+  const idx = sceneShotsOf(shots, start);
+  const scene = idx.map((i) => shots[i]);
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const place = byKey[scene[0]?.location];
+  const cast = [...new Set(scene.flatMap((x) => (x.assets || []).filter((k) => byKey[k]?.kind === 'character')))];
+  if (!cast.length) throw new Error(`Scene from SH ${start + 1} has no characters to block.`);
+  const listed = idx.map((i) => `SH ${i + 1} · ${shots[i].title}: ${plainBody(shots[i], assets)}`).join('\n');
+  const text = await ask(ctx, {
+    system: renderTemplate('story.block.system'),
+    prompt: inject('story.block.user', {
+      place: place ? `${place.name}${place.look ? ` — ${place.look}` : ''}` : (scene[0]?.location || '(not stated)'),
+      cast: cast.map((k) => `{{${k}}} — ${byKey[k].name}`).join('\n'),
+      shots: listed,
+    }),
+    effort: 'medium',
+    config,
+  });
+  const sheet = String(text || '').replace(/^```\w*\s*|\s*```$/g, '').trim();
+  const parsed = parseBlocking(sheet);
+  const stray = parsed.paths.map((p) => p.key).filter((k) => !cast.includes(k));
+  if (stray.length) throw new Error(`The blocking names ${stray.map((k) => `{{${k}}}`).join(', ')}, who is not in this scene — try again.`);
+  const missing = cast.filter((k) => !parsed.paths.some((p) => p.key === k));
+  if (missing.length) throw new Error(`The blocking leaves out ${missing.map((k) => `{{${k}}}`).join(', ')} — try again.`);
+  return sheet;
+};
+
+// The sheet as a Previz plan, so the schematic draws it: marks = the set, paths = the
+// moves, colours dealt in path order (the same colours as every Previz plate).
+export const blockingPlan = (sheet, assets = []) => {
+  const b = parseBlocking(sheet);
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const COLORS = ['BLUE', 'GREEN', 'YELLOW', 'RED', 'PURPLE', 'ORANGE'];
+  if (b.paths.length > COLORS.length) throw new Error(`The blocking has ${b.paths.length} characters; the schematic tells at most ${COLORS.length} apart.`);
+  const nameOf = (k) => byKey[k]?.name || k;
+  return {
+    scene: '', axis: b.axis,
+    set: b.marks.map((m) => ({ name: m.name, where: m.where })),
+    actors: b.paths.map((p, i) => ({ name: nameOf(p.key), description: '', start: p.marks[0] || '', color: COLORS[i] })),
+    shots: b.paths.filter((p) => p.marks.length > 1).map((p) => ({ camera: {}, action: `${nameOf(p.key)} moves ${p.marks.join(' → ')}`, seconds: 1 })),
+  };
+};
+// ---- Cards: the unit of generation --------------------------------------------------
+// A scene goes to Seedance as ONE generation: its shots are the "Shot N" lines of one
+// prompt, and inside one generation the model keeps one world across the cuts. A scene
+// longer than one generation splits where a shot starts the next card (newCard); that
+// card opens from the last frame of the card before it.
+export const CARD_MAX_SECONDS = 30;
+export const cardsOf = (shots = []) => {
+  const nums = sceneNumbers(shots);
+  const out = [];
+  shots.forEach((x, i) => {
+    const opensScene = i === 0 || nums[i] !== nums[i - 1];
+    if (opensScene || x.newCard) out.push({ start: i, end: i, scene: nums[i], opensScene });
+    else out[out.length - 1].end = i;
+  });
+  return out.map((c, k) => ({ ...c, k, idx: shots.map((_, i) => i).filter((i) => i >= c.start && i <= c.end) }));
+};
+export const secondsOfCard = (shots, card) => card.idx.reduce((n, i) => n + (Number(shots[i].seconds) || 0), 0);
+// The card's shots as one shot for binding: its place and everyone and everything in it.
+export const cardAsShot = (shots, card) => ({
+  location: shots[card.start].location,
+  assets: [...new Set(card.idx.flatMap((i) => shots[i].assets || []))],
+});
+
+// The blocking sheet as the prompt's Staging line (code, word for word from the sheet).
+const stagingOf = (sheet, assets) => {
+  const b = parseBlocking(sheet);
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const who = b.paths.map((p) => `${byKey[p.key]?.name || p.key} ${p.marks.length > 1 ? `moves ${p.marks.join(' → ')}` : `stays at ${p.marks[0]}`}`).join('; ');
+  const marks = b.marks.map((m) => (m.where ? `${m.name} (${m.where})` : m.name)).join('; ');
+  return `Staging: ${who}. Marks: ${marks}. Axis: ${b.axis.replace(/[.\s]+$/, '')}.`;
+};
+
+// THE CARD'S PROMPT — plate lines, Look, Staging (from the blocking), then one "Shot N:"
+// line per shot (tokens → names), then the one-world line.
+export const renderCardPrompt = ({ shots, card, assets = [], look = '', refs = {} }) => {
+  const head = renderShotPrompt({ ...cardAsShot(shots, card), body: '' }, assets, look, refs);
+  const sheet = String(shots[sceneStartOf(shots, card.start)]?.blocking || '').trim();
+  const byKey = Object.fromEntries(assets.map((a) => [a.key, a]));
+  const named = (t) => String(t || '').replace(TOKEN_RE, (m, k) => byKey[keyOf(k)]?.name || k.replace(/_/g, ' ').toLowerCase()).trim();
+  const lines = card.idx.map((i, n) => `Shot ${n + 1}: ${named(shots[i].line)}`);
+  return [head, sheet ? stagingOf(sheet, assets) : '', '', ...lines, renderTemplate('story.card.tail')].filter((x, n) => x || n === 2).join('\n').trim();
+};
+
+// WRITE ONE CARD — one planner call: every shot of the card as one line (framing + what
+// happens) with its seconds, against the scene's blocking; a card that continues the
+// one before it opens where that one ends. The answer must cover every shot, use only
+// the story's tokens and fit one generation.
+export const writeCard = async ({ blueprint, facts = [], assets = [], shots = [], card, config } = {}, ctx) => {
+  const bp = tidyBlueprint(blueprint);
+  const sheet = String(shots[sceneStartOf(shots, card.start)]?.blocking || '').trim();
+  if (!sheet) throw new Error(`the scene of SH ${card.start + 1} is not blocked yet — block it first`);
+  const bound = boundAssets(cardAsShot(shots, card), assets);
+  const before = card.opensScene ? null : cardsOf(shots).find((c) => c.end === card.start - 1);
+  if (before && before.idx.some((i) => !String(shots[i].line || '').trim())) throw new Error(`the card before SH ${card.start + 1} is not written yet`);
+  const text = await ask(ctx, {
+    system: renderTemplate('story.card.system', { skill: await requireSkillLine(SHOT_MODEL), maxSeconds: String(CARD_MAX_SECONDS) }),
+    prompt: inject('story.card.user', {
+      story: [bp.title, bp.spine].filter(Boolean).join('\n'),
+      assets: bound.map((a) => `{{${a.key}}} — ${a.kind}: ${a.name}`).join('\n') || '(none)',
+      blocking: sheet,
+      shots: card.idx.map((i) => `SH ${i + 1} · ${shots[i].title}: ${shots[i].moment}${(shots[i].shows || []).length ? ` — shows: ${factList(facts.filter((f) => shots[i].shows.includes(f.id))).replace(/\n/g, ' ')}` : ''}`).join('\n'),
+      before: before ? before.idx.map((i) => `SH ${i + 1}: ${shots[i].line}`).join('\n') : 'This card opens the scene.',
+    }),
+    effort: getRuntime(config).reasoningEffort,
+    config,
+  });
+  const rows = String(text || '').split('\n').map((l) => /^\s*SH\s*(\d+)\s*\((\d+)\s*s\)\s*:\s*(.+)$/i.exec(l)).filter(Boolean)
+    .map((m) => ({ i: Number(m[1]) - 1, seconds: Number(m[2]), line: m[3].trim() }));
+  const missing = card.idx.filter((i) => !rows.some((r) => r.i === i));
+  if (missing.length) throw new Error(`The card came back without SH ${missing.map((i) => i + 1).join(', SH ')} — write it again.`);
+  const known = new Set(assets.map((a) => a.key));
+  const stray = [...new Set(rows.flatMap((r) => [...r.line.matchAll(TOKEN_RE)].map((m) => keyOf(m[1]))).filter((k) => !known.has(k)))];
+  if (stray.length) throw new Error(`The card names ${stray.map((k) => `{{${k}}}`).join(', ')}, which is not in the story — write it again.`);
+  const total = card.idx.reduce((n, i) => n + rows.find((r) => r.i === i).seconds, 0);
+  if (total > CARD_MAX_SECONDS) throw new Error(`The card runs ${total}s — over the ${CARD_MAX_SECONDS}s of one generation. Start the next card at a later shot ("Next card from here"), then write it again.`);
+  return card.idx.map((i) => ({ i, ...rows.find((r) => r.i === i) }));
+};
+
+// Every card, in order where one continues another (scenes run three at a time).
+export const writeCards = async ({ blueprint, facts, assets, shots, config, onCard } = {}, ctx) => {
+  let out = shots.map((x) => ({ ...x }));
+  const cards = cardsOf(shots);
+  const failed = [];
+  const byScene = Object.values(cards.reduce((m, c) => ({ ...m, [c.scene]: [...(m[c.scene] || []), c] }), {}));
+  await runWithConcurrency(byScene.map((chain) => async () => {
+    for (const card of chain) { // eslint-disable-line no-restricted-syntax
+      try {
+        const rows = await writeCard({ blueprint, facts, assets, shots: out, card, config }, ctx); // eslint-disable-line no-await-in-loop
+        out = out.map((x, i) => { const r = rows.find((y) => y.i === i); return r ? { ...x, line: r.line, seconds: r.seconds } : x; });
+        if (onCard) onCard(rows);
+      } catch (err) {
+        failed.push(`card from SH ${card.start + 1}: ${err.message || err}`);
+        return;
+      }
+    }
+  }), 3);
+  return { shots: out, failed };
+};
+
+

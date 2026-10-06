@@ -204,7 +204,7 @@ export const isImagePolicyError = (err) => /image may contain sensitive/i.test((
 // Two source modes: a single imageUrl/assetId (the classic keyframe → first frame),
 // or `refUrls` — SEVERAL real reference images (direct-to-video: the storyboard's
 // cast/place assets, untouched, so the video model preserves the subjects itself).
-export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], refRoles = [], firstFrameUrl = null, lastFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, modelKey = null, draft = false, config } = {}, ctx) => {
+export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [], refRoles = [], firstFrameUrl = null, lastFrameUrl = null, audioRefUrls = [], videoRefUrls = [], motion, camera, lens, focalLength, aperture, duration = 10, resolution = '1080p', ratio = 'adaptive', generateAudio = true, modelKey = null, draft = false, outputFormat = null, config } = {}, ctx) => {
   modelKey = videoModelKeyOf(modelKey); // env-driven default — first CONFIGURED video slot, never a literal
   // Text-to-video is allowed: with no image / refs / first_frame, the PROMPT alone drives
   // it (the Story agent's continuous-shot film). Only fail when there's nothing at all.
@@ -250,7 +250,7 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // modelKey; blank falls back to the env-preferred default slot, never a literal.
   const videoModel = getModel(videoModelKeyOf(modelKey), config);
   const { taskId } = await withRetry(
-    () => ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, draft }),
+    () => ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, draft, outputFormat }),
     { tries: 3, baseMs: 3000 },
   );
   return { taskId, prompt };
@@ -259,14 +259,14 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
 // DRAFT → FINAL (Seedance 2.5): render the final from a draft task, at one of the draft model's draftFinals. Everything
 // that shaped the draft (prompt, refs, duration, ratio, audio) is reused by the
 // model from the task itself; only the draft's own model slot is needed here.
-export const finishDraft = async ({ draftTaskId, modelKey, resolution, config } = {}, ctx) => {
+export const finishDraft = async ({ draftTaskId, modelKey, resolution, outputFormat = null, config } = {}, ctx) => {
   if (!draftTaskId) throw new Error('finishDraft needs the draft task id');
   const finals = videoTraits(modelKey).draftFinals || [];
   if (!finals.length) throw new Error(`${modelKey} has no draft mode`);
   const res = resolution || finals[0];
   if (!finals.includes(res)) throw new Error(`${modelKey} finishes drafts at ${finals.join(' / ')} — not ${res}`);
   const model = getModel(videoModelKeyOf(modelKey), config);
-  return withRetry(() => ctx.client.startVideo({ model, draftTaskId, resolution: res }), { tries: 3, baseMs: 3000 });
+  return withRetry(() => ctx.client.startVideo({ model, draftTaskId, resolution: res, outputFormat }), { tries: 3, baseMs: 3000 });
 };
 
 // The AUDIO agent's one operation (Seed Audio 1.0). The user's text goes out VERBATIM

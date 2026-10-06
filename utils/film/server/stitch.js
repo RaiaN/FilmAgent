@@ -69,16 +69,21 @@ export const stitchShots = async ({ shots, name }) => {
     // 2. concat (re-encode to a uniform spec so mismatched clips join cleanly)
     const listFile = path.join(dir, 'list.txt');
     fs.writeFileSync(listFile, files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'));
-    const outFile = path.join(dir, 'final.mp4');
+    // A cut with any MOV master in it stays a master: HEVC 10-bit 4:4:4 MOV, never 8-bit.
+    const master = shots.some((u) => /\.mov(\?|$)|key=[^&]+\.mov/i.test(String(u)));
+    const ext = master ? 'mov' : 'mp4';
+    const outFile = path.join(dir, `final.${ext}`);
     await runFfmpeg(ffmpegPath, [
       '-y', '-f', 'concat', '-safe', '0', '-i', listFile,
-      '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+      ...(master
+        ? ['-c:v', 'libx265', '-pix_fmt', 'yuv444p10le', '-crf', '12', '-preset', 'veryfast', '-tag:v', 'hvc1', '-x265-params', 'log-level=error']
+        : ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']),
       '-c:a', 'aac', '-movflags', '+faststart', outFile,
     ]);
 
     // 3. re-host to TOS, return a presigned (playable) URL
     const mp4 = fs.readFileSync(outFile);
-    const dataUrl = `data:video/mp4;base64,${mp4.toString('base64')}`;
+    const dataUrl = `data:video/${master ? 'quicktime' : 'mp4'};base64,${mp4.toString('base64')}`;
     const staged = await uploadLocalMediaToTos({
       accessKey,
       secretKey,
@@ -88,8 +93,8 @@ export const stitchShots = async ({ shots, name }) => {
       tosObjectPrefix: process.env.MODELARK_TOS_OBJECT_PREFIX || 'film-agent/final',
       tosPublicBaseUrl: process.env.MODELARK_TOS_PUBLIC_BASE_URL || '',
       localData: dataUrl,
-      localName: `${name || 'final-cut'}.mp4`,
-      fallbackName: `final-${Date.now()}.mp4`,
+      localName: `${name || 'final-cut'}.${ext}`,
+      fallbackName: `final-${Date.now()}.${ext}`,
       dataLabel: 'Final cut',
     });
 

@@ -71,7 +71,7 @@ export const createBrowserClient = () => ({
     return data;
   },
 
-  async startVideo({ content, model, resolution, ratio, duration, generateAudio, draft = false, draftTaskId = null }) {
+  async startVideo({ content, model, resolution, ratio, duration, generateAudio, draft = false, draftTaskId = null, outputFormat = null }) {
     // The API's resolution values are lowercase ('480p' … '4k'); the UI labels say '4K'.
     resolution = resolution ? String(resolution).toLowerCase() : resolution; // eslint-disable-line no-param-reassign
     let body;
@@ -80,6 +80,7 @@ export const createBrowserClient = () => ({
       // ratio and audio setting — resending any of them is rejected even with equal
       // values. Only the draft's model and the final resolution go.
       body = { model, content: [{ type: 'draft_task', draft_task: { id: draftTaskId } }], resolution, watermark: false, return_last_frame: true };
+      if (outputFormat) body.output_format = outputFormat;
     } else {
       // ratio and duration are OMITTED when falsy: a Seedance EDITING task (routed by the
       // prompt's wording) locks both to the source clip and REJECTS the request outright if
@@ -88,6 +89,7 @@ export const createBrowserClient = () => ({
       if (draft) body.draft = true;
       if (ratio) body.ratio = ratio;
       if (duration && duration !== 'auto') body.duration = Number(duration);
+      if (outputFormat) body.output_format = outputFormat;
     }
     const res = await fetch('/api/seedance', {
       method: 'POST',

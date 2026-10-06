@@ -202,6 +202,17 @@ export const SeedanceParams = ({ data, patch, videoModel, resolution, resOptions
         style={{ width: 76 }} triggerProps={{ autoAlignPopupWidth: false }}
         title="Resolution IS honoured on an editing task — it is the one frame param you still choose"
       />
+      {(videoTraits(videoModel).movAt || []).length > 0 && (
+        <Select
+          className="nodrag" size="mini" value={data.outputFormat === 'mov' ? 'mov' : 'mp4'} onChange={(v) => patch({ outputFormat: v })}
+          options={[
+            { label: 'MP4', value: 'mp4' },
+            { label: 'MOV 10-bit', value: 'mov', disabled: !(videoTraits(videoModel).movAt || []).includes(resolution) },
+          ]}
+          style={{ width: 104 }} triggerProps={{ autoAlignPopupWidth: false }}
+          title={`Output format. MOV = HEVC 10-bit 4:4:4 master, at ${(videoTraits(videoModel).movAt || []).join(' / ')}; drafts stay 480p MP4 previews and the Final from a draft is the MOV.`}
+        />
+      )}
       {lockFrame ? (
         <Tag size="small" style={{ background: '#101418', color: '#f7ba1e', border: '1px solid #3a3226', fontWeight: 600 }} title={lockNote}>
           ratio · duration locked

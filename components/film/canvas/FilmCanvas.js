@@ -423,7 +423,7 @@ const animateWithRefFallback = async (shot, refAssetIds, ctx, { mustKeep = [] } 
         firstFrameUrl: shot.firstFrameUrl, lastFrameUrl: shot.lastFrameUrl,
         audioRefUrls: audioUrls, videoRefUrls: videoUrls,
         duration: shot.durationSec, resolution: shot.resolution, ratio: shot.ratio,
-        generateAudio: genAudio, modelKey: shot.modelKey, draft: !!shot.draft,
+        generateAudio: genAudio, modelKey: shot.modelKey, draft: !!shot.draft, outputFormat: shot.draft ? null : shot.outputFormat,
       }, ctx);
       return { taskId: out.taskId, droppedRefs, droppedUrls, healedAssets };
     } catch (e) {
@@ -2855,6 +2855,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       ratio: (master || refRoles.includes('first_frame')) ? null : (c.data.ratio || '21:9'),
       generateAudio: c.data.generateAudio,
       modelKey: videoModelKeyOf(c.data.videoModel),
+      // The master format the card asks for (MOV = HEVC 10-bit 4:4:4); drafts are previews.
+      outputFormat: c.data.outputFormat === 'mov' ? 'mov' : null,
       ...(audioRefUrls.length ? { audioRefUrls } : {}),
       ...(master || videoRefUrls.length ? { videoRefUrls: [...(master ? [master.url] : []), ...videoRefUrls], videoRefAssetIds: [...(master ? [masterAssetId] : []), ...videoRefAssetIds] } : {}),
       ...(keepTake && c.data.shotUrl ? { shotUrl: c.data.shotUrl } : {}),
@@ -3212,6 +3214,11 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const waitingOn = continuityWaitingOn(card);
     if (waitingOn) { Message.warning(`This shot continues from "${waitingOn}" — shoot that one first; its last frame rides on this card.`); return; }
     const modelKey = videoModelKeyOf(card.data?.videoModel);
+    if (!draft && card.data?.outputFormat === 'mov') {
+      const movAt = videoTraits(modelKey).movAt || [];
+      const res = clampResolution(modelKey, card.data?.resolution);
+      if (!movAt.includes(res)) { Message.error(`MOV 10-bit renders on Seedance 2.5 at ${movAt.join(' / ') || '—'} — this card is ${VIDEO_MODEL_OPTIONS.find((o) => o.key === modelKey)?.label || modelKey} at ${res}. Change the format or the resolution.`); return; }
+    }
     if (draft && !draftFinalsOf(modelKey).length) { Message.warning('Draft mode is Seedance 2.5 only — switch this card to a 2.5 model.'); return; }
     const draftMeta = draft ? { draft: { modelKey, createdAt: Date.now() } } : {};
     const { takeId, takeNo } = addLoadingTake(card, draft ? 'Draft' : 'Take', { ...draftMeta, continuityKey: card.data.continuityKey || null });
@@ -3270,7 +3277,11 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         }
         if (droppedRefs) Message.warning(`${droppedRefs} reference image${droppedRefs === 1 ? '' : 's'} skipped on take ${takeNo} — the video model's content screen flagged ${droppedRefs === 1 ? 'it' : 'them'} as sensitive (this take is less anchored).`);
         const { videoUrl, lastFrameUrl, videoCacheUrl, lastFrameCacheUrl } = await ctx.client.pollVideo({ taskId });
-        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null, loading: false, taskId: null, label: `${draft ? 'Draft' : 'Take'} ${takeNo}`, ...(draft ? { draft: { ...draftMeta.draft, taskId } } : {}) } } : n)));
+        // A take asked for as a MOV master must arrive as one — say so when it does not.
+        const asked = shot.draft ? null : shot.outputFormat;
+        const isMov = /\.mov(\?|$)|key=[^&]+\.mov/i.test(String(videoCacheUrl || videoUrl || ''));
+        if (asked === 'mov' && !isMov) Message.error(`Take ${takeNo} was asked for as a MOV master but did not come back as one.`);
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null, loading: false, taskId: null, format: isMov ? 'mov' : 'mp4', label: `${draft ? 'Draft' : 'Take'} ${takeNo}${isMov ? ' · MOV' : ''}`, ...(draft ? { draft: { ...draftMeta.draft, taskId } } : {}) } } : n)));
         onPatchCut(cutId, { status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null });
         if (draft) addCardDraft(cutId, { takeId, label: `Draft ${takeNo}`, taskId, ...draftMeta.draft });
       } catch (err) {
@@ -3308,11 +3319,14 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     (async () => {
       try {
-        const { taskId } = await finishDraft({ draftTaskId: d.taskId, modelKey: d.modelKey, resolution }, ctx);
+        const fmt = card.data?.outputFormat === 'mov' && (videoTraits(d.modelKey).movAt || []).includes(resolution) ? 'mov' : null;
+        const { taskId } = await finishDraft({ draftTaskId: d.taskId, modelKey: d.modelKey, resolution, outputFormat: fmt }, ctx);
         resumedTakesRef.current.add(takeId);
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId } } : n)));
         const { videoUrl, lastFrameUrl, videoCacheUrl, lastFrameCacheUrl } = await ctx.client.pollVideo({ taskId });
-        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null, loading: false, taskId: null, label: `Final ${takeNo} · ${resolution} of ${d.label}` } } : n)));
+        const isMov = /\.mov(\?|$)|key=[^&]+\.mov/i.test(String(videoCacheUrl || videoUrl || ''));
+        if (fmt === 'mov' && !isMov) Message.error(`Final ${takeNo} was asked for as a MOV master but did not come back as one.`);
+        setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, url: videoUrl, cacheUrl: videoCacheUrl || n.data.cacheUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null, loading: false, taskId: null, format: isMov ? 'mov' : 'mp4', label: `Final ${takeNo} · ${resolution}${isMov ? ' MOV' : ''} of ${d.label}` } } : n)));
         onPatchCut(cutId, { status: 'shot', shotUrl: videoUrl, lastFrameUrl: lastFrameCacheUrl || lastFrameUrl || null });
       } catch (err) {
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, loading: false, error: err.message, label: 'Final failed' } } : n)));

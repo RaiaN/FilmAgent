@@ -288,6 +288,7 @@ const VIDEO_MODEL_TRAITS = {
     overallBlock: true,               // closes with the Overall-requirements section
     refCap: 30,
     draftFinals: ['1080p'],           // Draft mode: final resolutions a 480p draft renders to (live-probed: 720p and 4K rejected)
+    movAt: ['1080p'],                 // MOV master (HEVC 10-bit 4:4:4) via output_format: 'mov' — verified at 1080p
   },
   // Same model family and prompt grammar as 2.5; Premium additionally renders 4K.
   seedance25Premium: {

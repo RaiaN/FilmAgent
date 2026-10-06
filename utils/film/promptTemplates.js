@@ -353,6 +353,42 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final pr
     vars: ['{refRoster}', '{text}'],
     text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE DIRECTOR\'S TEXT:\n"""\n{text}\n"""\n\nReturn the JSON.',
   },
+  'techTest.shots.system': {
+    agent: 'Tech Test',
+    label: 'Write the test shots (instruction)',
+    vars: ['{count}', '{shotType}', '{country}', '{topic}', '{style}', '{seconds}', '{ratio}', '{skill}'],
+    text: 'You write video-generation prompts for a production tech test: {count} shots that show how the video model handles one target.\n\nTHE TARGET\n- Shot type: {shotType}\n- Country / region: {country}\n- Topic: {topic}\n- Style: {style}\n- Every shot runs {seconds} seconds at aspect ratio {ratio}.\n\nRULES\n- Every shot is the target shot type.\n- Across the {count} shots, vary the subject, place, light, weather, time of day and camera movement, so the set covers the target instead of repeating one idea.\n- Ground every shot in the real culture, geography, architecture, dress and iconography of the country / region and the topic. Name concrete specifics, never generic exotic dressing.\n- Describe the world and the situation the camera sees; do not choreograph the action second by second.\n- For each shot list 2–5 "checks": the concrete things a reviewer must verify in the result — the cultural or iconographic details that must be right, scale, crowd and architectural detail.\n\n{skill}\n\nReturn ONLY JSON: [{"title": "2-5 words", "prompt": "...", "checks": ["..."]}]',
+  },
+  'techTest.shots.user': {
+    agent: 'Tech Test',
+    label: 'Write the test shots (request)',
+    vars: ['{count}'],
+    text: 'Write the {count} shots.',
+  },
+  'techTest.critique.system': {
+    agent: 'Tech Test',
+    label: 'Review one rendered shot (instruction)',
+    vars: ['{shotType}', '{country}', '{topic}', '{style}', '{prompt}', '{checks}', '{measured}', '{imageRoster}'],
+    text: 'You review one generated shot from a production tech test, as the film\'s VFX supervisor and a cultural consultant for {country} would before it goes to post.\n\nTHE TARGET: {shotType} · {country} · topic: {topic} · style: {style}\n\nTHE SHOT\'S PROMPT:\n"""\n{prompt}\n"""\n\nWHAT TO CHECK:\n{checks}\n\nMEASURED BY CODE: {measured}\n\nTHE IMAGES, in order:\n{imageRoster}\n\nScore each 0, 1 or 2 with a one-line reason:\n- prompt_adherence: does the shot show what the prompt describes?\n- target_fidelity: are the culture, place, iconography, dress and architecture right for {country} and the topic? Name every error.\n- shot_type: is it actually a {shotType}?\nList every concrete visual issue with where it is and its severity (minor, major or blocking): anatomy, faces, crowds that read as texture, repeated or cloned elements, warped architecture, text and signage, physics, scale.\nList the post-production work the shot would need.\nVerdict: "usable" as it is, "fixable" after the listed post work, or "reshoot".\n\nReturn ONLY JSON: {"prompt_adherence": {"score": 0, "reason": "..."}, "target_fidelity": {"score": 0, "reason": "..."}, "shot_type": {"score": 0, "reason": "..."}, "issues": [{"what": "...", "where": "...", "severity": "minor|major|blocking"}], "post_fixes": ["..."], "verdict": "usable|fixable|reshoot"}',
+  },
+  'techTest.critique.user': {
+    agent: 'Tech Test',
+    label: 'Review one rendered shot (request)',
+    vars: [],
+    text: 'Review the shot.',
+  },
+  'regionEdit.masked': {
+    agent: 'Region Edit',
+    label: 'Edit inside the drawn regions (mask + graded frame)',
+    vars: ['{regions}'],
+    text: 'Edit @Video1: change only the white areas of @Video2. @Image1 is a frame of the same shot with the correction already applied: inside the white areas, make the whole shot look like @Image1.\n{regions}\nKeep everything outside the white areas exactly as it is in @Video1.',
+  },
+  'regionEdit.unmasked': {
+    agent: 'Region Edit',
+    label: 'Edit named areas (text + reference colours, no mask)',
+    vars: ['{regions}'],
+    text: 'Edit @Video1:\n{regions}\nKeep everything else exactly as it is in @Video1.',
+  },
   'scout.survey': {
     agent: 'Tech Scout',
     label: 'Empty-location survey (video prompt)',

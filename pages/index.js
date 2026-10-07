@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useState } from 'react';
 import { Layout, Button, Card, Typography } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt, IconSafe, IconBook, IconExperiment, IconBgColors } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt, IconSafe, IconBook, IconExperiment, IconSun } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
@@ -15,7 +15,7 @@ import AssetUploadPlayground from '../components/AssetUploadPlayground';
 import VideoEnhancePlayground from '../components/VideoEnhancePlayground';
 import ArtifactVerifyPlayground from '../components/ArtifactVerifyPlayground';
 import TechTestPlayground from '../components/TechTestPlayground';
-import RegionEditPlayground from '../components/RegionEditPlayground';
+import HeadroomPlayground from '../components/HeadroomPlayground';
 import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
@@ -37,7 +37,7 @@ const buildInitialResultState = () =>
   }, {});
 
 // Raw model playgrounds grouped under the "Tools" meta tab.
-const TOOL_TABS = ['seedream', 'seedance', 'tech-test', 'region-edit', 'video-enhance', 'asset-upload', 'verify', 'llm'];
+const TOOL_TABS = ['seedream', 'seedance', 'tech-test', 'headroom', 'video-enhance', 'asset-upload', 'verify', 'llm'];
 
 export default function Home() {
   const [activeModelId, setActiveModelId] = useState('film-agent');
@@ -436,9 +436,9 @@ export default function Home() {
                                                 <IconExperiment style={{ marginRight: 8 }} />
                                                 Tech Test
                                             </Button>
-                                            <Button type={activeModelId === 'region-edit' ? 'primary' : 'secondary'} onClick={() => selectTool('region-edit')}>
-                                                <IconBgColors style={{ marginRight: 8 }} />
-                                                Region Edit
+                                            <Button type={activeModelId === 'headroom' ? 'primary' : 'secondary'} onClick={() => selectTool('headroom')}>
+                                                <IconSun style={{ marginRight: 8 }} />
+                                                Headroom
                                             </Button>
                                             <Button type={activeModelId === 'video-enhance' ? 'primary' : 'secondary'} onClick={() => selectTool('video-enhance')}>
                                                 <IconThunderbolt style={{ marginRight: 8 }} />
@@ -518,8 +518,8 @@ export default function Home() {
                 <div style={{ display: activeModelId === 'tech-test' ? 'block' : 'none' }}>
                     <TechTestPlayground />
                 </div>
-                <div style={{ display: activeModelId === 'region-edit' ? 'block' : 'none' }}>
-                    <RegionEditPlayground />
+                <div style={{ display: activeModelId === 'headroom' ? 'block' : 'none' }}>
+                    <HeadroomPlayground />
                 </div>
                 <div style={{ display: activeModelId === 'verify' ? 'block' : 'none' }}>
                     <ArtifactVerifyPlayground />
@@ -539,7 +539,7 @@ export default function Home() {
                     />
                 </div>
                 <div style={{ marginTop: 24 }}>
-                     {!['llm', 'film-agent', 'story-room', 'asset-upload', 'video-enhance', 'verify', 'tech-test', 'region-edit'].includes(activeModelId) && (
+                     {!['llm', 'film-agent', 'story-room', 'asset-upload', 'video-enhance', 'verify', 'tech-test', 'headroom'].includes(activeModelId) && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}
@@ -548,7 +548,7 @@ export default function Home() {
                       )}
                 </div>
                 
-                {TOOL_TABS.includes(activeModelId) && !['asset-upload', 'video-enhance', 'verify', 'tech-test', 'region-edit'].includes(activeModelId) && (
+                {TOOL_TABS.includes(activeModelId) && !['asset-upload', 'video-enhance', 'verify', 'tech-test', 'headroom'].includes(activeModelId) && (
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16, fontSize: 12, color: '#86909c', cursor: 'pointer' }}>
                         <input
                             type="checkbox"

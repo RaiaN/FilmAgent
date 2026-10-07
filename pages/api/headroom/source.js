@@ -4,22 +4,22 @@ import path from 'path';
 import { checkInBytes, checkInUrl, ensureStoreFile, storeKeyFromUrl } from '../../../utils/server/mediaStore';
 import { ffmpegPath, parseInfo, run } from '../../../utils/server/videoInfo';
 
-// Region Edit source: a clip → the media store, probed, with a browser-playable copy.
+// Headroom source: a clip → the media store, probed, with a browser-playable copy.
 //   POST { url } (media-store url or public http(s) url) →
 //   { sourceUrl, viewUrl, spec: { width, height, fps, durationSec, codec, pixFmt }, hasAudio }
 // The original goes to Seedance; the viewer plays viewUrl (H.264 4:2:0 when the original isn't).
-// Seedance edit takes reference videos of 4–30 s.
+// Seedance edit takes reference videos of 4–30 s; spec.bits tells whether it is a 10-bit master.
 
 const EDIT_SECONDS = [4, 30];
 const PLAYABLE = (s) => s.codec === 'h264' && s.pixFmt === 'yuv420p';
 
-export default async function regionEditSourceHandler(req, res) {
+export default async function headroomSourceHandler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
   const raw = String(req.body?.url || '').trim();
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'regionedit-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'headroom-'));
   try {
     let sourceUrl = raw;
     if (!storeKeyFromUrl(raw)) {
@@ -41,7 +41,7 @@ export default async function regionEditSourceHandler(req, res) {
     }
     return res.status(200).json({
       sourceUrl, viewUrl, hasAudio: !!audio,
-      spec: { width: spec.width, height: spec.height, fps: spec.fps, durationSec: spec.durationSec, codec: spec.codec, pixFmt: spec.pixFmt },
+      spec: { width: spec.width, height: spec.height, fps: spec.fps, durationSec: spec.durationSec, codec: spec.codec, pixFmt: spec.pixFmt, bits: spec.bits },
     });
   } catch (error) {
     return res.status(500).json({ error: `Could not load the clip: ${error.message}` });

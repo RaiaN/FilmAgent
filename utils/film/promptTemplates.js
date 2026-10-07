@@ -377,17 +377,11 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final pr
     vars: [],
     text: 'Review the shot.',
   },
-  'regionEdit.masked': {
-    agent: 'Region Edit',
-    label: 'Edit inside the drawn regions (mask + graded frame)',
-    vars: ['{regions}'],
-    text: 'Edit @Video1: change only the white areas of @Video2. @Image1 is a frame of the same shot with the correction already applied: inside the white areas, make the whole shot look like @Image1.\n{regions}\nKeep everything outside the white areas exactly as it is in @Video1.',
-  },
-  'regionEdit.unmasked': {
-    agent: 'Region Edit',
-    label: 'Edit named areas (text + reference colours, no mask)',
-    vars: ['{regions}'],
-    text: 'Edit @Video1:\n{regions}\nKeep everything else exactly as it is in @Video1.',
+  'headroom.carry': {
+    agent: 'Headroom',
+    label: 'Carry the underexposed keyframes through the clip',
+    vars: ['{keyframes}'],
+    text: 'Edit @Video1: {keyframes}, with the target look applied. Match each one at its moment and apply the same look to every frame. Change only the look: keep every object, movement, the framing and the direction of the light exactly as in @Video1.',
   },
   'scout.survey': {
     agent: 'Tech Scout',

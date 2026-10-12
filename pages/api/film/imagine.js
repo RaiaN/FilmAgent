@@ -1,5 +1,6 @@
 import { CONFIG, arkKey, ARK_KEY_MISSING } from '../../../utils/config';
-import { getModel } from '../../../utils/film/suiteConfig';
+import { getModel, sizeForAspect } from '../../../utils/film/suiteConfig';
+import { imageDims } from '../../../utils/server/imageDims';
 import { checkInBytes, storeKeyFromUrl, readStoreBytes } from '../../../utils/server/mediaStore';
 
 // Single-image generation for the canvas. Clients fire N of these in parallel
@@ -39,6 +40,7 @@ export default async function imagineHandler(req, res) {
     referenceImage,        // single URL/base64, or...
     referenceImages,       // ...array of URLs/base64 (multi-ref blend / mix & match)
     size = '2K',
+    keepAspectArea,        // an EDIT: render at [Image 1]'s own aspect ratio within this pixel budget (replaces size)
     model,                 // optional override; defaults to the suite's Seedream model
     optimizePrompt,        // Seedream 5.0 Pro thinking: true = enabled, false = explicitly DISABLED (fast path), undefined = model default. Works for t2i AND i2i per the Pro docs.
   } = req.body || {};
@@ -91,10 +93,20 @@ export default async function imagineHandler(req, res) {
   try {
     const refs = await Promise.all(rawRefs.map(inlineReference));
 
+    let outSize = size;
+    if (keepAspectArea) {
+      const first = String(refs[0] || '');
+      const m = /^data:[^;,]+;base64,(.*)$/.exec(first);
+      if (!m) return res.status(400).json({ error: 'keepAspectArea needs the source frame as the first reference image' });
+      let dims;
+      try { dims = imageDims(Buffer.from(m[1], 'base64')); } catch (e) { return res.status(400).json({ error: `Could not read the source frame's size: ${e.message}` }); }
+      try { outSize = sizeForAspect(dims.width, dims.height, keepAspectArea); } catch (e) { return res.status(400).json({ error: e.message }); }
+    }
+
     const body = {
       model: seedreamModel,
       prompt: String(prompt).trim(),
-      size,
+      size: outSize,
       watermark: false,
       response_format: 'url',
     };
@@ -129,7 +141,7 @@ export default async function imagineHandler(req, res) {
       const seedreamMessage = data?.error?.message || data?.message || data?.error || `Image generation failed: ${response.status}`;
       // Surface the real reason in the dev server terminal so 400s are diagnosable.
       console.error(
-        `[film/imagine] Seedream ${response.status} — refs=${refs.length} size=${size} :: ${typeof seedreamMessage === 'string' ? seedreamMessage : JSON.stringify(seedreamMessage)}`,
+        `[film/imagine] Seedream ${response.status} — refs=${refs.length} size=${outSize} :: ${typeof seedreamMessage === 'string' ? seedreamMessage : JSON.stringify(seedreamMessage)}`,
         JSON.stringify(data).slice(0, 600),
       );
       return res.status(response.status).json({
@@ -152,7 +164,7 @@ export default async function imagineHandler(req, res) {
         cacheUrl = (await checkInBytes(buf, imgResp.headers.get('content-type') || 'image/jpeg')).url;
       }
     } catch (e) { console.warn('[film/imagine] source check-in failed:', e.message); }
-    return res.status(200).json({ url, cacheUrl, prompt: body.prompt, size, model: seedreamModel });
+    return res.status(200).json({ url, cacheUrl, prompt: body.prompt, size: outSize, model: seedreamModel });
   } catch (error) {
     // A THROW here is NOT a Seedream rejection (those are handled above with the
     // real status/message) — it's an exception around the call: reference inlining

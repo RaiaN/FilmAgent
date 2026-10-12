@@ -5,7 +5,7 @@
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
-import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, defaultImageModelKey, imageTraits } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, editImageArea, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, defaultImageModelKey, imageTraits } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
 import { composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, SHOT_TEMPLATE_BY_ID } from '../recipes';
 import { parseJson } from './director';
@@ -321,7 +321,9 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
   const { url, cacheUrl } = await ctx.client.generateImage({
     prompt,
     referenceImages: images,
-    size: keyframeImageSize(imageModel),
+    // An edit keeps the source frame's aspect ratio ([Image 1] is the frame); a fresh
+    // render is a 16:9 keyframe.
+    ...(frameEdit ? { keepAspectArea: editImageArea(imageModel) } : { size: keyframeImageSize(imageModel) }),
     model: getModel(imageModel, config),
     // Edit-locked renders take the FAST path — thinking explicitly disabled (the frame
     // carries the structure; chain-of-thought only adds latency). Composed renders keep

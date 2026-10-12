@@ -220,14 +220,35 @@ export const IMAGE_MODEL_OPTIONS = [
 // keys off traits, never off slot-name comparisons.
 // keyframeSize: the storyboard-still render size — Pro caps the image AREA at
 // 4,194,304 px (2048²), so its largest 16:9 is 2560×1440; Lite allows the full 2K 16:9.
+// editArea: the pixel budget of an EDIT, which keeps the source's own aspect ratio.
 const IMAGE_MODEL_TRAITS = {
-  seedream: { refCap: 6, shortLabel: 'Lite', thinkingToggle: false, keyframeSize: '2848x1600' },
-  seedreamPro: { refCap: 10, shortLabel: 'Pro', thinkingToggle: true, keyframeSize: '2560x1440' },
+  seedream: { refCap: 6, shortLabel: 'Lite', thinkingToggle: false, keyframeSize: '2848x1600', editArea: 2848 * 1600 },
+  seedreamPro: { refCap: 10, shortLabel: 'Pro', thinkingToggle: true, keyframeSize: '2560x1440', editArea: 2048 * 2048 },
 };
 export const imageTraits = (key) => IMAGE_MODEL_TRAITS[key] || IMAGE_MODEL_TRAITS[imageModelKeyOf(key)] || IMAGE_MODEL_TRAITS.seedream;
 export const IMAGE_REF_CAP = Object.fromEntries(Object.entries(IMAGE_MODEL_TRAITS).map(([k, t]) => [k, t.refCap]));
 export const imageRefCap = (key) => imageTraits(key).refCap;
 export const keyframeImageSize = (key) => imageTraits(key).keyframeSize;
+export const editImageArea = (key) => imageTraits(key).editArea;
+// 'WxH' with the source's aspect ratio inside a pixel budget: the multiple-of-16 pair
+// closest to that ratio between 88% and 100% of the budget (the floor keeps every
+// result above Seedream's 2560×1440 minimum). Seedream renders 1:16 … 16:1.
+export const sizeForAspect = (width, height, area) => {
+  const w = Number(width); const h = Number(height); const a = Number(area);
+  if (!(w > 0 && h > 0 && a > 0)) throw new Error(`sizeForAspect needs a source size and a budget (got ${width}×${height}, ${area})`);
+  const r = w / h;
+  if (r > 16 || r < 1 / 16) throw new Error(`The source is ${w}×${h} — Seedream only renders aspect ratios between 1:16 and 16:1.`);
+  const top = Math.floor(Math.sqrt(a * r) / 16) * 16;
+  let best = null;
+  for (let W = top; W >= Math.max(16, top - 16 * 24); W -= 16) {
+    const H = Math.round(W / r / 16) * 16;
+    if (H < 16 || W * H > a || W * H < a * 0.88) continue;
+    const err = Math.abs(W / H - r) / r;
+    if (!best || err < best.err - 1e-4) best = { W, H, err }; // ties keep the larger (earlier) size
+  }
+  if (!best) throw new Error(`No ${w}×${h}-shaped size fits a ${a}-pixel budget.`);
+  return `${best.W}x${best.H}`;
+};
 // Clamp ANY size for the chosen image model: Lite passes through; for Pro an explicit
 // 'WxH' over the area cap scales down to fit (aspect kept, snapped to multiples of 16),
 // and a bare tier name ('2K'/'4K' — the model would pick its own, possibly over-cap,

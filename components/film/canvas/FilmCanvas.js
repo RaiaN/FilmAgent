@@ -2135,12 +2135,11 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       : 'Color assignments cleared — attaching falls back to the generic lock.');
   }, [plateCastId, setNodes]);
 
-  // UNIVERSAL frame editing — Edit on ANY non-storyboard image opens the SAME shot
-  // editor (storyboard frames reach it via their own Edit): the image itself seeds a
-  // LOCAL reference pool as [Image 1], more board images can join, Re-derive writes a
-  // body FROM the ticked refs, and Regenerate renders a NEW frame BESIDE the source —
-  // never overwriting (uploads and plates stay; edits chain). The editor's state
-  // persists on the node (editBody/editTemplate/editExpression/editFigures/editPool).
+  // UNIVERSAL frame editing — Edit on ANY non-storyboard image opens the SAME frame
+  // editor the START frames use (storyboard frames reach it via their own Edit): the
+  // image itself is [Image 1] of a LOCAL reference pool, more board images can join,
+  // marks can be drawn on it, and the result replaces the image in place. The editor's
+  // state persists on the node (editBody/editFigures/editPool).
   const [plainPool, setPlainPool] = useState([]);
   // The previz plate editor targets a PLATE, not a board node: {cardId, index} plus its
   // own reference pool. Editing a plate must not manufacture board nodes as a side
@@ -2161,29 +2160,34 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   }, []);
   const regeneratePlainFrame = useCallback(async (id, edits = {}) => {
     const src = nodesRef.current.find((n) => n.id === id);
-    if (!src) return;
-    const shot = { beat: src.data?.label || 'frame', shotTemplate: edits.shotTemplate || 'medium-shot', expression: edits.expression || '', figures: Array.isArray(edits.figures) ? edits.figures : [], body: String(edits.body || '').trim() };
-    if (!shot.body) { Message.warning('Write the body first — or Re-derive it from the ticked references.'); return; }
-    let { ordered, body } = resolveShotRefs(shot, plainPool);
-    // Structure lock (same switch as storyboard cards): the source frame leads as [Image 1].
-    const frameSrc = (edits.annotatedFrame || refUrl(src) || src.data?.cacheUrl) || '';
-    const frameEdit = !!(edits.useFrame && frameSrc);
-    if (frameEdit) ({ body, refs: ordered } = lockBodyToFrame(body, ordered, frameSrc));
-    // Camera change under the lock = a named change: reframe the same scene.
-    const camera = frameEdit && shot.shotTemplate && shot.shotTemplate !== (src.data?.editTemplate || 'medium-shot')
-      ? (SHOT_TEMPLATE_BY_ID[shot.shotTemplate] || null) : null;
+    const srcUrl = src && (refUrl(src) || src.data?.cacheUrl);
+    if (!srcUrl) return;
+    // Ticked "use this frame" (the default) = an edit of the frame (text and/or drawn
+    // marks); unticked = Regenerate: a fresh still from the text and the ticked references.
+    const { annotatedFrame, body = '', shotTemplate = '', figures, useFrame = true } = edits;
+    const lock = !!useFrame;
+    let instruction = String(body || '').trim();
+    if (!instruction && !annotatedFrame) { Message.warning(lock ? 'Describe the change — the frame edits by instruction (or draw marks).' : 'Write what the new frame shows — Regenerate renders it from the text.'); return; }
+    const pool = [srcUrl, ...plainPool.slice(1)]; // [Image 1] = the image itself, re-resolved live
+    const picked = Array.isArray(figures) ? figures : [];
+    const ticked = lock ? [1, ...picked.filter((f) => f > 1)] : picked;
+    const { ordered, body: renumbered } = resolveShotRefs({ figures: ticked, body: instruction }, pool);
+    instruction = renumbered;
+    const camera = shotTemplate ? (SHOT_TEMPLATE_BY_ID[shotTemplate] || null) : null;
     // The card IS the frame being iterated — the render replaces its image in place,
-    // exactly like a keyframe card. Duplicate first to keep
-    // both versions (the previous image's bytes stay safe in the store/Library either way).
-    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, editBody: shot.body, editTemplate: shot.shotTemplate, editExpression: shot.expression, editFigures: shot.figures, editPool: plainPool, loading: true, error: undefined } } : n)));
+    // exactly like a keyframe card. Duplicate first to keep both versions (the previous
+    // image's bytes stay safe in the store/Library either way).
+    setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, editBody: String(body || '').trim(), editFigures: picked, editPool: plainPool, loading: true, error: undefined } } : n)));
     setExpandedKeyframeId(null);
-    traceRef.current.startRun({ note: 'Agent · Frame edit (shot editor)' });
+    traceRef.current.startRun({ note: `Agent · Frame ${lock ? 'edit' : 'regenerate'}` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
-      // A node that carries its own RENDER CONVENTION (a clay blockout, any styled
-      // plate) re-states it on every edit — otherwise the keyframe wrapper's photoreal
-      // default silently converts the medium.
-      const out = await storyboardKeyframe({ body, shotTemplate: shot.shotTemplate, style: src.data?.styleLock || '', expression: shot.expression, refs: ordered, imageModel: defaultImageModelKey(), frameEdit, frameEditAnnotated: !!edits.annotatedFrame, composeEdit: true, camera }, ctx);
+      // A node that carries its own RENDER CONVENTION (a clay blockout, any styled plate)
+      // re-states it on a fresh render — otherwise the keyframe wrapper's photoreal
+      // default silently converts the medium. An edit keeps the frame's own medium.
+      const out = lock
+        ? await storyboardKeyframe({ body: instruction, refs: [annotatedFrame || ordered[0] || srcUrl, ...ordered.slice(1)], imageModel: defaultImageModelKey(), frameEdit: true, frameEditAnnotated: !!annotatedFrame, composeEdit: true, camera }, ctx)
+        : await storyboardKeyframe({ body: instruction, shotTemplate, style: src.data?.styleLock || '', refs: ordered, imageModel: defaultImageModelKey() }, ctx);
       const { url, cacheUrl } = out;
       if (out.editMissing?.length) Message.warning(`The edit prompt dropped ${out.editMissing.join(', ')} — that reference may not be used. Re-render or rephrase.`);
       // The image CHANGED: stale display/registration state must not survive — the old
@@ -6075,7 +6079,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         return (
           <KeyframeEditor
             key={expandedKeyframeId}
-            shot={{ beat: d.label || 'frame', body: d.editBody || '', shotTemplate: d.editTemplate || 'medium-shot', expression: d.editExpression || '', figures: Array.isArray(d.editFigures) && d.editFigures.length ? d.editFigures : [1] }}
+            mode="frame"
+            shot={{ beat: d.label || 'frame', body: d.editBody || '', shotTemplate: '', expression: '', figures: Array.isArray(d.editFigures) && d.editFigures.length ? d.editFigures : [1] }}
             pool={plainPool}
             preview={src}
             loading={false}

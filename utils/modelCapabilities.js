@@ -15,7 +15,6 @@ const SLOT_CAPABILITIES = {
         guidance_scale: false,
         supports_watermark: true,
         output_format: true,
-        supports_seed: false,
         max_ref_images: 6,
     },
     // Seedream 5.0 Pro — output area caps at 2048² (4.19MP): no 4K, so explicit
@@ -28,7 +27,6 @@ const SLOT_CAPABILITIES = {
         guidance_scale: false,
         supports_watermark: true,
         output_format: false,
-        supports_seed: false,
         max_ref_images: 10,
     },
 
@@ -116,7 +114,6 @@ const CATALOG_CAPABILITIES = {
         guidance_scale: false,
         supports_watermark: true,
         output_format: true,
-        supports_seed: false,
         max_ref_images: 14,
     },
 };
@@ -129,7 +126,6 @@ export const DEFAULT_CAPABILITIES = {
     guidance_scale: false,
     supports_watermark: true,
     output_format: false,
-    supports_seed: true,
 
     // Seedance defaults
     resolutions: ['480p', '720p', '1080p', '4k'],

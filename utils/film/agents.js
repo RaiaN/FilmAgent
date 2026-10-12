@@ -280,7 +280,7 @@ export const castAgent = {
 
 // The STORYBOARD agent: the STORY → a visual storyboard, frame by frame. One Seedream
 // frame per story element (CUT-marked), rendered SEQUENTIALLY — each frame uses the
-// PREVIOUS frame as a visual reference and ONE shared seed for consistency. No bible refs.
+// PREVIOUS frame as a visual reference for consistency. No bible refs.
 // Storyboard = a conversational SHOT DIVISION: select a Brief node and Run, and a chat node
 // lands on the board bound to a column of SHOT cards. You brainstorm the shot list with a
 // cinematographer; each turn it updates the cards. Canvas-only (it lays a chat node + cards) —

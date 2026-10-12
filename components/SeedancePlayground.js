@@ -680,17 +680,6 @@ const SeedancePlayground = ({
             {isAdvancedOpen && (
                 <div style={{ marginTop: 12, padding: '12px', background: '#f8fafc', borderRadius: 8 }}>
                     <Row gutter={[24, 12]}>
-                        {!isFieldHidden('seed') && (
-                            <Col span={12}>
-                                <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Seed</div>
-                                <InputNumber 
-                                    value={formValues.seed} 
-                                    onChange={(val) => handleInputChange('seed', val)}
-                                    placeholder="Random (-1)"
-                                    style={{ width: '100%' }}
-                                />
-                            </Col>
-                        )}
                         {!isFieldHidden('watermark') && (
                             <Col span={12}>
                                 <div style={{ fontSize: 12, marginBottom: 4, color: '#64748b' }}>Options</div>

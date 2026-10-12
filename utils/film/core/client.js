@@ -37,11 +37,11 @@ const TASK_FAILED = ['failed', 'expired', 'cancelled'];
 // Used by the canvas (L4). Keeps the existing request shapes unchanged.
 
 export const createBrowserClient = () => ({
-  async generateImage({ prompt, referenceImages, size, model, seed, optimizePrompt }) {
+  async generateImage({ prompt, referenceImages, size, model, optimizePrompt }) {
     const res = await fetch('/api/film/imagine', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, referenceImages, size, model, seed, optimizePrompt }),
+      body: JSON.stringify({ prompt, referenceImages, size, model, optimizePrompt }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(errMsg(data, `Image generation failed (HTTP ${res.status})`));

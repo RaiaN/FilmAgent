@@ -40,7 +40,6 @@ export default async function imagineHandler(req, res) {
     referenceImages,       // ...array of URLs/base64 (multi-ref blend / mix & match)
     size = '2K',
     model,                 // optional override; defaults to the suite's Seedream model
-    seed,                  // optional fixed seed (the Storyboard holds it constant across frames)
     optimizePrompt,        // Seedream 5.0 Pro thinking: true = enabled, false = explicitly DISABLED (fast path), undefined = model default. Works for t2i AND i2i per the Pro docs.
   } = req.body || {};
   let seedreamModel = model;
@@ -104,7 +103,6 @@ export default async function imagineHandler(req, res) {
     } else if (refs.length > 1) {
       body.image = refs; // Seedream multi-image blend
     }
-    if (seed != null && seed !== '') body.seed = Number(seed);
     // Seedream 5.0 Pro THINKING switch (per the Pro doc: works for BOTH text-to-image
     // and image-to-image): optimize_prompt: true arms the options block, thinking
     // 'enabled' | 'disabled' flips the chain-of-thought step. true → enabled (quality),

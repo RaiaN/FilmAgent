@@ -21,7 +21,7 @@ async function seedreamHandler(req, res) {
   const {
     model, prompt, baseUrl, size, watermark, responseFormat, image,
     sequential_image_generation, sequential_image_generation_options,
-    optimize_prompt_options, output_format, guidance_scale, seed
+    optimize_prompt_options, output_format, guidance_scale
   } = req.body;
 
   if (!prompt) {
@@ -77,11 +77,6 @@ async function seedreamHandler(req, res) {
     // Guidance Scale (3.0 only)
     if (guidance_scale !== undefined && guidance_scale !== null) {
       payload.guidance_scale = guidance_scale;
-    }
-
-    // Seed (3.0 only)
-    if (seed !== undefined && seed !== null) {
-      payload.seed = seed;
     }
 
     const response = await fetch(endpoint, {

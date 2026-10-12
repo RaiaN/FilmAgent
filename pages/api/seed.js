@@ -232,7 +232,9 @@ async function seedHandler(req, res) {
     // Node's fetch buries the real network reason (ECONNRESET / ENOTFOUND / ETIMEDOUT)
     // in error.cause — surface it, or "fetch failed" is all anyone ever sees.
     const cause = [error.cause?.code, error.cause?.message].filter(Boolean).join(' ');
-    return res.status(500).json({ error: 'Request failed', details: cause ? `${error.message} (${cause})` : error.message });
+    const reason = cause ? `${error.message} (${cause})` : error.message;
+    console.error('[seed] request failed:', reason);
+    return res.status(500).json({ error: reason });
   }
 }
 

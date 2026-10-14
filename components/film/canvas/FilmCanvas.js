@@ -3323,7 +3323,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     (async () => {
       try {
-        const fmt = card.data?.outputFormat === 'mov' && (videoTraits(d.modelKey).movAt || []).includes(resolution) ? 'mov' : null;
+        const fmt = card.data?.outputFormat === 'mov' ? 'mov' : null;
         const { taskId } = await finishDraft({ draftTaskId: d.taskId, modelKey: d.modelKey, resolution, outputFormat: fmt }, ctx);
         resumedTakesRef.current.add(takeId);
         setNodes((ns) => ns.map((n) => (n.id === takeId ? { ...n, data: { ...n.data, taskId, cutId } } : n)));

@@ -321,6 +321,7 @@ const VIDEO_MODEL_TRAITS = {
     overallBlock: true,
     refCap: 30,
     draftFinals: ['1080p', '4K'],     // live-probed: 1080p and 4K finals render (HEVC Main 10); 480p and 720p rejected
+    movAt: ['1080p', '4K'],           // MOV master (HEVC 10-bit 4:4:4) via output_format: 'mov'
   },
 };
 

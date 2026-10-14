@@ -320,7 +320,7 @@ const VIDEO_MODEL_TRAITS = {
     refPrefix: '@',
     overallBlock: true,
     refCap: 30,
-    draftFinals: ['4K'],              // live-probed: 480p, 720p and 1080p finals rejected — 4K is the one left
+    draftFinals: ['1080p', '4K'],     // live-probed: 1080p and 4K finals render (HEVC Main 10); 480p and 720p rejected
   },
 };
 

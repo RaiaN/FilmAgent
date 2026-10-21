@@ -1,5 +1,5 @@
 import { CONFIG, arkKey, ARK_KEY_MISSING } from '../../utils/config';
-import { getModel, resolveModelId, REASONER_OPTIONS, REASONING_EFFORTS_ALL } from '../../utils/film/suiteConfig';
+import { getModel, resolveModelId, REASONER_OPTIONS, REASONING_EFFORTS_ALL, MODEL_ENV_VARS } from '../../utils/film/suiteConfig';
 import { supportsReasoningEffort } from '../../utils/modelCapabilities';
 import { storeKeyFromUrl, readStoreBytes } from '../../utils/server/mediaStore';
 import { presignStoreUrl } from '../../utils/server/presignStore';
@@ -38,6 +38,13 @@ async function seedHandler(req, res) {
   if (!resolvedModelId) {
     try { resolvedModelId = getModel('reasoner'); } catch (e) { return res.status(500).json({ error: e.message }); }
   }
+  // Only the LLM endpoints configured in .env.local (the planner slots) are callable:
+  // a standard model name or a stale id is refused, naming the variables to set.
+  const reasonerIds = REASONER_OPTIONS.map((o) => resolveModelId(o.key)).filter(Boolean);
+  if (!reasonerIds.includes(resolvedModelId)) {
+    const vars = REASONER_OPTIONS.map((o) => MODEL_ENV_VARS[o.key]).join(' / ');
+    return res.status(400).json({ error: `"${resolvedModelId}" is not a configured LLM endpoint. Use one of the endpoints set in .env.local (${vars}).` });
+  }
 
   // The reasoner's backend re-downloads any http(s) image we pass — and Seedream 5.0
   // PRO outputs live on signed TOS URLs it cannot fetch (400 "Error while downloading:
@@ -75,23 +82,12 @@ async function seedHandler(req, res) {
     if (video && !videoUrl) {
       return res.status(400).json({ error: 'The video could not be presigned for the reasoner — check TOS credentials in .env.local, or re-check-in the clip.' });
     }
-    // WHICH API SHAPE: /responses + input formatting, or chat completions.
-    //
-    // The SLOT decides, never the id string. Every reasoner slot in this app speaks
-    // /responses — Seed 2.0 Pro, Seed-SC and Seed 2.1 Turbo alike — but an account-scoped
-    // ep-… endpoint id says nothing about the model behind it, so a name-prefix guess gets
-    // Seed-SC wrong every time. Matching the id against the configured reasoner slots is
-    // the only thing that actually knows.
-    const reasonerIds = REASONER_OPTIONS.map((o) => resolveModelId(o.key)).filter(Boolean);
+    // WHICH API SHAPE: every configured LLM slot (Seed 2.0 Pro, Seed-SC, Seed 2.1 Turbo)
+    // speaks /responses; MODELARK_REASONER_PROTOCOL=chat points a deployment at chat
+    // completions instead.
     // DEEP-REASONING EFFORT: sent only to a model that takes it ('minimal' = off).
     const effort = supportsReasoningEffort(resolvedModelId) && REASONING_EFFORTS_ALL.includes(reasoningEffort) ? reasoningEffort : null;
-    // The escape hatch stays for a deployment that points a reasoner slot at something
-    // genuinely chat-shaped; the prefix check is the last resort, for a model id that
-    // was passed in without being one of the configured slots.
-    const override = String(process.env.MODELARK_REASONER_PROTOCOL || '').trim();
-    const useResponses = override
-      ? override === 'responses'
-      : (reasonerIds.includes(resolvedModelId) || resolvedModelId.startsWith('seed-2-0-pro'));
+    const useResponses = String(process.env.MODELARK_REASONER_PROTOCOL || '').trim() !== 'chat';
     
     // Planner slots: /responses with input formatting.
     if (useResponses) {
@@ -178,7 +174,7 @@ async function seedHandler(req, res) {
       return res.status(200).json({ content, ...(reasoning ? { reasoning } : {}), raw: data });
     }
 
-    // Standard Chat Completions logic for other models
+    // Chat completions (MODELARK_REASONER_PROTOCOL=chat).
     const messages = [
       { role: 'system', content: systemPrompt || 'You are a helpful assistant.' }
     ];

@@ -18,7 +18,6 @@ export const AGENT_COLORS = {
   inspiration: '#ff7d00',          // orange
   characterVariations: '#165dff',  // blue
   locationVariations: '#00b42a',   // green
-  techScout: '#0e8f7e',            // deep teal (empty-location survey → background frames)
   animate: '#722ed1',              // purple (video)
   cast: '#9a5b13',                 // bronze (pre-production: cast & world)
   story: '#f7ba1e',                // gold (the narrative spine: key events)
@@ -318,25 +317,6 @@ export const editAgent = {
   },
 };
 
-// TECH SCOUT: renders the EMPTY location from one plate (locked as the first frame) along
-// a tested camera path, then saves background frames from the survey for SHOT cards and
-// flags any frame where a person or animal appeared. The flow lives on the board.
-export const techScoutAgent = {
-  id: 'techScout',
-  phase: 'pre',
-  label: 'Tech Scout',
-  icon: 'scout',
-  color: AGENT_COLORS.techScout,
-  consumes: ['image'],
-  needsSelection: false,
-  grouped: true,
-  defaultSettings: { anchorId: '', paths: ['turn', 'walk'], frames: 6, resolution: '1080p', videoModel: '' },
-  describe: 'Renders the empty location from a plate and saves background frames for SHOT cards.',
-  async run() {
-    throw new Error('Tech Scout runs from its card on the board.');
-  },
-};
-
 // The PREVIZ agent: blocks a scene (set, actors, who moves where, cameras, timing), draws
 // it as a top-down schematic, and turns the schematic into an animatic with Seedance.
 export const previzAgent = {
@@ -402,7 +382,6 @@ export const AGENTS = [
   castAgent,
   characterVariationsAgent,
   locationVariationsAgent,
-  techScoutAgent,
   audioAgent,
   inspirationAgent,
   previzAgent,

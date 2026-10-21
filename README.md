@@ -13,7 +13,6 @@
 <img src="docs/media/character-variations.png" alt="Character Variations: new looks, same face">
 <img src="docs/media/location-variations.png" alt="Location Variations & Coverage: one place, every angle and hour">
 <img src="docs/media/storyboard.png" alt="Storyboard: one row per shot, with its opening frame">
-<img src="docs/media/tech-scout.png" alt="Tech Scout: clean background frames from an empty location">
 <img src="docs/media/previz.png" alt="Previz: blocking, blockout animatic, motion reference">
 
 ## Production

@@ -2,7 +2,6 @@ import { createContext, memo, useContext } from 'react';
 import { Button, Typography } from '@arco-design/web-react';
 import { IconPlayArrow, IconSettings } from '@arco-design/web-react/icon';
 import { AGENT_MAP } from '../../../utils/film/agents';
-import { SCOUT_PATHS } from '../../../utils/film/core/scout';
 import { agentIcon } from './agentIcons';
 
 const { Text } = Typography;
@@ -38,11 +37,6 @@ const summarize = (agentId, s, imageAssets) => {
       const anchor = s.anchorId ? (label(s.anchorId) || 'source picked') : noSrc;
       return `${anchor} · ${s.count || 4} variations${s.direction ? ` · ${s.direction}` : ''}`;
     }
-    case 'techScout': {
-      const plate = s.anchorId ? (label(s.anchorId) || 'plate picked') : 'no plate picked';
-      const paths = (s.paths || []).map((p) => SCOUT_PATHS[p]?.label).filter(Boolean);
-      return `${plate} · ${paths.length ? paths.join(' + ') : 'no path ticked'} · ${s.frames || 6} background frames each`;
-    }
     case 'inspiration':
       return `${s.count || 6} moods${prompt ? ` · ${prompt}` : ' · no prompt yet'}${(s.refs || []).length ? ` · ${(s.refs || []).length} ref${(s.refs || []).length === 1 ? '' : 's'}` : ''}`;
     default:
@@ -52,7 +46,7 @@ const summarize = (agentId, s, imageAssets) => {
 
 // The anchor/mood thumbnail, when the agent has a single bound image.
 const boundThumb = (agentId, s, imageAssets) => {
-  const id = agentId === 'audio' ? s.imageRef : (agentId === 'characterVariations' || agentId === 'locationVariations' || agentId === 'techScout') ? s.anchorId : '';
+  const id = agentId === 'audio' ? s.imageRef : (agentId === 'characterVariations' || agentId === 'locationVariations') ? s.anchorId : '';
   if (!id) return null;
   return (imageAssets.find((a) => a.id === id) || {}).url || null;
 };

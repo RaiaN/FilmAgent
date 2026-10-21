@@ -18,7 +18,7 @@ const arrow = (acc) => `<div class="arrow" style="--acc:${acc}"></div>`;
 
 const ACC = {
   story: '#7c8cff', cast: '#e0915a', charvar: '#4f7dff', locvar: '#3fbf6f', mood: '#ff8a3d', board: '#a7b0c2',
-  scout: '#2fb8a6', previz: '#4fa3ff', shot: '#ff4f7b', edit: '#2fbf71', audio: '#a274ff', cut: '#ffc23d',
+  previz: '#4fa3ff', shot: '#ff4f7b', edit: '#2fbf71', audio: '#a274ff', cut: '#ffc23d',
 };
 
 export const SCENES = {
@@ -136,20 +136,6 @@ export const SCENES = {
       ${arrow(ACC.board)}
       <div class="card" style="flex:1"><div class="hd"><b>Storyboard strip</b>&nbsp; 4 shots <span style="margin-left:auto;background:#b07a2a;color:#fff;border-radius:5px;padding:5px 9px;letter-spacing:0;text-transform:none;font-family:var(--sans)">Film →</span></div>
         <div class="col" style="gap:0">${rows.map(([s, slug, t], i) => `<div class="row" style="gap:14px;padding:9px 14px;border-top:${i ? '1px solid var(--line)' : 'none'}"><span class="mono" style="font-size:12px;color:var(--dim)">#0${i + 1}</span><div style="flex:1"><div style="font-size:13px;font-weight:650">${slug}</div><div class="dim" style="font-size:13px;margin-top:3px">${t}</div></div>${frame(s, { w: 176, tag: 'START' })}</div>`).join('')}</div></div>
-    </div>`;
-  } },
-
-  'tech-scout': { size: 'agent', html: () => {
-    const base = { mood: 'night', kind: 'street', seed: 11, rain: true, figures: [] };
-    const cams = [[0, 0, 1000, 562], [500, 200, 500, 281], [0, 200, 500, 281], [250, 120, 500, 281], [380, 260, 300, 169], [100, 60, 700, 394]];
-    const orbit = `<svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="70" fill="none" stroke="#2fb8a6" stroke-dasharray="4 5" opacity=".7"/><rect x="72" y="72" width="56" height="56" rx="6" fill="#16303a" stroke="#2fb8a6"/>${[0, 60, 120, 180, 240, 300].map((a, i) => { const x = 100 + 70 * Math.cos((a * Math.PI) / 180); const y = 100 + 70 * Math.sin((a * Math.PI) / 180); return `<g transform="translate(${x} ${y}) rotate(${a + 180})"><path d="M0 0 L22 -10 L22 10 Z" fill="#2fb8a6" opacity=".25"/><circle r="8" fill="#2fb8a6"/></g><text x="${x}" y="${y + 3.5}" font-size="9" font-weight="700" text-anchor="middle" fill="#0b0d12">${i + 1}</text>`; }).join('')}</svg>`;
-    return `${head(ACC.scout, 'Pre-production', 'Tech Scout', 'Survey an empty location. Bring back clean background frames.')}
-    <div class="body" style="justify-content:center">
-      <div class="col" style="gap:8px;align-items:center">${frame(still(base), { w: 250, tag: 'Location plate' })}</div>
-      ${arrow(ACC.scout)}
-      <div style="width:170px;height:170px">${orbit}</div>
-      ${arrow(ACC.scout)}
-      <div class="col" style="gap:10px"><div style="display:grid;grid-template-columns:repeat(3,170px);gap:10px">${cams.map((c, i) => frame(still({ ...base, cam: c }), { w: 170, tag: `${i + 1}` })).join('')}</div><span class="chip acc" style="--acc:${ACC.scout};align-self:flex-start">✓ no people in frame</span></div>
     </div>`;
   } },
 

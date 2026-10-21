@@ -383,30 +383,6 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final pr
     vars: ['{keyframes}'],
     text: 'Edit @Video1: {keyframes}, with the target look applied. Match each one at its moment and apply the same look to every frame. Change only the look: keep every object, movement, the framing and the direction of the light exactly as in @Video1.',
   },
-  'scout.survey': {
-    agent: 'Tech Scout',
-    label: 'Empty-location survey (video prompt)',
-    vars: ['{path}'],
-    text: 'The empty location from the first frame. {path} The location stays completely empty: no people or animals appear at any moment. Nothing moves except the camera and the small natural motion already in the scene.',
-  },
-  'scout.path.turn': {
-    agent: 'Tech Scout',
-    label: 'Survey path: turn in place',
-    vars: [],
-    text: 'The camera stands in one spot at eye level and slowly pans to the right through a full 360-degree turn, ending where it started.',
-  },
-  'scout.path.walk': {
-    agent: 'Tech Scout',
-    label: 'Survey path: walk-in',
-    vars: [],
-    text: 'The camera, at eye level on a smooth gimbal, walks slowly forward through the space along its main open path.',
-  },
-  'scout.emptyCheck': {
-    agent: 'Tech Scout',
-    label: 'Background frame: people check (grounding)',
-    vars: [],
-    text: 'List every person or animal visible anywhere in this image, including tiny, distant, partial or silhouetted ones, each as {"what": "...", "bbox": "<bbox>x1 y1 x2 y2</bbox>"}. Return a JSON list; return [] if there are none.',
-  },
   'deconstruct.describeFrame': {
     agent: 'Take Viewer',
     label: 'Describe one frame (Take Viewer note)',

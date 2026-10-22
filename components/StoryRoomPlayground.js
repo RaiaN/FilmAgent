@@ -3,7 +3,7 @@ import { Button, Input, InputNumber, Message, Tag, Tooltip, Typography } from '@
 import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
-import { AssetBoard, BeatSheet, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, platesFor } from './storyroom/panels';
+import { AssetBoard, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, platesFor } from './storyroom/panels';
 import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, scenesFound, linkOf, reopenShot, blockScene, blockingPlan, cardsOf, cardAsShot, secondsOfCard, renderCardPrompt, writeCard, writeCards } from '../utils/film/core/story';
 import { previzSchematic } from '../utils/film/core/previz';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
@@ -87,7 +87,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     setAssets(Array.isArray(st.assets) ? st.assets : []);
     setLook(typeof st.look === 'string' ? st.look : '');
     setLookImages(Array.isArray(st.lookImages) ? st.lookImages : (typeof st.lookImage === 'string' && st.lookImage ? [st.lookImage] : []));
-    setTab(typeof st.tab === 'string' ? st.tab : 'story');
+    setTab(['story', 'look', 'assets', 'shots'].includes(st.tab) ? st.tab : 'story');
     setSendId(typeof st.sendId === 'string' ? st.sendId : '');
     setShots(Array.isArray(st.shots) ? st.shots.map((x) => ({ ...x, assets: x.assets || [], shows: x.shows || [], body: x.body ?? x.prompt ?? '' })) : []);
     setFixSet(null);
@@ -223,7 +223,6 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
   const writeAllShots = () => run('facts', async () => {
     const f = await storyFacts({ blueprint }, ctx);
     setFacts(f);
-    setTab('beats');
     setAssets([]);
     setShots([]);
     setBusy({ role: 'plan', at: Date.now() });
@@ -273,7 +272,6 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     const card = cardsOf(shots).find((c) => c.start === start);
     landCard(await writeCard({ blueprint, facts, assets, shots, card }, ctx));
   });
-  const scenes = sceneNumbers(shots);
   const cards = cardsOf(shots);
   // A shot either continues the shot before it or opens a new scene — set by the scene
   // pass, or by you.
@@ -284,10 +282,16 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
   }));
   // Inside a scene, a shot can start the next card: the scene is too long for one generation.
   const setNewCard = (i, on) => setShots((list) => list.map((x, j) => (j === i ? { ...x, newCard: !!on } : x)));
+  // Where a shot sits: inside its card, starting a new card, or opening a new scene.
+  const setPlacement = (i, where) => {
+    setOpensScene(i, where === 'scene');
+    if (where !== 'scene') setNewCard(i, where === 'card');
+  };
   const setShotField = (i, field, v) => setShots((list) => list.map((x, j) => (j === i ? { ...x, [field]: v } : x)));
   const setAsset = (key, field, v) => setAssets((list) => list.map((a) => (a.key === key ? { ...a, [field]: v } : a)));
   const toggleBinding = (i, key) => setShots((list) => list.map((x, j) => (j === i ? { ...x, assets: x.assets.includes(key) ? x.assets.filter((k) => k !== key) : [...x.assets, key] } : x)));
-  const shotsOfFact = (id) => shots.map((x, i) => (x.shows.includes(id) ? i + 1 : 0)).filter(Boolean);
+  // The beat sheet's promise: every fact it lists is shown by some shot — checked here.
+  const uncovered = shots.length ? facts.filter((f) => !shots.some((x) => x.shows.includes(f.id))) : [];
   const usage = (key) => shots.filter((x) => x.location === key || x.assets.includes(key)).length;
 
   // Reference images: the board plates of the bound assets (characters, props, then the
@@ -304,6 +308,11 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     return { list, numbers };
   };
   const cardRefs = (card) => shotRefs(cardAsShot(shots, card));
+  // A card not filmed yet shows its location plate.
+  const posterOf = (card) => {
+    const loc = assets.find((a) => a.key === shots[card.start].location);
+    return loc ? platesFor(loc, boardPlates).main?.url || '' : '';
+  };
   const cardPrompt = (card) => renderCardPrompt({ shots, card, assets, look, refs: cardRefs(card).numbers });
   // A card's board card: stamped with this story's board key and the card's first shot.
   const boardCardOf = (card) => boardShots.find((c) => sendId && c.sendId === sendId && c.card && c.index === card.start) || null;
@@ -408,7 +417,6 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
   const TABS = [
     { id: 'story', label: 'Story', count: null },
     { id: 'look', label: 'Look', count: look ? '●' : null },
-    { id: 'beats', label: 'Beat sheet', count: facts.length || null },
     { id: 'assets', label: 'Assets', count: assets.length || null },
     { id: 'shots', label: 'Shots', count: shots.length || null },
   ];
@@ -575,18 +583,17 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
     </div>
   );
 
-  const needsBlueprint = <Empty title="No story yet" hint="Develop an idea on the Story tab first — the beat sheet, assets and shots all grow from its blueprint." action={<Button onClick={() => setTab('story')}>Go to Story</Button>} />;
-  const needsShots = (what) => <Empty title={`No ${what} yet`} hint="Write shots turns the blueprint into a visual beat sheet, a casting board of characters, locations and props, and one Seedance 2.5 shot per moment." action={<Button type="primary" disabled={!canWrite} onClick={writeAllShots}>Write shots</Button>} />;
+  const needsBlueprint = <Empty title="No story yet" hint="Develop an idea on the Story tab first — the assets and shots all grow from its blueprint." action={<Button onClick={() => setTab('story')}>Go to Story</Button>} />;
+  const needsShots = (what) => <Empty title={`No ${what} yet`} hint="Write shots turns the blueprint into a casting board of characters, locations and props, and one Seedance 2.5 shot per moment." action={<Button type="primary" disabled={!canWrite} onClick={writeAllShots}>Write shots</Button>} />;
 
   const panel = {
     story: storyPanel,
     look: <LookPanel look={look} setLook={setLook} presets={presets} images={lookImages} addImages={addLookImages} removeImage={(i) => setLookImages((l) => l.filter((_, j) => j !== i))} readImages={readLook} busy={!!busy} />,
-    beats: !blueprint ? needsBlueprint : facts.length ? <BeatSheet facts={facts} shotsOfFact={shotsOfFact} onOpenShot={(i) => { setTab('shots'); setOpenShot(i); }} /> : needsShots('beat sheet'),
     assets: !blueprint ? needsBlueprint : assets.length ? <AssetBoard assets={assets} setAsset={setAsset} usage={usage} plates={boardPlates} /> : needsShots('assets'),
     shots: !blueprint ? needsBlueprint : shots.length ? (
       <ShotBoard
-        shots={shots} assets={assets} cards={cards} scenes={scenes} scenesKnown={scenesFound(shots)} busy={!!busy} working={working}
-        onOpen={setOpenShot} refsOf={(card) => cardRefs(card).list} boardCardOf={boardCardOf} onJump={onOpenOnBoard}
+        shots={shots} assets={assets} cards={cards} uncovered={uncovered} scenesKnown={scenesFound(shots)} busy={!!busy} working={working}
+        onOpen={setOpenShot} posterOf={posterOf} boardCardOf={boardCardOf} onJump={onOpenOnBoard}
         locationName={(x) => assets.find((a) => a.key === x.location)?.name || ''}
         onRewriteCard={rewriteCard}
         onBlock={blockOne} onDrawBlocking={drawBlocking} setBlocking={setBlocking}
@@ -656,9 +663,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
         onGoto={(i) => setOpenShot(i)}
         setField={setShotField}
         toggleBinding={toggleBinding}
-        onOpensScene={setOpensScene}
-        onNewCard={setNewCard}
-        onJump={(id) => { setOpenShot(null); onOpenOnBoard?.(id); }}
+        onPlacement={setPlacement}
       />
     </div>
   );

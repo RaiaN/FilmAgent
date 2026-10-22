@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, InputNumber, Message, Tag, Tooltip, Typography } from '@arco-design/web-react';
+import { Button, Input, InputNumber, Message, Modal, Tag, Tooltip, Typography } from '@arco-design/web-react';
 import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
@@ -51,7 +51,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake, focusShot, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange }) => {
+const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake, focusShot, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange, onResetProject }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -402,6 +402,20 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
   };
   const readLook = () => run('look', async () => { setLook(await describeLook({ images: lookImages, notes: look }, ctx)); });
 
+  // RESET TO ZERO — the story, and every card, plate and take on this project's board.
+  const resetAll = () => Modal.confirm({
+    title: 'Reset to zero?',
+    content: 'This deletes the story, look, assets and shots, and empties the Film Agent board of this project: every card, plate, take and the timeline. It cannot be undone.',
+    okText: 'Reset everything',
+    cancelText: 'Cancel',
+    okButtonProps: { status: 'danger' },
+    onOk: () => {
+      if (linked) { try { window.localStorage.removeItem(`${STORAGE_KEY}:${linked.projectId}`); } catch { /* noop */ } }
+      applyState({});
+      onResetProject();
+    },
+  });
+
   const sendAssets = () => {
     if (onSendToFilm && assets.length) onSendToFilm({ cast: castDesignOf(assets), style: look, title: blueprint.title || source?.title || '' });
   };
@@ -612,6 +626,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
             : <Text style={{ fontFamily: SCRIPT_FONT, fontWeight: 700, fontSize: 18 }}>STORY ROOM</Text>}
           <OriginalityTag probe={source?.probe} />
           {projectTitle && <Text type="secondary" style={{ fontSize: 12 }}>Saved in {projectTitle.replace(/^Project\s+/, '')}</Text>}
+          {onResetProject && linked && <Button size="mini" type="text" status="danger" disabled={!!busy} onClick={resetAll}>Reset</Button>}
           <span style={{ flex: 1 }} />
           {busy
             ? <Text style={{ fontSize: 12, color: '#4e5969' }}><IconLoading style={{ marginRight: 6 }} />{ROLE_LABEL[busy.role]} · {elapsed}s</Text>

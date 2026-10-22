@@ -54,7 +54,7 @@ const randomId = () =>
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     : Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates, onStoryCards, focusRequest, storySync, circleRequest, onOpenInStoryRoom, onStoryRoomLoad, storyRoomSave, onProjectTitle }) => {
+const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates, onStoryCards, focusRequest, storySync, circleRequest, onOpenInStoryRoom, onStoryRoomLoad, storyRoomSave, onProjectTitle, resetRequest }) => {
   const [project, setProject] = useState(null);
   // THE STORY ROOM LIVES IN THE PROJECT (project.storyRoom): each project load hands its
   // story to the Story Room tab; the tab's edits come back here and ride the project's
@@ -183,6 +183,35 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
   // free), so churn or calm, the cloud is never more than ~15s behind the board.
   const projectStateRef = useRef(project);
   useEffect(() => { projectStateRef.current = project; }, [project]);
+
+  // RESET TO ZERO (Story Room ▸ Reset): the same project — id, title, folder — with an
+  // empty board, bible, timeline and story. The canvas remounts on the empty project, and
+  // the empty state is written to the cloud at once: autosave skips an empty board, so the
+  // old one would otherwise come back on the next reload.
+  const [canvasEpoch, setCanvasEpoch] = useState(0);
+  useEffect(() => {
+    const cur = projectStateRef.current;
+    if (!resetRequest?.nonce || !cur) return;
+    const fresh = { ...emptyProject({ id: cur.id, title: cur.title, language: cur.language, targetMinutes: cur.targetMinutes }), createdAt: cur.createdAt };
+    setProject(fresh);
+    setCanvasEpoch((n) => n + 1);
+    if (onStoryRoomLoad) onStoryRoomLoad({ projectId: fresh.id, title: fresh.title || '', data: null, nonce: Date.now() });
+    const st = cloudAutoRef.current;
+    if (st.disabled || !st.lastJson) return; // never reached the cloud — nothing there to overwrite
+    (async () => {
+      while (st.busy) await new Promise((r) => { setTimeout(r, 200); }); // eslint-disable-line no-await-in-loop
+      st.busy = true;
+      try {
+        await saveProjectToCloud(fresh);
+        st.lastJson = JSON.stringify(fresh);
+        setCloudSavedAt(new Date());
+      } catch (e) {
+        Message.error({ content: `Reset: the empty project could not be saved to the cloud — ${e.message}. Reloading now would bring the old board back.`, duration: 0 });
+      } finally {
+        st.busy = false;
+      }
+    })();
+  }, [resetRequest?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The SKILLS LIBRARY loads with the app, NOT with its drawer: a skill that hasn't
   // hydrated cannot bind, and Compose/Film would silently fall back to the distilled
@@ -605,6 +634,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
       </div>
 
       <FilmCanvas
+        key={canvasEpoch}
         project={project}
         onUpdateProject={setProject}
         demoNonce={demoNonce}

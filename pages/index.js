@@ -179,6 +179,8 @@ export default function Home() {
   const [storySync, setStorySync] = useState([]); // Story Room → the cards it sent: title, prompt, plates, link
   const [circleRequest, setCircleRequest] = useState(null); // Story Room circles a take on a card
   const handleCircleTake = useCallback((cardId, takeId) => setCircleRequest({ cardId, takeId, nonce: Date.now() }), []);
+  const [resetRequest, setResetRequest] = useState(null); // Story Room ▸ Reset empties the open project
+  const handleResetProject = useCallback(() => setResetRequest({ nonce: Date.now() }), []);
   const [storyFocus, setStoryFocus] = useState(null); // board card → its shot in Story Room ▸ Shots
   const handleOpenInStoryRoom = useCallback((cardId) => { setStoryFocus({ cardId, nonce: Date.now() }); handleModelFamilyChange('story-room'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // The Story Room is saved INSIDE the open Film Agent project: load → the tab, edits → the project.
@@ -504,10 +506,11 @@ export default function Home() {
                         onStoryRoomLoad={setStoryRoomLoad}
                         storyRoomSave={storyRoomSave}
                         onProjectTitle={setFilmProjectTitle}
+                        resetRequest={resetRequest}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
-                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onSync={setStorySync} onCircleTake={handleCircleTake} focusShot={storyFocus} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} />
+                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onSync={setStorySync} onCircleTake={handleCircleTake} focusShot={storyFocus} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} onResetProject={handleResetProject} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />

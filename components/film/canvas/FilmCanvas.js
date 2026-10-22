@@ -504,6 +504,7 @@ const lockBodyToFrame = (body, ordered, frameSrc) => {
 // Story Room hand-offs already laid on a board (see the incomingStory effect). Kept on
 // window so a hot reload of this module cannot replay a hand-off.
 const consumedStories = (typeof window !== 'undefined' && (window.__storyRoomConsumed = window.__storyRoomConsumed || new Set())) || new Set();
+const consumedRemovals = (typeof window !== 'undefined' && (window.__storyRoomRemovals = window.__storyRoomRemovals || new Set())) || new Set();
 
 // A video's real length and frame size, read from the file. Unreadable = an error.
 const readVideoMeta = (url) => new Promise((resolve, reject) => {
@@ -555,7 +556,7 @@ const staleReasonOf = (card, ns) => {
     : `this take was shot without "${name}"'s last frame — re-shoot to continue from it`;
 };
 
-const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates, onStoryCards, focusRequest, storySync, circleRequest, onOpenInStoryRoom }) => {
+const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, onPlates, onStoryCards, focusRequest, storySync, circleRequest, storyRemoval, onOpenInStoryRoom }) => {
   const wrapperRef = useRef(null);
   const fileInputRef = useRef(null);
   const [rfInstance, setRfInstance] = useState(null);
@@ -662,7 +663,10 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   const platesSent = useRef('');
   useEffect(() => {
     if (!onPlates) return;
-    const ready = bibleEntries.filter((b) => b.url).map((b) => ({ name: b.name, role: b.role, url: b.url, nodeId: b.nodeId }));
+    // fromStory: the plate sits in a panel the Story Room sent (its Reset takes it back).
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const fromStory = (id) => { const n = byId.get(id); return !!(n?.data?.storyRoom || byId.get(n?.parentId)?.data?.storyRoom); };
+    const ready = bibleEntries.filter((b) => b.url).map((b) => ({ name: b.name, role: b.role, url: b.url, nodeId: b.nodeId, fromStory: fromStory(b.nodeId) }));
     const pending = nodes.filter((n) => n.data?.bibleRole && n.data?.loading).map((n) => ({ name: n.data.label || '', role: n.data.bibleRole, url: '', nodeId: n.id, loading: true }));
     const list = [...ready, ...pending];
     const key = JSON.stringify(list);
@@ -4325,7 +4329,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // Lays the control node + empty panel INERT — nothing generates on add. The
   // division is an explicit tap on the element (its Divide button); runDivide reads
   // everything from node.data, so no seed is needed.
-  const spawnStoryboardChat = useCallback((script, count, refs = [], ethnicity = '', style = '', imageModel = defaultImageModelKey()) => {
+  const spawnStoryboardChat = useCallback((script, count, refs = [], ethnicity = '', style = '', imageModel = defaultImageModelKey(), tag = {}) => {
     const text = String(script || '').trim();
     if (!text) { Message.warning('The storyboard needs a script or description first — write it into the Storyboard panel\'s scene box.'); return; }
     const stamp = Date.now().toString(36);
@@ -4334,7 +4338,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const pref = rfInstance ? rfInstance.screenToFlowPosition({ x: 200, y: 200 }) : { x: 160, y: 160 };
     const pos = freeOrigin({ w: 800, h: SB_PANEL_H, preferred: pref });
     setNodes((ns) => ns.concat(
-      { id: nodeId, type: 'sbchat', position: pos, data: { shots: [], panelId, script: text, refs, ethnicity, style, imageModel, busy: false, shotCount: 0 } },
+      { id: nodeId, type: 'sbchat', position: pos, data: { shots: [], panelId, script: text, refs, ethnicity, style, imageModel, busy: false, shotCount: 0, ...tag } },
     ));
     Message.success('Storyboard on the board — Divide lays the shot list as editable text cards (no renders); stills are rendered per card, or all at once.');
   }, [rfInstance, freeOrigin, setNodes]);
@@ -4349,7 +4353,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     consumedStories.add(incomingStory.nonce);
     // Assets → a Cast & World panel rendered from the Story Room's roster (planner skipped).
     if (Array.isArray(incomingStory.cast) && incomingStory.cast.length) {
-      runCastDraft({ design: { arr: incomingStory.cast, style: String(incomingStory.style || '').trim() } });
+      runCastDraft({ design: { arr: incomingStory.cast, style: String(incomingStory.style || '').trim() }, fromStory: true });
       return;
     }
     const shots = incomingStory.cards || [];
@@ -4371,8 +4375,49 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       return;
     }
     const d = { ...(AGENT_MAP.storyboard?.defaultSettings || {}), ...(layerSettings.storyboard || {}) };
-    spawnStoryboardChat(incomingStory.script, d.count, [], d.ethnicity || '', d.style || '', imageModelKeyOf(d.imageModel));
+    spawnStoryboardChat(incomingStory.script, d.count, [], d.ethnicity || '', d.style || '', imageModelKeyOf(d.imageModel), { storyRoom: true });
   }, [incomingStory, spawnStoryboardChat]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // STORY ROOM ▸ RESET takes back what the Story Room put on the board and nothing else:
+  // its SHOT cards (with their takes), its Cast & World panels and plates, its Storyboard
+  // card. The Story Room names its cards (sendId) and plates (nodeIds); tagged hand-offs
+  // are found here. Whatever empties a panel takes the panel too.
+  useEffect(() => {
+    if (!storyRemoval?.nonce || consumedRemovals.has(storyRemoval.nonce)) return;
+    consumedRemovals.add(storyRemoval.nonce);
+    const ns = nodesRef.current;
+    const gone = new Set((storyRemoval.nodeIds || []).filter((id) => ns.some((n) => n.id === id)));
+    ns.forEach((n) => {
+      if (n.data?.storyRoom || (storyRemoval.sendId && n.data?.storyRef?.sendId === storyRemoval.sendId)) gone.add(n.id);
+    });
+    ns.forEach((n) => {
+      if (!gone.has(n.id)) return;
+      if (n.type === 'sbchat' && n.data?.panelId) gone.add(n.data.panelId);
+      if (isShotCard(n)) gone.add(`grid-${n.id}`);
+    });
+    for (let grew = true; grew;) {
+      grew = false;
+      ns.forEach((n) => {
+        if (gone.has(n.id)) return;
+        const rowOf = [...gone].some((g) => String(g).startsWith('sbpanel-') && String(n.id).startsWith(`${g}-`));
+        if ((n.parentId && gone.has(n.parentId)) || rowOf || [...gone].some((g) => String(n.id).startsWith(`shot-${g}-`))) { gone.add(n.id); grew = true; }
+      });
+    }
+    ns.forEach((n) => {
+      if (n.type !== 'group' || gone.has(n.id)) return;
+      const kids = ns.filter((k) => k.parentId === n.id);
+      if (kids.length && kids.every((k) => gone.has(k.id))) gone.add(n.id);
+    });
+    const deleted = ns.filter((n) => gone.has(n.id));
+    if (!deleted.length) return;
+    setNodes((cur) => cur.filter((n) => !gone.has(n.id)));
+    applyEdges((es) => es.filter((e) => !gone.has(e.source) && !gone.has(e.target)));
+    onNodesDeleted(deleted);
+    const cards = deleted.filter(isShotCard).length;
+    const takes = deleted.filter((n) => n.data?.kind === 'video').length;
+    const plates = deleted.filter((n) => n.data?.bibleRole).length;
+    Message.success(`Story Room work removed from the board: ${cards} card${cards === 1 ? '' : 's'}, ${takes} take${takes === 1 ? '' : 's'}, ${plates} plate${plates === 1 ? '' : 's'}.`);
+  }, [storyRemoval]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Render ONE card's still from its CURRENT fields (the card is the contract): merge any
   // edits onto the shot, re-resolve its figures → refs + renumber the body, write back to the
@@ -4682,7 +4727,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       setNodes((ns) => {
         const grid = createGroupNode({ label: 'Cast & World', position: base, width: panelW, height: GROUP_HEADER + 56 });
         grid.data.phase = 'Reading the brief — casting the characters, places and look…';
-        return ns.concat({ ...grid, id: PANEL_ID });
+        return ns.concat({ ...grid, id: PANEL_ID, data: { ...grid.data, ...(params.fromStory ? { storyRoom: true } : {}) } });
       });
       try {
         // NO genre steering — the cast derives from the brief and the picked

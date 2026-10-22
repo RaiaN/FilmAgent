@@ -1,6 +1,6 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useState } from 'react';
-import { Layout, Button, Card, Typography } from '@arco-design/web-react';
+import { Layout, Button, Card } from '@arco-design/web-react';
 import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt, IconSafe, IconBook, IconExperiment, IconSun } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
@@ -20,7 +20,6 @@ import ResultViewer from '../components/ResultViewer';
 import CopyButton from '../components/CopyButton';
 
 const { Content } = Layout;
-const { Title } = Typography;
 
 const getSchemaDefaults = (modelId) => ({ ...(baseSchemas[modelId]?.defaults || {}) });
 
@@ -68,7 +67,6 @@ export default function Home() {
   const baseSchema = baseSchemas[activeModelId] || {}; // film-agent has no form schema
   // uiSchema is now static/default matching baseSchema
   const [uiSchema, setUiSchema] = useState({
-    title: baseSchema.name || '',
     description: baseSchema.description || '',
     fields: baseSchema.fields || [],
     defaults: baseSchema.defaults || {},
@@ -138,7 +136,6 @@ export default function Home() {
       setActiveModelId(newFamily);
       const newBaseSchema = baseSchemas[newFamily] || {}; // film-agent and asset-upload have no form schema
       setUiSchema({
-        title: newBaseSchema.name || '',
         description: newBaseSchema.description || '',
         fields: newBaseSchema.fields || [],
         defaults: newBaseSchema.defaults || {},
@@ -179,8 +176,8 @@ export default function Home() {
   const [storySync, setStorySync] = useState([]); // Story Room → the cards it sent: title, prompt, plates, link
   const [circleRequest, setCircleRequest] = useState(null); // Story Room circles a take on a card
   const handleCircleTake = useCallback((cardId, takeId) => setCircleRequest({ cardId, takeId, nonce: Date.now() }), []);
-  const [resetRequest, setResetRequest] = useState(null); // Story Room ▸ Reset empties the open project
-  const handleResetProject = useCallback(() => setResetRequest({ nonce: Date.now() }), []);
+  const [storyRemoval, setStoryRemoval] = useState(null); // Story Room ▸ Reset takes its work off the board
+  const handleRemoveStoryWork = useCallback((req) => setStoryRemoval({ ...req, nonce: Date.now() }), []);
   const [storyFocus, setStoryFocus] = useState(null); // board card → its shot in Story Room ▸ Shots
   const handleOpenInStoryRoom = useCallback((cardId) => { setStoryFocus({ cardId, nonce: Date.now() }); handleModelFamilyChange('story-room'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // The Story Room is saved INSIDE the open Film Agent project: load → the tab, edits → the project.
@@ -388,9 +385,6 @@ export default function Home() {
 
 
                 <header style={{ marginBottom: isCanvasTool ? 8 : 10, textAlign: 'center' }}>
-                    {!isCanvasTool && uiSchema.title && (
-                        <Title heading={6} style={{ margin: '0 0 6px' }}>{uiSchema.title}</Title>
-                    )}
 
                     {(() => {
                         const isToolActive = TOOL_TABS.includes(activeModelId);
@@ -506,11 +500,11 @@ export default function Home() {
                         onStoryRoomLoad={setStoryRoomLoad}
                         storyRoomSave={storyRoomSave}
                         onProjectTitle={setFilmProjectTitle}
-                        resetRequest={resetRequest}
+                        storyRemoval={storyRemoval}
                     />
                 </div>
                 <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
-                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onSync={setStorySync} onCircleTake={handleCircleTake} focusShot={storyFocus} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} onResetProject={handleResetProject} />
+                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onSync={setStorySync} onCircleTake={handleCircleTake} focusShot={storyFocus} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} onRemoveFromBoard={handleRemoveStoryWork} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />

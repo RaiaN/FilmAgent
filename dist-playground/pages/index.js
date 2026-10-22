@@ -189,7 +189,6 @@ export default function VideoPlayground() {
 
   return (
     <>
-      <Head><title>Seedance video playground</title></Head>
       <div style={{ maxWidth: 1080, margin: '0 auto', padding: '28px 24px 64px' }}>
         <Title heading={5} style={{ marginTop: 0 }}>Seedance video playground</Title>
         <Text type="secondary" style={{ fontSize: 13 }}>

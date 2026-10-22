@@ -140,7 +140,7 @@ export const LookPanel = ({ look, setLook, presets, images, addImages, removeIma
 // Cast, locations, props as cards; each card's look is the one source every shot copies.
 // When Cast & World has rendered the asset on the Film Agent board, its plates show here
 // (matched by name: "Kaan · face", "Kaan · body", "Ferry Deck"); click to enlarge.
-const plateKey = (s) => String(s || '').replace(/\s*·\s*(face|body)\s*$/i, '').trim().toLowerCase();
+export const plateKey = (s) => String(s || '').replace(/\s*·\s*(face|body)\s*$/i, '').trim().toLowerCase();
 // A re-run of Cast & World adds NEW plates with the same names — the board appends them,
 // so the newest ready plate is the last match. While a re-render runs, the old plate
 // stays visible under a "rendering…" mark.

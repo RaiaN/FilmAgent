@@ -3,7 +3,7 @@ import { Button, Input, InputNumber, Message, Modal, Tag, Tooltip, Typography } 
 import { IconLoading, IconSend } from '@arco-design/web-react/icon';
 import { createBrowserClient } from '../utils/film/core/client';
 import { makeThumbnail } from '../utils/film/canvasModel';
-import { AssetBoard, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, platesFor } from './storyroom/panels';
+import { AssetBoard, Empty, LINE, LookPanel, SCRIPT_FONT, ShotBoard, ShotDrawer, plateKey, platesFor } from './storyroom/panels';
 import { BLOCKS, BLOCK_CAP, SPINE_CAP, SCORE_KEYS, architectBlueprint, blueprintProblems, blueprintScript, critiqueBlueprint, ideaText, planShots, probeOriginality, renderShotPrompt, boundAssets, fixOptions, flaggedFixes, scoutIdeas, storyFacts, writeShotBodies, castDesignOf, describeLook, lookPresets, detectScenes, sceneNumbers, scenesFound, linkOf, reopenShot, blockScene, blockingPlan, cardsOf, cardAsShot, secondsOfCard, renderCardPrompt, writeCard, writeCards } from '../utils/film/core/story';
 import { previzSchematic } from '../utils/film/core/previz';
 import { REASONER_OPTIONS, getRuntime, reasonerSlotOf } from '../utils/film/suiteConfig';
@@ -51,7 +51,7 @@ const OriginalityTag = ({ probe }) => {
   );
 };
 
-const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake, focusShot, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange, onResetProject }) => {
+const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake, focusShot, boardPlates = [], boardShots = [], projectStory = null, projectTitle = '', onStoryChange, onRemoveFromBoard }) => {
   const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
   const [idea, setIdea] = useState('');
   const [count, setCount] = useState(6);
@@ -402,19 +402,30 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
   };
   const readLook = () => run('look', async () => { setLook(await describeLook({ images: lookImages, notes: look }, ctx)); });
 
-  // RESET TO ZERO — the story, and every card, plate and take on this project's board.
-  const resetAll = () => Modal.confirm({
-    title: 'Reset to zero?',
-    content: 'This deletes the story, look, assets and shots, and empties the Film Agent board of this project: every card, plate, take and the timeline. It cannot be undone.',
-    okText: 'Reset everything',
-    cancelText: 'Cancel',
-    okButtonProps: { status: 'danger' },
-    onOk: () => {
-      if (linked) { try { window.localStorage.removeItem(`${STORAGE_KEY}:${linked.projectId}`); } catch { /* noop */ } }
-      applyState({});
-      onResetProject();
-    },
-  });
+  // RESET — the story back to empty, and what it put on the board taken off it: its SHOT
+  // cards with their takes, its Cast & World plates (by asset name — the same match that
+  // binds them into the prompts) and panels, its Storyboard card. The rest of the board stays.
+  const resetAll = () => {
+    const cardCount = boardShots.filter((c) => sendId && c.sendId === sendId).length;
+    const plateIds = boardPlates.filter((p) => p.nodeId && (p.fromStory || assets.some((a) => plateKey(a.name) === plateKey(p.name)))).map((p) => p.nodeId);
+    Modal.confirm({
+      title: 'Reset the Story Room?',
+      content: `This clears the story (idea, blueprint, look, assets, shots) and removes what the Story Room put on the Film Agent board: ${cardCount} SHOT card${cardCount === 1 ? ' with its takes' : 's with their takes'} and ${plateIds.length} Cast & World plate${plateIds.length === 1 ? '' : 's'}. Everything else on the board stays. It cannot be undone.`,
+      okText: 'Reset',
+      cancelText: 'Cancel',
+      okButtonProps: { status: 'danger' },
+      onOk: () => {
+        const empty = { idea: '', ideas: [], source: null, blueprint: null, critique: null, revised: [], facts: [], assets: [], shots: [], look: '', lookImages: [], tab: 'story', sendId: '' };
+        if (onRemoveFromBoard) onRemoveFromBoard({ sendId, nodeIds: plateIds });
+        applyState(empty);
+        if (linked) {
+          try { window.localStorage.removeItem(`${STORAGE_KEY}:${linked.projectId}`); } catch { /* noop */ }
+          // Saved now: an empty story never autosaves, so the old one would come back.
+          if (onStoryChange) onStoryChange(linked.projectId, empty);
+        }
+      },
+    });
+  };
 
   const sendAssets = () => {
     if (onSendToFilm && assets.length) onSendToFilm({ cast: castDesignOf(assets), style: look, title: blueprint.title || source?.title || '' });
@@ -626,7 +637,7 @@ const StoryRoomPlayground = ({ onSendToFilm, onOpenOnBoard, onSync, onCircleTake
             : <Text style={{ fontFamily: SCRIPT_FONT, fontWeight: 700, fontSize: 18 }}>STORY ROOM</Text>}
           <OriginalityTag probe={source?.probe} />
           {projectTitle && <Text type="secondary" style={{ fontSize: 12 }}>Saved in {projectTitle.replace(/^Project\s+/, '')}</Text>}
-          {onResetProject && linked && <Button size="mini" type="text" status="danger" disabled={!!busy} onClick={resetAll}>Reset</Button>}
+          {linked && <Button size="mini" type="text" status="danger" disabled={!!busy} onClick={resetAll}>Reset</Button>}
           <span style={{ flex: 1 }} />
           {busy
             ? <Text style={{ fontSize: 12, color: '#4e5969' }}><IconLoading style={{ marginRight: 6 }} />{ROLE_LABEL[busy.role]} · {elapsed}s</Text>

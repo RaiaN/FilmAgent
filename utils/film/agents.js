@@ -293,7 +293,7 @@ export const storyboardAgent = {
   consumes: [],
   needsSelection: false,
   defaultSettings: { script: '', count: 8, refs: [], ethnicity: '', style: 'Auto', imageModel: '', mode: 'multiple' },
-  describe: 'Brainstorm the shot division with a cinematographer',
+  describe: 'Find the key moments of a script — each one Seedance 2.5 shot',
   async run() {
     throw new Error('The Storyboard agent lays a chat node + SHOT cards on the canvas — run it from the board.');
   },

@@ -1,5 +1,5 @@
-// Storyboard core. The AD-PLANNER DIVISION (storyboardCarve → storyboardAuthor) is the one
-// storyboard brain: brief/script → shot list (body · motion · audio per shot);
+// Storyboard core. KEY MOMENTS (storyboardMoments → storyboardAuthor) is the one
+// storyboard brain: script → key moments (body · motion · audio per moment);
 // storyboardKeyframe renders each shot's still. Also home to the pre-production draft
 // (castFromIdea).
 //
@@ -57,83 +57,65 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
   return { url: out, cacheUrl };
 };
 
-// ---- Storyboard: a conversational SHOT DIVISION — script → a shot list, turn by turn ----
-// The Storyboard agent is a cinematographer you brainstorm WITH. Each turn takes the script,
-// the CURRENT shot list (read off the cards) and the director's message, and returns the FULL
-// updated shot list + a one-line reply. The canvas reconciles the list into a column of SHOT
-// cards (each a real CutNode = a Seedance prompt). No frames are rendered here — the shot list
-// IS the storyboard; the picture is shooting a card. Camera = a shotTemplate id from the library.
-// ---- NORMALIZE: the division's FRONT-END — any brief → SCREENPLAY format ----------
-// Film's canonical IR: sluglines = scene structure, action lines = the event sequence,
-// CAPS-on-introduction = the entity breakdown, dialogue verbatim. EXTRACTIVE by
-// contract — unstated slug fields say UNSTATED, nothing the source didn't state is
-// added. The screenplay is the HITL surface (edited as text on the control card) and
-// what Divide carves. Input that already parses as a screenplay passes through
-// VERBATIM — zero calls.
-// A slugline: optional scene number, then INT/EXT (+ separator). "INTO…" never matches.
-export const SLUG_RE = /^\s*(?:\d+[A-Za-z-]*[\s.:]+)?(?:INT\.?\/EXT|EXT\.?\/INT|INT|EXT|I\/E)\b[./\s-]/i;
-export const parseScenes = (screenplay) => {
-  const scenes = [];
-  let cur = null;
-  String(screenplay || '').split('\n').forEach((line) => {
-    if (SLUG_RE.test(line)) { cur = { n: scenes.length + 1, slug: line.trim(), body: [] }; scenes.push(cur); }
-    else if (cur) cur.body.push(line);
-  });
-  return scenes.map((s) => ({ n: s.n, slug: s.slug, body: s.body.join('\n').trim() }));
-};
-
-export const normalizeBrief = async ({ script = '', config } = {}, ctx) => {
-  const text = String(script || '').trim();
-  if (!text) throw new Error('Normalize needs the script — type or paste it first.');
-  if (parseScenes(text).length) return { screenplay: text, passthrough: true };
-  const NSLOT = '@@BRIEF@@';
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('storyboard.normalize.user', { script: NSLOT }).split(NSLOT).join(text.slice(0, 12000)),
-    systemPrompt: renderTemplate('storyboard.normalize.system', {}),
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
-  });
-  const screenplay = String(content || '').replace(/^```[a-z]*\n?/i, '').replace(/\n?```\s*$/, '').trim();
-  if (!parseScenes(screenplay).length) throw new Error('Normalize came back without scene headings — try again.');
-  return { screenplay, passthrough: false };
-};
-
-// ---- 2-STEP first division: CARVE (structure + verbatim spans) → AUTHOR (per shot) ----
-// Carve gives the whole call's attention to structure; each span partitions the script
-// word-for-word, which makes fidelity STRUCTURAL: the author pass gets its span as the
-// source, and the dialogue gate can verify every span line survived — per shot.
+// ---- KEY MOMENTS (the director's breakdown): script → the moments the story can't do
+// without, each ONE Seedance 2.5 generation. A SELECTION, not a partition: the quote is the
+// moment's own words copied from the script, and every promise is checked in code —
+// quote found verbatim, 4–15 s, a place named, references in range. One corrective retry
+// naming what failed; whatever still fails is an error, never a quiet repair.
 const SPAN_SLOT = '@@BRIEF@@';
-export const storyboardCarve = async ({ script = '', style = '', references = [], config } = {}, ctx) => {
-  const text = String(script || '').trim();
-  if (!text) throw new Error('Carving needs the brief/script text first.');
-  const countGoal = `Carve into as many shots as the script NEEDS — every shot must earn its place. Never pad; never cram.`;
-  const refs = (references || []).filter(Boolean).slice(0, 10);
-  const { content } = await ctx.client.reason({
-    prompt: renderTemplate('storyboard.carve.user', { script: SPAN_SLOT, style: style || 'auto' }).split(SPAN_SLOT).join(text.slice(0, 12000)),
-    systemPrompt: renderTemplate('storyboard.carve.system', { templates: shotTemplateCatalog(), countGoal, refCount: String(refs.length) }),
-    images: refs,
-    modelId: getModel('reasoner', config),
-    reasoningEffort: getRuntime(config).reasoningEffort,
+const MOMENT_SECONDS = [4, 15];
+const momentProblems = (moments, script, refCount) => {
+  const src = normText(script);
+  const out = [];
+  moments.forEach((m, i) => {
+    const tag = `moment ${i + 1} ("${m.beat}")`;
+    if (!normText(m.span) || !src.includes(normText(m.span))) out.push(`${tag}: its quote is not word-for-word in the script`);
+    if (!(m.seconds >= MOMENT_SECONDS[0] && m.seconds <= MOMENT_SECONDS[1])) out.push(`${tag}: seconds must be ${MOMENT_SECONDS[0]}–${MOMENT_SECONDS[1]}`);
+    if (!m.place) out.push(`${tag}: no place named`);
+    if (m.badFigures.length) out.push(`${tag}: figures ${m.badFigures.join(', ')} are not attached (${refCount} references)`);
   });
-  const raw = parseJson(content) || {};
-  const arr = Array.isArray(raw.shots) ? raw.shots : [];
-  const shots = arr.map((s, i) => {
-    const figures = Array.isArray(s?.figures) ? [...new Set(s.figures.map((x) => Number(x)).filter((x) => x >= 1 && x <= refs.length))] : [];
-    return {
-      beat: String(s?.beat || `Shot ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
-      job: String(s?.job || '').replace(/\s+/g, ' ').trim().slice(0, 160),
-      // An id outside the library stays EMPTY — no camera is ever substituted.
-      shotTemplate: SHOT_TEMPLATE_BY_ID[s?.shotTemplate] ? s.shotTemplate : '',
-      figures,
-      intExt: /^int/i.test(String(s?.intExt || '')) ? 'INT' : /^ext/i.test(String(s?.intExt || '')) ? 'EXT' : '',
-      scene: Math.max(1, Math.round(Number(s?.scene) || 1)),
-      // The span keeps its line breaks — it IS the script slice, not prose.
-      span: String(s?.span || '').trim().slice(0, 4000),
-    };
-  }).filter((s) => s.span);
-  if (!shots.length) throw new Error('The carve came back empty — try rephrasing.');
-  const uncovered = uncoveredScriptLines(text, shots);
-  return { shots, uncovered, reply: String(raw.reply || '').replace(/\s+/g, ' ').trim().slice(0, 400) || 'Carved the script.' };
+  return out;
+};
+export const storyboardMoments = async ({ script = '', style = '', references = [], config } = {}, ctx) => {
+  const text = String(script || '').trim();
+  if (!text) throw new Error('Write the script first.');
+  const refs = (references || []).filter(Boolean).slice(0, 10);
+  const system = renderTemplate('storyboard.moments.system', { templates: shotTemplateCatalog(), refCount: String(refs.length), skill: await requireSkillLine('seedance25') });
+  const ask = async (retry) => {
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('storyboard.moments.user', { script: SPAN_SLOT, style: style || 'auto', retry }).split(SPAN_SLOT).join(text.slice(0, 12000)),
+      systemPrompt: system,
+      images: refs,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    const raw = parseJson(content) || {};
+    return (Array.isArray(raw.moments) ? raw.moments : []).map((m, i) => {
+      const figs = Array.isArray(m?.figures) ? [...new Set(m.figures.map((x) => Number(x)))] : [];
+      return {
+        beat: String(m?.title || `Moment ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
+        job: String(m?.turn || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+        // An id outside the library stays EMPTY — no camera is ever substituted.
+        shotTemplate: SHOT_TEMPLATE_BY_ID[m?.shotTemplate] ? m.shotTemplate : '',
+        figures: figs.filter((x) => x >= 1 && x <= refs.length),
+        badFigures: figs.filter((x) => !(x >= 1 && x <= refs.length)),
+        intExt: /^int/i.test(String(m?.intExt || '')) ? 'INT' : /^ext/i.test(String(m?.intExt || '')) ? 'EXT' : '',
+        place: String(m?.place || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        seconds: Math.round(Number(m?.seconds)),
+        // The quote keeps its line breaks — it IS the script's own text.
+        span: String(m?.quote || '').trim().slice(0, 4000),
+      };
+    });
+  };
+  let moments = await ask('');
+  if (!moments.length) throw new Error('No key moments came back — try again.');
+  let problems = momentProblems(moments, text, refs.length);
+  if (problems.length) {
+    moments = await ask(`\nRETRY — your previous answer broke these rules; fix every one:\n${problems.map((x) => `• ${x}`).join('\n')}\n`);
+    problems = momentProblems(moments, text, refs.length);
+  }
+  if (!moments.length || problems.length) throw new Error(`Key moments failed the checks: ${problems.join(' · ') || 'none came back'}`);
+  return moments.map(({ badFigures, ...m }) => m);
 };
 
 // The span's dialogue, extracted deterministically: quoted runs plus screenplay-style
@@ -160,20 +142,6 @@ export const spanDialogueLines = (span = '') => {
 };
 const normText = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
-// The carve PROMISES its spans partition the script. Nothing enforced that, so a
-// dropped paragraph became story that no shot covers and nobody was told. This is the
-// check: every substantial script line must appear inside some span. Scene headings are
-// excluded by contract; short fragments are skipped because a 3-word line matches
-// almost anything. Pure — no call, no cost.
-export const uncoveredScriptLines = (script, shots = []) => {
-  const covered = normText((shots || []).map((sh) => sh?.span || '').join('\n'));
-  if (!covered) return [];
-  return String(script || '').split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length >= 12 && !SLUG_RE.test(l))
-    .filter((l) => !covered.includes(normText(l)));
-};
-
 // ---- #2 the dialogue gate, shared ------------------------------------------------
 // The AUTHOR has always verified that every spoken line from its span survived. The
 // CARD verbs (compose / direct) make the same promise in their templates and
@@ -195,22 +163,25 @@ export const withDialogueGate = async (source, field, run) => {
 // AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
 // motion dropped; still missing → returned in `missingDialogue` (the card flags it,
 // never silently).
-export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', prevBeat = '', nextBeat = '', references = [], note = '', settingIndex = 0, config } = {}, ctx) => {
+export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', seconds = 0, prevBeat = '', nextBeat = '', references = [], note = '', settingIndex = 0, config } = {}, ctx) => {
   const refs = (references || []).filter(Boolean).slice(0, 10);
+  // The motion is a Seedance 2.5 prompt — written under that model's own spec.
+  const skill = await requireSkillLine('seedance25');
   const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || {}; // no id → framing falls to "director's choice", never a substituted camera
   const wanted = spanDialogueLines(span);
   const run = async (retryNote) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('storyboard.author.user', {
         script: SPAN_SLOT, span: '@@SPAN@@', beat, job: String(job || '').trim() || 'unstated — infer the single job from the span and serve it', framing: [tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(', ') || 'director\'s choice',
-        prevBeat: prevBeat || '(scene start)', nextBeat: nextBeat || '(scene end)',
+        prevBeat: prevBeat || '(none — the first moment)', nextBeat: nextBeat || '(none — the last moment)',
+        seconds: Number(seconds) > 0 ? `${Math.round(Number(seconds))} seconds` : 'as long as the situation needs',
         settingLine: Number(settingIndex) > 0
           ? `\n[Image ${Number(settingIndex)}] IS THE SETTING — the scene's location plate. The shot happens in THAT exact place: cite it for the environment ("the exact location in [Image ${Number(settingIndex)}]"), never as a person or a subject, and never describe a different place.`
           : '',
         note: String(note || '').trim() ? "DIRECTOR'S NOTE — apply it to THIS shot (where it conflicts with the span, the note wins):\n@@NOTE@@\n" : '',
         retry: retryNote || '',
       }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)).split('@@NOTE@@').join(String(note).slice(0, 1000)),
-      systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length) }),
+      systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length), skill }),
       images: refs,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -242,26 +213,6 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
 // freshly-rendered START still — [Image 1] IS the start, the composed instruction
 // carries the advance (+ the camera-under-lock reframe when the shot's camera moves),
 // and the casting refs ride behind for identity. Fast path, like every locked edit.
-// QUICK STORYBOARD, pre-division: ONE page rendered straight from the VERBATIM
-// script — the renderer picks the moments itself. No carve, no rows, no side
-// effects; after a division the page renders from the real shot list instead.
-export const storyboardQuickPage = async ({ script = '', panels = 6, style = '', references = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
-  const text = String(script || '').trim();
-  if (!text) throw new Error('Quick Storyboard needs the script.');
-  const SLOT = '@@SCRIPT@@';
-  const prompt = renderTemplate('storyboard.quickPage', {
-    panels: String(Math.max(2, Math.min(15, Math.round(Number(panels) || 6)))),
-    style: String(style || '').trim() ? ` (${String(style).trim()})` : '',
-    script: SLOT,
-  }).split(SLOT).join(text.slice(0, 6000));
-  const images = (references || []).filter(Boolean).slice(0, imageRefCap(imageModel));
-  const { url, cacheUrl } = await ctx.client.generateImage({
-    prompt, referenceImages: images, size: keyframeImageSize(imageModel), model: getModel(imageModel, config),
-  });
-  if (!url) throw new Error('No page URL in response');
-  return { url, cacheUrl, prompt };
-};
-
 // A camera change under the edit lock, as words: the preset's framing, angle and lens.
 const cameraWords = (camera) => [camera.framing, camera.angle, camera.cinematography].filter(Boolean).join(', ');
 const cameraEditLine = (camera) => (camera

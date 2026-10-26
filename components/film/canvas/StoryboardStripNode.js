@@ -68,7 +68,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
       {/* title bar = the drag handle; everything below is nodrag */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderBottom: '1px solid #e5e6eb' }}>
         <Text bold style={{ fontSize: 12 }}>Storyboard strip</Text>
-        <Text type="secondary" style={{ fontSize: 10 }}>{shots.length} shot{shots.length === 1 ? '' : 's'}</Text>
+        <Text type="secondary" style={{ fontSize: 10 }}>{shots.length} key moment{shots.length === 1 ? '' : 's'}</Text>
         {shots.length > 0 && onFilmStrip && (
           <span className="nodrag" onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
             <Button
@@ -81,13 +81,12 @@ const StoryboardStripInner = ({ id, data, selected }) => {
             >Film</Button>
           </span>
         )}
-        <Text type="secondary" style={{ fontSize: 9, marginLeft: 'auto' }}>1 row = 1 shot</Text>
       </div>
       {shots.length === 0 && (
-        <Text type="secondary" style={{ display: 'block', fontSize: 11, padding: 14 }}>Empty strip — Divide into shots on the control card lays the rows.</Text>
+        <Text type="secondary" style={{ display: 'block', fontSize: 11, padding: 14 }}>Empty — Find key moments on the card lays the rows.</Text>
       )}
       <div style={{ display: shots.length ? 'flex' : 'none', borderBottom: '1px solid #e5e6eb', background: '#f7f8fa' }}>
-        <Text style={{ flex: 1, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 12px' }}>SHOT · {shots.length}</Text>
+        <Text style={{ flex: 1, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 12px' }}>KEY MOMENT · {shots.length}</Text>
         <Text style={{ width: STILL_W, flexShrink: 0, fontSize: 9, fontWeight: 700, color: '#86909c', padding: '3px 8px', borderLeft: '1px solid #e5e6eb' }}>START</Text>
       </div>
       <div className="nodrag nowheel" onClick={(e) => e.stopPropagation()} style={{ maxHeight: 560, overflowY: 'auto' }}>
@@ -102,11 +101,11 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                   re-author, or the shot editor (⤢); surgery via ↑ ↓ ✕. */}
               <div style={{ flex: 1, minWidth: 0, padding: '7px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <Text style={{ fontSize: 10, fontWeight: 700, color: '#4e5969' }}>
-                  {`#${String(i + 1).padStart(2, '0')} · ${row.beat || s.beat || 'Shot'}${row.intExt ? ` · ${row.intExt}` : ''}`}
+                  {`#${String(i + 1).padStart(2, '0')} · ${row.beat || s.beat || 'Moment'}${row.intExt ? ` · ${row.intExt}` : ''}${row.seconds ? ` · ${row.seconds} s` : ''}`}
                 </Text>
                 {tpl && <Text style={{ fontSize: 9, color: '#86909c' }}>{[tpl.framing, tpl.angle, tpl.move].filter(Boolean).join(' · ') || tpl.name}</Text>}
                 {String(row.job || '').trim() && (
-                  <Text title="This shot's ONE JOB — carved with the shot list; the author and every prompt verb serve it" style={{ fontSize: 9, color: '#b06f10', fontStyle: 'italic' }} ellipsis={{ rows: 1 }}>◎ {row.job}</Text>
+                  <Text title="What turns in this moment" style={{ fontSize: 9, color: '#b06f10', fontStyle: 'italic' }} ellipsis={{ rows: 1 }}>◎ {row.job}</Text>
                 )}
                 <Text title={row.body || ''} style={{ fontSize: 11, lineHeight: '15px' }} ellipsis={{ rows: 4 }}>{row.body || '—'}</Text>
                 {String(row.motion || '').trim() && (
@@ -115,7 +114,7 @@ const StoryboardStripInner = ({ id, data, selected }) => {
                 {String(row.audio || '').trim() && (
                   <Text title={`AUDIO: ${row.audio}`} style={{ fontSize: 10, color: '#8a6d1d' }} ellipsis={{ rows: 1 }}>♪ {row.audio}</Text>
                 )}
-                {row.authorPending && <Text style={{ fontSize: 10, color: '#165dff' }}>✍ authoring from the script span…</Text>}
+                {row.authorPending && <Text style={{ fontSize: 10, color: '#165dff' }}>✍ writing the moment…</Text>}
                 {String(row.authorError || '').trim() && <Text style={{ fontSize: 10, color: '#f53f3f' }} ellipsis={{ rows: 2 }}>⚠ authoring failed: {row.authorError}</Text>}
                 {(row.missingDialogue || []).length > 0 && (
                   <Text title={(row.missingDialogue || []).join('\n')} style={{ fontSize: 10, color: '#b25c00' }} ellipsis={{ rows: 2 }}>⚠ dropped dialogue ({row.missingDialogue.length}): {row.missingDialogue.join(' · ')}</Text>

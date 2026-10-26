@@ -185,12 +185,6 @@ HARD RULES — the frame must remain the SAME shot, upgraded: never change compo
 {context}
 Return ONLY JSON — no prose, no code fences: {"instruction":"<the change-only edit instruction>"}`,
   },
-  'storyboard.quickPage': {
-    agent: 'Storyboard',
-    label: 'Quick Storyboard — one page straight from the script (no division)',
-    vars: ['{panels}', '{style}', '{script}'],
-    text: 'ONE storyboard PAGE: a single image containing {panels} numbered panels in a clean grid, read left-to-right, top-to-bottom, telling this script as a visual sequence — choose the {panels} most story-bearing moments yourself:\n"""\n{script}\n"""\nSimple, readable panel compositions with a cohesive look{style}; characters match the attached reference images across every panel. Panel numbers only — no other on-image text, no watermarks.',
-  },
   'storyboard.frameEditCompose.system': {
     agent: 'Storyboard',
     label: 'Edit a frame — write the Seedream edit prompt (system)',
@@ -390,74 +384,50 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final pr
     text: 'You are a film director\'s assistant reading ONE still frame ([Image 1]) pulled from a rendered take. Describe it as prompt-ready shot language, present tense, one short line per label:\nSUBJECTS: who/what is in frame — appearance, wardrobe, expression\nBLOCKING: where each subject sits in the frame and what each is looking at (never the camera)\nSETTING: the place, time of day, atmosphere\nCAMERA: framing, angle, approximate lens feel, depth of field\nLIGHT & GRADE: key direction, contrast, palette\nPlain text only — exactly those five labeled lines, no JSON, no commentary.',
   },
 
-  // ---- Storyboard NORMALIZE: brief → SCREENPLAY (film's canonical IR) -------------
-  // The division's front-end: any input (idea/brief/prose/drama text) converts to
-  // screenplay format — sluglines carry scene structure, action lines carry the event
-  // sequence, CAPS-on-introduction carries the entity breakdown, dialogue rides
-  // verbatim. EXTRACTIVE ONLY: unstated slug fields say UNSTATED, never a default.
-  // Input that already parses as a screenplay passes through verbatim (zero calls).
-  'storyboard.normalize.system': {
+  // ---- Storyboard: KEY MOMENTS — the director's breakdown of the script ----------
+  'storyboard.moments.system': {
     agent: 'Storyboard',
-    label: 'Normalize — brief → screenplay (system)',
-    vars: [],
-    text: `FORMAT:
-• SCENE HEADINGS — one per scene, numbered: "1. EXT. LOCATION - TIME" (INT., EXT., or INT./EXT.). A field the source does not state is written UNSTATED — never guessed, never defaulted (e.g. "2. EXT. UNSTATED - UNSTATED"). Scene boundaries follow the source's own location and time changes; placing them is your only licensed judgment.
-• ACTION LINES — present tense, the source's wording carried (compress connective prose; never paraphrase what can ride as written; an internal thought becomes only the visible expression the text itself gives it). One observable event per paragraph. CAPITALIZE a character's name, a key prop, and a distinct sound the FIRST time each appears. A prop changing hands is its own action line naming the transfer.
-• DIALOGUE — the speaker's NAME on its own line, the spoken words below it VERBATIM in the original language; a parenthetical only when the source states the delivery. Never invent, complete or translate a line.
+    label: 'Key moments — the director\'s breakdown (system)',
+    vars: ['{templates}', '{refCount}', '{skill}'],
+    text: `{skill}
 
-Subjects keep the source's own names (a bare "person" stays that neutral term). Numbers and timestamps the author wrote stay exactly as written. A thin brief yields a THIN script — one sparse scene is an honest result; never pad, never expand.
+You are the film's DIRECTOR doing the breakdown: read the script and pick its KEY MOMENTS — the moments the story cannot do without: the turn, the reveal, the decision, the consequence. A SELECTION, not coverage: connective action between moments is left out. As many moments as the story needs and no more; at least one.
 
-Return ONLY the screenplay text — no preamble, no commentary, no code fences, no JSON.`,
-  },
-  'storyboard.normalize.user': {
-    agent: 'Storyboard',
-    label: 'Normalize (instruction)',
-    vars: ['{script}'],
-    text: '"""\n{script}\n"""\nReturn only text',
-  },
-
-  // ---- Storyboard: a conversational SHOT DIVISION (cinematographer brainstorm) ----
-  // Each turn returns the FULL updated shot list + a one-line reply. The camera is a
-  // shotTemplate id from the library; each shot's `prompt` is the Seedance prompt body.
-  // ---- 2-STEP DIVISION (first Divide): CARVE structure+spans, then AUTHOR per shot --
-  'storyboard.carve.system': {
-    agent: 'Storyboard',
-    label: 'Carve — structure + verbatim spans (system)',
-    vars: ['{templates}', '{countGoal}', '{refCount}'],
-    text: `You are a film DIRECTOR + 1st AD CARVING a script into a SHOT LIST — STRUCTURE ONLY. You do NOT write shot prose here; a second pass authors each shot. Your whole attention goes to carving well.
-
-PLAN FIRST — think through, none of it in the output: (a) what TRANSFORMS across the scene; give every shot ONE job, cut any without one. (b) attention rhythm (poses a new question / raises stakes / withholds / reverses / releases) — never the same operation three times running; place a breath after a reversal. (c) geography — hold one axis, sizes progress with intensity, re-establish wide after an axis or location change. (d) at most 4 named subjects per shot.
-
-The script's SCENE HEADINGS (numbered INT./EXT. sluglines) are HARD boundaries: a shot NEVER spans two scenes; the geography rules apply WITHIN a scene and every new scene re-establishes; each slug's location and time ground the shot, and an UNSTATED slug field stays undecided — never invent it.
-
-{countGoal}
+EVERY MOMENT IS ONE SEEDANCE 2.5 GENERATION, so it must be filmable as one:
+• 4–15 seconds of screen time;
+• ONE place;
+• what the camera SEES and HEARS — never a thought, a feeling or a backstory;
+• at most 4 named subjects.
 
 {refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] ({refCount} may be 0).
 
-For EACH shot return:
-• beat — a 2–4 word name.
-• job — ONE short line: what this shot's actor is up against and what they are trying to do. A shot whose job you cannot state does not belong in the list.
+For EACH moment, in story order, return:
+• title — 2–4 words.
+• turn — ONE short line: what changes in this moment.
+• quote — the script's own words this moment comes from, COPIED VERBATIM: exact characters, dialogue word-for-word, nothing paraphrased.
+• place — the moment's location, named the same way every time it recurs (a recurring place keeps one name).
+• intExt — "INT" or "EXT".
+• seconds — an integer 4–15: the screen time the moment needs.
 • shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY:
 {templates}
-• figures — the reference numbers that APPEAR in this shot (≥1 when references exist; [] when none attached).
-• intExt — "INT" or "EXT".
-• scene — the 1-based number of the SCENE HEADING this shot falls under (1 when the script has no headings).
-• span — THIS SHOT'S PORTION OF THE SCRIPT, COPIED VERBATIM: the exact characters, dialogue word-for-word, nothing paraphrased, nothing summarized. The spans PARTITION the script IN ORDER — every story-relevant line lands in exactly ONE shot's span, no gaps, no overlaps. Scene headings and trailing global sections (style / audio notes that apply to the whole film) belong to NO span.
+• figures — the reference numbers that APPEAR in this moment ([] when none attached).
 
 Return ONLY a JSON object — no prose, no code fences:
-{"shots":[{"beat":"…","job":"…","shotTemplate":"…","figures":[…],"intExt":"EXT","scene":1,"span":"…"}],"reply":"<ONE short line to the director>"}`,
+{"moments":[{"title":"…","turn":"…","quote":"…","place":"…","intExt":"EXT","seconds":8,"shotTemplate":"…","figures":[…]}]}`,
   },
-  'storyboard.carve.user': {
+  'storyboard.moments.user': {
     agent: 'Storyboard',
-    label: 'Carve (instruction)',
-    vars: ['{script}', '{style}'],
-    text: 'SCRIPT:\n"""\n{script}\n"""\nStyle / aesthetic: {style}.\n\nCarve it and return the JSON.',
+    label: 'Key moments (instruction)',
+    vars: ['{script}', '{style}', '{retry}'],
+    text: 'SCRIPT:\n"""\n{script}\n"""\nStyle / aesthetic: {style}.\n{retry}\nPick the key moments and return the JSON.',
   },
   'storyboard.author.system': {
     agent: 'Storyboard',
-    label: 'Author ONE shot from its verbatim span (system)',
-    vars: ['{refCount}'],
-    text: `You are a film director + cinematographer AUTHORING ONE SHOT of a larger scene. You receive the whole SCRIPT for context, but your shot covers ONLY its SPAN — the script's own words for this moment. The span is the source of truth: carry its wording; EVERY line of dialogue in the span rides word-for-word.
+    label: 'Author ONE key moment from its verbatim quote (system)',
+    vars: ['{refCount}', '{skill}'],
+    text: `{skill}
+
+You are a film director + cinematographer AUTHORING ONE KEY MOMENT of a film — one Seedance 2.5 generation. You receive the whole SCRIPT for context, but your moment covers ONLY its SPAN — the script's own words for this moment. The span is the source of truth: carry its wording; EVERY line of dialogue in the span rides word-for-word.
 
 THE SHOT HAS ONE JOB (stated in the instruction). Every sentence you write either advances that job or earns its place some other way — cut anything that serves neither. The job decides what the camera favors, what the performance emphasizes, and what the frame withholds.
 
@@ -475,9 +445,9 @@ Return ONLY JSON — no prose, no code fences:
   },
   'storyboard.author.user': {
     agent: 'Storyboard',
-    label: 'Author ONE shot (instruction)',
-    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{prevBeat}', '{nextBeat}', '{settingLine}', '{note}', '{retry}'],
-    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR SHOT: "{beat}" — camera: {framing}. ITS ONE JOB: {job}. Previous shot: {prevBeat}. Next shot: {nextBeat}.\n{settingLine}\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
+    label: 'Author ONE key moment (instruction)',
+    vars: ['{script}', '{span}', '{beat}', '{job}', '{framing}', '{seconds}', '{prevBeat}', '{nextBeat}', '{settingLine}', '{note}', '{retry}'],
+    text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR MOMENT: "{beat}" — camera: {framing}. LENGTH: {seconds}. ITS ONE JOB: {job}. Previous moment: {prevBeat}. Next moment: {nextBeat}.\n{settingLine}\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
   },
   // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
   'storyboard.shot.system': {

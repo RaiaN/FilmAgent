@@ -52,7 +52,7 @@ import { AGENT_MAP, AGENTS, castAgent, createBrowserTransport, classifyAssets } 
 import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, finishDraft, generateFilmAudio } from '../../../utils/film/core/operations';
 import { previzPlan, previzSchematic, previzAnimaticPrompt, previzCutPrompt, totalSecondsOf, ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK } from '../../../utils/film/core/previz';
-import { describeFrame, normalizeBrief, parseScenes, storyboardCarve, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, storyboardQuickPage, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
+import { describeFrame, storyboardMoments, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { renderTemplate, clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits, DRAFT_MODE, draftFinalsOf, VIDEO_MODEL_OPTIONS, resolveModelId } from '../../../utils/film/suiteConfig';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -304,29 +304,30 @@ const resolveShotRefs = (s, refs = []) => {
 // A storyboard's reference POOL entry: {entryId?, nodeId?, url, label} — the pool ORDER
 // is the [Image N] numbering the division and keyframes use. Older projects stored bare
 // url strings; normalize wherever the pool is read.
-// SCENE → LOCATION PLATE. Resolved ONCE, at divide time: the plate joins the ref pool
-// and its index is stamped into every figure list in that scene, so from there on the
-// setting is a figure like any subject — attached, numbered and invalidated by the one
-// mechanism. An explicit per-scene pick (chat.data.sceneLocations) always wins; the
-// fallback matches the slugline's location words against the bible's location plates.
-// No match → UNBOUND, reported on the row. A plate is never guessed.
-const slugLocationOf = (slug) => String(slug || '')
-  .replace(/^\s*(?:\d+[A-Za-z-]*[\s.:]+)?(?:INT\.?\/EXT|EXT\.?\/INT|INT|EXT|I\/E)\b[./\s-]*/i, '')
-  .split(/\s+-\s+/)[0]
+// PLACE → LOCATION PLATE. Resolved ONCE, when the key moments land: each place the
+// moments name (chat.data.places, numbered 1..n — a moment's `scene`) gets a plate that
+// joins the ref pool, and its index is stamped into every figure list at that place, so
+// from there on the setting is a figure like any subject — attached, numbered and
+// invalidated by the one mechanism. An explicit pick (chat.data.sceneLocations) always
+// wins; otherwise the place's words are matched against the bible's location plates.
+// No match → UNBOUND, shown on the card. A plate is never guessed.
+const placeWordsOf = (place) => String(place || '')
   .replace(/\(.*?\)/g, '')
   .replace(/[^\p{L}\p{N}\s]/gu, ' ')
   .replace(/\s+/g, ' ')
   .trim()
   .toLowerCase();
 
+// A pick is keyed by the place's NAME, not its number: a re-run renumbers the places,
+// and a pick must stay with the place it was made for.
+const placePickKey = (chat, sceneNo) => placeWordsOf((chat?.data?.places || [])[Math.max(0, (Number(sceneNo) || 1) - 1)]);
+
 const locationPlateFor = (chat, sceneNo, bible) => {
-  const picked = (chat?.data?.sceneLocations || {})[String(sceneNo || 1)];
+  const picked = (chat?.data?.sceneLocations || {})[placePickKey(chat, sceneNo)];
   const plates = (bible || []).filter((b) => b.role === 'location' && b.url);
   if (picked) return plates.find((b) => b.id === picked) || null;
-  const scenes = parseScenes(chat?.data?.screenplay || '');
-  const scene = scenes[Math.max(0, (Number(sceneNo) || 1) - 1)];
-  const want = slugLocationOf(scene?.slug);
-  if (!want || want === 'unstated') return null;
+  const want = placeWordsOf((chat?.data?.places || [])[Math.max(0, (Number(sceneNo) || 1) - 1)]);
+  if (!want) return null;
   const words = want.split(' ').filter((w) => w.length > 2);
   // Match on shared significant words, best score wins; a tie or zero overlap = unbound.
   let best = null; let bestScore = 0; let tied = false;
@@ -1112,9 +1113,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   const sceneLocationsOf = useCallback((chatId) => {
     const chat = nodesRef.current.find((n) => n.id === chatId);
     if (!chat) return [];
-    return parseScenes(chat.data?.screenplay || '').map((sc) => ({
-      n: sc.n, slug: sc.slug,
-      plate: locationPlateFor(chat, sc.n, bibleRef.current),
+    return (chat.data?.places || []).map((place, i) => ({
+      n: i + 1, slug: place,
+      plate: locationPlateFor(chat, i + 1, bibleRef.current),
     }));
   }, []);
   // Re-binding a scene RE-STAMPS its shots: the new plate joins the pool, its index
@@ -1138,7 +1139,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
       }
       const oldIdx = idxOf(oldPlate);
       if (oldIdx === newIdx && !!oldIdx === !!newIdx) return ns.map((n) => (n.id === chatId
-        ? { ...n, data: { ...n.data, sceneLocations: { ...(n.data.sceneLocations || {}), [String(sceneNo)]: plateId || '' } } }
+        ? { ...n, data: { ...n.data, sceneLocations: { ...(n.data.sceneLocations || {}), [placePickKey(chat, sceneNo)]: plateId || '' } } }
         : n));
       const restamp = (figs) => {
         const kept = (Array.isArray(figs) ? figs : []).filter((g) => g !== oldIdx);
@@ -1150,7 +1151,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
           return { ...n,
             data: { ...n.data,
               refs,
-              sceneLocations: { ...(n.data.sceneLocations || {}), [String(sceneNo)]: plateId || '' },
+              sceneLocations: { ...(n.data.sceneLocations || {}), [placePickKey(chat, sceneNo)]: plateId || '' },
               shots: (n.data.shots || []).map((sh) => (inScene(sh.scene) ? { ...sh, figures: restamp(sh.figures), body: retag(sh.body) } : sh)) } };
         }
         if (panelId && String(n.id).startsWith(`${panelId}-`) && n.data?.keyframe && inScene(n.data.scene)) {
@@ -2626,6 +2627,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   const layAnchoredCard = useCallback((kf, sShot, pool, cut, pos) => {
       const url = kf && refUrl(kf);
       if (!kf?.data?.keyframe || !url) return null;
+      // Key moments are written for Seedance 2.5 — their cards shoot on it.
+      if (!resolveModelId('seedance25')) { Message.error('Seedance 2.5 is not configured — key moments are written for it. Configure it, then try again.'); return null; }
       const body0 = String(kf.data.body || sShot.body || '').trim();
       const { ordered, body } = resolveShotRefs({ ...sShot, body: body0 }, pool);
       // Split the figure refs: bible-tagged entries become refIds (badges 1..k),
@@ -2684,8 +2687,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         index: 0, cut, idPrefix, title: sShot.beat || kf.data.beat || `Shot ${(Number(kf.data.index) || 0) + 1}`,
         job: sShot.job || kf.data.job || '',
         action: '', promptOverride: mappedMotion || mapped, framing: '',
-        durationSec: AUTO_SECONDS, // the events set the length; the card can still pin a ceiling
-        refEntryIds: refIds, audio: sShot.audio || '',
+        durationSec: Number(sShot.seconds) || AUTO_SECONDS, // a key moment carries its own length; older rows let the events set it
+        refEntryIds: refIds, audio: sShot.audio || '', videoModel: 'seedance25',
       }, pos);
       const cardId = `${idPrefix}-0`;
       // The still IS the card's ONE keyframe — the pinned grammar's composition binding
@@ -3749,7 +3752,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const chatId = String(panelId).replace('sbpanel', 'sbchat');
     const chat = nodesRef.current.find((n) => n.id === chatId);
     const shots = chat?.data?.shots || [];
-    if (!shots.length) { Message.warning('Empty strip — Divide into shots first.'); return; }
+    if (!shots.length) { Message.warning('Empty strip — Find key moments first.'); return; }
     const rows = shots.map((s, i) => {
       const node = nodesRef.current.find((n) => n.id === `${panelId}-${i}`);
       const d = node?.data || {};
@@ -3771,7 +3774,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const textOnly = rows.filter((r) => !r.startUrl).map((r) => r.i + 1);
     const noText = rows.filter((r) => !r.motion && !r.body).map((r) => r.i + 1);
     if (noText.length) { Message.warning(`Shot${noText.length === 1 ? '' : 's'} ${noText.join(', ')} ${noText.length === 1 ? 'has' : 'have'} no text — author or write the row${noText.length === 1 ? '' : 's'} first.`); return; }
-    const modelKey = defaultVideoModelKey();
+    // Key moments are written for Seedance 2.5 — the strip's card shoots on it.
+    if (!resolveModelId('seedance25')) { Message.error('Seedance 2.5 is not configured — key moments are written for it. Configure it, then film again.'); return; }
+    const modelKey = 'seedance25';
     const refCap = videoTraits(modelKey).refCap;
     const stamped = videoTraits(modelKey).keyframes; // interval grammar rides with the keyframe-chain dialect
     const chunks = [rows]; // the strip is ONE card — the model paces it, nothing is packed by a clock
@@ -3821,7 +3826,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
         title: chunk.length === 1 ? chunk[0].beat : `${chunk[0].beat} → ${chunk[chunk.length - 1].beat}`,
         action: '', promptOverride: text, framing: '',
         durationSec: AUTO_SECONDS, // the events set the length, not a clock we impose
-        refEntryIds: [], audio: '',
+        refEntryIds: [], audio: '', videoModel: modelKey,
       }, base);
       const stillChips = [];
       const kfPtrs = [];
@@ -3979,7 +3984,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // one mapping, so a rebuilt row is indistinguishable from a laid one).
   const kfCardData = (s, i, refs, style, imageModel, panelId) => ({
     label: s.beat, beat: s.beat, job: s.job || '', body: s.body, shotTemplate: s.shotTemplate, expression: s.expression || '',
-    figures: s.figures || [], intExt: s.intExt || '', scene: s.scene || 1,
+    figures: s.figures || [], intExt: s.intExt || '', scene: s.scene || 1, seconds: s.seconds || null,
     figureLabels: (s.figures || []).map((f) => String(refs[f - 1]?.label || `Image ${f}`).slice(0, 16)),
     motion: s.motion || '', audio: s.audio || '',
     span: s.span || '', authorPending: !!s.authorPending, missingDialogue: s.missingDialogue || [], authorError: s.authorError || '',
@@ -4002,14 +4007,16 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const shotData = (s, i) => kfCardData(s, i, refs, style, imageModel, panelId);
     setNodes((ns) => {
       let next = ns;
-      // The strip element: its own draggable node, laid below the control card on
+      // The strip element: its own draggable node, laid beside the control card on
       // first divide. A user-deleted strip stays deleted (stripHidden).
       const chatId2 = String(panelId).replace('sbpanel', 'sbchat');
       const chatNode = next.find((n) => n.id === chatId2);
       if (shots.length && !chatNode?.data?.stripHidden && !next.some((n) => n.id === panelId)) {
+        // Beside the card, not under it: the card grows (places, stills) once the
+        // moments land; its width never changes.
         const chat = chatNode;
         const pos = chat
-          ? { x: chat.position?.x || 0, y: (chat.position?.y || 0) + (chat.measured?.height || 560) + 30 }
+          ? { x: (chat.position?.x || 0) + (chat.measured?.width || 460) + 40, y: chat.position?.y || 0 }
           : { x: 120, y: 120 };
         next = next.concat({ id: panelId, type: 'sbstrip', position: pos, data: { chatId: chatId2, layerId: 'storyboard' }, style: { width: 780 } });
       }
@@ -4031,126 +4038,79 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     });
   }, [setNodes]);
 
-  // THE division (bound to THIS control node): carve the script into verbatim spans,
-  // lay the rows instantly, author each shot in parallel. Runs ONCE; a re-divide comes
-  // through the action bar (which clears the list first and passes fresh).
-  // NORMALIZE — the division's front-end (explicit tap): brief → SCREENPLAY (sluglines,
-  // action lines, verbatim dialogue; unstated slug fields say UNSTATED). Lands on the
-  // control card as editable text — the HITL gate; Divide carves it scene-aware. Input
-  // that already parses as a screenplay carries verbatim for free.
-  const normalizeChatBrief = useCallback(async (chatId) => {
-    const chat = nodesRef.current.find((n) => n.id === chatId);
-    const script = String(chat?.data?.script || '').trim();
-    if (!script) { Message.warning('Type the script first — Normalize reads it.'); return; }
-    if (chat?.data?.busy) return;
-    const patch = (p) => setNodes((ns) => ns.map((n) => (n.id === chatId ? { ...n, data: { ...n.data, ...p } } : n)));
-    if (parseScenes(script).length) {
-      patch({ screenplay: script });
-      Message.success(`The brief is already a screenplay — carried verbatim, ${parseScenes(script).length} scene${parseScenes(script).length === 1 ? '' : 's'}, no calls spent.`);
-      return;
-    }
-    patch({ busy: true });
-    traceRef.current.startRun({ note: 'Agent · Storyboard normalize (screenplay)' });
-    const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
-    try {
-      const { screenplay } = await normalizeBrief({ script }, ctx);
-      const nScenes = parseScenes(screenplay).length;
-      traceRef.current.log({ level: 'run', kind: 'decision', note: `Normalize · screenplay, ${nScenes} scene${nScenes === 1 ? '' : 's'}` });
-      patch({ screenplay });
-      Message.success(`Screenplay drafted — ${nScenes} scene${nScenes === 1 ? '' : 's'}. Review and edit it, then Create shot list.`);
-    } catch (e) { Message.error(`Normalize failed: ${e.message}`); }
-    finally { patch({ busy: false }); }
-  }, [setNodes]);
-
-  const runDivide = useCallback(async (nodeId, { fresh = false } = {}) => {
+  // FIND KEY MOMENTS (bound to THIS control node): the script → the moments the story
+  // can't do without, each one Seedance 2.5 generation; rows land at once showing their
+  // quote, and each moment is AUTHORED in parallel (still body · Seedance 2.5 motion ·
+  // audio). Running it again replaces the rows.
+  const runDivide = useCallback(async (nodeId) => {
     const node = nodesRef.current.find((n) => n.id === nodeId);
-    if (!node) return;
+    if (!node || node.data?.busy) return;
     const panelId = node.data?.panelId;
-    // The division carves the APPROVED SCREENPLAY — Normalize is the mandatory
-    // front-end. The RAW brief survives as the AUTHOR's grounding document: structure
-    // comes from the screenplay, texture (atmosphere, tone) from the user's own prose.
-    const script = String(node.data?.screenplay || '').trim();
-    if (!script) { Message.warning('Normalize first — Divide carves the approved screenplay.'); return; }
-    const rawScript = String(node.data?.script || '');
-    if (!fresh && (node.data?.shots || []).length) { Message.info('Already divided — edit the rows, or Create shot list again from EVENTS.'); return; }
-    if (fresh && panelId) {
-      // Re-division replaces the old list: rows and shots go before the carve.
-      setNodes((ns) => ns
-        .filter((n) => !(String(n.id).startsWith(`${panelId}-`) && /^\d+$/.test(String(n.id).slice(String(panelId).length + 1))))
-        .map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, shots: [], shotCount: 0 } } : n)));
-    }
-    // THE SETTING IS A FIGURE. Each scene's location plate joins the pool BEFORE the
-    // carve, so it carries a real [Image N] the author can cite and every downstream
-    // consumer attaches it exactly like a subject — one mechanism, not two.
-    const scenePlateIdx = new Map(); // scene number → 1-based pool index
-    const refs = (node.data?.refs || []).map(poolRef);
-    parseScenes(script).forEach((sc) => {
-      const plate = locationPlateFor(node, sc.n, bibleRef.current);
-      if (!plate) return;
-      let i = refs.findIndex((r) => r.url === plate.url || (plate.nodeId && r.nodeId === plate.nodeId));
-      if (i < 0) { refs.push({ entryId: plate.id, nodeId: plate.nodeId || null, url: plate.url, label: plate.name || 'location' }); i = refs.length - 1; }
-      scenePlateIdx.set(sc.n, i + 1);
-    });
+    const script = String(node.data?.script || '').trim();
+    if (!script) { Message.warning('Write the script first.'); return; }
     const style = node.data?.style || '';
     const imageModel = imageModelKeyOf(node.data?.imageModel);
+    const refs = (node.data?.refs || []).map(poolRef);
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: true, stripHidden: false } } : n)));
-    traceRef.current.startRun({ note: 'Agent · Storyboard (shot division)' });
+    traceRef.current.startRun({ note: 'Agent · Storyboard (key moments)' });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
-      // CARVE structure + verbatim spans, then AUTHOR each shot in parallel; rows land
-      // instantly showing their span, author calls fill them as they return.
-      {
-        const poolUrls = freshPoolUrls(refs);
-        const carve = await storyboardCarve({ script, style, references: poolUrls }, ctx);
-        // The carve promises its spans partition the script; this is the check. Story
-        // the shot list does not cover is reported, never swallowed.
-        if (carve.uncovered?.length) {
-          traceRef.current.log({ level: 'run', kind: 'decision', note: `Carve · ${carve.uncovered.length} script line(s) uncovered` });
-          Message.warning(`${carve.uncovered.length} script line${carve.uncovered.length === 1 ? '' : 's'} landed in NO shot — e.g. "${carve.uncovered[0].slice(0, 70)}". Re-create the shot list, or add the missing beat yourself.`);
-        }
-        const shots = carve.shots.map((s) => ({
-          beat: s.beat, shotTemplate: s.shotTemplate, figures: withSetting(s.figures, s.scene, scenePlateIdx),
-          intExt: s.intExt, scene: s.scene, span: s.span,
-          body: s.span, motion: '', audio: '', expression: '', authorPending: true,
-        }));
-        // A figure-less shot authors with ZERO reference anchors (no [Image N] at all) —
-        // legal, but never silent: the carve owed every shot its figures.
-        const noFig = poolUrls.length ? shots.map((s, i) => (!(s.figures || []).length ? i + 1 : 0)).filter(Boolean) : [];
-        if (noFig.length) Message.warning(`Carve assigned NO figures to shot${noFig.length === 1 ? '' : 's'} ${noFig.join(', ')} — ${noFig.length === 1 ? 'it' : 'they'} will author without reference anchors. Check the rows' figure chips; re-create the list if that's wrong.`);
-        const syncChat = () => setNodes((ns) => ns.map((n) => (n.id === nodeId
-          ? { ...n, data: { ...n.data, busy: false, shots: [...shots], refs, shotCount: shots.length } }
-          : n)));
-        syncChat();
-        Message.info(`${shots.length} shots carved — authoring each in parallel…`);
-        applyShotCards(panelId, [...shots], [], refs, { style, imageModel });
-        let flagged = 0;
-        await runWithConcurrency(shots.map((s, i) => async () => {
-          try {
-            // ONLY the shot's carved figures attach — the author cannot activate a
-            // ref the shot doesn't contain; its local numbering remaps to pool numbers.
-            const figs = (Array.isArray(s.figures) ? s.figures : []).filter((g) => poolUrls[g - 1]);
-            const settingLocal = figs.indexOf(scenePlateIdx.get(Number(s.scene) || 1)) + 1; // 0 = this shot has no plate
-            const a = await storyboardAuthor({
-              script: rawScript || script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate,
-              prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: figs.map((g) => poolUrls[g - 1]),
-              settingIndex: settingLocal,
-            }, ctx);
-            shots[i] = { ...shots[i], body: localToPoolTags(a.body, figs), motion: localToPoolTags(a.motion, figs), audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
-            if (a.missingDialogue?.length) flagged += 1;
-          } catch (e) {
-            shots[i] = { ...shots[i], authorPending: false, authorError: e.message };
-            flagged += 1;
-          }
-          syncChat();
-          applyShotCards(panelId, [...shots], [], refs, { style, imageModel });
-        }), 4);
-        syncChat();
-        if (flagged) Message.warning(`Authoring done — ${flagged} shot${flagged === 1 ? '' : 's'} flagged (dropped dialogue or an error); check the marked rows before rendering.`);
-        else Message.success('Authoring done — every span carried, dialogue verified.');
+      const poolAtAsk = freshPoolUrls(refs);
+      const moments = await storyboardMoments({ script, style, references: poolAtAsk }, ctx);
+      // The old rows go only once the new moments are in hand.
+      if (panelId) {
+        setNodes((ns) => ns.filter((n) => !(String(n.id).startsWith(`${panelId}-`) && /^\d+$/.test(String(n.id).slice(String(panelId).length + 1)))));
       }
+      // Places, in first-appearance order; each binds its location plate (a figure).
+      const places = [...new Set(moments.map((m) => m.place))];
+      const sceneOf = (m) => places.indexOf(m.place) + 1;
+      const withPlaces = { ...node, data: { ...node.data, places } };
+      const scenePlateIdx = new Map();
+      places.forEach((_, i) => {
+        const plate = locationPlateFor(withPlaces, i + 1, bibleRef.current);
+        if (!plate) return;
+        let k = refs.findIndex((r) => r.url === plate.url || (plate.nodeId && r.nodeId === plate.nodeId));
+        if (k < 0) { refs.push({ entryId: plate.id, nodeId: plate.nodeId || null, url: plate.url, label: plate.name || 'location' }); k = refs.length - 1; }
+        scenePlateIdx.set(i + 1, k + 1);
+      });
+      const poolUrls = freshPoolUrls(refs);
+      const shots = moments.map((m) => ({
+        beat: m.beat, job: m.job, shotTemplate: m.shotTemplate, figures: withSetting(m.figures, sceneOf(m), scenePlateIdx),
+        intExt: m.intExt, scene: sceneOf(m), seconds: m.seconds, span: m.span,
+        body: m.span, motion: '', audio: '', expression: '', authorPending: true,
+      }));
+      const syncChat = () => setNodes((ns) => ns.map((n) => (n.id === nodeId
+        ? { ...n, data: { ...n.data, busy: false, places, shots: [...shots], refs, shotCount: shots.length } }
+        : n)));
+      syncChat();
+      applyShotCards(panelId, [...shots], [], refs, { style, imageModel });
+      let flagged = 0;
+      await runWithConcurrency(shots.map((s, i) => async () => {
+        try {
+          // ONLY the moment's figures attach — the author cannot activate a ref the
+          // moment doesn't contain; its local numbering remaps to pool numbers.
+          const figs = (Array.isArray(s.figures) ? s.figures : []).filter((g) => poolUrls[g - 1]);
+          const settingLocal = figs.indexOf(scenePlateIdx.get(s.scene)) + 1; // 0 = no plate at this place
+          const a = await storyboardAuthor({
+            script, span: s.span, beat: s.beat, job: s.job || '', shotTemplate: s.shotTemplate, seconds: s.seconds,
+            prevBeat: shots[i - 1]?.beat || '', nextBeat: shots[i + 1]?.beat || '', references: figs.map((g) => poolUrls[g - 1]),
+            settingIndex: settingLocal,
+          }, ctx);
+          shots[i] = { ...shots[i], body: localToPoolTags(a.body, figs), motion: localToPoolTags(a.motion, figs), audio: a.audio, expression: a.expression, authorPending: false, missingDialogue: a.missingDialogue || [] };
+          if (a.missingDialogue?.length) flagged += 1;
+        } catch (e) {
+          shots[i] = { ...shots[i], authorPending: false, authorError: e.message };
+          flagged += 1;
+        }
+        syncChat();
+        applyShotCards(panelId, [...shots], [], refs, { style, imageModel });
+      }), 4);
+      syncChat();
+      if (flagged) Message.warning(`${flagged} moment${flagged === 1 ? '' : 's'} flagged — check the marked rows.`);
+      else Message.success(`${shots.length} key moment${shots.length === 1 ? '' : 's'} ready.`);
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, busy: false } } : n)));
-      Message.error(`Division failed: ${err.message}`);
+      Message.error(`Key moments failed: ${err.message}`);
     }
   }, [applyShotCards, setNodes]);
 
@@ -4474,26 +4434,9 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   // from one division.
   const renderSheetFromChat = useCallback(async (chatId) => {
     const chat = nodesRef.current.find((n) => n.id === chatId);
-    const shots = chat?.data?.shots || [];
-    const preDivision = !shots.length; // no rows yet → one page straight from the script
-    // PANEL BUDGET: the Panels select caps the page. Sampling is DETERMINISTIC —
-    // first + last always ride, middles are evenly spaced with a preference for
-    // shots that carry an END STATE (the big transitions), no LLM, no spend.
-    const target = Number(chat.data?.sheetPanels) || 0;
-    let pageShots = shots;
-    if (!preDivision && target && shots.length > target) {
-      const picked = new Set([0, shots.length - 1]);
-      const need = Math.max(0, target - picked.size);
-      for (let k = 1; k <= need; k += 1) {
-        const ideal = Math.max(1, Math.min(shots.length - 2, Math.round((k * (shots.length - 1)) / (need + 1))));
-        const cands = [ideal, ideal - 1, ideal + 1].filter((x) => x > 0 && x < shots.length - 1 && !picked.has(x));
-        const chosen = cands[0];
-        if (chosen !== undefined) picked.add(chosen);
-      }
-      pageShots = [...picked].sort((a, b) => a - b).map((i2) => shots[i2]);
-      Message.info(`Page condensed to ${pageShots.length} of ${shots.length} shots — first, last and the biggest transitions.`);
-    }
-    if (!preDivision && pageShots.length > 15) Message.warning(`${pageShots.length} panels — the Seedream guide advises ≤15 per page; ordering may suffer.`);
+    const pageShots = chat?.data?.shots || [];
+    if (!pageShots.length) { Message.warning('Find key moments first — the page draws them.'); return; }
+    if (pageShots.length > 15) Message.warning(`${pageShots.length} panels — the Seedream guide advises ≤15 per page; ordering may suffer.`);
     // The Quick Storyboard lands directly BELOW the Shot Division control card (its
     // own board element); freeOrigin nudges it clear of the strip when both are there.
     const pos = freeOrigin({ w: 760, h: 480, preferred: { x: chat.position?.x || 0, y: (chat.position?.y || 0) + (chat.measured?.height || 560) + 30 } });
@@ -4501,13 +4444,10 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
     const nodeId = `sbsheet-${Date.now().toString(36)}`;
     const base = createAssetNode({ kind: 'image', url: '', label: `Quick Storyboard${title ? ` — ${title}` : ''}`, position: pos });
     setNodes((ns) => ns.concat({ ...base, id: nodeId, data: { ...base.data, loading: true } }));
-    const quickPanels = target || 6;
-    traceRef.current.startRun({ note: 'Agent · Storyboard (Quick Storyboard · ' + (preDivision ? quickPanels + ' panels from script' : pageShots.length + ' panels') + ')' });
+    traceRef.current.startRun({ note: `Agent · Storyboard (Quick Storyboard · ${pageShots.length} panels)` });
     const ctx = { client: traceRef.current.wrapClient(createBrowserClient()) };
     try {
-      const out = preDivision
-        ? await storyboardQuickPage({ script: chat.data?.script || '', panels: quickPanels, style: chat.data?.style || '', references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx)
-        : await storyboardSheet({ shots: pageShots, style: chat.data?.style || '', title, references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx);
+      const out = await storyboardSheet({ shots: pageShots, style: chat.data?.style || '', title, references: freshPoolUrls(chat.data?.refs || []), imageModel: imageModelKeyOf(chat.data?.imageModel) }, ctx);
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, url: out.url, cacheUrl: out.cacheUrl || null, loading: false } } : n)));
     } catch (err) {
       setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, loading: false, error: err.message } } : n)));
@@ -5577,12 +5517,12 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
   }, []);
 
   const sbChatCtx = useMemo(() => ({
-    onDivide: runDivide, onNormalize: normalizeChatBrief, onSceneLocations: sceneLocationsOf, onSetSceneLocation: setSceneLocation, locationPlates: (bibleEntries || []).filter((b) => b.role === 'location' && b.url), onListAction: storyboardListAction, bibleEntries,
+    onDivide: runDivide, onSceneLocations: sceneLocationsOf, onSetSceneLocation: setSceneLocation, locationPlates: (bibleEntries || []).filter((b) => b.role === 'location' && b.url), onListAction: storyboardListAction, bibleEntries,
     onToggleBibleRef: sbToggleBibleRef, onRemoveRef: sbRemoveRef,
     onRenderAll: renderAllStills, onRenderSheet: renderSheetFromChat, onCastFromScript: castFromStoryboard,
     onPatchChat: (id, patch) => setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))),
     onOpenRefDrawer: openRefDrawer,
-  }), [runDivide, normalizeChatBrief, sceneLocationsOf, setSceneLocation, storyboardListAction, bibleEntries, sbToggleBibleRef, sbRemoveRef, renderAllStills, castFromStoryboard, openRefDrawer]);
+  }), [runDivide, sceneLocationsOf, setSceneLocation, storyboardListAction, bibleEntries, sbToggleBibleRef, sbRemoveRef, renderAllStills, castFromStoryboard, openRefDrawer]);
 
   // The drawer's content derives LIVE from the current board/panel state per source,
   // so toggles update badges in place. Bible-tagged images carry their role; other
@@ -5805,7 +5745,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, incomingStory, o
             <div style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', gap: 12, width: 560, maxWidth: 'calc(100% - 32px)', background: '#fff', border: '1px solid #e5e6eb', borderRadius: 14, boxShadow: '0 6px 24px rgba(0,0,0,0.09)', padding: 22 }}>
               <div>
                 <Text style={{ fontSize: 17, fontWeight: 700, display: 'block' }}>Make AI film</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>Pick an agent from the left rail — Storyboard to divide a script into shots, Previz to plan coverage, or drop a SHOT card and write it yourself.</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>Pick an agent from the left rail — Storyboard to find a script's key moments, Previz to plan coverage, or drop a SHOT card and write it yourself.</Text>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <Button type="primary" style={{ background: '#b06f10', borderColor: '#b06f10' }} onClick={startShortFilm}>Start a short film →</Button>

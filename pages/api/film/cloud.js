@@ -1,6 +1,7 @@
 import { getServerTosConfig, hasServerTosConfig, putTosObject, downloadTosObject, listTosCommonPrefixes, listTosObjects, deleteTosObject, headTosObject } from '../../../utils/server/tosUpload';
 import { CLOUD_MEDIA_PREFIX, checkInBytes, mediaFilePath, mediaFileExists, mirrorKeyToTos, clearUnmirrored, deleteStoreKey } from '../../../utils/server/mediaStore';
 import fs from 'fs';
+import { hasStudioWork } from '../../../utils/film/studio/model';
 
 // CLOUD PROJECT STORE — save/list/load whole film projects against the user's own TOS
 // bucket. The bytes are (normally) ALREADY up: the media route mirrors every check-in
@@ -133,15 +134,32 @@ export default async function cloudHandler(req, res) {
 
   try {
     if (req.method === 'POST') {
-      const { project } = req.body || {};
+      const { project, baseSavedAt = null, force = false } = req.body || {};
       const id = sanitizeId(project?.id);
       if (!project || !id) return res.status(400).json({ error: 'a project with an id is required' });
+
+      // NO BLIND OVERWRITES. A save names the cloud version it was based on (baseSavedAt —
+      // the savedAt this session last loaded or saved). If the cloud copy has moved on since
+      // (another tab, machine or person saved), the save is refused and the client says so;
+      // overwriting it anyway is the director's explicit choice (force).
+      const mKey = manifestKey(id);
+      let prevBuffer = null;
+      let prevSavedAt = null;
+      try {
+        const prev = await downloadTosObject({ ...cfg, objectKey: mKey });
+        prevBuffer = prev.buffer;
+        prevSavedAt = JSON.parse(prev.buffer.toString('utf8')).savedAt || null;
+      } catch { /* first save — nothing there */ }
+      if (prevBuffer && !force && prevSavedAt !== baseSavedAt) {
+        return res.status(409).json({ conflict: true, cloudSavedAt: prevSavedAt, error: 'The cloud copy changed since this session last saw it (another tab, machine or person saved it).' });
+      }
 
       // An EMPTY canvas must never clobber a real save: a desynced client (the exact
       // failure that produced an empty "Glass Horizon" manifest over a full board) or
       // a fresh scratch saving by accident keeps the existing manifest intact.
-      const incomingNodes = (project?.canvas?.nodes || []).length;
-      if (!incomingNodes) {
+      // Studio work counts as work too — a project can live there alone.
+      const incomingWork = (project?.canvas?.nodes || []).length || hasStudioWork(project?.studio);
+      if (!incomingWork) {
         const existing = await headTosObject({ ...cfg, objectKey: manifestKey(sanitizeId(project?.id)) }).catch(() => ({ exists: false }));
         if (existing.exists) return res.status(409).json({ error: 'Refusing to overwrite a cloud save with an EMPTY board — open the cloud copy instead, or use a new project id.' });
       }
@@ -153,13 +171,11 @@ export default async function cloudHandler(req, res) {
       const keys = collectStoreKeys(JSON.stringify(copy));
       const { uploaded, lost } = await ensureKeysMirrored(keys, cfg);
 
-      // Keep the previous manifest as a one-step undo before overwriting.
-      const mKey = manifestKey(id);
-      try {
-        const prev = await downloadTosObject({ ...cfg, objectKey: mKey });
+      // Keep the previous manifest in the project's history before overwriting.
+      if (prevBuffer) {
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        await putTosObject({ ...cfg, objectKey: `${PROJECTS_PREFIX}/${id}/history/project-${stamp}.json`, buffer: prev.buffer, contentType: 'application/json', overwrite: true });
-      } catch { /* first save — nothing to keep */ }
+        await putTosObject({ ...cfg, objectKey: `${PROJECTS_PREFIX}/${id}/history/project-${stamp}.json`, buffer: prevBuffer, contentType: 'application/json', overwrite: true });
+      }
 
       const manifest = {
         version: MANIFEST_VERSION,
@@ -175,6 +191,7 @@ export default async function cloudHandler(req, res) {
       return res.status(200).json({
         ok: true,
         projectId: id,
+        savedAt: manifest.savedAt,
         mediaCount: keys.size,
         uploadedNow: uploaded.length,
         rescuedInline,

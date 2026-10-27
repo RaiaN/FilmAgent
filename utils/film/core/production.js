@@ -16,10 +16,9 @@
 // Node-free by design: step outputs and picks live on the step objects; the canvas
 // mirrors them to board nodes via events.
 
-import { inspiration, characterVariations, locationVariations, animate, isAudioPolicyError } from './operations';
-import { withRetry } from './retry';
+import { inspiration, characterVariations, locationVariations, animate } from './operations';
 import { readySteps, runWithConcurrency, isTerminalStatus } from './parallel';
-import { getAgentDefaults, maxShotSeconds, defaultVideoModelKey, videoModelKeyOf, videoTraits } from '../suiteConfig';
+import { getAgentDefaults, maxShotSeconds, defaultVideoModelKey } from '../suiteConfig';
 import { resolveBibleUrls, BIBLE_REF_CAP, EXPLICIT_REF_CAP } from '../timelineModel';
 
 let _oid = 0;
@@ -40,29 +39,31 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
     case 'inspiration':
       // In a production the refs are the chunk's deps + bible — feed them to the
       // image model too (not just the planner) so the look actually conditions it.
-      await inspiration({ prompt: p.prompt || intent, refs: inputUrls, useRefsInGen: inputUrls.length > 0, count, size: p.size, config }, ctx, collect);
+      if (!String(p.prompt || '').trim()) throw new Error(`"${intent || 'This step'}" has no prompt — write it first.`);
+      await inspiration({ prompt: p.prompt, refs: inputUrls, useRefsInGen: inputUrls.length > 0, count, size: p.size, config }, ctx, collect);
       return outs;
     case 'characterVariations':
       if (!inputUrls[0]) return [];
-      await characterVariations({ imageUrl: inputUrls[0], direction: p.direction || intent, count, size: p.size, config }, ctx, collect);
+      await characterVariations({ imageUrl: inputUrls[0], direction: p.direction || '', count, size: p.size, config }, ctx, collect);
       return outs;
     case 'locationVariations':
       if (!inputUrls[0]) return [];
-      await locationVariations({ imageUrl: inputUrls[0], direction: p.direction || intent, count, size: p.size, config }, ctx, collect);
+      await locationVariations({ imageUrl: inputUrls[0], direction: p.direction || '', count, size: p.size, config }, ctx, collect);
       return outs;
     case 'animate': {
       // A direct (SHOT-card) shot may carry an EXPLICIT ordered ref list (cast +
       // storyboard frame, [Image1..N] matching the prompt); else fall back to the
       // bible-resolved inputs. Non-direct uses its keyframe dep as before.
-      const shotRefCap = videoTraits(videoModelKeyOf(p.modelKey)).refCap;
-      const refs = (p.direct && Array.isArray(p.refUrls) && p.refUrls.length) ? p.refUrls.slice(0, shotRefCap) : inputUrls;
-      // Parallel portrait-library ids (aligned with refs): a registered person/place
-      // plate rides as image_asset_id (trusted) instead of a screened raw url.
-      const refAssetIds = (p.direct && Array.isArray(p.refAssetIds)) ? p.refAssetIds.slice(0, shotRefCap) : [];
+      // Every reference rides — over the model's limit is animate's error, never a cut.
+      const refs = (p.direct && Array.isArray(p.refUrls) && p.refUrls.length) ? p.refUrls : inputUrls;
+      // Parallel Asset Library ids (aligned with refs): a registered person/place plate
+      // rides as image_asset_id instead of a screened raw url.
+      const refAssetIds = (p.direct && Array.isArray(p.refAssetIds)) ? p.refAssetIds : [];
       // A DIRECT shot may be TEXT-ONLY (the Story agent's continuous-shot film — its prompt
       // alone drives it, no reference images). Only skip a non-direct shot with no inputs.
       if (!refs.length && !p.direct) return [];
-      const animateOnce = async (genAudio) => {
+      if (!String(p.motion || '').trim() && !refs.length) throw new Error(`"${intent || 'This shot'}" has no prompt and no references — write what happens first.`);
+      const animateOnce = async () => {
         const { taskId, prompt: animPrompt } = await animate({
           // direct = storyboard shooting: ALL inputs ride as reference images (the
           // REAL cast/place assets + the sketch — no generated keyframe in between).
@@ -72,9 +73,9 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
           firstFrameUrl: p.firstFrameUrl ?? null,  // prev shot's last frame → this shot's first frame
           audioRefUrls: p.audioRefUrls ?? [],      // the card's attached clips → reference audio (≤15s each)
           videoRefUrls: p.videoRefUrls ?? [],      // the card's attached videos → reference video (2–30s each)
-          motion: p.motion || intent,
+          motion: p.motion,
           camera: p.camera, lens: p.lens, focalLength: p.focalLength, aperture: p.aperture,
-          duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: genAudio,
+          duration: p.duration, resolution: p.resolution, ratio: p.ratio, generateAudio: p.generateAudio,
           modelKey: p.modelKey ?? null,  // the card's per-shot Seedance slot rides into animate
           config,
         }, ctx);
@@ -82,18 +83,8 @@ const runAgentStep = async ({ agent, params = {}, inputUrls = [], count = 1, int
         // lastFrameUrl: the native return_last_frame PNG — used for shot-to-shot continuity.
         return { videoUrl: polled.videoUrl, prompt: animPrompt, lastFrameUrl: polled.lastFrameUrl || null };
       };
-      // Retry the WHOLE start+poll once on any failure (fresh task — a lapsed poll
-      // can't be resumed). A re-render is cheap; a hole in the final cut is not.
-      // The audio policy gets its own fallback: retake the shot WITHOUT audio —
-      // re-rolling with audio on just fails again.
-      const { videoUrl, prompt, lastFrameUrl } = await withRetry(async () => {
-        try {
-          return await animateOnce(p.generateAudio);
-        } catch (err) {
-          if (isAudioPolicyError(err)) return animateOnce(false);
-          throw err;
-        }
-      }, { tries: 2, baseMs: 4000, shouldRetry: () => true });
+      // One take, exactly as asked: a failure is reported, and shooting again is the director's call.
+      const { videoUrl, prompt, lastFrameUrl } = await animateOnce();
       outs.push({ url: videoUrl, kind: 'video', prompt, lastFrameUrl: lastFrameUrl || null });
       return outs;
     }
@@ -251,15 +242,15 @@ export const createProduction = (input = {}, transport = {}, opts = {}) => {
       // arrive approved with their outputs, so Action shoots only the remaining
       // cuts and the final stitch still assembles EVERYTHING in card order.
       if (shot.shotUrl) {
-        const kfOut = shot.keyframeUrl ? [{ id: outId(), url: shot.keyframeUrl, kind: 'image', prompt: shot.promptSeed || shot.beat }] : [];
+        const kfOut = shot.keyframeUrl ? [{ id: outId(), url: shot.keyframeUrl, kind: 'image', prompt: shot.promptSeed || '' }] : [];
         const shotOut = [{ id: outId(), url: shot.shotUrl, kind: 'video', prompt: shot.motion || '' }];
         return [
-          { id: kfId, agent: 'inspiration', title: shot.beat, intent: shot.beat, params: { prompt: shot.promptSeed || shot.beat, count: 1 }, dependsOn: [], gated: true, status: 'approved', outputs: kfOut, pickedId: kfOut[0]?.id || null, qc: null, error: null, bibleRefs: refIds, refCap: explicit ? EXPLICIT_REF_CAP : undefined, locked: true, feedback: '' },
+          { id: kfId, agent: 'inspiration', title: shot.beat, intent: shot.beat, params: { prompt: shot.promptSeed || '', count: 1 }, dependsOn: [], gated: true, status: 'approved', outputs: kfOut, pickedId: kfOut[0]?.id || null, qc: null, error: null, bibleRefs: refIds, refCap: explicit ? EXPLICIT_REF_CAP : undefined, locked: true, feedback: '' },
           { id: animId, agent: 'animate', title: shot.beat, intent: shot.beat, params: { motion: shot.motion || '', duration: shot.durationSec || perShot, camera: shot.camera || 'auto' }, dependsOn: [kfId], gated: true, status: 'approved', outputs: shotOut, pickedId: shotOut[0].id, qc: null, error: null, bibleRefs: [], locked: true, feedback: '' },
         ];
       }
       return [
-        { id: kfId, agent: 'inspiration', title: shot.beat, intent: shot.beat, params: { prompt: shot.promptSeed || shot.beat, count: 1 }, dependsOn: [], gated: true, status: 'pending', outputs: [], pickedId: null, qc: null, error: null, bibleRefs: refIds, refCap: explicit ? EXPLICIT_REF_CAP : undefined, locked: false, feedback: '' },
+        { id: kfId, agent: 'inspiration', title: shot.beat, intent: shot.beat, params: { prompt: shot.promptSeed || '', count: 1 }, dependsOn: [], gated: true, status: 'pending', outputs: [], pickedId: null, qc: null, error: null, bibleRefs: refIds, refCap: explicit ? EXPLICIT_REF_CAP : undefined, locked: false, feedback: '' },
         // The animate step keys off the keyframe (its dep); it needs no bible refs of
         // its own. The shot's camera template + motion are the two halves of the
         // Seedance prompt; camera defaults to 'auto' (no contradicting preamble).

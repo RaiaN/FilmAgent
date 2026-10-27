@@ -4,7 +4,7 @@
 // differs. Prompts/models resolve through suiteConfig (root ← client ← per-call).
 
 import { renderTemplate, getModel, getRuntime, clampSizeForModel, clampShotSeconds, videoModelKeyOf, videoTraits, defaultImageModelKey } from '../suiteConfig';
-import { withRetry } from './retry';
+import { fitList, fitText } from './limits';
 import { requireSkillLine } from '../skills';
 
 // Variation "axes" and styles are no longer hardcoded pools — the agentic
@@ -23,12 +23,8 @@ const runImagineBatch = async ({ specs, size, model }, ctx, hooks) => {
   if (onPlanned) onPlanned(specs);
   const results = await Promise.allSettled(specs.map(async (spec, idx) => {
     try {
-      // Transient Seedream errors (overload/429/timeouts) get backoff retries — the
-      // batch runs in parallel, so without this one shed request = one lost image.
-      const data = await withRetry(
-        () => ctx.client.generateImage({ prompt: spec.prompt, referenceImages: spec.referenceImages, size, model }),
-        { tries: 3, baseMs: 2500 },
-      );
+      // One call per image: a failure is that image's failure, reported, never re-rolled.
+      const data = await ctx.client.generateImage({ prompt: spec.prompt, referenceImages: spec.referenceImages, size, model });
       const item = { url: data.url, cacheUrl: data.cacheUrl || null, prompt: data.prompt || spec.prompt, label: spec.label, referenceImages: spec.referenceImages || [], meta: spec.meta || {} };
       if (onItem) onItem(item, idx);
       return item;
@@ -67,7 +63,6 @@ const parsePromptSet = (text) => {
 export const planPrompts = async ({ task, count = 4, idea = '', direction = '', references = [], imageModel = '', config } = {}, ctx) => {
   const n = clamp(count, 1, 12, 4);
   let items = [];
-  let lastErr = null;
   // Each task selects its planner persona via creativePlanner.{task}.user/.system
   // (inspiration / characterVariations / locationVariations); an unknown task falls back to
   // the shared exploratory instruction (creativePlanner.user) + an empty system.
@@ -78,22 +73,21 @@ export const planPrompts = async ({ task, count = 4, idea = '', direction = '', 
   };
   const userPrompt = renderTemplate(`creativePlanner.${task}.user`, userVars) || renderTemplate('creativePlanner.user', userVars);
   const skill = imageModel ? await requireSkillLine(imageModel) : '';
+  // A reply that parses to too few prompts (OUR check) gets one more ask; an API failure is
+  // never re-asked — it is the error.
   for (let attempt = 0; attempt < 2 && items.length < n; attempt += 1) {
-    try {
-      const { content } = await ctx.client.reason({
-        prompt: userPrompt,
-        systemPrompt: renderTemplate(`creativePlanner.${task}.system`, { count: n, skill }),
-        images: references,
-        modelId: getModel('reasoner', config),
-        reasoningEffort: getRuntime(config).reasoningEffort,
-      });
-      const parsed = parsePromptSet(content);
-      if (parsed.length) items = parsed;
-    } catch (err) {
-      lastErr = err;
-    }
+    const { content } = await ctx.client.reason({ // eslint-disable-line no-await-in-loop
+      prompt: userPrompt,
+      systemPrompt: renderTemplate(`creativePlanner.${task}.system`, { count: n, skill }),
+      images: references,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    const parsed = parsePromptSet(content);
+    if (parsed.length > items.length) items = parsed;
   }
-  if (!items.length) throw new Error(`Creative planner returned no usable prompts${lastErr ? `: ${lastErr.message}` : ''}`);
+  if (!items.length) throw new Error('The planner returned no usable prompts — ask again.');
+  if (items.length < n) throw new Error(`The planner wrote ${items.length} of the ${n} prompts asked for — ask again.`);
   return items.slice(0, n);
 };
 
@@ -136,7 +130,7 @@ export const characterVariations = async ({ imageUrl, direction = '', count = 4,
   // changes only what the instruction names (drift died with the re-compose approach).
   const SLOT = '@@EDIT@@';
   const specs = items.map((it, i) => ({
-    prompt: renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(it.prompt || '').slice(0, 2000)),
+    prompt: renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(fitText(it.prompt, 2000, `Planned edit "${it.label || i + 1}"`)),
     referenceImages: [source], label: it.label || `Variation ${i + 1}`, meta: { planLabel: it.label, instruction: it.prompt },
   }));
   return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, hooks);
@@ -166,7 +160,7 @@ export const locationVariations = async ({ imageUrl, direction = '', count = 4, 
   // Same edit-locked foundation: coverage = reframe instructions, states = change-only.
   const SLOT = '@@EDIT@@';
   const specs = items.map((it, i) => ({
-    prompt: renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(String(it.prompt || '').slice(0, 2000)),
+    prompt: renderTemplate('storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(fitText(it.prompt, 2000, `Planned edit "${it.label || i + 1}"`)),
     referenceImages: [source], label: it.label || `Coverage ${i + 1}`, meta: { planLabel: it.label, instruction: it.prompt },
   }));
   return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, hooks);
@@ -184,19 +178,6 @@ export const buildAnimatePrompt = ({ motion, camera, lens, focalLength, aperture
   const motionText = (motion || '').trim();
   return [cine, motionText].filter(Boolean).join('. ');
 };
-
-// The dominant live failure mode: the OUTPUT-AUDIO policy rejects an otherwise
-// good shot ("output audio may contain sensitive information").
-// Callers catch this and retake the shot once with generateAudio:false — a silent
-// shot beats a hole in the final cut.
-export const isAudioPolicyError = (err) => /output audio may contain sensitive/i.test((err && err.message) || '');
-
-// The OUTPUT-IMAGE content filter ("the output image may contain sensitive
-// information") rejects a generated still. Like the audio filter it's an OUTPUT-side,
-// PER-SAMPLE check — so a re-roll usually produces a different image that passes
-// (softening the prompt helps stubborn cases). Drives the cast-plate + storyboard-
-// frame retries so a flagged frame self-heals instead of leaving a blank card.
-export const isImagePolicyError = (err) => /image may contain sensitive/i.test((err && err.message) || '');
 
 // Kicks off the async video task; caller polls via ctx.client.pollVideo({ taskId }).
 // Duration is HARD-CLAMPED to 5–15s (a SHOT's range; it breaks into cuts of ≤5–6s):
@@ -220,8 +201,8 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // first frame. Sent ahead of the references, so callers offset their index math.
   if (firstFrameUrl) content.push({ type: 'image_url', image_url: { url: firstFrameUrl }, role: 'first_frame' });
   if (lastFrameUrl) content.push({ type: 'image_url', image_url: { url: lastFrameUrl }, role: 'last_frame' });
-  // Reference images cap at the model's refCap trait — slice, never fail. A ref
-  // WITH a portrait-library id
+  // Reference images: at most the model's refCap — more is an error, never a cut. A ref
+  // WITH an Asset Library id
   // (refAssetIds, aligned by index) rides as image_asset_id (the TRUSTED asset://
   // path) so a photoreal person plate isn't screened as a raw url ("input image may
   // contain real person"); refs without an id (the clay frame, anything un-preserved)
@@ -231,7 +212,7 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // leading item would be the same picture twice AND would shift what "Image N" counts
   // to in the prompt; changing the role of the item already there moves nothing.
   if (refUrls.length) {
-    refUrls.slice(0, videoTraits(modelKey).refCap).forEach((u, i) => {
+    fitList(refUrls, videoTraits(modelKey).refCap, 'reference images').forEach((u, i) => {
       const aid = refAssetIds[i];
       const role = refRoles[i] || 'reference_image';
       if (aid) content.push({ type: 'image_asset_id', asset_id: aid, role });
@@ -242,17 +223,14 @@ export const animate = async ({ imageUrl, assetId, refUrls = [], refAssetIds = [
   // else: text-to-video — the prompt is the only content (no reference media).
   // Reference AUDIO / VIDEO (plural; videos 2–30s each): the SHOT card's attached media —
   // music + voice clips the take realizes, camera/motion videos it follows, instead of
-  // inventing its own. Audios BEFORE videos (the retake fallback's index math relies on
+  // inventing its own. Audios BEFORE videos (the error that names a rejected clip relies on
   // this order). data: urls are staged to TOS by /api/seedance.
   (audioRefUrls || []).filter(Boolean).forEach((u) => content.push({ type: 'audio_url', audio_url: { url: u }, role: 'reference_audio' }));
   (videoRefUrls || []).filter(Boolean).forEach((u) => content.push({ type: 'video_url', video_url: { url: u }, role: 'reference_video' }));
   // Per-shot endpoint choice: the SHOT card may pick a variant (e.g. Seedance 2.0 Mini) by
   // modelKey; blank falls back to the env-preferred default slot, never a literal.
   const videoModel = getModel(videoModelKeyOf(modelKey), config);
-  const { taskId } = await withRetry(
-    () => ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, draft, outputFormat }),
-    { tries: 3, baseMs: 3000 },
-  );
+  const { taskId } = await ctx.client.startVideo({ content, model: videoModel, resolution, ratio, duration, generateAudio, draft, outputFormat });
   return { taskId, prompt };
 };
 
@@ -266,7 +244,7 @@ export const finishDraft = async ({ draftTaskId, modelKey, resolution, outputFor
   const res = resolution || finals[0];
   if (!finals.includes(res)) throw new Error(`${modelKey} finishes drafts at ${finals.join(' / ')} — not ${res}`);
   const model = getModel(videoModelKeyOf(modelKey), config);
-  return withRetry(() => ctx.client.startVideo({ model, draftTaskId, resolution: res, outputFormat }), { tries: 3, baseMs: 3000 });
+  return ctx.client.startVideo({ model, draftTaskId, resolution: res, outputFormat });
 };
 
 // The AUDIO agent's one operation (Seed Audio 1.0). The user's text goes out VERBATIM
@@ -276,10 +254,7 @@ export const finishDraft = async ({ draftTaskId, modelKey, resolution, outputFor
 export const generateFilmAudio = async ({ text, imageData, audioRefs } = {}, ctx) => {
   if (!String(text || '').trim()) throw new Error('The Audio agent needs the prompt first.');
   if (typeof ctx?.client?.generateSpeech !== 'function') throw new Error('This transport has no audio support yet (canvas/browser client only for now).');
-  const out = await withRetry(
-    () => ctx.client.generateSpeech({ text: String(text), imageData, audioRefs }),
-    { tries: 2, baseMs: 2000 },
-  );
+  const out = await ctx.client.generateSpeech({ text: String(text), imageData, audioRefs });
   if (!out?.url) throw new Error('The audio engine returned no clip.');
   return out; // { url, bytes, duration, format, model }
 };

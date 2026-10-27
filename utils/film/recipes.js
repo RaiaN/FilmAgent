@@ -1,4 +1,3 @@
-import { videoTraits, videoModelKeyOf } from './suiteConfig';
 
 // ---- bible roles (the Short Film's cast & world) ---------------------------------
 // The bible IS the board: a tagged image node carries data.bibleRole. These are the
@@ -68,7 +67,7 @@ export const shotReferences = (data = {}, bibleEntries = []) => {
     if (e && e.url) refs.push({ url: e.url, assetId: e.assetId || null, nodeId: e.nodeId || null, name: e.name || '', role: e.role || '', desc: [e.name, e.role].filter(Boolean).join(' — ') });
   });
   (data.assetRefs || []).forEach((a) => { if (a && a.url) refs.push({ url: a.url, assetId: a.assetId || null, nodeId: a.nodeId || null, name: a.label || '', role: a.role || '', desc: a.label || 'asset' }); });
-  return refs.slice(0, videoTraits(videoModelKeyOf(data.videoModel)).refCap);
+  return refs; // all of them — over the model's limit is the shoot's error, never a cut
 };
 
 

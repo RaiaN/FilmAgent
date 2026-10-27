@@ -7,18 +7,8 @@ import {
   Typography,
   Message,
   Modal,
-  Dropdown,
-  Menu,
-  Tooltip,
 } from '@arco-design/web-react';
 import {
-  IconFolderAdd,
-  IconClockCircle,
-  IconSettings,
-  IconPlus,
-  IconCode,
-  IconBook,
-  IconCloudDownload,
   IconDownload,
   IconPlayArrow,
   IconDelete,
@@ -28,12 +18,7 @@ import PromptSettings from './PromptSettings';
 import SkillSettings from './SkillSettings';
 import { hydrateSkills } from '../../utils/film/skills';
 import { emptyProject } from '../../utils/film/projectShape';
-import {
-  listRecent,
-  loadProjectAny,
-  pickProjectFolder,
-  saveProjectAny,
-} from '../../utils/film/projectStore';
+import { hasStudioWork } from '../../utils/film/studio/model';
 import { saveProjectToCloud, listCloudProjects, loadCloudProject, deleteCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
 import { applyDeployModels, REASONER_OPTIONS, REASONING_EFFORTS, reasonerSlotOf, resolveModelId, setClientConfig, getRuntime } from '../../utils/film/suiteConfig';
 
@@ -54,36 +39,33 @@ const randomId = () =>
     ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     : Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates, onStoryCards, focusRequest, storySync, circleRequest, onOpenInStoryRoom, onStoryRoomLoad, storyRoomSave, onProjectTitle, storyRemoval }) => {
+const FilmAgentPlayground = ({ formValues, setFormValues, onProjectTitle, onStudioLoad, studioSave, onBoard, onControls, canvasInject }) => {
   const [project, setProject] = useState(null);
-  // THE STORY ROOM LIVES IN THE PROJECT (project.storyRoom): each project load hands its
-  // story to the Story Room tab; the tab's edits come back here and ride the project's
-  // own saves (cloud autosave, folder save, Cloud open).
-  useEffect(() => {
-    if (!project?.id || !onStoryRoomLoad) return;
-    onStoryRoomLoad({ projectId: project.id, title: project.title || '', data: project.storyRoom || null, nonce: Date.now() });
-  }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (onProjectTitle) onProjectTitle(project?.title || ''); }, [project?.title, onProjectTitle]);
+  // THE STUDIO LIVES IN THE PROJECT (project.studio): each project load hands its studio
+  // to the Studio tab; the tab's edits come back here and ride the project's own saves
+  // (cloud autosave, folder save, Cloud open).
+  // A load is an event, not an effect: opening the same project again (the cloud copy after a
+  // conflict) reloads the Studio too, and nothing re-runs it from an old snapshot.
+  const adopt = (p) => {
+    setProject(p);
+    if (onStudioLoad && p?.id) onStudioLoad({ projectId: p.id, title: p.title || '', data: p.studio || null, nonce: Date.now() });
+  };
   useEffect(() => {
-    if (!storyRoomSave?.projectId) return;
-    setProject((p) => (p && p.id === storyRoomSave.projectId && JSON.stringify(p.storyRoom || null) !== JSON.stringify(storyRoomSave.data) ? { ...p, storyRoom: storyRoomSave.data } : p));
-  }, [storyRoomSave]);
-  // storage === null  => in-memory scratch project (not yet persisted)
-  //   { kind: 'path', path }      => Electron / fallback text path
-  //   { kind: 'handle', handle }  => browser File System Access API
-  const [storage, setStorage] = useState(null);
-  const [displayPath, setDisplayPath] = useState('');
-  const [recent, setRecent] = useState([]);
-  const [pathPicker, setPathPicker] = useState({ visible: false, mode: 'open', value: '' });
+    if (!studioSave?.projectId) return;
+    setProject((p) => (p && p.id === studioSave.projectId && JSON.stringify(p.studio || null) !== JSON.stringify(studioSave.data) ? { ...p, studio: studioSave.data } : p));
+  }, [studioSave]);
+  // Studio reads the board's work (plates, SHOT cards, takes) to bring it in on request.
+  useEffect(() => {
+    if (onBoard && project?.id) onBoard({ projectId: project.id, nodes: project.canvas?.nodes || [], bible: project.bible?.entries || [] });
+  }, [project?.id, project?.canvas?.nodes, project?.bible]); // eslint-disable-line react-hooks/exhaustive-deps
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   // WHICH LLM PLANS. App-level, not per-project (it lives in the client config beside
   // the model table); the state here exists only so the Select re-renders on change.
   const [plannerSlot, setPlannerSlot] = useState(() => reasonerSlotOf());
   const [effort, setEffort] = useState('high');
-  const [lastSavedAt, setLastSavedAt] = useState(null);
   useEffect(() => { setPlannerSlot(reasonerSlotOf()); setEffort(getRuntime().reasoningEffort); }, [settingsOpen]);
 
   // Opening the canvas mints a WORKING TITLE (a film-flavoured word pair from
@@ -99,8 +81,12 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
   // The autosave baseline: the last project JSON that reached the cloud (skip identical
   // saves) + an in-flight guard + a kill switch when TOS isn't configured (starter-kit
   // clones without credentials must not retry every debounce tick).
-  const cloudAutoRef = useRef({ busy: false, lastJson: '', disabled: false, lastAt: 0 });
+  // bases: this session's cloud version per project id (what its next save is based on).
+  const cloudAutoRef = useRef({ busy: false, lastJson: '', disabled: false, lastAt: 0, again: false, bases: {} });
   const [cloudSavedAt, setCloudSavedAt] = useState(null);
+  const [cloudError, setCloudError] = useState('');
+  // A save the cloud refused because its copy moved on: { id, cloudSavedAt } until the director decides.
+  const [conflict, setConflict] = useState(null);
 
   // DEPLOYMENT CONFIG hydration: env-configured model/endpoint ids live server-side —
   // fetch the resolved (non-secret) table once and feed the suite's runtime layer, so
@@ -117,10 +103,14 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
     return () => { cancelled = true; };
   }, []);
 
-  // On mount: RESTORE the last-open project (cloud id or folder path from localStorage)
+  // On mount: RESTORE the last-open project (its cloud id, from localStorage)
   // so a page refresh keeps the board — else mint the usual scratch. Client-only (avoids
-  // SSR/CSR hydration mismatch from random id + timestamps).
+  // SSR/CSR hydration mismatch from random id + timestamps). Once per page: a re-run must not
+  // load the project over the one in use.
+  const restoredRef = useRef(false);
   useEffect(() => {
+    if (restoredRef.current) return undefined;
+    restoredRef.current = true;
     let cancelled = false;
     (async () => {
       const ptr = getLastProjectPointer();
@@ -128,198 +118,100 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
         try {
           const r = await loadCloudProject(ptr.id);
           if (cancelled) return;
-          setProject(r.project);
+          adopt(r.project);
           cloudAutoRef.current.lastJson = JSON.stringify(r.project);
+          cloudAutoRef.current.bases[r.project.id] = r.savedAt;
           setCloudSavedAt(r.savedAt ? new Date(r.savedAt) : null);
           prefetchCloudMedia(r.media);
           Message.success(`Restored “${r.name}” from cloud autosave${r.savedAt ? ` (${new Date(r.savedAt).toLocaleTimeString()})` : ''}`);
           return;
         } catch { /* stale pointer / TOS unavailable — fall through to scratch */ }
-      } else if (ptr?.kind === 'path' && ptr.path) {
-        try {
-          const res = await loadProjectAny({ kind: 'path', path: ptr.path });
-          if (cancelled) return;
-          setProject(res.project);
-          setStorage({ kind: 'path', path: ptr.path });
-          setDisplayPath(res.displayPath || ptr.path);
-          setLastSavedAt(new Date());
-          Message.success(`Reopened "${res.project.title}"`);
-          return;
-        } catch { /* folder gone — fall through */ }
       }
-      if (!cancelled) setProject((prev) => prev || makeScratch());
+      if (!cancelled && !projectStateRef.current) adopt(makeScratch());
     })();
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // CLOUD AUTOSAVE — the real "auto" save: ~8s after changes settle, the whole project
-  // lands in the cloud manifest (bytes were already mirrored at generation, so this is
-  // just the JSON). Runs in EVERY mode once the board has any work; the pointer follows,
-  // so refresh restores exactly. Quiet on failure (the next change retries); disabled
-  // for the session when TOS isn't configured at all.
-  const cloudAutosave = useCallback(async (proj) => {
+  // CLOUD AUTOSAVE — the whole project lands in the cloud manifest a second after each
+  // change (bytes were already mirrored at generation, so this is just the JSON). Runs in
+  // EVERY mode once the project has any work; the pointer follows, so refresh restores
+  // exactly. A change made while a save is in flight is saved right after it. A failed save
+  // is shown in the header with its reason (the next change saves again; "Save now" in the
+  // project menu saves at once). Off for the session when TOS isn't configured at all.
+  const cloudAutosave = useCallback(async (proj, { force = false } = {}) => {
     const st = cloudAutoRef.current;
-    if (!proj?.id || st.busy || st.disabled) return;
-    if (!(proj.canvas?.nodes || []).length && !proj.storyRoom) return; // an empty scratch isn't worth a manifest (a Story Room story is work)
+    if (!proj?.id || st.disabled) return;
+    if (st.blockedId === proj.id && !force) return; // a refused save waits for the director's choice
+    if (st.busy) { st.again = true; return; }
+    if (!(proj.canvas?.nodes || []).length && !hasStudioWork(proj.studio)) return; // an empty scratch isn't worth a manifest (Studio work counts)
     const json = JSON.stringify(proj);
     if (json === st.lastJson) return;
     st.busy = true;
     try {
-      const r = await saveProjectToCloud(proj);
+      const r = await saveProjectToCloud(proj, { baseSavedAt: st.bases[proj.id] ?? null, force });
+      st.bases[proj.id] = r.savedAt;
+      st.blockedId = null;
+      setConflict(null);
       st.lastJson = json;
       st.lastAt = Date.now();
       setCloudSavedAt(new Date());
+      setCloudError('');
       setLastProjectPointer({ kind: 'cloud', id: r.projectId });
     } catch (e) {
       if (/TOS is not configured/i.test(e.message)) st.disabled = true;
-      else console.warn('[cloud autosave] failed (will retry on next change):', e.message);
+      else {
+        setCloudError(e.message || 'the save failed');
+        if (e.conflict) { st.blockedId = proj.id; setConflict({ id: proj.id, cloudSavedAt: e.cloudSavedAt }); }
+      }
     } finally {
       st.busy = false;
     }
-  }, []);
+    if (st.again) { st.again = false; cloudAutosave(projectStateRef.current); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // CADENCE: a plain 15s interval — no debounce, no resets, no special cases. Every
-  // tick saves IF the project changed (the lastJson fingerprint makes identical states
-  // free), so churn or calm, the cloud is never more than ~15s behind the board.
+  // CADENCE: a second after the last change — and, while changes keep coming (a drag, a
+  // crew run), at least every 4 s. Identical states are free (the lastJson fingerprint).
   const projectStateRef = useRef(project);
   useEffect(() => { projectStateRef.current = project; }, [project]);
+  const dirtySinceRef = useRef(0);
+  useEffect(() => {
+    if (!project) return undefined;
+    if (!dirtySinceRef.current) dirtySinceRef.current = Date.now();
+    const wait = Math.max(0, Math.min(1000, 4000 - (Date.now() - dirtySinceRef.current)));
+    const t = setTimeout(() => { dirtySinceRef.current = 0; cloudAutosave(projectStateRef.current); }, wait);
+    return () => clearTimeout(t);
+  }, [project, cloudAutosave]);
+  // Leaving with work the cloud does not have yet: the browser asks first.
+  useEffect(() => {
+    const onLeave = (e) => {
+      const st = cloudAutoRef.current;
+      const p = projectStateRef.current;
+      if (st.disabled || !p || (!(p.canvas?.nodes || []).length && !hasStudioWork(p.studio))) return;
+      if (st.busy || JSON.stringify(p) !== st.lastJson) { e.preventDefault(); e.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', onLeave);
+    return () => window.removeEventListener('beforeunload', onLeave);
+  }, []);
 
   // The SKILLS LIBRARY loads with the app, NOT with its drawer: a skill that hasn't
   // hydrated cannot bind, and Compose/Film would silently fall back to the distilled
   // format line. One fetch per session.
   useEffect(() => { hydrateSkills(); }, []);
-  useEffect(() => {
-    const iv = setInterval(() => { if (projectStateRef.current) cloudAutosave(projectStateRef.current); }, 15000);
-    return () => clearInterval(iv);
-  }, [cloudAutosave]);
-
-  // Flush when the tab hides (switching away / closing) — narrows the 15s window to
-  // ~zero for deliberate leaves; only a hard kill mid-interval can lose seconds.
+  // Flush when the tab hides (switching away / closing).
   useEffect(() => {
     const onHide = () => { if (document.visibilityState === 'hidden' && projectStateRef.current) cloudAutosave(projectStateRef.current); };
     document.addEventListener('visibilitychange', onHide);
     return () => document.removeEventListener('visibilitychange', onHide);
   }, [cloudAutosave]);
 
-  const refreshRecent = useCallback(async () => {
-    try {
-      setRecent(await listRecent());
-    } catch (err) {
-      // non-fatal
-    }
-  }, []);
-
-  useEffect(() => { refreshRecent(); }, [refreshRecent]);
-
-  // Auto-save only when the project is persisted (has storage). Scratch stays in memory.
-  useEffect(() => {
-    if (!project || !storage) return;
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      try {
-        setSaving(true);
-        await saveProjectAny(storage, project);
-        if (!cancelled) setLastSavedAt(new Date());
-      } catch (err) {
-        if (!cancelled) Message.error(`Auto-save failed: ${err.message}`);
-      } finally {
-        if (!cancelled) setSaving(false);
-      }
-    }, 400);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [project, storage]);
-
-  const isScratch = !storage;
-
-  // ---- open existing ----
-  const openExistingFromStorage = useCallback(async (nextStorage) => {
-    if (!nextStorage) return;
-    try {
-      const result = await loadProjectAny(nextStorage);
-      setProject(result.project);
-      setStorage(nextStorage);
-      setDisplayPath(result.displayPath);
-      setLastSavedAt(new Date());
-      cloudAutoRef.current.lastJson = ''; // a different project — re-arm the autosave baseline
-      if (nextStorage.kind === 'path') setLastProjectPointer({ kind: 'path', path: nextStorage.path });
-      refreshRecent();
-      Message.success(`Loaded "${result.project.title}"`);
-    } catch (err) {
-      Message.error(`Could not load: ${err.message}`);
-    }
-  }, [refreshRecent]);
-
-  const handleOpenRecent = async (entry) => {
-    try {
-      await openExistingFromStorage({ kind: 'path', path: entry.path });
-    } catch (err) {
-      Message.error(`Could not open "${entry.title}": ${err.message}`);
-      refreshRecent();
-    }
-  };
-
-  // ---- save scratch -> folder ----
-  const persistTo = useCallback(async (nextStorage, label) => {
-    try {
-      setSaving(true);
-      const res = await saveProjectAny(nextStorage, project);
-      setStorage(nextStorage);
-      setDisplayPath(
-        label
-        || res.projectPath
-        || (nextStorage.kind === 'handle' ? nextStorage.handle?.name : nextStorage.path)
-        || '',
-      );
-      setLastSavedAt(new Date());
-      if (nextStorage.kind === 'path') setLastProjectPointer({ kind: 'path', path: nextStorage.path });
-      refreshRecent();
-      Message.success('Saved to folder — auto-save is now on');
-    } catch (err) {
-      Message.error(`Save failed: ${err.message}`);
-    } finally {
-      setSaving(false);
-    }
-  }, [project, refreshRecent]);
-
-  const handleSaveToFolder = async () => {
-    try {
-      const picked = await pickProjectFolder({ mode: 'new' });
-      if (picked.source === 'electron') {
-        if (picked.path) persistTo({ kind: 'path', path: picked.path }, picked.path);
-      } else if (picked.source === 'handle') {
-        if (picked.handle) persistTo({ kind: 'handle', handle: picked.handle }, picked.name);
-      } else {
-        setPathPicker({ visible: true, mode: 'saveAs', value: '' });
-      }
-    } catch (err) {
-      Message.error(err.message);
-    }
-  };
-
-  const handlePathPickerSubmit = () => {
-    const trimmed = (pathPicker.value || '').trim();
-    if (!trimmed) {
-      Message.error('Paste an absolute path first');
-      return;
-    }
-    const mode = pathPicker.mode;
-    setPathPicker({ visible: false, mode: 'open', value: '' });
-    const next = { kind: 'path', path: trimmed };
-    if (mode === 'saveAs') persistTo(next, trimmed);
-    else openExistingFromStorage(next);
-  };
-
   const handleNewScratch = () => {
     // Leaving a board behind must never cost work — flush it to its cloud manifest first.
-    if (project && (project.canvas?.nodes || []).length) cloudAutosave(project);
-    setProject(makeScratch());
-    setStorage(null);
-    setDisplayPath('');
-    setLastSavedAt(null);
+    if (project && ((project.canvas?.nodes || []).length || hasStudioWork(project.studio))) cloudAutosave(project);
+    adopt(makeScratch());
     setCloudSavedAt(null);
     cloudAutoRef.current.lastJson = '';
     clearLastProjectPointer(); // refresh must NOT resurrect the project the user just left
-    Message.info('New scratch canvas — cloud autosave arms as soon as you add work');
+    Message.info('New project — it saves to the cloud as soon as there is work in it');
   };
 
   // ---- Cloud save / open (TOS-backed; works from ANY mode, scratch included) --------
@@ -347,16 +239,17 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
       // Switching projects must never cost work: flush the OUTGOING board to its own
       // cloud manifest first (no-ops when unchanged/empty), THEN swap. No dialog — the
       // save IS the safety.
-      if (project && (project.canvas?.nodes || []).length) await cloudAutosave(project);
+      if (project && ((project.canvas?.nodes || []).length || hasStudioWork(project.studio))) await cloudAutosave(project);
       const r = await loadCloudProject(id);
-      setProject(r.project);
+      adopt(r.project);
       // A cloud-loaded project lands as a live in-memory canvas — cloud autosave keeps
       // it saved from here, and the pointer makes refresh restore it. The board renders
       // immediately; media streams through the read-through cache — prefetch warms the rest.
-      setStorage(null);
-      setDisplayPath('');
-      setLastSavedAt(null);
       cloudAutoRef.current.lastJson = JSON.stringify(r.project);
+      cloudAutoRef.current.blockedId = null;
+      setConflict(null);
+      setCloudError('');
+      cloudAutoRef.current.bases[r.project.id] = r.savedAt;
       setCloudSavedAt(r.savedAt ? new Date(r.savedAt) : null);
       setLastProjectPointer({ kind: 'cloud', id });
       prefetchCloudMedia(r.media);
@@ -371,35 +264,55 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
 
   const patchProject = (patch) => setProject((prev) => ({ ...prev, ...patch }));
 
+  // THE PROJECT'S CONTROLS live in the Studio header: they are handed over here. Handlers read
+  // the latest state through a ref; the snapshot re-publishes when what it shows changes.
+  const statusText = conflict ? `☁ Not saved — the cloud copy changed${conflict.cloudSavedAt ? ` at ${new Date(conflict.cloudSavedAt).toLocaleTimeString()}` : ''}` : cloudError ? `☁ Not saved: ${cloudError}`
+    : cloudSavedAt ? `Saved ☁ ${cloudSavedAt.toLocaleTimeString()}` : 'Autosave arms once you add work';
+  const controlsRef = useRef({});
+  controlsRef.current = {
+    newProject: handleNewScratch, openCloud: handleCloudOpenClick,
+    openSettings: () => setSettingsOpen(true), openPrompts: () => setPromptsOpen(true), openSkills: () => setSkillsOpen(true),
+    saveNow: () => {
+      const p = projectStateRef.current;
+      if (!p) return;
+      if (cloudAutoRef.current.blockedId === p.id) { setConflict((c) => c || { id: p.id, cloudSavedAt: null }); return; }
+      cloudAutoRef.current.lastJson = '';
+      cloudAutosave(p);
+    },
+  };
+  useEffect(() => {
+    if (!onControls) return;
+    const call = (k) => (...a) => controlsRef.current[k](...a);
+    onControls({
+      title: project?.title || '', status: statusText, saveFailed: !!cloudError, cloudBusy,
+      newProject: call('newProject'), openCloud: call('openCloud'),
+      openSettings: call('openSettings'), openPrompts: call('openPrompts'), openSkills: call('openSkills'), saveNow: call('saveNow'),
+    });
+  }, [project?.title, statusText, cloudError, cloudBusy]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const dialogs = (
     <>
+      <Modal
+        title="This project changed somewhere else"
+        visible={!!conflict}
+        footer={null}
+        onCancel={() => setConflict(null)}
+      >
+        {conflict && (
+          <Space direction="vertical" style={{ width: '100%' }} size="medium">
+            <Text style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>
+              The cloud copy was saved{conflict.cloudSavedAt ? ` at ${new Date(conflict.cloudSavedAt).toLocaleString()}` : ''} by another tab, machine or person, and this session has not seen it. Nothing has been overwritten — saving is paused until you choose.
+            </Text>
+            <Space wrap>
+              <Button type="primary" onClick={() => handleCloudPick(conflict.id)}>Open the cloud copy</Button>
+              <Button status="danger" onClick={() => { const p = projectStateRef.current; setConflict(null); if (p) cloudAutosave(p, { force: true }); }}>Overwrite it with this version</Button>
+              <Button type="text" onClick={() => setConflict(null)}>Decide later</Button>
+            </Space>
+          </Space>
+        )}
+      </Modal>
       <PromptSettings visible={promptsOpen} onClose={() => setPromptsOpen(false)} />
       <SkillSettings visible={skillsOpen} onClose={() => setSkillsOpen(false)} />
-      <Modal
-        title={pathPicker.mode === 'saveAs' ? 'Save project to a folder' : 'Open existing project'}
-        visible={pathPicker.visible}
-        onOk={handlePathPickerSubmit}
-        onCancel={() => setPathPicker({ visible: false, mode: 'open', value: '' })}
-        okText={pathPicker.mode === 'saveAs' ? 'Save here' : 'Open'}
-      >
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Text type="secondary">
-            {pathPicker.mode === 'saveAs'
-              ? 'Paste the absolute path where this project should be saved. It will be created if it doesn\'t exist.'
-              : 'Paste the absolute path to your existing project folder (must contain project.json).'}
-          </Text>
-          <Input
-            autoFocus
-            value={pathPicker.value}
-            onChange={(value) => setPathPicker((prev) => ({ ...prev, value }))}
-            placeholder="/Users/you/Films/my-film"
-            onPressEnter={handlePathPickerSubmit}
-          />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            Tip: in the desktop build (<code>npm run dev:desktop</code>) you get a native folder picker instead.
-          </Text>
-        </Space>
-      </Modal>
 
       <Modal
         title="Open from cloud"
@@ -530,14 +443,6 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
                 <Select value={project.targetMinutes} onChange={(v) => patchProject({ targetMinutes: v })} style={{ width: 130 }} options={[3, 4, 5].map((m) => ({ label: `${m} min`, value: m }))} />
               </div>
             </Space>
-            {isScratch && (
-              <div>
-                <Button size="small" icon={<IconFolderAdd />} loading={saving} onClick={handleSaveToFolder}>Bind to a local folder…</Button>
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                  Optional — cloud autosave already keeps this project safe; a folder adds a local copy (offline / zip / git).
-                </Text>
-              </div>
-            )}
           </Space>
         )}
       </Modal>
@@ -552,16 +457,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
     );
   }
 
-  const recentMenu = (
-    <Menu onClickMenuItem={(key) => {
-      const entry = recent.find((r) => r.path === key);
-      if (entry) handleOpenRecent(entry);
-    }}>
-      {recent.map((entry) => (
-        <Menu.Item key={entry.path}>{entry.title || entry.path}</Menu.Item>
-      ))}
-    </Menu>
-  );
+
 
   return (
     <div>
@@ -570,37 +466,12 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
         <div style={{ minWidth: 0 }}>
           <Space align="center" size={4} wrap>
             <Title heading={6} style={{ margin: '0 4px 0 0' }}>{project.title}</Title>
-            <Tooltip content="Project settings">
-              <Button size="mini" type="text" icon={<IconSettings />} onClick={() => setSettingsOpen(true)} aria-label="Project settings" style={{ color: '#4e5969' }} />
-            </Tooltip>
-            <Tooltip content="New project">
-              <Button size="mini" type="text" icon={<IconPlus />} onClick={handleNewScratch} aria-label="New project" style={{ color: '#4e5969' }} />
-            </Tooltip>
           </Space>
-          {!isScratch && displayPath && (
-            <div>
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {storage?.kind === 'handle' ? 'Folder (browser-handle): ' : 'Folder: '}{displayPath}
-              </Text>
-            </div>
-          )}
         </div>
 
         <Space wrap>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {isScratch
-              ? (cloudSavedAt ? `Cloud autosave ☁ ${cloudSavedAt.toLocaleTimeString()}` : 'Cloud autosave arms once you add work')
-              : saving ? 'Saving…' : lastSavedAt ? `Saved ${lastSavedAt.toLocaleTimeString()}${cloudSavedAt ? ` · ☁ ${cloudSavedAt.toLocaleTimeString()}` : ''}` : 'Auto-save on'}
-          </Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{statusText}</Text>
           <Button size="small" icon={<IconPlayArrow />} onClick={() => setDemoNonce((n) => n + 1)} title="Auto-demo — replay this board as a guided tour: brief → cast → storyboard → shots → takes, camera following. Pure playback, nothing is generated.">Demo</Button>
-          <Button size="small" icon={<IconCloudDownload />} loading={cloudBusy} onClick={handleCloudOpenClick} title="Open a cloud project — autosave keeps every project in your TOS bucket as you work; restore the full board on any machine">Cloud open</Button>
-          <Button size="small" icon={<IconCode />} onClick={() => setPromptsOpen(true)}>Prompts</Button>
-          <Button size="small" icon={<IconBook />} onClick={() => setSkillsOpen(true)} title="Skills — the model vendors' prompt specs, sent VERBATIM to whichever model slot each is bound to">Skills</Button>
-          {recent.length > 0 && (
-            <Dropdown droplist={recentMenu} position="br">
-              <Button size="small" icon={<IconClockCircle />}>Recent</Button>
-            </Dropdown>
-          )}
         </Space>
       </div>
 
@@ -608,14 +479,7 @@ const FilmAgentPlayground = ({ formValues, setFormValues, storyHandoff, onPlates
         project={project}
         onUpdateProject={setProject}
         demoNonce={demoNonce}
-        incomingStory={storyHandoff}
-        onPlates={onPlates}
-        onStoryCards={onStoryCards}
-        focusRequest={focusRequest}
-        storySync={storySync}
-        circleRequest={circleRequest}
-        storyRemoval={storyRemoval}
-        onOpenInStoryRoom={onOpenInStoryRoom}
+        inject={canvasInject}
       />
 
       {dialogs}

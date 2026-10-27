@@ -17,8 +17,10 @@ const DEFAULT_BINDING = {
   'sd25-pe': ['seedance25', 'seedance25Premium'],
 };
 
-// Disk skills, fetched once per session. Empty until hydrate() lands — a verb that runs
-// before then simply sends no skill line, exactly like a model with no skill bound.
+// Disk skills, fetched once per session (and again when a crew step asks for a section the
+// session copy lacks — the files change while the app is open). Empty until hydrate() lands
+// — a verb that runs before then simply sends no skill line, exactly like a model with no
+// skill bound.
 let diskSkills = [];
 let hydrated = false;
 
@@ -35,8 +37,8 @@ const writeStore = (next) => {
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* quota — keep the session copy */ }
 };
 
-export const hydrateSkills = async () => {
-  if (hydrated) return diskSkills;
+export const hydrateSkills = async ({ fresh = false } = {}) => {
+  if (hydrated && !fresh) return diskSkills;
   try {
     const r = await fetch('/api/film/skills');
     const j = await r.json();
@@ -150,3 +152,32 @@ export const removeSkill = (id) => {
 // Rough token estimate for the drawer — the cost of a skill is real and should be
 // visible before it rides on every call.
 export const skillTokens = (text) => Math.round(String(text || '').length / 4);
+
+// CREW SKILLS — each crew member's job as a document: skills/crew-<agent>/SKILL.md. Every
+// `## step: <id>` section is the system prompt for one planner call; {placeholders} are
+// filled from the call's facts, the same way templates fill. The user's edits in the Skills
+// drawer ride like any skill override. A missing skill or step stops the job — there is no
+// built-in copy to fall back on.
+const stepOf = (text, step) => {
+  const body = String(text || '').replace(/^---\n[\s\S]*?\n---\n?/, '');
+  const head = new RegExp(`^## step: ${step}[ \\t]*$`, 'm').exec(body);
+  if (!head) return null;
+  const rest = body.slice(head.index + head[0].length);
+  const end = rest.search(/^## step: /m);
+  return (end < 0 ? rest : rest.slice(0, end)).trim();
+};
+export const crewStep = async (skillId, step, vars = {}) => {
+  await hydrateSkills();
+  let skill = skillById(skillId);
+  // The file may have gained the step since this page read it: read the files again first.
+  if (!stepOf(skill?.text, step)) {
+    await hydrateSkills({ fresh: true });
+    skill = skillById(skillId);
+  }
+  if (!skill || !String(skill.text || '').trim()) throw new Error(`The ${skillId} skill is missing — add skills/${skillId}/SKILL.md.`);
+  let text = stepOf(skill.text, step);
+  if (!text && skill.edited) throw new Error(`Your edited copy of the ${skillId} skill has no "## step: ${step}" section — reset it in Skills to get the file's version.`);
+  if (!text) throw new Error(`The ${skillId} skill has no "## step: ${step}" section.`);
+  Object.keys(vars).forEach((key) => { text = text.split(`{${key}}`).join(vars[key] == null ? '' : String(vars[key])); });
+  return text.replace(/[ \t]{2,}/g, ' ').trim();
+};

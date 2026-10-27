@@ -10,7 +10,7 @@ import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { uploadLocalMediaToTos } from '../../server/tosUpload';
-import { storeKeyFromUrl, readStoreBytes } from '../../server/mediaStore';
+import { storeKeyFromUrl, readStoreBytes, checkInBytes } from '../../server/mediaStore';
 import { registerAsset } from './registerAsset';
 
 const runFfmpeg = (bin, args) => new Promise((resolve, reject) => {
@@ -105,7 +105,11 @@ export const stitchShots = async ({ shots, name }) => {
       console.warn('[film/stitch] Assets API registration skipped:', err.message);
     }
 
+    // The cut lands in the media store here — the caller never fetches it back to keep it.
+    const kept = await checkInBytes(mp4, master ? 'video/quicktime' : 'video/mp4');
+
     return {
+      cacheUrl: kept.url,
       url: staged.signedUrl || staged.objectUrl, // browser-playable (presigned works on a private bucket)
       stableUrl: staged.objectUrl,
       assetId,

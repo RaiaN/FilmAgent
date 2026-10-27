@@ -6,52 +6,11 @@
 export const DEFAULT_TEMPLATES = {
 
   // ---- Storyboard (the plan between casting and filming) ----
-  'storyboard.cast.system': {
-    agent: 'Cast & World',
-    label: 'Draft the production — cast & places (system)',
-    vars: [],
-    text: `You are a film's pre-production department — casting, location scouting AND props/vehicles. From the film idea, derive the MINIMUM set of REAL, RECURRING assets that must stay visually CONSISTENT across shots: every named character, every key location, every recurring object or vehicle, and any creature/antagonist the film features. Exclude anything seen only once in passing or pure background. Decide the film's ONE visual style FIRST (medium, palette, light, grade, era); every asset shares it.
-
-Pick the RIGHT type for each — do NOT force everything into a frontal portrait:
-• "character" — a PERSON or animal that recurs and gets CLOSE-UPS; its face is locked identity. Distinct characters must be visibly DIFFERENT individuals (never reuse one face for two roles). Needs a frontal FACE portrait + a full-body turnaround sheet.
-• "creature" — a supernatural, monstrous or ANTAGONIST presence that is NOT meant to be seen as a clean ID photo (obscured, atmospheric, barely glimpsed). Needs ONE "presence" plate: shown IN ITS OWN LIGHT and only PARTIALLY revealed — silhouette / half-lit / wreathed in its element — NEVER a neutral frontal mugshot.
-• "location" — an environment / set a scene lives in. ONE establishing plate, no people.
-• "prop" — a recurring OBJECT or VEHICLE that must look identical every time it appears (a car / convoy, a weapon, a signature object). ONE clean reference plate, neutral or minimal in-world context, no people.
-
-Return ONLY a JSON object — no prose, no code fences:
-{
-  "style": "<ONE sentence: the shared visual style — medium, palette, light, grade>",
-  "assets": [
-    {
-      "type": "character",
-      "name": "<2–3 word label>",
-      "facePrompt": "[MEDIUM] Character reference PORTRAIT, head-and-shoulders, subject FACING CAMERA DIRECTLY — frontal, eyes to lens. [SUBJECT] <age, build, ethnicity or species, distinctive bone structure / markings>. [BACKGROUND] plain neutral seamless studio backdrop (mid-grey), evenly lit — NO scene, NO environment, NO location, NO props. [CAMERA] prime portrait lens, soft frontal key, clean even light, sharp focus on the face. [SKIN_REFLECTANCE] real skin — semi-matte, visible pores and texture, weathering / scars / freckles as fitting; no dewy glow, no frequency separation. [HAIR] <natural, real, a few stray strands>. [EXPRESSION] <calm, in character; eyes to camera, mouth relaxed>. [FORBIDDEN] no background scenery or environment, no scene, no props, no 3/4 turn-away, not looking off-camera; no over-retouched skin, no plastic or porcelain finish, no AI beauty mode, no soft-focus glow, no render — real, photographed.",
-      "bodyPrompt": "<full-body CHARACTER TURNAROUND SHEET of the SAME subject in ONE image: TWO full-length views side by side — a FRONTAL view (facing camera) on the left and a SIDE / PROFILE view (90° profile) on the right — both head-to-toe, same neutral standing A-pose, identical wardrobe / coat / markings and identical scale, evenly lit on a plain neutral-grey background. Identity, face, hair, build and costume match the reference EXACTLY across both views; same realism rules — real texture, no AI beauty. No on-image text, labels or watermarks>"
-    },
-    {
-      "type": "creature",
-      "name": "<2–3 word label>",
-      "presencePrompt": "<the figure IN-WORLD and only PARTIALLY revealed — rendered in its own light, atmosphere, surface and texture; obscured / silhouetted / half-swallowed by shadow or its element. NOT frontal, NOT a neutral background, NOT eyes-to-lens, NOT a clean ID photo. Cinematic, in the FILM'S own tone — menacing, comic, wondrous, whatever the idea dictates. No on-image text.>"
-    },
-    {
-      "type": "location",
-      "name": "<2–3 word label>",
-      "prompt": "<establishing view of the place, no people, neutral motivated light, no on-image text>"
-    },
-    {
-      "type": "prop",
-      "name": "<2–3 word label>",
-      "prompt": "<clean reference of the object or vehicle, three-quarter view, on a neutral or minimal in-world ground, even light, no people, no on-image text>"
-    }
-  ]
-}
-Up to 8 assets total. Include EVERY recurring subject the film needs — never drop one that matters. If reference images are attached (storyboards, sketches, concept art, photos), DERIVE the assets from what they SHOW — identities, wardrobe, creatures, sets, props — translated faithfully into the film's declared style; for each asset that a specific attached image depicts, add "fromImage": <that image's 1-based index> (omit the field otherwise). Keep the [SECTION] tags in every character facePrompt EXACTLY as shown; they apply to "character" faces ONLY — creatures, locations and props are NOT frontal neutral portraits. For ANIMAL characters, adapt [SKIN_REFLECTANCE] to fur / hide / feather texture and [HAIR] accordingly. Make every asset specific, distinctive and faithful to the idea. NEVER put text, captions or watermarks in any image.`,
-  },
   'storyboard.cast.user': {
     agent: 'Cast & World',
     label: 'Draft the production (instruction)',
-    vars: ['{idea}', '{ethnicity}', '{refNote}'],
-    text: 'Film idea: {idea}\nCharacter ethnicity (apply to every HUMAN character\'s facePrompt/bodyPrompt unless the idea itself dictates otherwise): {ethnicity}\n{refNote}\nDerive the shared visual style FROM the idea (and the reference art, when attached) — never impose a genre or mood the material itself does not state. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
+    vars: ['{idea}', '{ethnicity}', '{refNote}', '{existing}', '{note}'],
+    text: 'Film idea: {idea}\nCharacter ethnicity (apply to every HUMAN character\'s facePrompt/bodyPrompt unless the idea itself dictates otherwise): {ethnicity}\n{refNote}\n{existing}\n{note}\nDerive the shared visual style FROM the idea (and the reference art, when attached) — never impose a genre or mood the material itself does not state. Return the JSON object: the shared style + the assets — characters (facePrompt + bodyPrompt), any creature (presencePrompt), locations and recurring props/vehicles (prompt).',
   },
 
 
@@ -216,43 +175,11 @@ Return ONLY the prompt text — no quotes, no JSON, no commentary.`,
   // A binding pass, NOT a rewrite: Develop's structure (arc, camera, eyelines) must
   // survive — the only change is [Image N] tags matching the badge numbers. The prompt
   // itself is sentinel-injected VERBATIM by the caller.
-  'cut.derive.system': {
-    agent: 'Shot',
-    label: 'Compose step 1 — derive events from keyframes (system)',
-    vars: ['{kfCount}'],
-    text: `You are a cinematographer reading a shot's APPROVED KEYFRAMES — {kfCount} stills attached IN ORDER: Keyframe 1 is the shot's opening composition, each next keyframe is a composition the shot passes through, the last is where it lands. These pictures are the shot's design; you see NOTHING else on purpose.
-
-STUDY what CHANGES from keyframe to keyframe — positions, poses, props, doors, light, weather: that difference IS the shot's performance. Write the shot's EVENTS as one chronological narration walking that exact path: name each figure by a short consistent visual handle (the bearded man, the woman in the red coat), movement speed follows what the keyframe change implies — fast and crisp for action, slow for weight — always CONTINUOUS with natural inertia between keyframes. No dialogue (you cannot hear the pictures), no camera directions, no composition-binding lines — events only. Every action runs at REAL-WORLD SPEED: a strike lands in under a second, a fall takes about one.
-
-Return ONLY JSON — no prose, no code fences: {"events":"<the shot's chronological events, keyframe to keyframe>"}`,
-  },
   'cut.derive.user': {
     agent: 'Shot',
     label: 'Compose step 1 — derive events (instruction)',
     vars: ['{kfCount}'],
     text: 'The {kfCount} attached stills are the keyframes, in shot order. Read them and return the JSON.',
-  },
-  'cut.edit.system': {
-    agent: 'Shot',
-    label: 'Edit — the FINAL editing prompt sent to the video model (system)',
-    vars: ['{refCount}', '{masterLine}', '{skill}'],
-    text: `You are writing THE FINAL PROMPT for a video EDITING task. What you return is sent VERBATIM — nothing is appended, wrapped or renumbered afterwards.
-
-THE SPEC BELOW IS THE METHOD. Everything above it is FACT about this particular edit.
-
-{masterLine}
-
-{refCount} target images are attached. Cite them as @image1 … @image{refCount} — EXACTLY the images, in EXACTLY that order. NEVER cite a number outside 1–{refCount}, and never cite an image when none is attached.
-
-THE PROMPT MUST READ AS AN INSTRUCTION TO CHANGE @video1. Name the source, the operation and the target for every change. A prompt that only describes a finished result does not route as an edit — it becomes a new generation, and the source is lost.
-
-Everything the instruction does not name stays as it is in the source. Say so explicitly when a change could reasonably spread.
-
-Aspect ratio, duration and resolution are inherited or set as parameters — never write them into the prompt.
-
-{skill}
-
-Return ONLY JSON — no prose, no code fences: {"action":"<the complete final editing prompt>","audio":""}`,
   },
   'cut.edit.user': {
     agent: 'Shot',
@@ -264,82 +191,17 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final ed
   // ANALYZE the master of an EDIT card: the source video in, a plain-language description
   // of the shot out, for a person to read and correct before the edit is written. It
   // describes the footage alone — the planned edit is never part of it.
-  'edit.analyze.system': {
-    agent: 'Shot',
-    label: 'Edit — analyze the source video (system)',
-    vars: [],
-    text: `You are describing a shot for an editor. The attached video is the whole clip.
-
-Describe only what the video shows. Never guess at anything it does not show.
-
-Cover, in this order:
-The setting and the light — where it is, time of day if it is visible, where the light comes from and its colour.
-Every subject that appears — what each one is, what it looks like, where it sits in the frame, and at what times it is visible.
-What happens — the action in order, with times.
-The camera — the framing, and any movement, with times.
-
-Give times in seconds from the start of the clip. The description is plain text for a person to read: short paragraphs, no headings, no bullet symbols. If part of the shot cannot be read clearly from the video, end the description with one line that begins "Unclear:" and says what.
-
-Also list every subject the description names, and every distinct part of the setting it names. Each entry's name is the exact short phrase the description itself uses for that thing, so the two always match. Its visible field gives the times it is on screen.
-
-Return ONLY JSON — no prose outside it, no code fences:
-{"description":"<the description>","subjects":[{"name":"<the phrase the description uses>","visible":"<times on screen, in seconds>"}]}`,
-  },
   'edit.analyze.user': {
     agent: 'Shot',
     label: 'Edit — analyze the source video (length)',
     vars: ['{length}'],
     text: 'THE CLIP is {length} long.\n\nDescribe the shot and return the JSON.',
   },
-  'cut.direct.system': {
-    agent: 'Shot',
-    label: 'Direct — a note on how the shot is filmed and feels (system)',
-    vars: ['{refCount}', '{kfLine}', '{jobLine}', '{cameraLine}', '{skill}'],
-    text: `You are applying ONE director's note to a video shot's prompt — a note about how the shot is FILMED and how it FEELS. {refCount} reference images are attached as image 1 … image {refCount} — the shot's fixed cast, places and frames; they never change.
-
-{kfLine}
-
-THE CURRENT PROMPT IS THE SHOT: its events, their order, every image citation and every dialogue line word-for-word in curly braces all stay. You re-shape HOW it is filmed and how it feels per the note — camera, lens and depth, light, movement, tone, pacing, emphasis, atmosphere, wording. Where the note and the current text disagree, the note wins. Never add, drop or renumber an image citation.
-
-{jobLine}
-
-{cameraLine}
-
-{skill}
-
-THE CURRENT PROMPT IS THE FINAL PROMPT — it ships to the model verbatim, and nothing is added around it. Whatever structure it already carries (its blocks, its reference-role sentences, its subject definitions, its closing constraints) STAYS; you re-shape tone and wording inside that structure, you do not strip it and you do not rebuild it.
-
-Return ONLY JSON — no prose, no code fences: {"action":"<the re-shaped action text>","audio":"<only if the note touches sound, else empty>"}`,
-  },
   'cut.direct.user': {
     agent: 'Shot',
     label: 'Direct — apply the note (instruction)',
     vars: ['{refRoster}', '{text}', '{note}'],
     text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE CURRENT PROMPT (the shot — events, [Image N] tags and dialogue stay):\n"""\n{text}\n"""\n\nTHE DIRECTOR\'S NOTE (verbatim — it wins where they disagree):\n"""\n{note}\n"""\n\nReturn the JSON.',
-  },
-  'cut.compose.system': {
-    agent: 'Shot',
-    label: 'Compose — the FINAL prompt sent to the video model (system)',
-    vars: ['{refCount}', '{kfLine}', '{authorityLine}', '{jobLine}', '{cameraLine}', '{lookLine}', '{skill}'],
-    text: `You are writing THE FINAL PROMPT for a video model. What you return is sent VERBATIM — nothing is appended, wrapped, renumbered or cleaned up afterwards. If you leave it out, it does not reach the model.
-
-THE SPEC BELOW IS THE METHOD. Everything above it is FACT about this particular shot — what is attached, what is locked, what the material is. Facts do not override the spec; they are its input.
-
-{refCount} reference images are attached as image 1 … image {refCount} — EXACTLY the images, in EXACTLY the order, the model will receive. NEVER cite a number outside 1–{refCount}, never renumber them, and never assume an image you were not given.
-
-{kfLine}
-
-{authorityLine}
-
-{jobLine}
-
-{cameraLine}
-
-{lookLine}
-
-{skill}
-
-Return ONLY JSON — no prose, no code fences: {"action":"<the complete final prompt>","audio":""}`,
   },
   'cut.compose.user': {
     agent: 'Shot',
@@ -385,63 +247,11 @@ Return ONLY JSON — no prose, no code fences: {"action":"<the complete final pr
   },
 
   // ---- Storyboard: KEY MOMENTS — the director's breakdown of the script ----------
-  'storyboard.moments.system': {
-    agent: 'Storyboard',
-    label: 'Key moments — the director\'s breakdown (system)',
-    vars: ['{templates}', '{refCount}', '{skill}'],
-    text: `{skill}
-
-You are the film's DIRECTOR doing the breakdown: read the script and pick its KEY MOMENTS — the moments the story cannot do without: the turn, the reveal, the decision, the consequence. A SELECTION, not coverage: connective action between moments is left out. As many moments as the story needs and no more; at least one.
-
-EVERY MOMENT IS ONE SEEDANCE 2.5 GENERATION, so it must be filmable as one:
-• 4–15 seconds of screen time;
-• ONE place;
-• what the camera SEES and HEARS — never a thought, a feeling or a backstory;
-• at most 4 named subjects.
-
-{refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] ({refCount} may be 0).
-
-For EACH moment, in story order, return:
-• title — 2–4 words.
-• turn — ONE short line: what changes in this moment.
-• quote — the script's own words this moment comes from, COPIED VERBATIM: exact characters, dialogue word-for-word, nothing paraphrased.
-• place — the moment's location, named the same way every time it recurs (a recurring place keeps one name).
-• intExt — "INT" or "EXT".
-• seconds — an integer 4–15: the screen time the moment needs.
-• shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY:
-{templates}
-• figures — the reference numbers that APPEAR in this moment ([] when none attached).
-
-Return ONLY a JSON object — no prose, no code fences:
-{"moments":[{"title":"…","turn":"…","quote":"…","place":"…","intExt":"EXT","seconds":8,"shotTemplate":"…","figures":[…]}]}`,
-  },
   'storyboard.moments.user': {
     agent: 'Storyboard',
     label: 'Key moments (instruction)',
-    vars: ['{script}', '{style}', '{retry}'],
-    text: 'SCRIPT:\n"""\n{script}\n"""\nStyle / aesthetic: {style}.\n{retry}\nPick the key moments and return the JSON.',
-  },
-  'storyboard.author.system': {
-    agent: 'Storyboard',
-    label: 'Author ONE key moment from its verbatim quote (system)',
-    vars: ['{refCount}', '{skill}'],
-    text: `{skill}
-
-You are a film director + cinematographer AUTHORING ONE KEY MOMENT of a film — one Seedance 2.5 generation. You receive the whole SCRIPT for context, but your moment covers ONLY its SPAN — the script's own words for this moment. The span is the source of truth: carry its wording; EVERY line of dialogue in the span rides word-for-word.
-
-THE SHOT HAS ONE JOB (stated in the instruction). Every sentence you write either advances that job or earns its place some other way — cut anything that serves neither. The job decides what the camera favors, what the performance emphasizes, and what the frame withholds.
-
-Write "motion" as plain event-order prose — NEVER numeric time markers; the sequence of events carries time, and each event's observable outcome makes the order unambiguous.
-
-{refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] — address each subject you use explicitly as [Image N].
-
-Return ONLY JSON — no prose, no code fences:
-{
- "body": "<the shot's OPENING frame as a Seedream keyframe, 2–5 sentences. THE FRAME CATCHES THE SITUATION ALREADY UNDER WAY — not the instant before it starts: weight already shifted, eyeline already committed, hands already where the action has put them, and whatever the subject is up against already present in frame. Never a lineup, never a neutral standing pose. In this order: (1) SUBJECT — 'The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged' (place/object: 'the exact <place/object> in [Image N]'); the reference gives IDENTITY ONLY — the POSE comes from this shot's situation and never from the reference's own pose. (2) SECONDARY subjects via their own [Image K], each doing what the situation has them doing. (3) ENVIRONMENT — location, set details, time of day. (4) LIGHTING, colour grade, mood. A single sharp FRAME — no camera verbs, nothing mid-blur, no one looks at camera, no on-image text.>",
- "motion": "<the shot's SITUATION for the video model, in event order — who is there, in what condition, what each is trying to do, and what happens as a result. The model simulates the world and derives the physical detail, so state the situation and the observable outcome; do NOT write a body-part script and do NOT instruct individual features (say a subject is cornered and means it, never that its hackles lift — a feature instruction renders literally). Every action at real-world speed; as many sentences as the span needs and NO more. Address subjects by the same [Image N] numbers. EVERY dialogue line from the span, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in parentheses (…). What you leave out does not happen.>",
- "audio": "<the shot's sound line in the same symbol grammar, or empty>",
- "expression": "<1–3 words for the main subject's expression, or empty>"
-}`,
+    vars: ['{script}', '{style}', '{world}', '{note}', '{retry}'],
+    text: 'SCRIPT:\n"""\n{script}\n"""\nStyle / aesthetic: {style}.\n{world}{note}{retry}\nPick the key moments and return the JSON.',
   },
   'storyboard.author.user': {
     agent: 'Storyboard',
@@ -450,12 +260,6 @@ Return ONLY JSON — no prose, no code fences:
     text: 'FULL SCRIPT (context only):\n"""\n{script}\n"""\n\nYOUR MOMENT: "{beat}" — camera: {framing}. LENGTH: {seconds}. ITS ONE JOB: {job}. Previous moment: {prevBeat}. Next moment: {nextBeat}.\n{settingLine}\nYOUR SPAN (the source — carry its wording, all dialogue verbatim):\n"""\n{span}\n"""\n{note}{retry}\nReturn the JSON for THIS shot only.',
   },
   // ---- Storyboard: RE-DERIVE one shot's [Image N] body for a chosen reference set (Expand editor) --
-  'storyboard.shot.system': {
-    agent: 'Storyboard',
-    label: 'Re-derive one keyframe body for its references (system)',
-    vars: ['{refCount}'],
-    text: `You are a cinematographer writing ONE storyboard keyframe's description. {refCount} reference images are attached as [Image 1] … [Image {refCount}] (the film's cast, props and places). Write the shot's BODY: 2–5 sentences addressing each reference this shot uses explicitly as [Image N], in this order — (1) SUBJECT: "The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged" (for a place/object: "the exact <place/object> in [Image N]"); optionally "wearing the wardrobe / colour scheme from [Image M]"; then the pose and gaze THIS SHOT'S SITUATION puts them in — the frame catches the action already under way (weight shifted, eyeline committed), never a neutral standing pose, and never the reference's own pose: the reference gives identity only. (2) SECONDARY subjects via their own [Image K] + what the situation has them doing. (3) ENVIRONMENT — location, key set details, time of day. (4) LIGHTING, colour grade, mood. Do NOT restate camera / lens / composition. Characters never look at the camera; no on-image text. Return ONLY JSON — no prose, no code fences: {"body":"<the [Image N]-addressed description>","expression":"<1–3 words or empty>"}.`,
-  },
   'storyboard.shot.user': {
     agent: 'Storyboard',
     label: 'Re-derive one keyframe body (instruction)',
@@ -506,378 +310,27 @@ Return ONLY JSON — no prose, no code fences:
   },
 
 
-  // ---- Story Room: idea → blueprint (the story-builder skill) → critique → patch ----
+  // ---- Story: idea → blueprint (the story-builder skill) → critique; the look ----
   // The skill rides whole as {skill}; user text is sentinel-injected VERBATIM by
   // utils/film/core/story.js. Every block is word-capped and the cap is code-checked.
-  'story.scout.axes': {
-    agent: 'Story Room',
-    label: 'Scout — the axes it deals ideas from (one item per line under each heading)',
-    vars: [],
-    text: `SITUATIONS
-a debt that cannot be repaid in money
-a rescue that needs a betrayal
-two rivals who must depend on each other
-an inheritance that comes with a condition
-a lie told to protect someone, now coming due
-a return home after a long absence
-an obsession that is costing everything
-a case of mistaken identity
-a vow that collides with love
-an ambition that requires a crime
-a stranger who unsettles a closed community
-enemies who must survive a disaster together
-a secret that would free one person and ruin another
-a contest whose prize is worth more than winning
-a child forced to take a parent's place
-a pursuit across a border
-a gift that turns into a burden
-a rule obeyed long past the point of sense
-a discovery nobody wants to be true
-a reunion that reopens an old wrong
-REGISTERS
-comedy
-romance
-crime
-thriller
-tragedy
-satire
-coming of age
-mystery
-farce
-melodrama
-OPPOSITION
-someone who loves the protagonist
-a rival with a better claim
-an institution doing its job correctly
-the protagonist's own community
-a force of nature
-a machine or system that cannot be argued with
-a family member
-a charming liar
-a child
-the protagonist's younger self, in letters, recordings or memory`,
-  },
-  'story.scout.system': {
-    agent: 'Story Room',
-    label: 'Scout — find ideas from life (system)',
-    vars: [],
-    text: 'You are a story scout. You find dramas in real life, not in cinema: the stories people tell each other in markets, on night shifts, at border posts, in kitchens, on ships, in research stations and in settlements on other worlds. Every idea you return is built on the ASSIGNMENT it is given (a dramatic situation, a register and a kind of opposition) and set in a real, specific place or community with its own customs, trades and stakes. No famous plots, no genre formulas, nothing that sounds like a pitch for an existing film or series. Each idea has a person at its centre and something that has just gone wrong in their life.',
-  },
-  'story.scout.user': {
-    agent: 'Story Room',
-    label: 'Scout — find ideas (instruction)',
-    vars: ['{count}', '{direction}', '{assignments}'],
-    text: 'Come up with {count} ORIGINAL story ideas, one per assignment below, in the same order.\n\nDIRECTION FROM THE FILMMAKER (follow it; when it is empty, roam freely):\n{direction}\n\nASSIGNMENTS:\n{assignments}\n\nEvery idea comes from a different place, community or world. Return ONLY a JSON array of {count} objects:\n[{"title": "2-5 words", "logline": "2-3 sentences: who, what just happened, what is at stake", "place_and_culture": "the specific place, community or world", "what_is_unexpected": "one sentence"}]',
-  },
-  'story.probe.system': {
-    agent: 'Story Room',
-    label: 'Originality probe (system)',
-    vars: [],
-    text: 'You are a development executive checking story ideas for originality before anyone develops them. For EACH idea, name the closest existing film, book or series and the premise shape it shares: the dramatic situation in one line (for example "small community vs corporation over land"), never the setting. Score it: 2 = no known work shares the premise shape; 1 = a known work shares the premise shape even if the setting is new; 0 = essentially the same story. Be strict: a new setting on a familiar premise is a 1.\nReturn ONLY a JSON array, one object per idea, in order: [{"closest_work": "Title (year)", "shared_premise": "...", "score": 0, "note": "one sentence: what would make it fresh"}]',
-  },
-  'story.probe.user': {
-    agent: 'Story Room',
-    label: 'Originality probe (instruction)',
-    vars: ['{ideas}'],
-    text: 'THE IDEAS:\n{ideas}',
-  },
-  'story.architect.system': {
-    agent: 'Story Room',
-    label: 'Architect — idea to blueprint (system)',
-    vars: ['{skill}', '{cap}', '{spineCap}'],
-    text: '{skill}\n\nYOU ARE THE ARCHITECT. Run Steps 1-4 of the story-builder workflow on the idea internally: map it into the blocks, derive the missing blocks in dependency order (flaw -> internal need -> inciting incident -> external want -> antagonist -> journey -> crisis -> climax -> resolution), write the spine, then stress-test and fix. Keep everything the idea states; invent only what it leaves out.\nLENGTH: every block at most {cap} words; each journey obstacle at most {cap} words; the spine is ONE sentence of at most {spineCap} words.\nReturn ONLY the final blueprint as JSON, no prose:\n{"title": "2-5 words", "protagonist": "...", "flaw": "...", "internal_need": "...", "inciting_incident": "...", "external_want": "...", "antagonist": "...", "journey": ["3-5 escalating obstacles"], "crisis": "...", "climax": "...", "resolution": "...", "spine": "Once upon a time, ..."}',
-  },
   'story.architect.user': {
-    agent: 'Story Room',
+    agent: 'Story',
     label: 'Architect — idea to blueprint (instruction)',
     vars: ['{idea}'],
     text: 'THE IDEA:\n{idea}',
   },
-  'story.critic.system': {
-    agent: 'Story Room',
-    label: 'Critic — objection-first stress test (system)',
-    vars: ['{skill}'],
-    text: `{skill}
-
-YOU ARE A HARSH DEVELOPMENT EDITOR scoring one story blueprint against the stress test. Most professional blueprints earn 1 on most items; a 2 is rare.
-For EVERY item give "objection" (in one sentence, the strongest push-back a development executive would raise; there is always one) and "score": 2 = the blueprint already answers the objection, nothing to fix; 1 = it works but the objection partly stands; 0 = broken, missing or contradicted.
-q1 Could you film the want? 2 = a single visible goal with a finish line a camera can see.
-q2 Does chasing the want force the protagonist to face the need? 2 = the want can only be won by facing the need.
-q3 Is the antagonist strong enough that the outcome is in doubt? 2 = a specific force with its own logic that beats the protagonist's flaw.
-q4 Does each journey obstacle raise the stakes over the last? 2 = every step costs more than the one before and closes an option.
-q5 Is the crisis a real choice with a real cost? 2 = two goods or two evils, each costing something the audience cares about.
-q6 Does the protagonist cause the climax? 2 = their choice and new behaviour decide it.
-q7 Does the resolution show change? 2 = a concrete new behaviour that mirrors the opening flaw.
-originality: name the closest existing film, book or series and the premise shape it shares. 2 = no known work shares the premise shape; 1 = a known work shares it even if the setting is new; 0 = essentially the same story.
-specificity: 2 = the culture, trade or place is load-bearing (the crisis or climax could not happen anywhere else); 1 = concrete detail, but the plot would survive a change of setting; 0 = generic dressing.
-Then "fix": for every item below 2, the ONE block whose rewrite would answer it, with the note the rewrite must answer. Block names: protagonist, flaw, internal_need, inciting_incident, external_want, antagonist, journey, crisis, climax, resolution. One note per block; merge notes that land on the same block.
-Return ONLY JSON: {"q1": {"objection": "...", "score": 0}, ..., "q7": {...}, "originality": {"closest_work": "...", "shared_premise": "...", "objection": "...", "score": 0}, "specificity": {"objection": "...", "score": 0}, "fix": {"<block>": "<the note to answer>"}}`,
-  },
-  'story.critic.user': {
-    agent: 'Story Room',
-    label: 'Critic (instruction)',
-    vars: ['{blueprint}'],
-    text: 'THE BLUEPRINT:\n{blueprint}',
-  },
-  'story.option.approaches': {
-    agent: 'Story Room',
-    label: 'Fix options — one approach per option (one per line)',
-    vars: [],
-    text: `the most direct fix: change as little as the note allows
-a bolder fix: change the situation itself so the problem cannot arise
-a fix that comes out of the story's own place, culture or trade`,
-  },
-  'story.option.system': {
-    agent: 'Story Room',
-    label: 'Fix option — rewrite from the root block down (system)',
-    vars: ['{skill}', '{cap}', '{spineCap}'],
-    text: '{skill}\n\nYOU ARE A SCRIPT DOCTOR. One block of a story blueprint has a problem an editor named. Fix it at its ROOT: rewrite the root block so the note is answered, then re-derive every block after it, in the method\'s dependency order, so the whole story still holds together and each later block follows from the new root. Keep anything in those later blocks that still works. Blocks before the root stay exactly as they are. Then rewrite the spine to match.\nLENGTH: every block at most {cap} words; journey stays a list of 3-5 obstacles, each at most {cap} words; the spine is ONE sentence starting "Once upon a time", at most {spineCap} words.\nReturn ONLY JSON with the root block, every block after it, and "spine": {"<block>": "...", "journey": ["..."], "spine": "Once upon a time, ..."}',
-  },
-  'story.option.user': {
-    agent: 'Story Room',
-    label: 'Fix option (instruction)',
-    vars: ['{blueprint}', '{root}', '{note}', '{cascade}', '{approach}'],
-    text: 'THE BLUEPRINT:\n{blueprint}\n\nTHE ROOT BLOCK: {root}\nTHE EDITOR\'S NOTE: {note}\nREWRITE, IN THIS ORDER: {cascade}, then spine\nYOUR APPROACH: {approach}',
-  },
-  'story.option.judge.system': {
-    agent: 'Story Room',
-    label: 'Fix options — blind judge (system)',
-    vars: [],
-    text: 'You are a development editor comparing versions of the same stretch of a story. Each version continues the same opening blocks. Rank ALL versions from best to worst by: does it answer the editor\'s note; does the story still hold together (each block follows from the one before, the protagonist causes the climax, the resolution mirrors the flaw); is it specific and filmable. Length is not quality. Give each version a one-line reason.\nReturn ONLY JSON: {"ranking": ["V2", "V1", ...], "reasons": {"V1": "...", "V2": "..."}}',
-  },
-  'story.option.judge.user': {
-    agent: 'Story Room',
-    label: 'Fix options — blind judge (instruction)',
-    vars: ['{note}', '{before}', '{versions}'],
-    text: 'THE EDITOR\'S NOTE: {note}\n\nTHE OPENING BLOCKS (shared by every version):\n{before}\n\nTHE VERSIONS:\n{versions}',
-  },
-  'story.facts.system': {
-    agent: 'Story Room',
-    label: 'Visual beat sheet — what the viewer must see or hear (system)',
-    vars: ['{skill}'],
-    text: `{skill}
-
-YOU ARE THE SCRIPT SUPERVISOR. Turn the story blueprint into its VISUAL BEAT SHEET: the facts a viewer must SEE or HEAR on screen to follow the whole story. A film has no access to thoughts, so every block, the interior ones included, is translated into observable evidence:
-- flaw: a behaviour we watch in the opening;
-- external want: the visible goal (an object, a place, a person to reach);
-- antagonist: its presence, or an act we see it commit;
-- inciting incident, each journey obstacle, crisis, climax: what happens on screen; the crisis is a choice we watch being made;
-- resolution: the behaviour that mirrors the opening flaw, changed (or tragically unchanged);
-- internal need: shown only through that change, never stated.
-Each fact is ONE observable thing in one sentence: who does what, where, with what. A spoken line counts as heard; give its words in quotes. Never write what anyone thinks, feels, realizes or decides unless the same sentence names the action that shows it.
-Every block gets at least one fact; tag each fact with the ONE block it serves. Keep the blueprint's names, places and objects. List the facts in story order.
-Return ONLY JSON: [{"block": "protagonist|flaw|internal_need|inciting_incident|external_want|antagonist|journey|crisis|climax|resolution", "kind": "see|hear", "fact": "..."}]`,
-  },
-  'story.facts.user': {
-    agent: 'Story Room',
-    label: 'Visual beat sheet (instruction)',
-    vars: ['{blueprint}'],
-    text: 'THE BLUEPRINT:\n{blueprint}',
-  },
-  'story.shots.system': {
-    agent: 'Story Room',
-    label: 'Shot plan — assets + shots (system)',
-    vars: [],
-    text: `YOU ARE THE DIRECTOR planning a story's shots for Seedance 2.5 from its VISUAL BEAT SHEET. Each shot is ONE generation: one place, one continuous moment, at most 30 seconds. A beat gets as many shots as its facts need; one shot may show several facts that share a place and moment. Every fact goes in a shot; the shots run in story order.
-First list the ASSETS that recur across shots: every character, every location, every important prop. Each gets a KEY (UPPER_SNAKE_CASE), a name, and one look line: for a character age, build, face, hair, wardrobe; for a location its space, materials, era, light; for a prop its shape, material, colour, wear.
-Then the shots: each names its location key, the asset keys it uses, and the fact ids it shows.
-Return ONLY JSON: {"assets": [{"key": "KAAN", "kind": "character|location|prop", "name": "Kaan", "look": "..."}], "shots": [{"title": "2-5 words", "location": "FERRY_DECK", "assets": ["KAAN"], "moment": "one sentence: what happens in this shot", "shows": ["F1"]}]}`,
-  },
-  'story.shots.user': {
-    agent: 'Story Room',
-    label: 'Shot plan (instruction)',
-    vars: ['{blueprint}', '{facts}'],
-    text: 'THE BLUEPRINT:\n{blueprint}\n\nTHE VISUAL BEAT SHEET:\n{facts}',
-  },
-  'story.shot.system': {
-    agent: 'Story Room',
-    label: 'Shot prompt — one Seedance 2.5 shot body (system)',
-    vars: ['{skill}'],
-    text: `{skill}
-
-YOU ARE THE DIRECTOR writing ONE shot of a story as the body of a Seedance 2.5 prompt, following the spec above. The shot is one generation: one place, one continuous moment, at most 30 seconds, and it shows the facts listed for it.
-THE SCENE'S BLOCKING is fixed: every person stands on their marks and moves only along their path, in its order — this shot takes the part of the path its moment covers, names the marks where people stand, and keeps the camera on the stated side of the axis.
-When THE SHOT THIS ONE CONTINUES is given, this shot opens exactly where it ends: open by placing every person and prop where that shot left them, holding what they held, with every change it made still true — and never restart, repeat or contradict an action it finished.
-Refer to every asset ONLY by its token exactly as given, e.g. {{KAAN}} — never describe an asset's appearance; its look is written in separately. Duration, aspect ratio and resolution are request parameters, never prompt text.
-Return ONLY the shot body text — no title, no notes, no JSON.`,
-  },
-  'story.look.presets': {
-    agent: 'Story Room',
-    label: 'Look presets — the dropdown (one per line, "Name: style sentence")',
-    vars: [],
-    text: `Naturalistic film: shot on 35mm film, natural motivated light, soft contrast, true-to-life colour and skin, fine grain
-Handheld documentary: handheld 16mm documentary look, available light, muted colour, visible grain, imperfect focus, raw and immediate
-Film noir: high-contrast black-and-white, hard low-key light, deep shadows, slatted light patterns, wet reflective surfaces
-Golden hour: warm low sun, soft atmospheric haze, glowing rim light, gentle pastel highlights, shallow depth of field
-Neon night: saturated magenta and cyan neon against deep blacks, rain-slick reflections, anamorphic flares, moody haze
-Bleach bypass: desaturated colour, crushed blacks, silvery highlights, harsh daylight, gritty high contrast
-1970s Kodachrome: warm saturated reds and yellows, soft grain, slightly faded blacks, period colour film
-Storybook pastel: symmetrical frontal compositions, soft pastel palette, even flat light, crisp miniature-like detail
-Anime: 2D cel-shaded anime, clean line art, flat colour with soft gradients, painted backgrounds, luminous skies
-Stop-motion clay: handmade claymation, visible fingerprints and tool marks, miniature practical sets, soft key light
-Watercolor: hand-painted watercolor, paper texture, soft bleeding edges, muted translucent palette
-3D animated feature: stylized 3D animation, soft global illumination, expressive proportions, rich saturated colour`,
-  },
-  'story.look.describe.system': {
-    agent: 'Story Room',
-    label: 'Look — describe a reference image\'s style (system)',
-    vars: [],
-    text: 'You are a cinematographer and colourist building a lookbook. Describe the ONE VISUAL STYLE the attached reference images share, as ONE dense sentence an image or video generator can reproduce: the medium (photograph, film stock, 2D, 3D, paint), palette and colour grade, light quality and direction, contrast, texture and grain, lens feel and depth of field, era. Where the references differ, keep what they share and follow the filmmaker\'s notes. Describe the look only — never the subjects, places or stories in the images. Return only the sentence.',
-  },
-  'story.look.describe.user': {
-    agent: 'Story Room',
-    label: 'Look — describe the references\' style (instruction)',
-    vars: ['{count}', '{notes}'],
-    text: 'Describe the visual style these {count} reference images share.\nThe filmmaker\'s notes: {notes}',
-  },
-  'story.ref.character': {
-    agent: 'Story Room',
-    label: 'Shot reference line — character plate (Seedance 2.5 role line)',
-    vars: ['{name}', '{n}'],
-    text: '{name} maps to @Image{n}; use only facial features, hairstyle, and clothing.',
-  },
-  'story.ref.prop': {
-    agent: 'Story Room',
-    label: 'Shot reference line — prop plate (Seedance 2.5 role line)',
-    vars: ['{name}', '{n}'],
-    text: '{name} maps to @Image{n}; use only structure, material, and color.',
-  },
+  // ---- SHOT card continuity lines (the frame a card carries from the card it continues) ----
   'story.ref.state': {
-    agent: 'Story Room',
+    agent: 'Shot',
     label: 'Continuity line — a frame used as the state of the place and the people (Seedance 2.5 role line)',
     vars: ['{n}'],
     text: '@Image{n} is used for where each person stands, their pose, clothing and what they hold, and the state of the place and its props; do not use its camera position, framing or composition.',
   },
   'story.ref.open': {
-    agent: 'Story Room',
+    agent: 'Shot',
     label: 'Continuity line — a frame fixed as the first frame (Seedance 2.5 role line)',
     vars: ['{n}'],
     text: 'Use @Image{n} as the first frame.\nThis first frame defines the composition at the start of the video, subject positions, poses, prop states, scene, and camera direction.',
-  },
-  'story.ref.location': {
-    agent: 'Story Room',
-    label: 'Shot reference line — location plate (Seedance 2.5 role line)',
-    vars: ['{name}', '{n}'],
-    text: '{name} references @Image{n}; use only spatial layout, architecture, and lighting, and do not use the people in the image.',
-  },
-  'story.scenes.system': {
-    agent: 'Story Room',
-    label: 'Scene pass — where scenes change (system)',
-    vars: [],
-    text: 'You are a script supervisor reading a shot list in order. For each shot, say whether it starts a NEW scene — a different place, or a jump in time — or CONTINUES the scene of the shot before it: the same place, with time running on. A new camera angle in the same place and moment is NOT a new scene. Give a one-line reason.\nReturn ONLY JSON: [{"shot": 1, "newScene": true, "reason": "..."}]',
-  },
-  'story.scenes.user': {
-    agent: 'Story Room',
-    label: 'Scene pass (instruction)',
-    vars: ['{shots}'],
-    text: 'THE SHOTS, IN ORDER:\n{shots}',
-  },
-  'story.plate.face': {
-    agent: 'Story Room',
-    label: 'Asset plate — character face (Cast & World)',
-    vars: ['{name}', '{look}'],
-    text: 'Character reference portrait of {name}: {look}',
-  },
-  'story.plate.body': {
-    agent: 'Story Room',
-    label: 'Asset plate — character turnaround (Cast & World)',
-    vars: ['{name}', '{look}'],
-    text: 'Full-body character turnaround sheet of {name} in ONE image: a frontal view on the left and a 90° side profile on the right, head to toe, same neutral A-pose, identical wardrobe and scale, plain neutral-grey background, even light. {look}. No on-image text.',
-  },
-  'story.plate.location': {
-    agent: 'Story Room',
-    label: 'Asset plate — location (Cast & World)',
-    vars: ['{name}', '{look}'],
-    text: 'Establishing view of {name}, no people: {look}. Neutral motivated light, no on-image text.',
-  },
-  'story.plate.prop': {
-    agent: 'Story Room',
-    label: 'Asset plate — prop (Cast & World)',
-    vars: ['{name}', '{look}'],
-    text: 'Clean reference of {name}, three-quarter view on a neutral ground, even light, no people: {look}. No on-image text.',
-  },
-  'story.reopen.system': {
-    agent: 'Story Room',
-    label: 'Re-open a shot from the take it continues (system)',
-    vars: ['{modeRule}'],
-    text: `You correct the OPENING of one shot prompt so the shot starts from IMAGE 1: the real last frame of the shot it continues. The other images show the people and props of this shot and of the shot it continues — use them only to recognise who and what is in IMAGE 1. Name a person only when they match a reference; never give one person's token to another.
-
-{modeRule}
-
-Write only framing, position, pose, facing, what they hold and what has changed — never clothing, hair, face, build or any look: the tokens carry the looks. Keep every other word of the prompt exactly as written: the action and its order, dialogue, sound, timing — changing only the fewest words needed for the action to follow from the opening (someone "enters" who is already inside, someone picks up what they already hold). Refer to people, props and places only by their tokens exactly as given, e.g. {{KAAN}}, and keep every token the prompt uses. Never mention an image, a frame, a take or an earlier shot — write the scene.
-Return ONLY the full corrected prompt — no notes, no quotes.`,
-  },
-  'story.reopen.open': {
-    agent: 'Story Room',
-    label: 'Re-open rule — the frame is the FIRST FRAME',
-    vars: [],
-    text: 'IMAGE 1 IS THIS SHOT\'S FIRST FRAME — the shot begins on exactly that picture. Open with a sentence that states it as the camera sees it: the shot size, who is in frame and where, which way they face, and where the camera looks. Then say how the shot gets from that picture to its action — the camera moving (pan, push, pull back) or people moving into or out of frame — so nothing the action needs appears from nowhere. Someone the action needs who is not in IMAGE 1 enters frame in a stated way.',
-  },
-  'story.reopen.state': {
-    agent: 'Story Room',
-    label: 'Re-open rule — the frame is the STATE OF THE SCENE',
-    vars: [],
-    text: 'IMAGE 1 IS THE STATE OF THE SCENE — this shot has its own camera. Rewrite only the opening words that place each person and prop where IMAGE 1 leaves them, holding what they hold, with what has changed still true. Someone the prompt needs who is not in IMAGE 1 stays out of the opening until the action brings them in.',
-  },
-  'story.reopen.user': {
-    agent: 'Story Room',
-    label: 'Re-open a shot (instruction)',
-    vars: ['{assets}', '{images}', '{body}'],
-    text: 'ASSETS IN THIS SHOT (tokens):\n{assets}\n\nTHE ATTACHED IMAGES, in order:\n{images}\n\nTHE SHOT PROMPT:\n"""\n{body}\n"""\n\nIMAGE 1 is where this shot must start. Return the corrected prompt.',
-  },
-  'story.block.system': {
-    agent: 'Story Room',
-    label: 'Block a scene — marks, paths, axis (system)',
-    vars: [],
-    text: `You are the director BLOCKING one scene before it is shot — the stopping rehearsal. Decide once, for the whole scene:
-- the MARKS: the few named spots in the place where people stand or stop (3 to 7), each with where it is in the place;
-- every character's PATH: the marks they stand on, in order, from where they are when the scene opens to where they are when it ends — a character who never moves has one mark;
-- the AXIS: the line of action between the two principal characters, and the side of it the cameras keep to.
-Use only what the shots need. Name each character by their token exactly as given.
-
-Return ONLY these lines — no prose, no code fences:
-MARKS: <mark> (<where it is>) · <mark> (<where it is>) · …
-{{TOKEN}}: <mark> → <mark> → …
-AXIS: <the line of action>; cameras stay on <the side>`,
-  },
-  'story.block.user': {
-    agent: 'Story Room',
-    label: 'Block a scene (instruction)',
-    vars: ['{place}', '{cast}', '{shots}'],
-    text: 'THE PLACE:\n{place}\n\nTHE CHARACTERS (one PATH line each):\n{cast}\n\nTHE SHOTS OF THE SCENE, in order:\n{shots}\n\nReturn the blocking lines.',
-  },
-  'story.card.system': {
-    agent: 'Story Room',
-    label: 'Card — a scene as one Seedance 2.5 generation, one line per shot (system)',
-    vars: ['{skill}', '{maxSeconds}'],
-    text: `{skill}
-
-YOU ARE THE DIRECTOR writing ONE generation of a scene: its shots as consecutive cuts of one Seedance 2.5 prompt, at most {maxSeconds} seconds in all. Inside one generation the model keeps one world — the same people, places and props across every cut — so each line only says what this cut shows.
-For each shot write ONE line: the framing and the camera, then what happens, in one or two plain sentences of observable action.
-THE SCENE'S BLOCKING is fixed: people stand on their marks and move only along their paths, in order; name the marks where people are. Keep every camera on the stated side of the axis by WHERE you put it — write the framing plainly as the camera sees it (e.g. "Wide shot from behind the teller counter toward the doors"); never write the axis or its side into a line (the prompt states it once).
-Write plain sentences: no placeholder brackets like <…>.
-When THE CARD BEFORE is given, the first shot opens exactly where it ends.
-Give every shot the seconds its action really needs — a whole number from 3 to 10. Never shorten a shot to fit: if the shots need more than {maxSeconds} seconds in all, give them their time anyway and the director will split the card.
-Refer to every person, prop and place ONLY by its token exactly as given, double braces included, e.g. {{KAAN}} — never a bare KAAN; never describe how anyone or anything looks — the looks are written in separately.
-Return ONLY one line per shot, in order, each exactly: SH <number> (<seconds>s): <the line>`,
-  },
-  'story.card.user': {
-    agent: 'Story Room',
-    label: 'Card (instruction)',
-    vars: ['{story}', '{assets}', '{blocking}', '{shots}', '{before}'],
-    text: 'THE STORY:\n{story}\n\nTHE TOKENS:\n{assets}\n\nTHE SCENE\'S BLOCKING (fixed):\n{blocking}\n\nTHE SHOTS OF THIS CARD, in order:\n{shots}\n\nTHE CARD BEFORE:\n{before}\n\nReturn one line per shot.',
-  },
-  'story.card.tail': {
-    agent: 'Story Room',
-    label: 'Card — the closing line of every card prompt',
-    vars: [],
-    text: 'The same people, places, props and positions carry through every cut.',
-  },
-  'story.shot.user': {
-    agent: 'Story Room',
-    label: 'Shot prompt (instruction)',
-    vars: ['{story}', '{assets}', '{shot}', '{facts}', '{neighbours}', '{blocking}', '{previous}'],
-    text: 'THE STORY:\n{story}\n\nASSETS IN THIS SHOT (use these tokens):\n{assets}\n\nTHIS SHOT:\n{shot}\n\nFACTS THIS SHOT SHOWS:\n{facts}\n\nAROUND IT:\n{neighbours}\n\nTHE SCENE\'S BLOCKING (fixed):\n{blocking}\n\n{previous}',
   },
 };
 

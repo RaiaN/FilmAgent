@@ -5,7 +5,8 @@
 // afterwards, which is why each one carries its own gate.
 import { renderTemplate, getModel, getRuntime, defaultVideoModelKey, videoTraits } from '../suiteConfig';
 import { parseJson } from './director';
-import { requireSkillLine } from '../skills';
+import { fitText } from './limits';
+import { requireSkillLine, crewStep } from '../skills';
 import { withDialogueGate } from './storyboard';
 
 // The card's LOCKED camera preset as a hard contract for the prompt verbs: prose
@@ -58,8 +59,8 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.direct.user', { refRoster: roster.join('\n') || '(no images attached)', text: T, note: N })
-        .split(T).join(material.slice(0, 6000)).split(N).join(theNote.slice(0, 1500)) + retry,
-      systemPrompt: renderTemplate('cut.direct.system', { refCount: String(references.length), kfLine: kfLineOf(kfIndices, modelKey), jobLine: jobLineOf(job), cameraLine: camera ? cameraLineOf(camera) : KEEP_CAMERA_LINE, skill: await requireSkillLine(modelKey) }),
+        .split(T).join(fitText(material, 6000, "The take's prompt")).split(N).join(fitText(theNote, 1500, 'The note')) + retry,
+      systemPrompt: await crewStep('crew-camera', 'direct', { refCount: String(references.length), kfLine: kfLineOf(kfIndices, modelKey), jobLine: jobLineOf(job), cameraLine: camera ? cameraLineOf(camera) : KEEP_CAMERA_LINE, skill: await requireSkillLine(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -68,38 +69,47 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
     return { action: String(raw.action || '').trim(), audio: String(raw.audio || '').trim() };
   };
   const out = await withDialogueGate(material, 'action', run);
-  if (!out.action) throw new Error('Direct came back empty — try again.');
+  if (!out.action) throw new Error('Direct came back empty.');
   return out;
 };
 
-export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), job = '', style = '', audio = '', config } = {}, ctx) => {
+// WHERE EYES GO. A person with nothing to look at looks into the lens — the take turns
+// them toward the camera. Every prompt gives eyes a target in the scene; the gate below
+// refuses a prompt that sends anyone toward the lens the shot text never asked for.
+const GAZE_LINE = "EYES: in every beat, say what each person's eyes are on — a landmark, an object or another person in the scene. Nobody looks at, turns to, faces or walks toward the camera or the lens unless the director's text says so. Where the text names what someone looks at, keep it.";
+const LENS_GAZE = /\b(?:look|looks|looking|stare|stares|staring|gaze|gazes|gazing|glance|glances|glancing|eyes|face|faces|facing|turn|turns|turning|walk|walks|walking|step|steps|stepping|lean|leans|leaning|move|moves|moving)\b[^.]{0,40}?\b(?:toward|towards|at|into|to)\s+(?:the\s+)?(camera|lens|viewer)\b/gi;
+const lensGazes = (t) => [...String(t || '').matchAll(LENS_GAZE)].map((m) => m[0]);
+
+// derive = false: the shot's text is the authority on what happens (a scene sheet) — the
+// start frame only fixes the opening, nothing is re-read from it.
+export const composeShotAction = async ({ text = '', references = [], roster = [], kfIndices = [], modelKey = defaultVideoModelKey(), job = '', style = '', audio = '', derive: deriveEvents = true, config } = {}, ctx) => {
   const material = String(text || '').trim();
   if (!material && !references.length) throw new Error('Compose needs a prompt, keyframes or references to work from.');
   // ---- STEP 1 · DERIVE (keyframes only — deliberately blind to text and refs, so the
   // events come from the approved pictures with no old prompt to anchor on) ----
   let derived = '';
-  if (kfIndices.length) {
+  if (kfIndices.length && deriveEvents) {
     const kfUrls = kfIndices.map((k) => references[k - 1]).filter(Boolean);
     const { content } = await ctx.client.reason({
       prompt: renderTemplate('cut.derive.user', { kfCount: String(kfUrls.length) }),
-      systemPrompt: renderTemplate('cut.derive.system', { kfCount: String(kfUrls.length) }),
+      systemPrompt: await crewStep('crew-camera', 'derive', { kfCount: String(kfUrls.length) }),
       images: kfUrls,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
     });
     derived = String((parseJson(content) || {}).events || '').trim();
-    if (!derived) throw new Error('Deriving from the keyframes came back empty — try again.');
+    if (!derived) throw new Error('Deriving from the keyframes came back empty.');
   }
   // ---- STEP 2 · WRITE (all chips + roster + derived events + optional text) ----
   const kfLine = kfLineOf(kfIndices, modelKey);
-  const authorityLine = kfIndices.length
+  const authorityLine = derived
     ? `THE DERIVED EVENTS below were read from the shot's APPROVED KEYFRAMES — they are the authority on WHAT HAPPENS:\n<<<\n${derived}\n>>>\nRewrite them into the final action: replace each visual handle with its subject's [Image N] number from the roster, keep the event order and pacing. From the director's text carry ONLY what pictures cannot show — every dialogue line word-for-word in curly braces with its speaker named (placed at the right moments), proper names, and intent that does not contradict the events. Any text event the derived events contradict is dropped — list each in "dropped" (one short line), never silently.`
     : `The director's text is the MATERIAL and the authority on WHAT HAPPENS: carry its wording, its events and every dialogue line word-for-word in curly braces with the speaker named — you re-structure and ground it against the images, you never re-invent it. "dropped" stays empty.`;
   const SLOT = '@@PROMPT@@';
   const run = async (retry) => {
     const { content } = await ctx.client.reason({
-      prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(material.slice(0, 6000) || '(none — write from the images)') + retry,
-      systemPrompt: renderTemplate('cut.compose.system', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: KEEP_CAMERA_LINE, lookLine: lookLineOf({ style, audio }), skill: await requireSkillLine(modelKey) }),
+      prompt: renderTemplate('cut.compose.user', { refRoster: roster.join('\n') || '(no images attached)', text: SLOT }).split(SLOT).join(fitText(material, 6000, "The shot's text") || '(none — write from the images)') + retry,
+      systemPrompt: await crewStep('crew-camera', 'compose', { refCount: String(references.length), kfLine, authorityLine, jobLine: jobLineOf(job), cameraLine: KEEP_CAMERA_LINE, gazeLine: GAZE_LINE, lookLine: lookLineOf({ style, audio }), skill: await requireSkillLine(modelKey) }),
       images: references,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
@@ -108,25 +118,28 @@ export const composeShotAction = async ({ text = '', references = [], roster = [
     return {
       action: String(raw.action || '').trim(),
       audio: String(raw.audio || '').trim(),
-      dropped: (Array.isArray(raw.dropped) ? raw.dropped : []).map((c) => String(c || '').trim()).filter(Boolean).slice(0, 6),
+      dropped: (Array.isArray(raw.dropped) ? raw.dropped : []).map((c) => String(c || '').trim()).filter(Boolean),
     };
   };
   // The director's own text is the dialogue source — keyframes cannot speak, so a line
   // in the text must survive into the action even when the pictures rule the events.
   // THE NUMBERING GATE. Nothing renumbers the prompt after this, so a citation outside
-  // 1..refCount would attach the WRONG picture at the wire. Run → check → retry once
-  // naming the offenders → report. A template that asks is not a guarantee.
+  // 1..refCount would attach the WRONG picture at the wire. Run → check → ONE corrective
+  // re-ask naming the offenders → still wrong is an error. A template that asks is not a guarantee.
   const cited = (t) => [...String(t || '').matchAll(/(?:@\s*Image\s*|\[\s*Image\s+)(\d+)/gi)].map((m) => Number(m[1]));
   const strays = (t) => [...new Set(cited(t).filter((n) => n < 1 || n > references.length))];
-  const gated = async (retry) => {
-    const first = await withDialogueGate(material, 'action', (r) => run([retry, r].filter(Boolean).join('\n')));
-    const bad = strays(first.action);
-    if (!bad.length || !references.length) return { ...first, strayRefs: bad };
-    const second = await run(`RETRY — your last prompt cited image ${bad.join(', image ')}, which ${bad.length === 1 ? 'does' : 'do'} not exist. ONLY images 1–${references.length} are attached. Rewrite it citing nothing outside that range.`);
-    return { ...second, strayRefs: strays(second.action) };
-  };
-  const out = await gated('');
-  if (!out.action) throw new Error('Compose came back empty — try again.');
+  let out = await withDialogueGate(material, 'action', run);
+  if (!out.action) throw new Error('Compose came back empty.');
+  const bad = strays(out.action);
+  if (bad.length) out = { ...out, ...(await run(`\nRETRY — your last prompt cited image ${bad.join(', image ')}, which ${bad.length === 1 ? 'does' : 'do'} not exist. ONLY images 1–${references.length} are attached. Rewrite it citing nothing outside that range.`)) };
+  const strayRefs = strays(out.action);
+  if (strayRefs.length) throw new Error(`Compose cited image ${strayRefs.join(', image ')}, but only ${references.length} ${references.length === 1 ? 'is' : 'are'} attached — nothing was shot. Ask again.`);
+  // THE LENS GATE: toward-the-camera wording the shot text did not ask for → one re-ask.
+  const unasked = (t) => lensGazes(t).filter((g) => !lensGazes(material).some((m) => m.toLowerCase() === g.toLowerCase()));
+  const lens = unasked(out.action);
+  if (lens.length) out = { ...out, ...(await run(`\nRETRY — your prompt sends someone toward the lens: "${lens.join('", "')}". Give their eyes and movement a target in the scene instead.`)) };
+  const lensLeft = unasked(out.action);
+  if (lensLeft.length) throw new Error(`Compose kept sending someone toward the camera ("${lensLeft.join('", "')}") — nothing was shot. Ask again.`);
   return { ...out, derived };
 };
 
@@ -146,21 +159,21 @@ export const analyzeEditMaster = async ({ videoUrl = '', seconds = 0, config } =
     prompt: renderTemplate('edit.analyze.user', {
       length: Number(seconds) > 0 ? `${Number(seconds).toFixed(1)} seconds` : 'unknown',
     }),
-    systemPrompt: renderTemplate('edit.analyze.system', {}),
+    systemPrompt: await crewStep('crew-vfx', 'analyze', {}),
     video: videoUrl,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
   const raw = parseJson(content) || {};
   const text = String(raw.description || '').trim();
-  if (!text) throw new Error('The analysis came back without a description — try again.');
+  if (!text) throw new Error('The analysis came back without a description.');
   // The things an edit can name, each under the phrase the description uses for it. One
   // chip per distinct name; an entry with no name cannot be inserted, so it is dropped.
   const seen = new Set();
   const subjects = (Array.isArray(raw.subjects) ? raw.subjects : [])
     .map((x) => ({
-      name: String(x?.name || '').replace(/\s+/g, ' ').trim().slice(0, 80),
-      visible: String(x?.visible || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+      name: String(x?.name || '').replace(/\s+/g, ' ').trim(),
+      visible: String(x?.visible || '').replace(/\s+/g, ' ').trim(),
     }))
     .filter((x) => x.name && !seen.has(x.name.toLowerCase()) && seen.add(x.name.toLowerCase()));
   return { text, subjects };
@@ -177,16 +190,16 @@ export const editShotAction = async ({ text = '', master = null, analysis = '', 
   const ASLOT = '@@ANALYSIS@@';
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('cut.edit.user', { analysis: ASLOT, refRoster: roster.join('\n') || '(no target images attached)', text: SLOT })
-      .split(SLOT).join(material.slice(0, 6000))
-      .split(ASLOT).join(String(analysis || '').trim().slice(0, 6000) || '(not analyzed — nothing is known about the shot beyond the note below)'),
-    systemPrompt: renderTemplate('cut.edit.system', { refCount: String(references.length), masterLine, skill: await requireSkillLine(modelKey, 'edit') }),
+      .split(SLOT).join(fitText(material, 6000, 'The change'))
+      .split(ASLOT).join(fitText(String(analysis || '').trim(), 6000, 'The clip analysis') || '(not analyzed — nothing is known about the shot beyond the note below)'),
+    systemPrompt: await crewStep('crew-vfx', 'edit', { refCount: String(references.length), masterLine, skill: await requireSkillLine(modelKey, 'edit') }),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
   const raw = parseJson(content) || {};
   let action = String(raw.action || '').trim();
-  if (!action) throw new Error('The edit came back empty — try again.');
+  if (!action) throw new Error('The edit came back empty.');
   // THE CLOSURE GATE. Asked for above; guaranteed here. "retain only" phrasing counts
   // as its own closure, so only a prompt with neither gets one appended.
   const closed = /except for the objects explicitly (modified|retained)/i.test(action);
@@ -194,5 +207,6 @@ export const editShotAction = async ({ text = '', master = null, analysis = '', 
   // Same numbering rule as Compose: nothing renumbers this afterwards.
   const strays = [...new Set([...action.matchAll(/(?:@\s*Image\s*|\[\s*Image\s+|\bimage\s+)(\d+)/gi)]
     .map((m) => Number(m[1])).filter((n) => n < 1 || n > references.length))];
-  return { action, audio: String(raw.audio || '').trim(), strayRefs: strays, closureAdded: !closed };
+  if (strays.length) throw new Error(`The edit cited image ${strays.join(', image ')}, but only ${references.length} ${references.length === 1 ? 'is' : 'are'} attached — nothing was shot. Ask again.`);
+  return { action, audio: String(raw.audio || '').trim(), closureAdded: !closed };
 };

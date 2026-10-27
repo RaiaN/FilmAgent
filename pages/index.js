@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useState } from 'react';
 import { Layout, Button, Card } from '@arco-design/web-react';
-import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt, IconSafe, IconBook, IconExperiment, IconSun } from '@arco-design/web-react/icon';
+import { IconImage, IconVideoCamera, IconRobot, IconPlus, IconUser, IconApps, IconThunderbolt, IconSafe, IconExperiment, IconSun, IconMindMapping } from '@arco-design/web-react/icon';
 import { baseSchemas } from '../utils/schemas';
 import { applyDeployModels } from '../utils/film/suiteConfig';
 import { constructWorkflowSeedreamPayload, constructSeedancePayload, constructLLMPayload, updateUiSchemaVisibility } from '../utils/apiHelpers';
@@ -10,7 +10,7 @@ import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
 import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
-import StoryRoomPlayground from '../components/StoryRoomPlayground';
+import StudioPlayground from '../components/studio/StudioPlayground';
 import AssetUploadPlayground from '../components/AssetUploadPlayground';
 import VideoEnhancePlayground from '../components/VideoEnhancePlayground';
 import ArtifactVerifyPlayground from '../components/ArtifactVerifyPlayground';
@@ -39,7 +39,7 @@ const buildInitialResultState = () =>
 const TOOL_TABS = ['seedream', 'seedance', 'tech-test', 'headroom', 'video-enhance', 'asset-upload', 'verify', 'llm'];
 
 export default function Home() {
-  const [activeModelId, setActiveModelId] = useState('film-agent');
+  const [activeModelId, setActiveModelId] = useState('studio');
   const [lastToolId, setLastToolId] = useState('seedream');
   useEffect(() => {
     let cancelled = false;
@@ -167,32 +167,16 @@ export default function Home() {
     handleModelFamilyChange('seedance');
   };
 
-  // Story Room → Film Agent: { shots } land as chained SHOT cards, { script } as a
-  // Storyboard card (the canvas consumes each nonce once).
-  const [storyHandoff, setStoryHandoff] = useState(null);
-  const [boardPlates, setBoardPlates] = useState([]); // the Film Agent board's plates, shown in Story Room ▸ Assets
-  const [boardStoryCards, setBoardStoryCards] = useState([]); // sent shots' status + latest take, for Story Room ▸ Shots
-  const [boardFocus, setBoardFocus] = useState(null); // Story Room ▸ "Open on board"
-  const [storySync, setStorySync] = useState([]); // Story Room → the cards it sent: title, prompt, plates, link
-  const [circleRequest, setCircleRequest] = useState(null); // Story Room circles a take on a card
-  const handleCircleTake = useCallback((cardId, takeId) => setCircleRequest({ cardId, takeId, nonce: Date.now() }), []);
-  const [storyRemoval, setStoryRemoval] = useState(null); // Story Room ▸ Reset takes its work off the board
-  const handleRemoveStoryWork = useCallback((req) => setStoryRemoval({ ...req, nonce: Date.now() }), []);
-  const [storyFocus, setStoryFocus] = useState(null); // board card → its shot in Story Room ▸ Shots
-  const handleOpenInStoryRoom = useCallback((cardId) => { setStoryFocus({ cardId, nonce: Date.now() }); handleModelFamilyChange('story-room'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // The Story Room is saved INSIDE the open Film Agent project: load → the tab, edits → the project.
-  const [storyRoomLoad, setStoryRoomLoad] = useState(null);
-  const [storyRoomSave, setStoryRoomSave] = useState(null);
+  // The Studio is saved inside the open project.
+  const [studioLoad, setStudioLoad] = useState(null);
+  const [studioSave, setStudioSave] = useState(null);
+  const [studioBoard, setStudioBoard] = useState(null);
+  const [projectControls, setProjectControls] = useState(null);
+  // Studio → Canvas: what to put on the board, and the board tab brought forward.
+  const [canvasInject, setCanvasInject] = useState(null);
+  const openInCanvas = (payload) => { setCanvasInject({ ...payload, nonce: Date.now() }); setActiveModelId('film-agent'); };
+  const handleStudioChange = useCallback((projectId, data) => setStudioSave({ projectId, data }), []);
   const [filmProjectTitle, setFilmProjectTitle] = useState('');
-  const handleStoryRoomChange = useCallback((projectId, data) => setStoryRoomSave({ projectId, data }), []);
-  const handleOpenOnBoard = (cardId) => {
-    setBoardFocus({ cardId, nonce: Date.now() });
-    handleModelFamilyChange('film-agent');
-  };
-  const handleSendStoryToFilm = (payload) => {
-    setStoryHandoff({ ...payload, nonce: Date.now() });
-    handleModelFamilyChange('film-agent');
-  };
 
   const handleModelChange = (e) => {
     const newModelId = e.target.value;
@@ -369,8 +353,7 @@ export default function Home() {
 
   // The full-canvas Film Agent gets a compact header so the canvas gets the
   // vertical space instead of a big title + description.
-  const isCanvasTool = activeModelId === 'film-agent';
-  const isWideTool = isCanvasTool || activeModelId === 'story-room';
+  const isCanvasTool = activeModelId === 'film-agent' || activeModelId === 'studio';
 
   return (
     <>
@@ -378,10 +361,10 @@ export default function Home() {
         <title>ModelArk Starter Kit</title>
       </Head>
       <Layout className="layout-container" style={{ height: '100vh' }}>
-        {/* The left icon rail is GONE — the top Film Agent | Story Room | Tools tabs cover
-            navigation; Settings moved to the top-right corner. */}
+        {/* The top Studio | Canvas | Tools tabs cover navigation; Settings sits in the
+            top-right corner. */}
         <Content style={{ padding: isCanvasTool ? '8px 16px 14px' : '12px 24px 16px', background: '#f6f7f9', overflowY: 'auto' }}>
-            <div style={{ maxWidth: isWideTool ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
+            <div style={{ maxWidth: isCanvasTool ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
 
 
                 <header style={{ marginBottom: isCanvasTool ? 8 : 10, textAlign: 'center' }}>
@@ -394,18 +377,18 @@ export default function Home() {
                                 {/* Level 1: primary experience vs. the Tools meta tab */}
                                 <Button.Group size="small">
                                     <Button
+                                        type={activeModelId === 'studio' ? 'primary' : 'secondary'}
+                                        onClick={() => handleModelFamilyChange('studio')}
+                                    >
+                                        <IconUser style={{ marginRight: 8 }} />
+                                        Studio
+                                    </Button>
+                                    <Button
                                         type={activeModelId === 'film-agent' ? 'primary' : 'secondary'}
                                         onClick={() => handleModelFamilyChange('film-agent')}
                                     >
-                                        <IconUser style={{ marginRight: 8 }} />
-                                        Film Agent
-                                    </Button>
-                                    <Button
-                                        type={activeModelId === 'story-room' ? 'primary' : 'secondary'}
-                                        onClick={() => handleModelFamilyChange('story-room')}
-                                    >
-                                        <IconBook style={{ marginRight: 8 }} />
-                                        Story Room
+                                        <IconMindMapping style={{ marginRight: 8 }} />
+                                        Canvas
                                     </Button>
                                     <Button
                                         type={isToolActive ? 'primary' : 'secondary'}
@@ -486,25 +469,20 @@ export default function Home() {
                         result={seedreamResult}
                     />
                 </div>
+                <div style={{ display: activeModelId === 'studio' ? 'block' : 'none' }}>
+                    <StudioPlayground board={studioBoard} projectStudio={studioLoad} onStudioChange={handleStudioChange} projectTitle={filmProjectTitle} project={projectControls} onOpenInCanvas={openInCanvas} />
+                </div>
                 <div style={{ display: activeModelId === 'film-agent' ? 'block' : 'none' }}>
                     <FilmAgentPlayground
                         formValues={formValues}
                         setFormValues={setFormValues}
-                        storyHandoff={storyHandoff}
-                        onPlates={setBoardPlates}
-                        onStoryCards={setBoardStoryCards}
-                        focusRequest={boardFocus}
-                        storySync={storySync}
-                        circleRequest={circleRequest}
-                        onOpenInStoryRoom={handleOpenInStoryRoom}
-                        onStoryRoomLoad={setStoryRoomLoad}
-                        storyRoomSave={storyRoomSave}
                         onProjectTitle={setFilmProjectTitle}
-                        storyRemoval={storyRemoval}
+                        onStudioLoad={setStudioLoad}
+                        studioSave={studioSave}
+                        onBoard={setStudioBoard}
+                        onControls={setProjectControls}
+                        canvasInject={canvasInject}
                     />
-                </div>
-                <div style={{ display: activeModelId === 'story-room' ? 'block' : 'none' }}>
-                    <StoryRoomPlayground onSendToFilm={handleSendStoryToFilm} boardPlates={boardPlates} boardShots={boardStoryCards} onOpenOnBoard={handleOpenOnBoard} onSync={setStorySync} onCircleTake={handleCircleTake} focusShot={storyFocus} projectStory={storyRoomLoad} projectTitle={filmProjectTitle} onStoryChange={handleStoryRoomChange} onRemoveFromBoard={handleRemoveStoryWork} />
                 </div>
                 <div style={{ display: activeModelId === 'video-enhance' ? 'block' : 'none' }}>
                     <VideoEnhancePlayground />
@@ -536,7 +514,7 @@ export default function Home() {
                     />
                 </div>
                 <div style={{ marginTop: 24 }}>
-                     {!['llm', 'film-agent', 'story-room', 'asset-upload', 'video-enhance', 'verify', 'tech-test', 'headroom'].includes(activeModelId) && (
+                     {!['llm', 'film-agent', 'asset-upload', 'video-enhance', 'verify', 'tech-test', 'headroom'].includes(activeModelId) && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}

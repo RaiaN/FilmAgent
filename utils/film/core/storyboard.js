@@ -5,32 +5,13 @@
 //
 // Pure core — canvas/SDK inject ctx { client, config }.
 
-import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, editImageArea, clampSizeForModel, maxShotSeconds, defaultVideoModelKey, defaultImageModelKey, imageTraits } from '../suiteConfig';
+import { renderTemplate, getModel, getRuntime, imageRefCap, keyframeImageSize, editImageArea, clampSizeForModel, defaultImageModelKey, imageTraits } from '../suiteConfig';
 import { resolveImageSize } from '../imageSizes';
 import { composeKeyframePrompt, composeStoryboardSheetPrompt, shotTemplateCatalog, SHOT_TEMPLATE_BY_ID } from '../recipes';
 import { parseJson } from './director';
-import { withRetry, isTransient } from './retry';
-import { isImagePolicyError } from './operations';
+import { fitList, fitText } from './limits';
 import { runWithConcurrency } from './parallel';
-import { requireSkillLine } from '../skills';
-
-// A shot's durationSec always lands inside the default video model's window,
-// defaulting to 10s.
-const clampDuration = (v) => Math.max(5, Math.min(maxShotSeconds(defaultVideoModelKey()), Math.round(Number(v) || 10)));
-// ---- Develop (the Brief node's OPT-IN rewrite): idea or script → ONE cinematic prompt --
-// A direct rewrite (no JSON, no key events, no appearances): the brief becomes a single
-// continuous cinematic narrative with clear subjects + a clear story arc, split by explicit
-// CUT markers, no characters facing
-// camera, and explicit eyelines (what each character is looking at). Only New Shot consumes
-// this — Cast & World and Storyboard read the brief VERBATIM, never the rewrite.
-// `complexity` (light | medium | deep) tunes HOW MUCH the rewrite expands the source.
-const REWRITE_DEPTH = {
-  light: 'DEPTH: keep it CONCISE and close to the source — a short, tight prompt; minimal embellishment, do not invent beyond the idea.',
-  medium: 'DEPTH: develop a clear arc and vivid subjects with moderate cinematic detail.',
-  deep: 'DEPTH: elaborate RICHLY — a long, immersive prompt with layered staging, atmosphere, lighting and texture, and a fully developed arc; expand the idea into a vivid scene.',
-};
-// 'preserve' must be REAL, not a label: a pasted script is the director's OWN text.
-const PRESERVE_SCRIPT = 'PRESERVE: this is the director\'s own script — keep every stated event, in the stated order, and keep EVERY line of dialogue VERBATIM: word-for-word, in quotes, in its original language (never translate, paraphrase or drop a line). Do not invent, drop or reorder events. Only add cinematic staging, eyelines and atmosphere.';
+import { requireSkillLine, crewStep } from '../skills';
 
 // ---- Split: a brief (or an oversized shot prompt) → sequential SHOT segments capped ------
 // at the default video model's max shot length.
@@ -46,7 +27,7 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
   // WHAT to mask: the user's words VERBATIM (sentinel slot — renderTemplate never
   // touches them), or the classic every-person scrub when left empty.
   const SLOT = '@@MASK@@';
-  const targets = String(instruction || '').trim().slice(0, 1000) || 'EVERY person in the frame';
+  const targets = fitText(String(instruction || '').trim(), 1000, 'The mask instruction') || 'EVERY person in the frame';
   const { url: out, cacheUrl } = await ctx.client.generateImage({
     prompt: renderTemplate('previz.mask', { targets: SLOT }).split(SLOT).join(targets),
     referenceImages: [src],
@@ -60,12 +41,16 @@ export const maskFrame = async ({ url, instruction = '', config } = {}, ctx) => 
 // ---- KEY MOMENTS (the director's breakdown): script → the moments the story can't do
 // without, each ONE Seedance 2.5 generation. A SELECTION, not a partition: the quote is the
 // moment's own words copied from the script, and every promise is checked in code —
-// quote found verbatim, 4–15 s, a place named, references in range. One corrective retry
-// naming what failed; whatever still fails is an error, never a quiet repair.
+// quote found verbatim, 4–15 s, a place named, references in range. A failed check gets ONE
+// corrective re-ask naming what failed; whatever still fails is an error, never a quiet
+// repair. (An API failure is never re-asked — it is the error.)
 const SPAN_SLOT = '@@BRIEF@@';
 const MOMENT_SECONDS = [4, 15];
+// A quote may run across a numbered list ("…rituals.\n2. He picks…" quoted as "…rituals. He
+// picks…"): list numbers are layout, not words of the script.
+const scriptWords = (script) => normText(String(script || '').replace(/^[ \t]*\d{1,3}[.)][ \t]+/gm, ''));
 const momentProblems = (moments, script, refCount) => {
-  const src = normText(script);
+  const src = scriptWords(script);
   const out = [];
   moments.forEach((m, i) => {
     const tag = `moment ${i + 1} ("${m.beat}")`;
@@ -76,14 +61,23 @@ const momentProblems = (moments, script, refCount) => {
   });
   return out;
 };
-export const storyboardMoments = async ({ script = '', style = '', references = [], config } = {}, ctx) => {
+// `labels` name the attached plates ([Image N] → who or what); `places` are the film's places
+// by their exact names — a moment set in one of them uses that name.
+const worldNote = (labels, places) => [
+  labels.length ? `THE ATTACHED PLATES:\n${labels.map((l, i) => `[Image ${i + 1}] ${l}`).join('\n')}\n` : '',
+  places.length ? `THE FILM'S PLACES — a moment set in one of them uses its name EXACTLY:\n${places.map((p) => `- ${p}`).join('\n')}\n` : '',
+].join('');
+export const storyboardMoments = async ({ script = '', style = '', references = [], labels = [], places = [], note = '', config } = {}, ctx) => {
   const text = String(script || '').trim();
   if (!text) throw new Error('Write the script first.');
-  const refs = (references || []).filter(Boolean).slice(0, 10);
-  const system = renderTemplate('storyboard.moments.system', { templates: shotTemplateCatalog(), refCount: String(refs.length), skill: await requireSkillLine('seedance25') });
+  const refs = fitList(references, 10, 'plates for the 1st AD');
+  if (labels.length && labels.length !== refs.length) throw new Error(`${refs.length} plates but ${labels.length} names for them.`);
+  fitText(text, 12000, 'The script');
+  fitText(String(note || ''), 1500, "The director's note");
+  const system = await crewStep('crew-ad', 'moments', { templates: shotTemplateCatalog(), refCount: String(refs.length), skill: await requireSkillLine('seedance25') });
   const ask = async (retry) => {
     const { content } = await ctx.client.reason({
-      prompt: renderTemplate('storyboard.moments.user', { script: SPAN_SLOT, style: style || 'auto', retry }).split(SPAN_SLOT).join(text.slice(0, 12000)),
+      prompt: renderTemplate('storyboard.moments.user', { script: SPAN_SLOT, style: style || 'auto', world: worldNote(labels, places), note: String(note || '').trim() ? "\nDIRECTOR'S NOTE — apply it to the selection:\n@@NOTE@@\n" : '', retry }).split(SPAN_SLOT).join(text).split('@@NOTE@@').join(String(note)),
       systemPrompt: system,
       images: refs,
       modelId: getModel('reasoner', config),
@@ -93,28 +87,27 @@ export const storyboardMoments = async ({ script = '', style = '', references = 
     return (Array.isArray(raw.moments) ? raw.moments : []).map((m, i) => {
       const figs = Array.isArray(m?.figures) ? [...new Set(m.figures.map((x) => Number(x)))] : [];
       return {
-        beat: String(m?.title || `Moment ${i + 1}`).replace(/\s+/g, ' ').trim().slice(0, 48),
-        job: String(m?.turn || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+        beat: String(m?.title || `Moment ${i + 1}`).replace(/\s+/g, ' ').trim(),
+        job: String(m?.turn || '').replace(/\s+/g, ' ').trim(),
         // An id outside the library stays EMPTY — no camera is ever substituted.
         shotTemplate: SHOT_TEMPLATE_BY_ID[m?.shotTemplate] ? m.shotTemplate : '',
         figures: figs.filter((x) => x >= 1 && x <= refs.length),
         badFigures: figs.filter((x) => !(x >= 1 && x <= refs.length)),
         intExt: /^int/i.test(String(m?.intExt || '')) ? 'INT' : /^ext/i.test(String(m?.intExt || '')) ? 'EXT' : '',
-        place: String(m?.place || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        place: String(m?.place || '').replace(/\s+/g, ' ').trim(),
         seconds: Math.round(Number(m?.seconds)),
         // The quote keeps its line breaks — it IS the script's own text.
-        span: String(m?.quote || '').trim().slice(0, 4000),
+        span: String(m?.quote || '').trim(),
       };
     });
   };
   let moments = await ask('');
-  if (!moments.length) throw new Error('No key moments came back — try again.');
-  let problems = momentProblems(moments, text, refs.length);
+  let problems = moments.length ? momentProblems(moments, text, refs.length) : ['no moments came back'];
   if (problems.length) {
     moments = await ask(`\nRETRY — your previous answer broke these rules; fix every one:\n${problems.map((x) => `• ${x}`).join('\n')}\n`);
-    problems = momentProblems(moments, text, refs.length);
+    problems = moments.length ? momentProblems(moments, text, refs.length) : ['no moments came back'];
   }
-  if (!moments.length || problems.length) throw new Error(`Key moments failed the checks: ${problems.join(' · ') || 'none came back'}`);
+  if (problems.length) throw new Error(`Key moments failed the checks: ${problems.join(' · ')}`);
   return moments.map(({ badFigures, ...m }) => m);
 };
 
@@ -145,12 +138,11 @@ const normText = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ')
 // ---- #2 the dialogue gate, shared ------------------------------------------------
 // The AUTHOR has always verified that every spoken line from its span survived. The
 // CARD verbs (compose / direct) make the same promise in their templates and
-// never checked it, so a Compose could silently drop dialogue. Same gate, same retry:
-// run, diff, retry once naming the missing lines, report whatever still didn't make it.
+// never checked it, so a Compose could silently drop dialogue. Same gate: run, diff, ONE
+// corrective re-ask naming the missing lines, report whatever still didn't make it.
 export const withDialogueGate = async (source, field, run) => {
   const wanted = spanDialogueLines(source);
   let out = await run('');
-  if (!wanted.length) return { ...out, missingDialogue: [] };
   const missingIn = (o) => wanted.filter((l) => !normText(o?.[field] || '').includes(normText(l)));
   let missing = missingIn(out);
   if (missing.length && String(out?.[field] || '').trim()) {
@@ -160,11 +152,196 @@ export const withDialogueGate = async (source, field, run) => {
   return { ...out, missingDialogue: missing };
 };
 
-// AUTHOR one shot from its verbatim span. Retries ONCE naming any span dialogue the
-// motion dropped; still missing → returned in `missingDialogue` (the card flags it,
-// never silently).
+// AUTHOR one shot from its verbatim span. ONE corrective re-ask names any span dialogue
+// the motion dropped; still missing → `missingDialogue` (the card flags it, never silently).
+// ---- SCENES: the film blocked scene by scene (Studio) ---------------------------------
+// Two passes so no planner call grows with the whole film: DIVIDE (text only) splits the
+// script into scenes and names each place once with its landmarks; then one SHEET call per
+// scene blocks it — 4 at a time, a continuing scene after the one it continues (it opens on
+// that scene's end frame). Each scene is ONE take that may cut between its views. Code checks
+// what each pass promises — verbatim quotes, 4–15 s, a known place; every beat on a listed
+// view, a gaze target that is never the lens, a start and an end — with ONE corrective
+// re-ask naming the failures, then an error naming the scene.
+const LENS_RE = /\b(camera|lens|viewer|audience)\b/i;
+const SHEET_CONCURRENCY = 4;
+const str = (x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim();
+const divideProblems = ({ places, scenes }, script, refCount, plateNames = []) => {
+  const src = scriptWords(script);
+  const out = [];
+  if (!scenes.length) return ['no scenes came back'];
+  places.forEach((pl) => { if (!pl.name || !pl.landmarks) out.push(`place "${pl.name || '?'}": needs a name and its landmarks`); });
+  scenes.forEach((sc, i) => {
+    const tag = `scene ${i + 1} ("${sc.title}")`;
+    if (!normText(sc.quote) || !src.includes(normText(sc.quote))) out.push(`${tag}: its quote is not word-for-word in the script`);
+    if (!(sc.seconds >= MOMENT_SECONDS[0] && sc.seconds <= MOMENT_SECONDS[1])) out.push(`${tag}: seconds must be ${MOMENT_SECONDS[0]}–${MOMENT_SECONDS[1]}`);
+    if (!sc.place) out.push(`${tag}: no place named`);
+    else if (!places.some((pl) => pl.name === sc.place)) out.push(`${tag}: its place "${sc.place}" is not one of the places listed`);
+    if (sc.badFigures.length) out.push(`${tag}: figures ${sc.badFigures.join(', ')} are not attached (${refCount} plates)`);
+    sc.unplated.forEach((u) => { if (plateNames.includes(u.name.toLowerCase())) out.push(`${tag}: "${u.name}" has a plate — list it in figures, not unplated`); });
+    if (i === 0 && sc.continues) out.push(`${tag}: the first scene cannot continue from a scene before it`);
+    if (sc.continues && i > 0 && sc.place !== scenes[i - 1].place) out.push(`${tag}: continues from the scene before but is in another place`);
+  });
+  return out;
+};
+const sheetProblems = (sh) => {
+  const out = [];
+  if (!sh.views.length || sh.views.length > 3) out.push('needs 1–3 views');
+  sh.views.forEach((vw) => { if (!vw.name || !vw.from) out.push('every view needs a name and where the camera stands'); });
+  if (!sh.start) out.push('no start frame described');
+  if (!sh.end) out.push('no end frame described');
+  if (!sh.beats.length || sh.beats.length > 4) out.push('needs 1–4 beats');
+  sh.beats.forEach((b, k) => {
+    if (!sh.views.some((vw) => vw.name === b.view)) out.push(`beat ${k + 1}: its view "${b.view}" is not one of the scene's views`);
+    if (!b.action) out.push(`beat ${k + 1}: no action`);
+    if (!b.looksAt) out.push(`beat ${k + 1}: says nothing about what anyone looks at`);
+    else if (LENS_RE.test(b.looksAt)) out.push(`beat ${k + 1}: someone looks at the ${LENS_RE.exec(b.looksAt)[1]} — eyes go to a landmark, object or person`);
+  });
+  return out;
+};
+const retryLine = (problems) => `\nRETRY — your previous answer broke these rules; fix every one:\n${problems.map((x) => `• ${x}`).join('\n')}\n`;
+// At most `n` jobs in flight; a job may wait on another before taking its slot.
+const gate = (n) => {
+  let free = n;
+  const queue = [];
+  const release = () => { free += 1; const next = queue.shift(); if (next) next(); };
+  return async (job) => {
+    if (free <= 0) await new Promise((r) => queue.push(r));
+    free -= 1;
+    try { return await job(); } finally { release(); }
+  };
+};
+export const storyboardScenes = async ({ script = '', references = [], labels = [], places = [], note = '', config } = {}, ctx) => {
+  const text = String(script || '').trim();
+  if (!text) throw new Error('Write the script first.');
+  const refs = fitList(references, 10, 'plates for the 1st AD');
+  if (labels.length !== refs.length) throw new Error(`${refs.length} plates but ${labels.length} names for them.`);
+  fitText(text, 12000, 'The script');
+  fitText(String(note || ''), 1500, "The director's note");
+  const roster = labels.map((l, i) => `[Image ${i + 1}] ${l}`).join('\n') || '(no plates yet)';
+  const noteLine = String(note || '').trim() ? `\nDIRECTOR'S NOTE — apply it:\n${String(note).trim()}\n` : '';
+  const reason = (system, prompt, images) => ctx.client.reason({ prompt, systemPrompt: system, images, modelId: getModel('reasoner', config), reasoningEffort: getRuntime(config).reasoningEffort });
+
+  // DIVIDE — scenes and places, text only.
+  const divideSystem = await crewStep('crew-ad', 'divide', {
+    refCount: String(refs.length),
+    roster,
+    places: places.length ? `PLACES THAT ALREADY EXIST — when a scene happens in one of them, use its name EXACTLY; a place that is none of them keeps the script's own name:\n${places.map((x) => `- ${x}`).join('\n')}` : 'The film has no named places yet — name each place once and keep the name.',
+  });
+  const divide = async (retry) => {
+    const { content } = await reason(divideSystem, `SCRIPT:\n"""\n${text}\n"""\n${noteLine}${retry}\nDivide the film and return the JSON.`, []);
+    const raw = parseJson(content) || {};
+    return {
+      places: (Array.isArray(raw.places) ? raw.places : []).map((pl) => ({ name: str(pl?.name), landmarks: str(pl?.landmarks) })),
+      scenes: (Array.isArray(raw.scenes) ? raw.scenes : []).map((sc, i) => {
+        const figs = Array.isArray(sc?.figures) ? [...new Set(sc.figures.map((x) => Number(x)))] : [];
+        return {
+          title: str(sc?.title) || `Scene ${i + 1}`,
+          quote: String(sc?.quote || '').trim(),
+          place: str(sc?.place),
+          seconds: Math.round(Number(sc?.seconds)),
+          continues: sc?.continues === true,
+          figures: figs.filter((x) => x >= 1 && x <= refs.length),
+          badFigures: figs.filter((x) => !(x >= 1 && x <= refs.length)),
+          unplated: (Array.isArray(sc?.unplated) ? sc.unplated : [])
+            .map((u) => ({ name: str(u?.name), kind: str(u?.kind).toLowerCase() === 'prop' ? 'prop' : 'character' }))
+            .filter((u) => u.name),
+        };
+      }),
+    };
+  };
+  let plan = await divide('');
+  const plateNames = labels.map((l) => String(l).replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase());
+  let problems = divideProblems(plan, text, refs.length, plateNames);
+  if (problems.length) {
+    plan = await divide(retryLine(problems));
+    problems = divideProblems(plan, text, refs.length, plateNames);
+  }
+  if (problems.length) throw new Error(`The scene list failed the checks: ${problems.join(' · ')}`);
+  const landmarksOf = (place) => plan.places.find((pl) => pl.name === place)?.landmarks || '';
+
+  // SHEET — each scene blocked on its own; a continuing scene opens on the end frame before it.
+  const sheetSystem = await crewStep('crew-ad', 'sheet', { refCount: String(refs.length), roster });
+  const sheet = async (sc, i, before) => {
+    const tag = `Scene ${i + 1} ("${sc.title}")`;
+    const brief = [
+      `THE SCENE TO BLOCK — scene ${i + 1} of ${plan.scenes.length}: "${sc.title}", ${sc.seconds} seconds.`,
+      `Place: ${sc.place}. Landmarks: ${landmarksOf(sc.place)}`,
+      `In it, as their plates: ${sc.figures.length ? sc.figures.map((g) => labels[g - 1]).join(', ') : 'nobody'}.`,
+      sc.unplated.length ? `In it, with no plate (use these script names): ${sc.unplated.map((u) => u.name).join(', ')}.` : '',
+      `The script's words for this scene:\n"""\n${sc.quote}\n"""`,
+      before ? `It CONTINUES from the scene before, whose end frame is: ${before.end}` : '',
+    ].filter(Boolean).join('\n');
+    const ask = async (retry) => {
+      const { content } = await reason(sheetSystem, `THE WHOLE SCRIPT, for context:\n"""\n${text}\n"""\n\n${brief}\n${noteLine}${retry}\nBlock this scene and return the JSON.`, refs);
+      const raw = parseJson(content) || {};
+      return {
+        views: (Array.isArray(raw.views) ? raw.views : []).map((vw) => ({ name: str(vw?.name), from: str(vw?.from) })),
+        start: str(raw.start),
+        beats: (Array.isArray(raw.beats) ? raw.beats : []).map((b) => ({ view: str(b?.view), action: str(b?.action), looksAt: str(b?.looksAt) })),
+        against: str(raw.against),
+        sound: str(raw.sound),
+        end: str(raw.end),
+      };
+    };
+    let out = await ask('');
+    let bad = sheetProblems(out);
+    if (bad.length) {
+      out = await ask(retryLine(bad));
+      bad = sheetProblems(out);
+    }
+    if (bad.length) throw new Error(`${tag} failed the checks: ${bad.join(' · ')}`);
+    const { badFigures, ...rest } = sc;
+    return { ...rest, landmarks: landmarksOf(sc.place), ...out };
+  };
+  const slot = gate(SHEET_CONCURRENCY);
+  const done = [];
+  const blocked = (i) => {
+    if (!done[i]) {
+      done[i] = (async () => {
+        const before = plan.scenes[i].continues ? await blocked(i - 1) : null;
+        return slot(() => sheet(plan.scenes[i], i, before));
+      })();
+    }
+    return done[i];
+  };
+  return Promise.all(plan.scenes.map((_, i) => blocked(i)));
+};
+
+// A scene sheet as the shot's text: where the camera is for each beat (a new view is a
+// cut), what happens, what everyone's eyes are on, the end. Plain words — Camera writes the
+// final prompt from it.
+export const sceneMotion = (sc) => {
+  const fromOf = (name) => (sc.views.find((vw) => vw.name === name) || {}).from || name;
+  const lines = [`Landmarks: ${sc.landmarks}`, `At the start: ${sc.start}`];
+  let shot = 0;
+  sc.beats.forEach((b, i) => {
+    const cut = i === 0 || b.view !== sc.beats[i - 1].view;
+    if (cut) shot += 1;
+    const where = !cut ? '' : i === 0 ? `Shot ${shot} — the camera is ${fromOf(b.view)}. ` : `Shot ${shot} — the shot cuts to the camera ${fromOf(b.view)}. `;
+    lines.push(`${where}${b.action} Eyes on: ${b.looksAt}.`);
+  });
+  if (sc.against) lines.push(`Working against them: ${sc.against}`);
+  lines.push(`At the end: ${sc.end}`);
+  return lines.join('\n');
+};
+
+// A plate edited into another frame of the same world — a place seen from another camera
+// position (Designer), or a scene's first view with its people placed (Stills). [Image 1]
+// is the source; its aspect ratio is kept.
+export const plateEdit = async ({ instruction = '', refs = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
+  const images = fitList(refs, imageRefCap(imageModel), 'reference images');
+  if (!images.length) throw new Error('An edit needs its source plate.');
+  const prompt = fitText(String(instruction || '').trim(), 4000, 'The image instruction');
+  const { url, cacheUrl } = await ctx.client.generateImage({ prompt, referenceImages: images, keepAspectArea: editImageArea(imageModel), model: getModel(imageModel, config), optimizePrompt: false });
+  if (!url) throw new Error('No image came back');
+  return { url, cacheUrl, prompt };
+};
+
 export const storyboardAuthor = async ({ script = '', span = '', beat = '', job = '', shotTemplate = '', seconds = 0, prevBeat = '', nextBeat = '', references = [], note = '', settingIndex = 0, config } = {}, ctx) => {
-  const refs = (references || []).filter(Boolean).slice(0, 10);
+  const refs = fitList(references, 10, 'plates for the 1st AD');
+  fitText(script, 12000, 'The script');
+  fitText(span, 4000, "A moment's quote");
+  fitText(String(note || ''), 1000, "The director's note");
   // The motion is a Seedance 2.5 prompt — written under that model's own spec.
   const skill = await requireSkillLine('seedance25');
   const tpl = SHOT_TEMPLATE_BY_ID[shotTemplate] || {}; // no id → framing falls to "director's choice", never a substituted camera
@@ -180,18 +357,18 @@ export const storyboardAuthor = async ({ script = '', span = '', beat = '', job 
           : '',
         note: String(note || '').trim() ? "DIRECTOR'S NOTE — apply it to THIS shot (where it conflicts with the span, the note wins):\n@@NOTE@@\n" : '',
         retry: retryNote || '',
-      }).split(SPAN_SLOT).join(String(script).slice(0, 9000)).split('@@SPAN@@').join(String(span).slice(0, 4000)).split('@@NOTE@@').join(String(note).slice(0, 1000)),
-      systemPrompt: renderTemplate('storyboard.author.system', { refCount: String(refs.length), skill }),
+      }).split(SPAN_SLOT).join(String(script)).split('@@SPAN@@').join(String(span)).split('@@NOTE@@').join(String(note)),
+      systemPrompt: await crewStep('crew-ad', 'author', { refCount: String(refs.length), skill }),
       images: refs,
       modelId: getModel('reasoner', config),
       reasoningEffort: getRuntime(config).reasoningEffort,
     });
     const raw = parseJson(content) || {};
     return {
-      body: String(raw.body || '').replace(/\s+/g, ' ').trim().slice(0, 900),
-      motion: String(raw.motion || '').replace(/\s+/g, ' ').trim().slice(0, 1800),
-      audio: String(raw.audio || '').replace(/\s+/g, ' ').trim().slice(0, 300),
-      expression: String(raw.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+      body: String(raw.body || '').replace(/\s+/g, ' ').trim(),
+      motion: String(raw.motion || '').replace(/\s+/g, ' ').trim(),
+      audio: String(raw.audio || '').replace(/\s+/g, ' ').trim(),
+      expression: String(raw.expression || '').replace(/\s+/g, ' ').trim(),
     };
   };
   let out = await run('');
@@ -225,11 +402,11 @@ const MARKS_LINE = '\nDRAWN MARKS: [Image 1] carries red hand-drawn marks. They 
 
 // EDIT PROMPT under the image model's skill: the planner reads the frame (+ refs) and
 // writes the change-only edit from the user's instruction and the camera choice. Every
-// [Image N] the instruction cites must survive — checked in code, one corrective retry,
+// [Image N] the instruction cites must survive — checked in code, ONE corrective re-ask,
 // and whatever is still missing is returned for the caller to report.
 export const composeFrameEdit = async ({ instruction = '', camera = null, annotated = false, refs = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
   const I = '@@INSTRUCTION@@';
-  const text = String(instruction || '').trim().slice(0, 2000);
+  const text = fitText(String(instruction || '').trim(), 2000, 'The edit instruction');
   const wanted = [...new Set([...text.matchAll(/\[Image \d+\]/g)].map((m) => m[0]))];
   const systemPrompt = renderTemplate('storyboard.frameEditCompose.system', { refCount: String(refs.length), cameraLine: cameraEditLine(camera), marksLine: annotated ? MARKS_LINE : '', skill: await requireSkillLine(imageModel) });
   const run = async (retry) => {
@@ -248,12 +425,12 @@ export const composeFrameEdit = async ({ instruction = '', camera = null, annota
     prompt = await run(`\n\nYour last prompt dropped ${missing.join(', ') || 'everything'} — every image citation in the instruction must appear exactly as written.`);
     missing = wanted.filter((t) => !prompt.includes(t));
   }
-  if (!prompt) throw new Error('The edit prompt came back empty — try again.');
+  if (!prompt) throw new Error('The edit prompt came back empty.');
   return { prompt, missing };
 };
 
 export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style = '', expression = '', ethnicity = '', refs = [], imageModel = defaultImageModelKey(), frameEdit = false, frameEditAnnotated = false, composeEdit = false, camera = null, config } = {}, ctx) => {
-  const images = (refs || []).filter(Boolean).slice(0, imageRefCap(imageModel)); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
+  const images = fitList(refs, imageRefCap(imageModel), 'reference images'); // attach in order → [Image 1..N] (Pro: 10, Lite: 6)
   // frameEdit = the Edit-shot editor's structure lock: [Image 1] IS the current frame and
   // the body is the CHANGE. composeEdit (the edit dialogs) has the planner write the edit
   // under the image model's skill — camera and drawn marks included. Internal fixed
@@ -265,7 +442,7 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
     ({ prompt, missing: editMissing } = await composeFrameEdit({ instruction: body, camera, annotated: frameEditAnnotated, refs: images, imageModel, config }, ctx));
   } else if (frameEdit) {
     const change = [camera ? `Reframe as ${cameraWords(camera)}: the same scene, subjects and moment.` : '', String(body || '').trim()].filter(Boolean).join(' ');
-    prompt = renderTemplate(frameEditAnnotated ? 'storyboard.frameEditDraw' : 'storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(change.slice(0, 2000));
+    prompt = renderTemplate(frameEditAnnotated ? 'storyboard.frameEditDraw' : 'storyboard.frameEdit', { instruction: SLOT }).split(SLOT).join(fitText(change, 2000, 'The edit'));
   } else {
     prompt = composeKeyframePrompt({ body, shotTemplate, style, expression, ethnicity });
   }
@@ -289,7 +466,7 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
 // from the division `shots` + the full reference pool (attached in [Image 1..N] order, so the panel
 // bodies' [Image N] map correctly and the cast stays consistent). One Seedream call → one image.
 export const storyboardSheet = async ({ shots = [], style = '', title = '', references = [], imageModel = defaultImageModelKey(), config } = {}, ctx) => {
-  const images = (references || []).filter(Boolean).slice(0, imageRefCap(imageModel));
+  const images = fitList(references, imageRefCap(imageModel), 'reference images');
   const { url, cacheUrl } = await ctx.client.generateImage({
     prompt: composeStoryboardSheetPrompt({ shots, style, title }),
     referenceImages: images,
@@ -305,7 +482,7 @@ export const storyboardSheet = async ({ shots = [], style = '', title = '', refe
 // [Image 1..N] (same numbering as the division) and rewrites just this shot's body to address
 // `figures` with roles + keep-identity. Returns { body, expression } in GLOBAL [Image N] numbering.
 export const storyboardShotBody = async ({ script = '', beat = '', figures = [], style = '', references = [], config } = {}, ctx) => {
-  const refs = (references || []).filter(Boolean).slice(0, 8);
+  const refs = fitList(references, 8, 'reference images');
   const { content } = await ctx.client.reason({
     prompt: renderTemplate('storyboard.shot.user', {
       script: String(script || '').trim() || '(none given)',
@@ -313,15 +490,15 @@ export const storyboardShotBody = async ({ script = '', beat = '', figures = [],
       style: String(style || '').trim() || 'auto',
       figures: JSON.stringify((figures || []).filter((x) => x >= 1 && x <= refs.length)),
     }),
-    systemPrompt: renderTemplate('storyboard.shot.system', { refCount: String(refs.length) }),
+    systemPrompt: await crewStep('crew-stills', 'frame', { refCount: String(refs.length) }),
     images: refs,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
   const raw = parseJson(content) || {};
-  const body = String(raw.body || raw.prompt || '').replace(/\s+/g, ' ').trim().slice(0, 900);
+  const body = String(raw.body || raw.prompt || '').replace(/\s+/g, ' ').trim();
   if (!body) throw new Error('The shot rewrite came back empty.');
-  return { body, expression: String(raw.expression || '').replace(/\s+/g, ' ').trim().slice(0, 40) };
+  return { body, expression: String(raw.expression || '').replace(/\s+/g, ' ').trim() };
 };
 
 
@@ -336,13 +513,13 @@ export const enhanceStill = async ({ imageUrl, context = '', imageModel = defaul
   const SLOT = '@@CTX@@';
   const { content } = await ctx.client.reason({
     prompt: 'The attached image is the frame. Return the JSON.',
-    systemPrompt: renderTemplate('storyboard.enhance', { context: String(context || '').trim() ? `\nThe shot's text, for grounding only (never re-stage it):\n${SLOT}\n` : '' }).split(SLOT).join(String(context || '').slice(0, 1200)),
+    systemPrompt: renderTemplate('storyboard.enhance', { context: String(context || '').trim() ? `\nThe shot's text, for grounding only (never re-stage it):\n${SLOT}\n` : '' }).split(SLOT).join(fitText(String(context || ''), 1200, "The shot's text")),
     images: [imageUrl],
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
   });
   const instruction = String((parseJson(content) || {}).instruction || '').trim();
-  if (!instruction) throw new Error('The finishing pass came back empty — try again.');
+  if (!instruction) throw new Error('The finishing pass came back empty.');
   if (onPhase) onPhase('edit'); // step 2 of 2 — the locked edit renders
   const { url, cacheUrl, prompt } = await storyboardKeyframe({ body: instruction, refs: [imageUrl], imageModel, frameEdit: true, config }, ctx);
   return { url, cacheUrl, instruction, prompt };
@@ -412,11 +589,11 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
   //  `assetId`/`primary` tag each plate to its source asset (the FACE is the primary anchor) so
   //  a caller can wire a SHOT card's refs to the right plate. (`c.role` tolerated alongside `c.type`.)
   const plates = [];
-  arr.slice(0, max).forEach((c, ci) => {
+  fitList(arr, max, 'assets in the cast plan').forEach((c, ci) => {
     const aid = String(c?.id != null ? c.id : ci);
     const type = String(c?.type || c?.role || '').trim().toLowerCase();
     const role = CAST_ROLE[type] || 'location';
-    const name = String(c?.name || `Asset ${ci + 1}`).slice(0, 40);
+    const name = String(c?.name || `Asset ${ci + 1}`).trim();
     const face = String(c?.facePrompt || '').trim();
     const body = String(c?.bodyPrompt || '').trim();
     const presence = String(c?.presencePrompt || '').trim();
@@ -443,34 +620,30 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
 
   const entries = [];
   const urlByKey = {};
-  // Retry transient errors AND the output-image content filter (per-sample → a re-roll
-  // usually passes; soften the prompt after a filter hit). Cast plates can trip it too.
-  const genImage = (prompt, refUrl, size) => {
-    let policyHit = false;
-    return withRetry(
-      () => ctx.client.generateImage({
-        prompt: policyHit ? `${prompt} Keep it tasteful and non-graphic.` : prompt,
-        ...(refUrl ? { referenceImages: [refUrl] } : {}),
-        // Pro caps the image AREA at 2048² — the 4K plate sizes scale down to fit there.
-        size: clampSizeForModel(imageModel, size),
-        model: getModel(imageModel, config),
-        // Pro "thinking" prompt optimization — applies to the TEXT-TO-IMAGE plates
-        // (faces/places/props); the body sheet refs its face, so the transport drops it there.
-        optimizePrompt: !!thinking && imageTraits(imageModel).thinkingToggle,
-      }),
-      { tries: 4, baseMs: 2500, shouldRetry: (err) => isTransient(err) || isImagePolicyError(err), onRetry: (err) => { if (isImagePolicyError(err)) policyHit = true; } },
-    );
-  };
+  // One call per plate, with exactly its prompt: a rejection is that plate's failure,
+  // reported with the model's reason — never re-rolled, never reworded.
+  const genImage = (prompt, refUrl, size) => ctx.client.generateImage({
+    prompt,
+    ...(refUrl ? { referenceImages: [refUrl] } : {}),
+    // Pro caps the image AREA at 2048² — the 4K plate sizes scale down to fit there.
+    size: clampSizeForModel(imageModel, size),
+    model: getModel(imageModel, config),
+    // Pro "thinking" prompt optimization — applies to the TEXT-TO-IMAGE plates
+    // (faces/places/props); the body sheet refs its face, so the transport drops it there.
+    optimizePrompt: !!thinking && imageTraits(imageModel).thinkingToggle,
+  });
   const renderPlate = (p, idx) => async () => {
     try {
-      // A body plate waits on its face's URL so the sheet inherits the exact face.
+      // A body plate waits on its face's URL so the sheet inherits the exact face — with
+      // no face there is no body sheet.
+      if (p.refFrom && !urlByKey[p.refFrom]) throw new Error('its face plate did not render');
       const out = await genImage(p.prompt, p.refFrom ? urlByKey[p.refFrom] : (p.extRef || null), p.size);
       urlByKey[p.key] = out.url;
       const entry = { id: p.key, role: p.role, name: p.name, url: out.url, cacheUrl: out.cacheUrl || null, locked: true, assetId: p.assetId, primary: p.primary };
       entries.push(entry);
       onEntry(entry, idx);
-    } catch {
-      onEntry({ id: p.key, role: p.role, name: p.name, url: '', failed: true, assetId: p.assetId, primary: p.primary }, idx);
+    } catch (err) {
+      onEntry({ id: p.key, role: p.role, name: p.name, url: '', failed: true, error: err?.message || 'did not render', assetId: p.assetId, primary: p.primary }, idx);
     }
   };
   // Phase 1: faces + locations (no dependency). Phase 2: bodies (ref their face).
@@ -482,9 +655,20 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
   return entries;
 };
 
-// Idea → cast & world (the original entry): one read derives the asset list, then the shared
-// renderer draws the bible plates.
-export const castFromIdea = async ({ idea, ethnicity = '', imageModel = defaultImageModelKey(), thinking = false, references = [], config } = {}, ctx, hooks = {}) => {
+// Idea → the cast & world PLAN (one read, no images): the asset list + the shared style.
+// castFromIdea renders it; a caller that shows the plan before paying calls this alone.
+// `existing` = the film's elements that already exist ({ name, kind, plated }): unplated ones
+// are planned under their exact names; plated ones are not planned again.
+const KIND_TYPE = { character: 'character', location: 'location', prop: 'prop' };
+const existingNote = (existing) => {
+  const todo = existing.filter((e) => !e.plated);
+  const done = existing.filter((e) => e.plated);
+  return [
+    todo.length ? `Already in the film, still without a plate — plan ONE asset for EACH, with this EXACT name and type:\n${todo.map((e) => `- "${e.name}" (${KIND_TYPE[e.kind]})`).join('\n')}` : '',
+    done.length ? `Already cast and plated — do NOT plan these again: ${done.map((e) => `"${e.name}"`).join(', ')}.` : '',
+  ].filter(Boolean).join('\n');
+};
+export const castPlanFromIdea = async ({ idea, ethnicity = '', references = [], existing = [], note = '', config } = {}, ctx) => {
   const t = String(idea || '').trim();
   if (!t && !references.length) throw new Error('The production draft needs the film idea, or reference art to derive it from.');
   const { content } = await ctx.client.reason({
@@ -494,8 +678,10 @@ export const castFromIdea = async ({ idea, ethnicity = '', imageModel = defaultI
       idea: t || '(none given — derive the film, its subjects and its style ENTIRELY from the attached reference art)',
       ethnicity: String(ethnicity || '').trim() || 'unspecified — pick what fits the story',
       refNote: references.length ? `The ${references.length} attached image${references.length > 1 ? 's are' : ' is'} this film's reference art (storyboards / sketches / photos) — derive the cast, places, props and look FROM them, and cite each asset's source via "fromImage".` : '',
+      existing: existingNote(existing),
+      note: String(note || '').trim() ? `The director's note — it overrides anything above: ${fitText(String(note).trim(), 2000, 'The note to Casting')}` : '',
     }),
-    systemPrompt: renderTemplate('storyboard.cast.system'),
+    systemPrompt: await crewStep('crew-casting', 'cast'),
     images: references,
     modelId: getModel('reasoner', config),
     reasoningEffort: getRuntime(config).reasoningEffort,
@@ -504,5 +690,12 @@ export const castFromIdea = async ({ idea, ethnicity = '', imageModel = defaultI
   const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.assets) ? raw.assets : null);
   if (!arr || !arr.length) throw new Error('The production draft returned nothing — provide bible images or rephrase the idea.');
   const style = (raw && !Array.isArray(raw) && String(raw.style || '').trim()) || '';
+  return { arr, style };
+};
+
+// Idea → cast & world (the original entry): the plan, then the shared renderer draws the
+// bible plates.
+export const castFromIdea = async ({ idea, ethnicity = '', imageModel = defaultImageModelKey(), thinking = false, references = [], config } = {}, ctx, hooks = {}) => {
+  const { arr, style } = await castPlanFromIdea({ idea, ethnicity, references, config }, ctx);
   return castDraftFromParsed({ arr, style, imageModel, thinking, references, config }, ctx, hooks);
 };

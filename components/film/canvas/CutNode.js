@@ -51,7 +51,7 @@ const DurationPill = ({ value, max, onChange }) => {
 // rewrites it to carry a camera setup, lens, light or movement. The 🎬 button
 // shoots a take of just this shot. (Node type stays 'cut' internally; user-facing it's a SHOT.)
 export const CutContext = createContext({
-  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onFinalizeDraft: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, continuityStale: {}, onOpenRefDrawer: null, onOpenInStoryRoom: null,
+  onPatchCut: null, bibleEntries: [], mediaEntries: [], onShootCut: null, onFinalizeDraft: null, onAttachAsset: null, onComposeCut: null, onAnalyzeCut: null, onDirectCut: null, onOpenTakes: null, boardImages: [], prevTakeFrames: {}, continuityStale: {}, onOpenRefDrawer: null,
 });
 
 // One keyframe slot tile: shows its picked still, or a dashed ＋ tile. Clicking opens
@@ -109,9 +109,7 @@ const REF_BADGE = {
 };
 
 const CutNodeInner = ({ id, data, selected }) => {
-  const { onPatchCut, bibleEntries, onShootCut, onFinalizeDraft, onAttachAsset, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, continuityStale, onOpenRefDrawer, onOpenInStoryRoom } = useContext(CutContext);
-  // A card the Story Room sent is written THERE: its prompt is read-only here.
-  const fromStory = !!data.storyRef?.sendId;
+  const { onPatchCut, bibleEntries, onShootCut, onFinalizeDraft, onAttachAsset, onComposeCut, onDirectCut, onOpenTakes, boardImages, prevTakeFrames, continuityStale, onOpenRefDrawer } = useContext(CutContext);
   const refIds = data.refIds || [];
   const assetRefs = data.assetRefs || [];
   // Anchor picker palette: THIS CARD'S references lead (its chips = the palette),
@@ -189,7 +187,7 @@ const CutNodeInner = ({ id, data, selected }) => {
   const applyDirect = () => { onDirectCut && onDirectCut(id, directNote.trim(), directLook); setDirectNote(''); setDirectLook({}); };
 
   // The SHOT's title (data.beat) is inline-renamed via the shared EditableLabel. The beat
-  // is the card's NAME; it only feeds the shoot prompt as a FALLBACK when PROMPT is empty.
+  // is the card's NAME; it never stands in for the prompt.
 
   // Duration is gated by the endpoint: the 2.0 family caps at 15s, Seedance 2.5 at 30s.
   // AUTO is its own value — no duration on the wire, the model runs the events as long
@@ -362,11 +360,8 @@ const CutNodeInner = ({ id, data, selected }) => {
 
         <div>
           <div style={{ marginBottom: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT{fromStory ? ' · from the Story Room' : ''}</Text>
+            <Text style={{ color: '#9fb4d0', fontSize: 10, fontWeight: 700 }}>PROMPT</Text>
             <span style={{ display: 'inline-flex', gap: 2 }}>
-              {fromStory ? (
-                <Button className="nodrag" size="mini" type="text" onClick={() => onOpenInStoryRoom && onOpenInStoryRoom(id)} style={{ color: '#7ee2b8', height: 18, padding: '0 4px' }} title="This shot is written in the Story Room — every change there lands here">Edit in Story Room ↗</Button>
-              ) : (<>
               <Button className="nodrag" size="mini" type="text" icon={data.developing ? <IconLoading /> : <IconSync />} disabled={!onComposeCut || data.developing} onClick={() => onComposeCut && onComposeCut(id)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Compose — with keyframes: 2 visible calls (DERIVE the events from the keyframes alone, then WRITE it with the reference chips + your dialogue/names verbatim); without: 1 call, your text as the material. What comes back IS the prompt — it ships to the model verbatim. Overridden text is reported, previous text stashed.">Compose</Button>
               <Popover
                 trigger="click" position="bl" color="#161b22"
@@ -415,7 +410,6 @@ const CutNodeInner = ({ id, data, selected }) => {
               {/* Develop (opt-in) — rewrite this prompt into a cinematic Seedance prompt; always
                   re-runs from the ORIGINAL text (stashed on first develop), never rewrite². */}
               <Button className="nodrag" size="mini" type="text" icon={<IconExpand />} onClick={() => setEditorOpen(true)} style={{ color: '#9fb4d0', height: 18, padding: '0 4px' }} title="Open the large editor — write in a big window and @-mention reference images">Expand</Button>
-              </>)}
             </span>
           </div>
           {(data.developing || data.composePending) ? (
@@ -426,15 +420,13 @@ const CutNodeInner = ({ id, data, selected }) => {
                 <Text style={{ color: '#6e7b8b', fontSize: 10 }} ellipsis>under the skill bound to {VIDEO_MODEL_OPTIONS.find((o) => o.key === videoModel)?.label || videoModel}</Text>
               </div>
             </div>
-          ) : fromStory ? (
-            <div className="nodrag nowheel" style={{ ...promptArea, whiteSpace: 'pre-wrap', maxHeight: 300, overflowY: 'auto', padding: '6px 8px', borderRadius: 4, border: '1px solid #21262d' }}>{data.promptOverride}</div>
           ) : (
           <DraftText textarea className="nodrag nowheel" value={data.promptOverride} onCommit={(v) => patch({ promptOverride: v })} placeholder="the shot's cinematic prompt — Expand to @-mention references" autoSize={{ minRows: 4, maxRows: 14 }} style={promptArea} />
           )}
         </div>
 
         {/* CONTINUITY — the frame this shot carries from the shot it continues, and the
-            line in the prompt above that says how it is used (set in Story Room). */}
+            line in the prompt above that says how it is used. */}
         {data.continuesFrom?.cardId && (
           <div style={{ display: 'flex', gap: 8, padding: 8, background: '#0d1a14', border: `1px solid ${data.continuityFrame ? '#1f6f4a' : '#7a4a12'}`, borderRadius: 4 }}>
             {data.continuityFrame && <img src={data.continuityFrame} alt="" style={{ width: 96, aspectRatio: '16 / 9', objectFit: 'cover', borderRadius: 3, flexShrink: 0, border: `1px solid ${data.continuesFrom.mode === 'open' ? '#165dff' : '#00a870'}` }} />}

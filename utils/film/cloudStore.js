@@ -5,18 +5,22 @@
 
 const err = async (res, fallback) => {
   let msg = fallback;
-  try { const d = await res.json(); msg = d?.error || fallback; } catch { /* keep fallback */ }
-  return new Error(msg);
+  let extra = {};
+  try { const d = await res.json(); msg = d?.error || fallback; extra = { conflict: !!d?.conflict, cloudSavedAt: d?.cloudSavedAt || null }; } catch { /* keep the HTTP message */ }
+  return Object.assign(new Error(msg), extra);
 };
 
-export const saveProjectToCloud = async (project) => {
+// `baseSavedAt`: the cloud version this session last loaded or saved (null = it has none).
+// A cloud copy that moved on since is refused (error.conflict, error.cloudSavedAt) unless
+// `force` — the director's explicit overwrite.
+export const saveProjectToCloud = async (project, { baseSavedAt = null, force = false } = {}) => {
   const res = await fetch('/api/film/cloud', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project }),
+    body: JSON.stringify({ project, baseSavedAt, force }),
   });
   if (!res.ok) throw await err(res, `Cloud save failed (HTTP ${res.status})`);
-  return res.json(); // { ok, projectId, mediaCount, uploadedNow, rescuedInline, missing[] }
+  return res.json(); // { ok, projectId, savedAt, mediaCount, uploadedNow, rescuedInline, missing[] }
 };
 
 export const listCloudProjects = async () => {

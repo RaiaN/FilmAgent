@@ -56,8 +56,13 @@ const PlanCard = ({ plan, onGo, busy }) => {
   );
 };
 
+// A long brief shows this many lines and scrolls inside its box until you open it in full.
+const BRIEF_ROWS = 6;
 const BriefPage = ({ s, set, toast, plan, onGo, busy }) => {
   const script = String(s.script || '');
+  const [full, setFull] = useState(false);
+  const lines = script.split('\n').length;
+  const long = lines > BRIEF_ROWS;
   const openScript = async (file) => {
     try { const t = await readText(file); set((x) => ({ ...x, script: t })); } catch (e) { toast(e.message); }
   };
@@ -77,11 +82,16 @@ const BriefPage = ({ s, set, toast, plan, onGo, busy }) => {
             <Draft
               area className={screenplay ? 'st-script' : 'st-bare'} value={script}
               onCommit={(v) => set((x) => ({ ...x, script: v }))}
-              autoSize={{ minRows: screenplay ? 24 : 8 }}
+              autoSize={long && !full ? { minRows: 6, maxRows: BRIEF_ROWS } : { minRows: screenplay ? 24 : 8 }}
               placeholder="The film — an idea in a few lines, or paste a screenplay"
               style={screenplay ? undefined : { fontSize: 15.5, lineHeight: 1.7, color: C.ink }}
             />
           </div>
+          {long && (
+            <div style={{ marginTop: 8, textAlign: 'right' }}>
+              <span role="button" className="st-ghost" onClick={() => setFull((f) => !f)} style={{ fontSize: 12.5, color: C.text, cursor: 'pointer', textDecoration: 'underline' }}>{full ? 'Collapse' : `Show all · ${lines} lines`}</span>
+            </div>
+          )}
           {!script.trim() && (
             <div style={{ marginTop: 10 }}>
               <UploadButton size="small" type="text" icon={<IconFile />} accept=".txt,.fountain,.md,text/plain" onFile={openScript}>Open a script file</UploadButton>
@@ -430,6 +440,19 @@ const From = ({ id, children }) => (
     </div>
   </div>
 );
+// Long words in the thread fold to a few lines; more / less opens them.
+const CLAMP_CHARS = 280;
+const Clamped = ({ text }) => {
+  const [open, setOpen] = useState(false);
+  const long = String(text || '').length > CLAMP_CHARS;
+  if (!long) return text || null;
+  return (
+    <>
+      <span style={open ? undefined : { display: '-webkit-box', WebkitLineClamp: 5, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{text}</span>
+      <span role="button" onClick={() => setOpen((o) => !o)} style={{ display: 'block', marginTop: 4, fontSize: 12, color: C.text, cursor: 'pointer', textDecoration: 'underline' }}>{open ? 'less' : 'more'}</span>
+    </>
+  );
+};
 const Message = ({ s, m, approve, cancel, answer, review, setText, undo }) => {
   if (m.from === 'you') {
     const agent = crewById(m.agent);
@@ -444,7 +467,7 @@ const Message = ({ s, m, approve, cancel, answer, review, setText, undo }) => {
             {action && <span style={{ color: C.text }}>{action.label.toLowerCase()} </span>}
           </>}
         {m.target && <span style={{ color: C.muted }}>{m.target}{m.text ? ' · ' : ''}</span>}
-        {m.text}
+        <Clamped text={m.text} />
       </div>
     );
   }

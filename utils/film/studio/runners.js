@@ -179,9 +179,9 @@ const ACTIONS = {
           if (!v) return;
           if (entry.primary) {
             if (entry.failed) v.fail(new Error(`The plate did not render: ${entry.error || 'no reason given'}`));
-            else v.done({ url: entry.url, cacheUrl: entry.cacheUrl || null });
+            else v.done({ url: entry.url, cacheUrl: entry.cacheUrl || null, prompt: entry.prompt });
           } else if (!entry.failed) {
-            v.patch((w) => ({ extras: [...(w.extras || []), { url: entry.cacheUrl || entry.url, label: 'body' }] }));
+            v.patch((w) => ({ extras: [...(w.extras || []), { url: entry.cacheUrl || entry.url, label: 'body', prompt: entry.prompt }] }));
           }
         },
       }).catch((e) => Object.values(face).forEach((v) => { if (h.read.version(v.ref, v.id)?.status === 'running') v.fail(e); }));
@@ -456,15 +456,33 @@ const shootDrafts = async (h, req, p) => {
   }, 3);
 };
 
+// What each planner call or render is called while it runs.
+const STAGES = new Map([
+  [architectBlueprint, 'Building the story'],
+  [writeScreenplay, 'Writing the screenplay'],
+  [breakdownScript, 'Breaking down the script'],
+  [storyboardScenes, 'Blocking the scenes'],
+  [castPlanFromIdea, 'Planning the cast'],
+  [castDraftFromParsed, 'Rendering the cast'],
+  [characterVariations, 'Rendering variations'],
+  [locationVariations, 'Rendering variations'],
+  [plateEdit, 'Drawing the view'],
+  [composeShotAction, 'Writing the shot prompt'],
+  [directShotAction, 'Reworking the prompt'],
+  [analyzeEditMaster, 'Watching the clip'],
+  [editShotAction, 'Writing the edit'],
+  [shotTalk, 'Thinking'],
+]);
+
 export const createRunners = ({ get, set, ctx }) => {
-  const harness = createHarness({ get, set, ctx });
+  const harness = createHarness({ get, set, ctx, stageOf: (verb) => STAGES.get(verb) || '' });
   const entry = (req) => {
     const a = ACTIONS[`${req.agent}.${req.action}`];
     if (!a) throw new Error('That crew member has no such job here.');
     return a;
   };
   // PLAN: what a request will do, before anything is spent.
-  const plan = async (req) => entry(req).plan(harness.plan, req);
+  const plan = async (req, { onStage } = {}) => entry(req).plan(harness.plan(onStage), req);
   // RUN: the work; everything it makes lands as versions announced in the scope's thread.
   const run = async (req, payload = {}) => {
     const a = entry(req);

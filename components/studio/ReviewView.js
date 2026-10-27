@@ -281,16 +281,50 @@ const ScenePlay = ({ s, sceneId, open }) => {
   );
 };
 
-const SheetDetail = ({ sh, approve, cancel }) => (
-  <div style={{ display: 'grid', gap: 0, maxWidth: 600, border: `1px solid ${C.accent}`, borderRadius: 14, overflow: 'hidden', background: C.raised }}>
+// CASTING'S PROMPTS on its call sheet: every plate's words, editable until Approve — what is
+// approved is what renders (the film's style, and the portrait spec for faces, ride along).
+const CAST_FIELDS = (c) => {
+  const type = String(c?.type || c?.role || '').toLowerCase();
+  const has = (k) => String(c?.[k] || '').trim();
+  if (type === 'character' && has('facePrompt')) return [['facePrompt', 'Face'], ...(has('bodyPrompt') ? [['bodyPrompt', 'Body']] : [])];
+  const key = ['presencePrompt', 'prompt', 'facePrompt'].find(has) || 'prompt';
+  return [[key, type === 'creature' ? 'Presence' : 'Plate']];
+};
+const PromptField = ({ value, onCommit }) => {
+  const [v, setV] = useState(null);
+  return <Input.TextArea value={v !== null ? v : value} onChange={setV} onFocus={() => setV(value)} onBlur={() => { if (v !== null && v !== value) onCommit(v); setV(null); }} autoSize={{ minRows: 2, maxRows: 8 }} style={{ fontSize: 12.5, lineHeight: 1.55 }} />;
+};
+const CastPrompts = ({ sh, set }) => {
+  const patch = (i, key, text) => set((x) => ({ ...x, sheets: x.sheets.map((y) => (y.id !== sh.id ? y : { ...y, payload: { ...y.payload, arr: y.payload.arr.map((c, k) => (k === i ? { ...c, [key]: text } : c)) } })) }));
+  return (
+    <div style={{ display: 'grid', gap: 14, padding: '12px 16px', maxHeight: 560, overflowY: 'auto' }}>
+      {sh.payload.arr.map((c, i) => (
+        <div key={i} style={{ display: 'grid', gap: 6 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{c.name}</div>
+          {CAST_FIELDS(c).map(([key, label]) => (
+            <div key={key} style={{ display: 'grid', gap: 3 }}>
+              <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
+              <PromptField value={String(c[key] || '')} onCommit={(text) => patch(i, key, text)} />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const SheetDetail = ({ sh, set, approve, cancel }) => (
+  <div style={{ display: 'grid', gap: 0, maxWidth: 720, border: `1px solid ${C.accent}`, borderRadius: 14, overflow: 'hidden', background: C.raised }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: C.accentSoft, borderBottom: `1px solid ${C.line}` }}>
       <Avatar id={sh.req.agent} size={28} />
       <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1.1, color: C.accent }}>CALL SHEET</span>
       <span style={{ fontSize: 14, fontWeight: 600, color: crewColor(sh.req.agent) }}>{crewWho(sh.req.agent)}</span>
     </div>
-    <div style={{ display: 'grid', gap: 6, padding: '12px 16px' }}>
+    {sh.req.agent === 'casting' && sh.req.action === 'cast' && sh.payload?.arr
+      ? <CastPrompts sh={sh} set={set} />
+      : <div style={{ display: 'grid', gap: 6, padding: '12px 16px' }}>
       {sh.jobs.map((j, i) => <div key={i} style={{ display: 'flex', gap: 10, fontSize: 13.5, color: C.ink }}><span style={{ flex: 1 }}>{j.label}</span><span style={{ color: C.muted, fontSize: 12.5 }}>{j.detail}</span></div>)}
-    </div>
+    </div>}
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderTop: `1px solid ${C.line}` }}>
       <b style={{ flex: 1, fontWeight: 600, color: C.ink }}>{sh.summary}</b>
       <Button onClick={() => cancel(sh.id)}>Cancel</Button>
@@ -314,7 +348,7 @@ export const Detail = ({ s, set, toast, sel, setSel, q, onPick, onNote, onFinal,
   if (sel.scene) return <ScenePlay s={s} sceneId={sel.scene} open={open} />;
   if (sel.sheet) {
     const sh = s.sheets.find((x) => x.id === sel.sheet);
-    return sh && sh.status === 'pending' ? <SheetDetail sh={sh} approve={approve} cancel={cancel} /> : <Empty>Done.</Empty>;
+    return sh && sh.status === 'pending' ? <SheetDetail sh={sh} set={set} approve={approve} cancel={cancel} /> : <Empty>Done.</Empty>;
   }
   if (sel.question) {
     const m = (s.threads[sel.key] || []).find((x) => x.id === sel.question);

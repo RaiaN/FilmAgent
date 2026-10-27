@@ -29,7 +29,7 @@ const postJson = async (path, body, what) => {
   return j;
 };
 
-export const createHarness = ({ get, set, ctx }) => {
+export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
   const say = (scope, msg) => { const id = uid('m-'); set((s) => addMessage(s, threadKeyOf(scope), { id, ...msg })); return id; };
   const sayPatch = (scope, id, patch) => set((s) => patchMessage(s, threadKeyOf(scope), id, patch));
 
@@ -196,7 +196,9 @@ export const createHarness = ({ get, set, ctx }) => {
     };
     // A reply in the request's thread (the Shot answers in words, not in versions).
     const reply = (m) => say(req.scope, { from: who, ...m });
-    return { open, note, reply, end: () => sayPatch(req.scope, msg, { finished: true }) };
+    // What the crew is doing right now, on the request's message (the thread and the plan show it).
+    const stage = (text) => sayPatch(req.scope, msg, { stage: text, stageAt: Date.now() });
+    return { open, note, reply, stage, end: () => sayPatch(req.scope, msg, { finished: true }) };
   };
   // A shot's text and references changed by the crew; what they were rides on the reply so
   // the director can undo it.
@@ -210,10 +212,28 @@ export const createHarness = ({ get, set, ctx }) => {
   // Elements a delivery brings with it (Casting's new cast and places).
   const addElements = (els) => { if (els.length) set((s) => ({ ...s, elements: [...s.elements, ...els] })); };
 
+  // STAGES: every planner call and every render names itself as it starts, so the director
+  // sees what the crew is doing now ("Planning the cast", "Seedance is rendering").
+  const staged = (tell = () => {}) => ({
+    step: tell,
+    think: (verb, args) => { tell(stageOf(verb) || 'Thinking'); return think(verb, args); },
+    make: {
+      ...make,
+      image: (verb, args, hooks) => { tell(stageOf(verb) || 'Rendering images'); return make.image(verb, args, hooks); },
+      take: (o) => { tell('Seedance is rendering'); return make.take(o); },
+      finish: (o) => { tell('Finishing at 1080p'); return make.finish(o); },
+      source: (...a) => { tell('Registering the source clip'); return make.source(...a); },
+      stitch: (...a) => { tell('Assembling the cut'); return make.stitch(...a); },
+    },
+  });
   const both = { read, guard, think, each };
   return {
-    plan: { ...both, ask, sheet, go },
-    run: (req) => { const d = deliver(req); return { h: { ...both, make, check, open: d.open, note: d.note, reply: d.reply, reviseShot, spend, addElements }, end: d.end }; },
+    plan: (onStage) => { const st = staged(onStage); return { ...both, think: st.think, step: st.step, ask, sheet, go }; },
+    run: (req) => {
+      const d = deliver(req);
+      const st = staged(d.stage);
+      return { h: { ...both, think: st.think, step: st.step, make: st.make, check, open: d.open, note: d.note, reply: d.reply, reviseShot, spend, addElements }, end: d.end };
+    },
     version,
     make,
   };

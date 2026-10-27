@@ -276,7 +276,10 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     try {
       const before = get().script;
       const out = await request(st.req);
-      if (out?.sheet) await approve(out.sheet);
+      // Casting's call sheet carries every plate's prompt: Go opens it in Review to read and
+      // edit before Approve. Other steps' sheets are approved with the Go.
+      if (out?.sheet && st.id === 'cast') { setSel({ sheet: out.sheet }); setFilter('needs'); setMode('review'); }
+      else if (out?.sheet) await approve(out.sheet);
       if (st.req.apply) set((y) => {
         const vs = y.brief.versions;
         const fresh = [...vs].reverse().find((w) => w.kind === 'script' && w.status === 'review');

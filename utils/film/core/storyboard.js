@@ -639,11 +639,11 @@ export const castDraftFromParsed = async ({ arr, style = '', imageModel = defaul
       if (p.refFrom && !urlByKey[p.refFrom]) throw new Error('its face plate did not render');
       const out = await genImage(p.prompt, p.refFrom ? urlByKey[p.refFrom] : (p.extRef || null), p.size);
       urlByKey[p.key] = out.url;
-      const entry = { id: p.key, role: p.role, name: p.name, url: out.url, cacheUrl: out.cacheUrl || null, locked: true, assetId: p.assetId, primary: p.primary };
+      const entry = { id: p.key, role: p.role, name: p.name, url: out.url, cacheUrl: out.cacheUrl || null, locked: true, assetId: p.assetId, primary: p.primary, prompt: p.prompt };
       entries.push(entry);
       onEntry(entry, idx);
     } catch (err) {
-      onEntry({ id: p.key, role: p.role, name: p.name, url: '', failed: true, error: err?.message || 'did not render', assetId: p.assetId, primary: p.primary }, idx);
+      onEntry({ id: p.key, role: p.role, name: p.name, url: '', failed: true, error: err?.message || 'did not render', assetId: p.assetId, primary: p.primary, prompt: p.prompt }, idx);
     }
   };
   // Phase 1: faces + locations (no dependency). Phase 2: bodies (ref their face).

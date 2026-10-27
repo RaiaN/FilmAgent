@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Input, Select } from '@arco-design/web-react';
-import { IconClose, IconPlus, IconStarFill, IconUpload, IconSend, IconBulb, IconFile, IconDownload, IconRight } from '@arco-design/web-react/icon';
+import { IconClose, IconPlus, IconStarFill, IconUpload, IconSend, IconBulb, IconFile, IconDownload, IconRight, IconLoading } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Tile, Empty, Label, Pill, Avatar, PageHead, DropArea, CanvasButton, crewColor, crewWho, mediaOf, storeFile, readFile, readText } from './ui';
 import { stageLocalAsset } from '../../utils/film/canvasModel';
 import { ELEMENT_KINDS, KIND_LABEL, containerOf, findElement, findScene, findShot, namedText, tokenized, pickedOf, pad2, shotNumber, threadKeyOf, newElement, newShot, uid, staleOf } from '../../utils/film/studio/model';
@@ -29,8 +29,21 @@ const KIND_COLOR = { character: crewColor('casting'), location: crewColor('desig
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 // ---- BRIEF: the script, the 1st AD's breakdown and the plan --------------------------------
+// WORKING: what a crew job is doing now and for how long — "Planning the cast · 0:23".
+const clock = (ms) => { const sec = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; };
+export const Working = ({ stage, since }) => {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.work, minWidth: 0 }}>
+      <IconLoading style={{ flex: '0 0 auto' }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stage || 'Working'}</span>
+      {since ? <span style={{ fontFamily: MONO, color: C.muted, flex: '0 0 auto' }}>{clock(Date.now() - since)}</span> : null}
+    </span>
+  );
+};
 const STATUS_TEXT = { done: C.good, next: C.ink, later: C.muted };
-const PlanCard = ({ plan, onGo, busy }) => {
+const PlanCard = ({ plan, onGo, busy, live }) => {
   const next = plan.find((st) => !st.done);
   return (
     <div style={{ background: C.raised, border: `1px solid ${C.line}`, borderRadius: 14, padding: '12px 14px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 4 }}>
@@ -43,11 +56,11 @@ const PlanCard = ({ plan, onGo, busy }) => {
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: state === 'next' ? 600 : 400 }}>{st.label}</span>
             {state === 'done' && st.review && <span role="button" className="st-ghost" onClick={() => onGo(st)} style={{ fontSize: 12, color: C.text, cursor: 'pointer', textDecoration: 'underline' }}>Open</span>}
             {state === 'done' && st.req && (busy === st.id
-              ? <span className="st-pulse" style={{ fontSize: 12, color: C.work }}>working…</span>
+              ? <Working stage={live?.stage} since={live?.at} />
               : <span role="button" className="st-ghost" onClick={() => onGo(st, { redo: true })} style={{ fontSize: 12, color: C.text, cursor: 'pointer', textDecoration: 'underline' }}>Redo</span>)}
             {state === 'done' && <span style={{ fontSize: 12 }}>✓</span>}
             {state === 'next' && (busy === st.id
-              ? <span className="st-pulse" style={{ fontSize: 12, color: C.work }}>working…</span>
+              ? <Working stage={live?.stage} since={live?.at} />
               : (st.req || st.review) && <Button size="small" type="primary" style={{ flex: '0 0 auto' }} onClick={() => onGo(st)}>{st.review ? 'Open' : 'Go'}</Button>)}
           </div>
         );
@@ -58,7 +71,7 @@ const PlanCard = ({ plan, onGo, busy }) => {
 
 // A long brief shows this many lines and scrolls inside its box until you open it in full.
 const BRIEF_ROWS = 6;
-const BriefPage = ({ s, set, toast, plan, onGo, busy }) => {
+const BriefPage = ({ s, set, toast, plan, onGo, busy, live }) => {
   const script = String(s.script || '');
   const [full, setFull] = useState(false);
   const lines = script.split('\n').length;
@@ -100,7 +113,7 @@ const BriefPage = ({ s, set, toast, plan, onGo, busy }) => {
         </DropArea>
         {script.trim() && (
           <div style={{ flex: '0 1 360px', minWidth: 280, display: 'grid', gap: 18 }}>
-            <PlanCard plan={plan} onGo={onGo} busy={busy} />
+            <PlanCard plan={plan} onGo={onGo} busy={busy} live={live} />
           </div>
         )}
       </div>
@@ -542,13 +555,14 @@ const Message = ({ s, m, approve, cancel, answer, review, setText, undo }) => {
     const items = (m.items || []).map((it) => ({ ...it, v: (containerOf(s, it.ref)?.versions || []).find((x) => x.id === it.vid) })).filter((it) => it.v);
     if (!items.length) {
       return m.finished ? null : (
-        <From id={m.from}><span className="st-pulse" style={{ fontSize: 12.5, color: C.work }}>working…</span></From>
+        <From id={m.from}><Working stage={m.stage} since={m.at} /></From>
       );
     }
     const textual = items.filter((it) => ['script', 'scriptBreakdown', 'breakdown'].includes(it.v.kind));
     return (
       <From id={m.from}>
         <div style={{ display: 'grid', gap: 6 }}>
+          {!m.finished && m.stage && <Working stage={m.stage} since={m.at} />}
           {textual.map((it) => (
             <div key={it.vid} role="button" className="st-card" onClick={() => it.v.status !== 'running' && review(it.ref, it.vid)} style={{ border: `1px solid ${it.v.status === 'review' ? 'rgba(255,122,89,0.45)' : C.line}`, background: C.raised, borderRadius: 10, padding: '8px 11px', cursor: 'pointer', fontSize: 13, color: it.v.status === 'failed' ? C.bad : C.ink, display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ flex: 1, minWidth: 0, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
@@ -648,8 +662,8 @@ export const Thread = ({ s, scope, target, onClearTarget, onRequest, approve, ca
 };
 
 // ---- the Direct page for the current scope -----------------------------------------------------
-export const DirectPage = ({ s, set, scope, setScope, pick, review, toast, crew, canvas, plan, onGo, busy }) => {
-  if (scope.type === 'brief') return <BriefPage s={s} set={set} toast={toast} plan={plan} onGo={onGo} busy={busy} />;
+export const DirectPage = ({ s, set, scope, setScope, pick, review, toast, crew, canvas, plan, onGo, busy, live }) => {
+  if (scope.type === 'brief') return <BriefPage s={s} set={set} toast={toast} plan={plan} onGo={onGo} busy={busy} live={live} />;
   if (scope.type === 'world') return <WorldPage s={s} set={set} open={setScope} toast={toast} />;
   if (scope.type === 'element') {
     const el = findElement(s, scope.id);

@@ -148,7 +148,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     const pending = uid('m-');
     say(sc, { id: pending, from: req.agent, kind: 'delivery', items: [] });
     try {
-      const p = await crew.plan(req);
+      const p = await crew.plan(req, { onStage: (text) => set((x) => patchMessage(x, threadKeyOf(sc), pending, { stage: text, stageAt: Date.now() })) });
       set((x) => ({ ...x, threads: { ...x.threads, [threadKeyOf(sc)]: (x.threads[threadKeyOf(sc)] || []).filter((m) => m.id !== pending) } }));
       if (p.question) say(sc, { from: req.agent, kind: 'question', text: p.question.text, options: p.question.options });
       else if (p.sheet) {
@@ -265,6 +265,8 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   const redoStale = (sceneId, shotId) => { request({ agent: 'camera', action: 'draft', scope: { type: 'shot', sceneId, id: shotId }, text: '', force: true }); setMode('direct'); setScope({ type: 'shot', sceneId, id: shotId }); };
   // THE PLAN: the crew's next jobs, read off the brief; nothing runs until you press Go.
   const plan = planOf(s);
+  // The job running now (newest first), with the stage it is on — shown on the plan step.
+  const live = Object.values(s.threads).flat().filter((m) => m.kind === 'delivery' && !m.finished && m.stage).sort((a, b) => (b.stageAt || 0) - (a.stageAt || 0))[0] || null;
   const [busyStep, setBusyStep] = useState(null);
   // Go on a plan step = the director's say-so: its call sheet is approved with it, and a
   // screenplay the Writers deliver for the brief replaces it (the brief before is kept).
@@ -398,7 +400,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
             {spineItem({ on: scope.type === 'cut', label: 'Cut', icon: <IconPlayCircle />, onClick: () => setScope({ type: 'cut' }) })}
           </div>
           <div style={{ overflowY: 'auto', padding: '26px 30px 40px', minWidth: 0 }}>
-            <DirectPage s={s} set={set} scope={scope} setScope={setScope} pick={pick} review={review} toast={toast} crew={crewApi} canvas={canvas} plan={plan} onGo={goStep} busy={busyStep} />
+            <DirectPage s={s} set={set} scope={scope} setScope={setScope} pick={pick} review={review} toast={toast} crew={crewApi} canvas={canvas} plan={plan} onGo={goStep} busy={busyStep} live={live} />
           </div>
           <div style={{ borderLeft: `1px solid ${C.line}`, minHeight: 0, position: 'relative' }}>
             <div role="separator" aria-orientation="vertical" title="Drag to resize" onMouseDown={dragCrew} style={{ position: 'absolute', left: -4, top: 0, bottom: 0, width: 8, cursor: 'col-resize', zIndex: 3 }} />

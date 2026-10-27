@@ -1,6 +1,6 @@
 // THE HARNESS — the eight parts every crew member is made of (docs/studio.md).
 //
-//   read · guard · think · each        both phases
+//   read · guard · think · each · step both phases  (step: the stage the job is on, shown live)
 //   ask · sheet · go                   PLAN only  (decide what a request will do; never spends)
 //   make · check · open · spend · addElements    RUN only   (do it; every result is a version)
 //   reply · reviseShot                            RUN only   (the Shot answers in words and edits itself)

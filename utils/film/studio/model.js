@@ -21,6 +21,8 @@ export const KIND_LABEL = { character: 'Cast', location: 'Places', prop: 'Props'
 export const emptyStudio = () => ({
   v: 1,
   script: '',
+  // The film's video model; a shot may name its own.
+  videoModel: 'seedance25',
   // The 1st AD's breakdown of the script (form, numbered scenes, sheets, elements), made when
   // the director asks for it; it knows which script it read.
   breakdown: null,
@@ -199,6 +201,7 @@ export const newShot = (x) => ({
   // (view · action · what everyone looks at), what works against them, end.
   sheet: x.sheet || null,
   elementIds: x.elementIds || [],
+  videoModel: x.videoModel || null, // null: the film's model
   takes: { versions: [], picked: null },
 });
 
@@ -378,7 +381,8 @@ export const scriptHash = (text) => {
   return String(h >>> 0); // eslint-disable-line no-bitwise
 };
 export const breakdownFresh = (s) => !!s.breakdown && s.breakdown.scriptHash === scriptHash(s.script);
-const plated = (s, kind, name) => s.elements.some((e) => !e.viewOf && e.kind === kind && e.name.toLowerCase() === String(name).toLowerCase() && plateOf(e));
+const named = (s, kind, name) => s.elements.find((e) => !e.viewOf && e.kind === kind && e.name.toLowerCase() === String(name).toLowerCase());
+const plated = (s, kind, name) => !!plateOf(named(s, kind, name));
 // Each step: who does it, what, whether it's done, and the request that does it. The first
 // step not done is the next one; steps after it wait.
 export const planOf = (s) => {
@@ -387,10 +391,18 @@ export const planOf = (s) => {
   // The form is code (sluglines), so the plan is right before anyone runs.
   const screenplay = parseScript(s.script).form === 'screenplay';
   const shots = s.scenes.flatMap((sc) => sc.shots.map((sh) => ({ sc, sh })));
-  const missing = b && screenplay ? [
-    ...b.elements.cast.filter((e) => !plated(s, 'character', e.name)).map((e) => e.name),
-    ...b.elements.places.filter((e) => !plated(s, 'location', e.name)).map((e) => e.name),
-  ] : [];
+  const unplated = b && screenplay ? [
+    ...b.elements.cast.filter((e) => !plated(s, 'character', e.name)).map((e) => ({ kind: 'character', name: e.name })),
+    ...b.elements.places.filter((e) => !plated(s, 'location', e.name)).map((e) => ({ kind: 'location', name: e.name })),
+  ].map((x) => ({ ...x, el: named(s, x.kind, x.name) })) : [];
+  // An unplated name is rendering, waiting for your pick in Review, or not cast yet.
+  const versionsOf = (el) => el?.versions || [];
+  const rendering = unplated.filter((x) => versionsOf(x.el).some((v) => v.status === 'running'));
+  const toPick = unplated.filter((x) => !rendering.includes(x) && versionsOf(x.el).some((v) => v.status === 'review'));
+  const missing = unplated.filter((x) => !rendering.includes(x) && !toPick.includes(x)).map((x) => x.name);
+  const castSheet = (s.sheets || []).find((sh) => sh.status === 'pending' && sh.req?.agent === 'casting');
+  const firstToPick = toPick[0] && { ref: { at: 'element', id: toPick[0].el.id }, vid: [...toPick[0].el.versions].reverse().find((v) => v.status === 'review').id };
+  const names = (xs) => `${xs.slice(0, 3).map((x) => x.name || x).join(', ')}${xs.length > 3 ? '…' : ''}`;
   const picked = b ? (s.brief?.versions || []).find((v) => v.kind === 'scriptBreakdown' && v.status === 'picked' && v.payload?.scriptHash === b.scriptHash) : null;
   const waiting = !b && screenplay ? [...(s.brief?.versions || [])].reverse().find((v) => v.kind === 'scriptBreakdown' && v.status === 'review' && v.payload?.scriptHash === scriptHash(s.script)) : null;
   const firstWithout = (test) => shots.find(({ sh }) => !test(sh));
@@ -402,7 +414,13 @@ export const planOf = (s) => {
     waiting
       ? { id: 'breakdown', agent: 'you', label: 'Review the breakdown', done: false, review: { ref: { at: 'brief' }, vid: waiting.id } }
       : { id: 'breakdown', agent: 'ad', label: 'Break down the script', done: !!b && b.form === 'screenplay' && screenplay, req: { agent: 'ad', action: 'plan', scope: brief, text: '' }, ...(picked ? { review: { ref: { at: 'brief' }, vid: picked.id } } : {}) },
-    { id: 'cast', agent: 'casting', label: missing.length ? `Cast ${missing.length} · ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '…' : ''}` : 'Cast the film', done: !!b && screenplay && !missing.length, req: { agent: 'casting', action: 'cast', scope: { type: 'world' }, text: missing.length ? `Cast exactly these, by these names: ${missing.join(', ')}.` : '' } },
+    castSheet
+      ? { id: 'cast', agent: 'you', label: 'Approve the casting call sheet', done: false, review: { sheet: castSheet.id } }
+      : missing.length || !unplated.length
+        ? { id: 'cast', agent: 'casting', label: missing.length ? `Cast ${missing.length} · ${names(missing)}` : 'Cast the film', done: !!b && screenplay && !unplated.length, req: { agent: 'casting', action: 'cast', scope: { type: 'world' }, text: missing.length ? `Cast exactly these, by these names: ${missing.join(', ')}.` : '', names: unplated.filter((x) => missing.includes(x.name)).map(({ kind, name }) => ({ kind, name })) } }
+        : toPick.length
+          ? { id: 'cast', agent: 'you', label: `Pick the cast · ${toPick.length} · ${names(toPick)}`, done: false, review: firstToPick }
+          : { id: 'cast', agent: 'casting', label: `Rendering the cast · ${rendering.length}`, done: false, working: true },
     { id: 'block', agent: 'ad', label: 'Block the scenes', done: shots.length > 0, req: { agent: 'ad', action: 'breakdown', scope: brief, text: '' } },
   ];
   const noTake = firstWithout(drafted);
@@ -411,3 +429,9 @@ export const planOf = (s) => {
   return steps;
 };
 
+// ---- video models -------------------------------------------------------------------------
+// The models a film or a shot drafts on. A draft finishes only on the model that made it, at
+// the resolutions that model renders finals at (Seedance 2.5: 1080p · Premium: 1080p or 4K).
+export const VIDEO_MODELS = [{ key: 'seedance25', label: 'Seedance 2.5' }, { key: 'seedance25Premium', label: 'Seedance 2.5 Premium' }];
+export const videoModelLabel = (key) => VIDEO_MODELS.find((m) => m.key === key)?.label || key;
+export const modelOfShot = (s, shot) => shot?.videoModel || s.videoModel || 'seedance25';

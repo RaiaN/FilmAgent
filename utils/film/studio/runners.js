@@ -7,7 +7,7 @@
 // asked what, and where, lives in crew.js; how they do it lives here.
 import {
   uid, findShot, findElement, containerOf, pickedOf, newElement, newShot, shotRefs, modelText, threadKeyOf,
-  namedText, usedOf, shotNumber, pad2, plateOf, KIND_LABEL, tokenized, scriptHash,
+  namedText, usedOf, shotNumber, pad2, plateOf, KIND_LABEL, tokenized, scriptHash, modelOfShot, videoModelLabel,
 } from './model';
 import { crewStep } from '../skills';
 import { crewById } from './crew';
@@ -19,7 +19,7 @@ import { composeShotAction, directShotAction, analyzeEditMaster, editShotAction 
 import { shotTalk } from '../core/talk';
 import { breakdownScript, pagesLabel } from '../core/breakdown';
 import { absLocalMediaUrl } from '../mediaUrl';
-import { resolveModelId, defaultImageModelKey, DRAFT_MODE } from '../suiteConfig';
+import { resolveModelId, defaultImageModelKey, DRAFT_MODE, draftFinalsOf } from '../suiteConfig';
 
 const CAST_KIND = { character: 'character', creature: 'character', location: 'location', prop: 'prop' };
 const AD_PLATES = 10; // plates the 1st AD looks at (the planner's image limit)
@@ -40,7 +40,7 @@ const sheetFromText = (sheet, text) => {
 };
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const written = ({ shot }) => !!String(shot.motion || shot.quote || '').trim();
-const videoReady = (h) => h.guard(resolveModelId(VIDEO_MODEL), 'Seedance 2.5 is not configured.');
+const videoReady = (h, key = VIDEO_MODEL) => h.guard(resolveModelId(key), `${videoModelLabel(key)} is not configured.`);
 const shotJobs = (shots) => ({ shots: shots.map(({ sceneId, shot }) => ({ sceneId, shotId: shot.id })) });
 
 // ---- the crew ------------------------------------------------------------------------------------
@@ -146,9 +146,18 @@ const ACTIONS = {
       const s = h.read.state();
       h.guard(String(s.script || '').trim(), 'Write or develop the script first.');
       const existing = s.elements.map((e) => ({ name: e.name, kind: e.kind, plated: !!plateOf(e) }));
-      const { arr, style } = await h.think(castPlanFromIdea, { idea: s.script, existing, note: [req.text, req.note].filter(Boolean).join('\n') });
+      const note = [req.text, req.note].filter(Boolean).join('\n');
+      // The plan asks for named elements; each must come back under exactly that name, or the
+      // step can never close. One corrective re-ask, then a loud error naming what is missing.
+      const kindOf = (c) => CAST_KIND[String(c.type || c.role || '').toLowerCase()] || 'location';
+      const absent = (out) => (req.names || []).filter((n) => !out.arr.some((c) => kindOf(c) === n.kind && String(c.name || '').toLowerCase() === n.name.toLowerCase()));
+      let out = await h.think(castPlanFromIdea, { idea: s.script, existing, note });
+      if (absent(out).length) out = await h.think(castPlanFromIdea, { idea: s.script, existing, note: `${note}\nYour last plan left out ${absent(out).map((n) => `${n.name} (${n.kind})`).join(', ')}. Include every one of them, named exactly as written here.` });
+      const left = absent(out);
+      h.guard(!left.length, `Casting left out ${left.map((n) => `${n.name} (${n.kind})`).join(', ')} — they are in the breakdown under these names.`);
+      const { arr, style } = out;
       const jobs = arr.map((c) => {
-        const kind = CAST_KIND[String(c.type || c.role || '').toLowerCase()] || 'location';
+        const kind = kindOf(c);
         const known = !!elementNamed(s.elements, kind, c.name);
         return { label: String(c.name || 'Asset'), detail: `${known ? '' : 'new · '}${kind === 'character' && c.facePrompt && c.bodyPrompt ? 'face + body' : 'plate'}` };
       });
@@ -232,17 +241,18 @@ const ACTIONS = {
   // the take's own prompt under the model's spec.
   'camera.draft': {
     plan: (h, req) => {
-      videoReady(h);
       const s = h.read.state();
       const shots = h.read.shots(req.scope).filter(({ shot }) => req.from || req.scope.type === 'shot' || !shot.takes.picked);
       h.guard(shots.length, 'Every shot here has a circled take.');
+      const models = [...new Set(shots.map(({ shot }) => modelOfShot(s, shot)))];
+      models.forEach((key) => videoReady(h, key));
       const unwritten = shots.filter((x) => !written(x));
       h.guard(!unwritten.length || req.from, `Write what happens in ${unwritten.map(({ shot }) => h.read.label(shot)).join(', ')} first.`);
       const orphan = shots.filter(({ shot }) => shot.startFrom === 'previous' && !pickedOf(h.read.prev(shot.id, s)?.takes));
       h.guard(!orphan.length, `${orphan.map(({ shot }) => h.read.label(shot)).join(', ')} start${orphan.length === 1 ? 's' : ''} where the shot before ends — circle a take of that shot first.`);
       const secs = shots.reduce((n, { shot }) => n + (Number(shot.seconds) || 0), 0);
-      const detail = (shot) => `${shot.startFrom === 'previous' ? `from the end of ${h.read.label(h.read.prev(shot.id, s))} · ` : ''}480p · ${shot.seconds} s`;
-      return h.ask.unplated(req, shots) || h.sheet(shots.map(({ shot }) => ({ label: h.read.label(shot), detail: detail(shot) })), `${plural(shots.length, 'draft')} · ${secs} s · Seedance 2.5`, shotJobs(shots), { takes: shots.length });
+      const detail = (shot) => `${shot.startFrom === 'previous' ? `from the end of ${h.read.label(h.read.prev(shot.id, s))} · ` : ''}480p · ${shot.seconds} s · ${videoModelLabel(modelOfShot(s, shot))}`;
+      return h.ask.unplated(req, shots) || h.sheet(shots.map(({ shot }) => ({ label: h.read.label(shot), detail: detail(shot) })), `${plural(shots.length, 'draft')} · ${secs} s · ${models.map(videoModelLabel).join(' + ')}`, shotJobs(shots), { takes: shots.length });
     },
     run: (h, req, p) => shootDrafts(h, req, p),
   },
@@ -250,22 +260,29 @@ const ACTIONS = {
   // (`from`), or every circled draft in a scene or shot.
   'camera.final': {
     plan: (h, req) => {
-      videoReady(h);
       const live = (t) => t?.draft?.taskId && Date.now() - t.draft.at < DRAFT_MODE.ttlMs;
       const shots = h.read.shots(req.scope)
         .map((x) => ({ ...x, take: req.from ? h.read.version(req.from.ref, req.from.vid) : pickedOf(x.shot.takes) }))
         .filter((x) => live(x.take));
       h.guard(shots.length, req.from ? 'This draft can no longer be finished (drafts finish within 7 days) — draft the shot again.' : 'Circle a draft first (drafts finish within 7 days).');
+      // Each draft finishes on the model that drafted it, at a resolution that model offers.
+      const res = req.res || FINAL_RES;
+      shots.forEach(({ shot, take }) => {
+        const key = take.draft.modelKey || VIDEO_MODEL;
+        videoReady(h, key);
+        const finals = draftFinalsOf(key);
+        h.guard(finals.includes(res), `${h.read.label(shot)} was drafted on ${videoModelLabel(key)}, which finishes at ${finals.join(' or ')} — not ${res}.`);
+      });
       const secs = shots.reduce((n, { shot }) => n + (Number(shot.seconds) || 0), 0);
-      return h.sheet(shots.map(({ shot }) => ({ label: h.read.label(shot), detail: `${FINAL_RES} MOV · ${shot.seconds} s` })), `${plural(shots.length, 'final')} · ${secs} s · ${FINAL_RES} MOV`, { shots: shots.map(({ sceneId, shot, take }) => ({ sceneId, shotId: shot.id, takeId: take.id })) }, { takes: shots.length });
+      return h.sheet(shots.map(({ shot, take }) => ({ label: h.read.label(shot), detail: `${res} MOV · ${shot.seconds} s · ${videoModelLabel(take.draft.modelKey || VIDEO_MODEL)}` })), `${plural(shots.length, 'final')} · ${secs} s · ${res} MOV`, { res, shots: shots.map(({ sceneId, shot, take }) => ({ sceneId, shotId: shot.id, takeId: take.id })) }, { takes: shots.length });
     },
     run: async (h, req, p) => {
       h.spend(p.shots.length);
       await h.each(p.shots, async ({ sceneId, shotId, takeId }) => {
         const draftTake = h.read.version({ at: 'take', sceneId, shotId }, takeId);
         if (!draftTake?.draft?.taskId) return;
-        const v = h.open({ at: 'take', sceneId, shotId }, { parent: draftTake.id, final: true, kind: 'take', res: FINAL_RES, prompt: draftTake.prompt, used: draftTake.used, inputs: [{ n: 1, label: 'the draft', url: draftTake.cacheUrl || draftTake.url, role: 'draft', versionId: draftTake.id, video: true }, ...(draftTake.inputs || []).map((x) => ({ ...x, n: x.n + 1 }))] });
-        try { await h.make.finish({ v, draftTake }); } catch (e) { v.fail(e); }
+        const v = h.open({ at: 'take', sceneId, shotId }, { parent: draftTake.id, final: true, kind: 'take', res: p.res, model: draftTake.draft.modelKey || VIDEO_MODEL, prompt: draftTake.prompt, used: draftTake.used, inputs: [{ n: 1, label: 'the draft', url: draftTake.cacheUrl || draftTake.url, role: 'draft', versionId: draftTake.id, video: true }, ...(draftTake.inputs || []).map((x) => ({ ...x, n: x.n + 1 }))] });
+        try { await h.make.finish({ v, draftTake, resolution: p.res }); } catch (e) { v.fail(e); }
       }, 3);
     },
   },
@@ -426,7 +443,8 @@ const shootDrafts = async (h, req, p) => {
     const shot = findShot(s, sceneId, shotId);
     if (!shot) return;
     const ref = { at: 'take', sceneId, shotId };
-    const v = h.open(ref, { kind: 'take', res: DRAFT_MODE.resolution, used: usedOf(s, shot) });
+    const modelKey = modelOfShot(s, shot);
+    const v = h.open(ref, { kind: 'take', res: DRAFT_MODE.resolution, model: modelKey, used: usedOf(s, shot) });
     try {
       const before = shot.startFrom === 'previous' ? pickedOf(h.read.prev(shotId, s)?.takes) : null;
       const opening = before ? { url: await h.read.lastFrame(before) } : null;
@@ -441,17 +459,17 @@ const shootDrafts = async (h, req, p) => {
       };
       if (req.from) {
         const prev = h.read.version(ref, req.from.vid, s);
-        const out = await h.think(directShotAction, { text: prev.prompt, note: h.note, references: list.map((r) => absLocalMediaUrl(r.url)), roster, kfIndices: opening ? [1] : [], modelKey: VIDEO_MODEL });
+        const out = await h.think(directShotAction, { text: prev.prompt, note: h.note, references: list.map((r) => absLocalMediaUrl(r.url)), roster, kfIndices: opening ? [1] : [], modelKey });
         report(out);
         prompt = [out.action, out.audio].filter(Boolean).join('\n');
       } else if (opening || shot.sheet) {
-        const out = await h.think(composeShotAction, { text: [modelText(s, shot.motion || shot.quote, imageOf), req.text, shot.audio].filter(Boolean).join('\n'), references: list.map((r) => absLocalMediaUrl(r.url)), roster, kfIndices: opening ? [1] : [], modelKey: VIDEO_MODEL, job: shot.turn, derive: !shot.sheet });
+        const out = await h.think(composeShotAction, { text: [modelText(s, shot.motion || shot.quote, imageOf), req.text, shot.audio].filter(Boolean).join('\n'), references: list.map((r) => absLocalMediaUrl(r.url)), roster, kfIndices: opening ? [1] : [], modelKey, job: shot.turn, derive: !shot.sheet });
         report(out);
         prompt = [out.action, out.audio].filter(Boolean).join('\n');
       } else {
         prompt = [modelText(s, shot.motion || shot.quote, imageOf), req.text, shot.audio].filter(Boolean).join('\n');
       }
-      await h.make.take({ v, prompt, list, seconds: shot.seconds, draft: true, flags });
+      await h.make.take({ v, prompt, list, seconds: shot.seconds, draft: true, flags, modelKey });
     } catch (e) { v.fail(e); }
   }, 3);
 };
@@ -497,7 +515,7 @@ export const createRunners = ({ get, set, ctx }) => {
     s.scenes.forEach((sc) => sc.shots.forEach((sh) => (sh.takes.versions || []).forEach((v) => {
       if (v.status !== 'running') return;
       const ver = harness.version({ at: 'take', sceneId: sc.id, shotId: sh.id }, v.id);
-      if (v.taskId) harness.make.poll(ver, v.taskId, { draft: v.res === DRAFT_MODE.resolution }).catch((e) => ver.fail(e));
+      if (v.taskId) harness.make.poll(ver, v.taskId, { draft: v.res === DRAFT_MODE.resolution, modelKey: v.model || VIDEO_MODEL }).catch((e) => ver.fail(e));
       else ver.fail(new Error('Interrupted — ask again'));
     })));
     const stop = (ref, c) => (c?.versions || []).forEach((v) => { if (v.status === 'running') harness.version(ref, v.id).fail(new Error('Interrupted — ask again')); });

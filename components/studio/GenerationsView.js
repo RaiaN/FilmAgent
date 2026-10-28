@@ -49,7 +49,7 @@ const Card = ({ s, ref_, v, label, now, open }) => {
         <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.muted, minWidth: 0 }}>
           <Avatar id={v.by} size={18} /><span style={{ color: crewColor(v.by) }}>{crewWho(v.by)}</span>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {KIND[v.kind] || v.kind}{v.res ? ` · ${v.res}` : ''}{v.format === 'mov' ? ' · MOV' : ''}{v.edit ? ' · edit' : ''}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {KIND[v.kind] || v.kind}{v.res ? ` · ${v.res}` : ''}{v.model === 'seedance25Premium' ? ' · Premium' : ''}{v.format === 'mov' ? ' · MOV' : ''}{v.edit ? ' · edit' : ''}</span>
         </div>
         {v.note && <div style={{ fontSize: 12, color: C.text, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{v.note}”</div>}
         <InputsStrip items={inputsOf(s, v)} />

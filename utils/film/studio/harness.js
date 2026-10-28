@@ -119,7 +119,7 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
   const poster = async (url) => {
     try { const { frames } = await ctx.client.extractFrames({ url, timestamps: [0.5], maxWidth: 480 }); return frames?.[0]?.url || ''; } catch { return ''; }
   };
-  const poll = async (v, taskId, { draft, flags: extra = [] } = {}) => {
+  const poll = async (v, taskId, { draft, flags: extra = [], modelKey = VIDEO_MODEL } = {}) => {
     const r = await ctx.client.pollVideo({ taskId });
     const url = r.videoCacheUrl || r.videoUrl;
     const format = /\.mov(\?|$)/i.test(r.videoUrl || '') ? 'mov' : 'mp4';
@@ -127,21 +127,21 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
       check.note('Every reference sent as an Asset Library asset'),
       ...extra,
     ];
-    v.done({ url: r.videoUrl, cacheUrl: r.videoCacheUrl || null, lastFrameUrl: r.lastFrameCacheUrl || r.lastFrameUrl || '', format, taskId: null, ...(draft ? { draft: { taskId, modelKey: VIDEO_MODEL, at: Date.now() } } : {}), flags, posterUrl: await poster(url) });
+    v.done({ url: r.videoUrl, cacheUrl: r.videoCacheUrl || null, lastFrameUrl: r.lastFrameCacheUrl || r.lastFrameUrl || '', format, taskId: null, ...(draft ? { draft: { taskId, modelKey, at: Date.now() } } : {}), flags, posterUrl: await poster(url) });
   };
   const make = {
     // Images (and anything else a core verb renders) — same call shape as think, paid.
     image: (verb, args, hooks) => verb(args, ctx, hooks),
     // One take: shoot, poll, store; resolves when it lands. An EDIT rides its master as
     // @video1 and sends neither ratio nor duration — both follow the source.
-    take: async ({ v, prompt, list, seconds, draft, master = null, flags = [] }) => {
+    take: async ({ v, prompt, list, seconds, draft, master = null, flags = [], modelKey = VIDEO_MODEL }) => {
       // Every reference goes as an Asset Library asset — a raw image is never sent.
       const missed = [];
       const refAssetIds = await registerRefs(list, missed);
       if (missed.length) throw new Error(`Could not add ${missed.join(', ')} to the Asset Library — the take is not shot without ${missed.length === 1 ? 'it' : 'them'}.`);
       const shot = master
         ? { motion: prompt, refUrls: list.map((r) => r.url), refRoles: [], durationSec: AUTO_SECONDS, resolution: FINAL_RES, ratio: null, generateAudio: true, modelKey: VIDEO_MODEL, draft: false, outputFormat: 'mov', videoRefUrls: [master], videoRefAssetIds: [null] }
-        : { motion: prompt, refUrls: list.map((r) => r.url), refRoles: [], durationSec: seconds, resolution: draft ? DRAFT_MODE.resolution : FINAL_RES, ratio: RATIO, generateAudio: true, modelKey: VIDEO_MODEL, draft };
+        : { motion: prompt, refUrls: list.map((r) => r.url), refRoles: [], durationSec: seconds, resolution: draft ? DRAFT_MODE.resolution : FINAL_RES, ratio: RATIO, generateAudio: true, modelKey, draft };
       let taskId;
       try {
         ({ taskId } = await startTake(shot, refAssetIds, ctx, { nameOf: (u) => list.find((r) => r.url === u)?.label || 'a reference image' }));
@@ -154,11 +154,11 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
       }
       // What the take was made from, as sent: the prompt and every reference in [Image N] order.
       v.patch({ taskId, prompt, ...(list.length ? { inputs: inputsOf(list) } : {}) });
-      await poll(v, taskId, { draft, flags });
+      await poll(v, taskId, { draft, flags, modelKey });
     },
-    // A circled draft finished at full resolution, 10-bit MOV — the same picture.
-    finish: async ({ v, draftTake }) => {
-      const { taskId } = await finishDraft({ draftTaskId: draftTake.draft.taskId, modelKey: VIDEO_MODEL, resolution: FINAL_RES, outputFormat: 'mov' }, ctx);
+    // A circled draft finished on the model that drafted it, 10-bit MOV — the same picture.
+    finish: async ({ v, draftTake, resolution = FINAL_RES }) => {
+      const { taskId } = await finishDraft({ draftTaskId: draftTake.draft.taskId, modelKey: draftTake.draft.modelKey || VIDEO_MODEL, resolution, outputFormat: 'mov' }, ctx);
       v.patch({ taskId });
       await poll(v, taskId, { draft: false });
     },
@@ -221,7 +221,7 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
       ...make,
       image: (verb, args, hooks) => { tell(stageOf(verb) || 'Rendering images'); return make.image(verb, args, hooks); },
       take: (o) => { tell('Seedance is rendering'); return make.take(o); },
-      finish: (o) => { tell('Finishing at 1080p'); return make.finish(o); },
+      finish: (o) => { tell(`Finishing at ${o.resolution || FINAL_RES}`); return make.finish(o); },
       source: (...a) => { tell('Registering the source clip'); return make.source(...a); },
       stitch: (...a) => { tell('Assembling the cut'); return make.stitch(...a); },
     },

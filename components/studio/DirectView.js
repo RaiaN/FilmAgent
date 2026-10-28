@@ -3,9 +3,9 @@ import { Button, Input, Select } from '@arco-design/web-react';
 import { IconClose, IconPlus, IconStarFill, IconUpload, IconSend, IconBulb, IconFile, IconDownload, IconRight, IconLoading } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Tile, Empty, Label, Pill, Avatar, PageHead, DropArea, CanvasButton, crewColor, crewWho, mediaOf, storeFile, readFile, readText } from './ui';
 import { stageLocalAsset } from '../../utils/film/canvasModel';
-import { ELEMENT_KINDS, KIND_LABEL, containerOf, findElement, findScene, findShot, namedText, tokenized, pickedOf, pad2, shotNumber, threadKeyOf, newElement, newShot, uid, staleOf } from '../../utils/film/studio/model';
+import { ELEMENT_KINDS, KIND_LABEL, VIDEO_MODELS, videoModelLabel, containerOf, findElement, findScene, findShot, namedText, tokenized, pickedOf, pad2, shotNumber, threadKeyOf, newElement, newShot, uid, staleOf } from '../../utils/film/studio/model';
 import { actionsFor, crewById, parseRequest } from '../../utils/film/studio/crew';
-import { DRAFT_MODE } from '../../utils/film/suiteConfig';
+import { DRAFT_MODE, draftFinalsOf } from '../../utils/film/suiteConfig';
 import { parseScript, pagesLabel } from '../../utils/film/core/scriptForm';
 
 // Blur-commit text: typing stays local, the film updates when you leave the field.
@@ -59,7 +59,7 @@ const PlanCard = ({ plan, onGo, busy, live }) => {
               ? <Working stage={live?.stage} since={live?.at} />
               : <span role="button" className="st-ghost" onClick={() => onGo(st, { redo: true })} style={{ fontSize: 12, color: C.text, cursor: 'pointer', textDecoration: 'underline' }}>Redo</span>)}
             {state === 'done' && <span style={{ fontSize: 12 }}>✓</span>}
-            {state === 'next' && (busy === st.id
+            {state === 'next' && (busy === st.id || st.working
               ? <Working stage={live?.stage} since={live?.at} />
               : (st.req || st.review) && <Button size="small" type="primary" style={{ flex: '0 0 auto' }} onClick={() => onGo(st)}>{st.review ? 'Open' : 'Go'}</Button>)}
           </div>
@@ -308,8 +308,11 @@ const ScenePage = ({ s, set, scene, scope, selectShot, review, toast, canvas, cr
   const importFiles = (files) => importFootage({ files, sceneId: scene.id, set, toast, onProgress: setImporting });
   const seconds = scene.shots.reduce((n, sh) => n + (Number(sh.seconds) || 0), 0);
   const circled = scene.shots.filter((sh) => sh.takes?.picked).length;
-  // Circled drafts that can still finish (1080p MOV, the same picture).
-  const toFinal = scene.shots.filter((sh) => { const t = pickedOf(sh.takes); return t?.draft?.taskId && Date.now() - t.draft.at < DRAFT_MODE.ttlMs; }).length;
+  // Circled drafts that can still finish (MOV, the same picture), at the resolutions every one
+  // of their models offers.
+  const finishing = scene.shots.map((sh) => pickedOf(sh.takes)).filter((t) => t?.draft?.taskId && Date.now() - t.draft.at < DRAFT_MODE.ttlMs);
+  const toFinal = finishing.length;
+  const finalRes = finishing.map((t) => draftFinalsOf(t.draft.modelKey || 'seedance25')).reduce((a, b) => a.filter((r) => b.includes(r)));
   const addShot = () => { const sh = newShot({ title: 'New shot' }); addShots([sh]); selectShot(sh.id); };
   return (
     <DropArea onFiles={importFiles} accept={isMedia} hint="Drop footage into this scene">
@@ -317,7 +320,7 @@ const ScenePage = ({ s, set, scene, scope, selectShot, review, toast, canvas, cr
         sub={scene.shots.length ? `${plural(scene.shots.length, 'shot')} · ${seconds} s · ${circled} circled` : ''}
         right={(
           <>
-            {toFinal > 0 && <Button onClick={() => crew.final(scene.id)} title="The circled drafts at 1080p MOV — the same pictures">Final {toFinal === 1 ? 'the circled draft' : `${toFinal} circled drafts`}</Button>}
+            {toFinal > 0 && finalRes.map((res) => <Button key={res} onClick={() => crew.final(scene.id, res)} title={`The circled drafts at ${res} MOV — the same pictures`}>Final {toFinal === 1 ? 'the circled draft' : `${toFinal} circled drafts`} · {res}</Button>)}
             <Button icon={<IconPlus />} onClick={addShot}>Shot</Button>
             <UploadButton icon={<IconUpload />} accept="video/*" loading={!!importing} onFiles={importFiles}>{importing ? `Importing ${importing}` : 'Footage'}</UploadButton>
             {canvas && scene.shots.length > 0 && <CanvasButton size={32} title="Open the scene's shots in Canvas" onClick={() => canvas.scene(scene.id)} />}
@@ -358,6 +361,7 @@ const ScenePage = ({ s, set, scene, scope, selectShot, review, toast, canvas, cr
                     : <span style={{ fontSize: 15, fontWeight: 600, flex: 1, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sh.title}</span>}
                   {stale.length > 0 && <Pill color={C.warn} bg={C.warnSoft}>stale · {stale.join(', ')}</Pill>}
                   {sh.startFrom === 'previous' && shotNumber(s, sh.id) > 1 && <Pill color={C.text} bg="transparent" style={{ border: `1px solid ${C.line}` }}>from end of {pad2(shotNumber(s, sh.id) - 1)}</Pill>}
+                  {sh.videoModel && sh.videoModel !== s.videoModel && <Pill color={C.text} bg="transparent" style={{ border: `1px solid ${C.line}` }}>{videoModelLabel(sh.videoModel)}</Pill>}
                   <Pill color={C.muted} bg="transparent" style={{ fontFamily: MONO, border: `1px solid ${C.line}` }}>{sh.seconds}s</Pill>
                   {canvas && <CanvasButton size={24} title={sh.boardCard ? 'Show its card in Canvas' : 'Open in Canvas'} onClick={() => canvas.shot(scene.id, sh.id)} />}
                   {on && <span role="button" className="st-ghost" title="Remove the shot" onClick={(e) => { e.stopPropagation(); removeShot(sh.id); selectShot(null); }} style={{ color: C.bad, cursor: 'pointer', fontSize: 12 }}>Remove</span>}
@@ -369,7 +373,11 @@ const ScenePage = ({ s, set, scene, scope, selectShot, review, toast, canvas, cr
                         <input type="checkbox" checked={sh.startFrom === 'previous'} onChange={(e) => patchShot(sh.id, { startFrom: e.target.checked ? 'previous' : null })} style={{ accentColor: C.accent }} />
                         Starts where shot {pad2(shotNumber(s, sh.id) - 1)} ends
                       </label>
-                    )}</div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, color: C.muted }}>
+                      Drafts on
+                      <Select size="small" value={sh.videoModel || ''} onChange={(k) => patchShot(sh.id, { videoModel: k || null })} options={[{ label: `Film · ${videoModelLabel(s.videoModel)}`, value: '' }, ...VIDEO_MODELS.map((m) => ({ label: m.label, value: m.key }))]} style={{ width: 210 }} getPopupContainer={(node) => node.parentElement} />
+                    </div></div>
                   : <div style={{ fontSize: 13, color: C.text, lineHeight: 1.6, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{namedText(s, sh.motion) || sh.quote || (take?.footage ? <span style={{ color: C.muted }}>Your footage</span> : <span style={{ color: C.muted }}>Nothing written yet</span>)}</div>}
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 'auto' }}>
                   {(sh.elementIds || []).map((id) => {

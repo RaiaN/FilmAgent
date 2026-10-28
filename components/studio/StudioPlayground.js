@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Dropdown, Menu, Message, Modal } from '@arco-design/web-react';
+import { Button, Dropdown, Menu, Message, Modal, Select } from '@arco-design/web-react';
 import { IconFile, IconVideoCamera, IconUserGroup, IconPlayCircle, IconPlus, IconDown, IconSettings } from '@arco-design/web-react/icon';
 import { C, MONO, STUDIO_CSS, Dot, crewColor } from './ui';
 import { DirectPage, Thread, scopeTarget, UploadButton, importFootage } from './DirectView';
@@ -7,7 +7,7 @@ import { Queue, Detail } from './ReviewView';
 import GenerationsView from './GenerationsView';
 import {
   emptyStudio, loadStudio, hasStudioWork, syncBoard, newScene, uid, threadKeyOf, addMessage, patchMessage, findShot, pickVersion, rejectVersion,
-  patchVersion, pickedOf, reviewQueue, planOf, sceneStatus, usedOf, versionOf, findElement, pad2, shotNumber,
+  patchVersion, pickedOf, reviewQueue, planOf, sceneStatus, usedOf, versionOf, findElement, pad2, shotNumber, VIDEO_MODELS,
 } from '../../utils/film/studio/model';
 import { createRunners, applyBreakdown } from '../../utils/film/studio/runners';
 import { elementToCanvas, shotToCanvas, versionToCanvas } from '../../utils/film/studio/canvasLink';
@@ -272,7 +272,8 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   // screenplay the Writers deliver for the brief replaces it (the brief before is kept).
   // Redo re-runs a finished step: its result comes back as a new version to pick in Review.
   const goStep = async (st, { redo = false } = {}) => {
-    if (st.review && !redo) { review(st.review.ref, st.review.vid); return; }
+    if (st.review?.sheet && !redo) { setSel({ sheet: st.review.sheet }); setFilter('needs'); setMode('review'); return; }
+    if (st.review && !redo) { review(st.review.ref, st.review.vid); if (st.agent === 'you') setFilter('needs'); return; }
     if (!st.req || busyStep) return;
     setBusyStep(st.id);
     try {
@@ -293,10 +294,10 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   };
   const review = (ref, vid) => { setSel({ ref, vid }); setFilter('all'); setMode('review'); };
   // FINAL — a draft at 1080p MOV: one from Review, or a scene's circled drafts.
-  const crewApi = { send: (agent, action, text) => request({ agent, action, scope, text }), final: (sceneId) => request({ agent: 'camera', action: 'final', scope: { type: 'scene', id: sceneId }, text: '' }) };
+  const crewApi = { send: (agent, action, text) => request({ agent, action, scope, text }), final: (sceneId, res) => request({ agent: 'camera', action: 'final', scope: { type: 'scene', id: sceneId }, text: '', res }) };
   // From Review, its call sheet opens right there.
-  const final = async (ref, v) => {
-    const r = await request({ agent: 'camera', action: 'final', scope: { type: 'shot', sceneId: ref.sceneId, id: ref.shotId }, text: '', from: { ref, vid: v.id } });
+  const final = async (ref, v, res) => {
+    const r = await request({ agent: 'camera', action: 'final', scope: { type: 'shot', sceneId: ref.sceneId, id: ref.shotId }, text: '', from: { ref, vid: v.id }, res });
     if (r?.sheet) setSel({ sheet: r.sheet });
   };
   // OPEN IN CANVAS — only when asked: the element, shot or version becomes Canvas nodes and the
@@ -361,9 +362,13 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
             </span>
           ))}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, justifyContent: 'flex-end', fontSize: 12.5, color: C.muted }}>
-          {project?.status && <span style={{ color: project.saveFailed ? C.bad : undefined, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={project.status}>{project.status}</span>}
-          <span style={{ fontFamily: MONO }}>{s.gens || 0} gens</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 0, justifyContent: 'flex-end', fontSize: 12.5, color: C.muted }}>
+          {/* The film's video model: what Camera drafts on, unless a shot picks its own. Premium drafts finish at 1080p or 4K. */}
+          <span title="What Camera drafts on. Seedance 2.5 finishes at 1080p; Premium at 1080p or 4K." style={{ flex: '0 0 auto' }}>
+            <Select size="small" value={s.videoModel} onChange={(videoModel) => set((x) => ({ ...x, videoModel }))} options={VIDEO_MODELS.map((m) => ({ label: m.label, value: m.key }))} style={{ width: 176 }} getPopupContainer={() => rootRef.current} />
+          </span>
+          {project?.status && <span style={{ color: project.saveFailed ? C.bad : undefined, minWidth: 0, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={project.status}>{project.status}</span>}
+          <span style={{ fontFamily: MONO, whiteSpace: 'nowrap' }}>{s.gens || 0} gens</span>
         </div>
       </div>
 

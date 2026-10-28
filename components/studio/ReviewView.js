@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Input } from '@arco-design/web-react';
 import { IconCheck, IconClose, IconStarFill, IconPlayArrowFill } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Tile, Empty, Label, Avatar, Dot, CanvasButton, crewColor, crewWho, mediaOf, isVideo } from './ui';
-import { containerOf, findShot, namedText, pickedOf, pad2, shotNumber } from '../../utils/film/studio/model';
-import { DRAFT_MODE } from '../../utils/film/suiteConfig';
+import { containerOf, findShot, namedText, pickedOf, pad2, shotNumber, videoModelLabel } from '../../utils/film/studio/model';
+import { DRAFT_MODE, draftFinalsOf } from '../../utils/film/suiteConfig';
 import { containerLabel } from '../../utils/film/studio/runners';
 import { InputsPanel, RefsEditor } from './Refs';
 import { Stripboard } from './Stripboard';
@@ -197,10 +197,12 @@ const VersionDetail = ({ s, set, toast, ref_, v, onPick, onNote, onFinal, onReje
   const noteable = ref_.at !== 'cut';
   const pickLabel = ref_.at === 'take' ? 'Circle' : 'Pick';
   const noteTo = v.by === 'you' ? 'VFX' : v.by === 'board' ? 'Camera' : crewWho(v.by);
-  // A draft finishes as the same picture at 1080p MOV, within the draft's 7 days.
+  // A draft finishes as the same picture in MOV, on the model that drafted it, at a resolution
+  // that model offers (2.5: 1080p · Premium: 1080p or 4K), within the draft's 7 days.
   const finishable = ref_.at === 'take' && v.draft?.taskId && v.status !== 'running' && v.status !== 'failed';
   const finalsOf = finishable ? c.versions.filter((x) => x.final && x.parent === v.id && x.status !== 'failed') : [];
   const expired = finishable && Date.now() - v.draft.at >= DRAFT_MODE.ttlMs;
+  const finalRes = finishable ? draftFinalsOf(v.draft.modelKey || 'seedance25') : [];
   const send = () => {
     const t = note.trim();
     if (!t) return;
@@ -238,7 +240,7 @@ const VersionDetail = ({ s, set, toast, ref_, v, onPick, onNote, onFinal, onReje
             </>
           )}
           {!noteable && <span style={{ flex: 1 }} />}
-          {finishable && <Button onClick={onFinal} disabled={expired} title={expired ? 'Drafts finish within 7 days — draft the shot again' : 'The same picture at 1080p MOV'}>{finalsOf.length ? 'Final again' : 'Final'} · 1080p</Button>}
+          {finalRes.map((res) => <Button key={res} onClick={() => onFinal(res)} disabled={expired} title={expired ? 'Drafts finish within 7 days — draft the shot again' : `The same picture at ${res} MOV · ${videoModelLabel(v.draft.modelKey || 'seedance25')}`}>{finalsOf.length ? 'Final again' : 'Final'} · {res}</Button>)}
           {v.status !== 'rejected' && <Button icon={<IconClose />} status="danger" onClick={onReject} title="Reject" aria-label="Reject" />}
         </div>
       )}
@@ -383,5 +385,5 @@ export const Detail = ({ s, set, toast, sel, setSel, q, onPick, onNote, onFinal,
   const c = containerOf(s, sel.ref);
   const v = sel.vid ? (c?.versions || []).find((x) => x.id === sel.vid) : focusOf(c, sel.kind);
   if (!v) return <Empty>No versions yet</Empty>;
-  return <VersionDetail s={s} set={set} toast={toast} ref_={sel.ref} v={v} canvas={canvas} onSelect={(vid) => setSel({ ref: sel.ref, vid })} onPick={() => onPick(sel.ref, v)} onNote={(t) => onNote(sel.ref, v, t)} onFinal={() => onFinal(sel.ref, v)} onReject={() => onReject(sel.ref, v)} />;
+  return <VersionDetail s={s} set={set} toast={toast} ref_={sel.ref} v={v} canvas={canvas} onSelect={(vid) => setSel({ ref: sel.ref, vid })} onPick={() => onPick(sel.ref, v)} onNote={(t) => onNote(sel.ref, v, t)} onFinal={(res) => onFinal(sel.ref, v, res)} onReject={() => onReject(sel.ref, v)} />;
 };

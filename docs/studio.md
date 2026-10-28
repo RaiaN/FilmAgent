@@ -60,7 +60,7 @@ deliver(versions) · ask(question, options) · sheet(jobs) · fail(what to fix)
 | @ | Job | Where | Paid |
 |---|---|---|---|
 | **Writers** | develop | brief | — |
-| **AD** | break the script down when you press Go on that plan step — numbered scenes (from the sluglines) with length in eighths of a page, one breakdown sheet per scene (cast, extras, props, wardrobe, dressing, special, sound — copied from the scene's words), the film's elements — and keep the plan (Writers → Casting → Block → Drafts → Cut, Go on the next step). Block the film: one scene sheet per scene — place and landmarks, camera views, start, beats (view · action · what everyone looks at), what works against them, sound, end | brief | — |
+| **AD** | break the script down when you press Go on that plan step — numbered scenes (from the sluglines) with length in eighths of a page, one breakdown sheet per scene (cast, extras, props, wardrobe, dressing, special, sound — copied from the scene's words), the film's elements — and keep the plan (Writers → Casting → Block → Drafts → Cut, Go on the next step; the cast step moves through Go → approve the call sheet → rendering → pick the plates in Review, and closes when every breakdown name has a picked plate). Block the film: one scene sheet per scene — place and landmarks, camera views, start, beats (view · action · what everyone looks at), what works against them, sound, end | brief | — |
 | **Casting** | faces: cast the film (Cast & World) · recast a character (its element) | Cast & World · character | images |
 | **Designer** | places and props: redesign (place · prop) · the views a scene sheet asks for, drawn from the place's plate (scene · shot) | place · prop · scene · shot | images |
 | **Camera** | draft takes (480p); a shot marked *Starts where the previous shot ends* starts on that shot's last frame | scene · shot | video |
@@ -72,7 +72,9 @@ At a scene, a shot job runs over every shot that still needs it.
 
 **A scene is one take.** The order: script → Casting → AD blocks → Designer draws the views → Camera drafts from the text and the plates (cast, place, views). A scene the AD marks as continuing opens on the last frame of the scene before. In every beat each person's eyes are on something in the scene — never the lens.
 
-**Final** is a button, not a crew job: on a draft in Review, or *Final N circled drafts* on a scene. It renders the same picture at 1080p MOV (within the draft's 7 days). A note on a final reworks its draft.
+**Video model.** The film drafts on Seedance 2.5 or Seedance 2.5 Premium (header select); a shot can pick its own (*Drafts on* on the selected shot). Camera drafts each shot on its model at 480p.
+
+**Final** is a button, not a crew job: on a draft in Review, or *Final N circled drafts* on a scene. It renders the same picture in MOV on the model that drafted it, at a resolution that model offers — 2.5: 1080p · Premium: 1080p or 4K (one button each) — within the draft's 7 days. A note on a final reworks its draft.
 
 ---
 
@@ -111,10 +113,10 @@ run(h, request, payload)  → versions
 | Writers · develop | idea → script | — | — |
 | AD · block | one scene sheet per scene | — | verbatim quotes, 4–15 s, places, 1–3 views, every beat on a listed view with a gaze target that is never the lens, start and end; places with no plate |
 | Designer · views | — | image edits of the place plate | — |
-| Casting · cast | cast plan (in `plan`) | images | a plate that didn't render |
+| Casting · cast | cast plan (in `plan`) | images | a plate that didn't render; every name the plan step asked for comes back under that name (one corrective re-ask, then an error naming the missing ones) |
 | Casting · recast / Designer · redesign | — | image edits (an anchor first if there's no plate) | per image |
 | Camera · draft | prompt composed from the shot's text against its plates (and, for a continuing shot, the previous shot's last frame); a scene sheet is the authority on what happens | 480p take | references sent; no unasked toward-the-lens wording |
-| Final (button) | — | the draft at 1080p MOV | — |
+| Final (button) | — | the draft at a resolution its model offers, MOV | a resolution its model doesn't offer is an error naming the ones it does |
 | VFX · edit | watch the clip, then write the change | 1080p MOV edit | written without watching; scope closed |
 | Editor · assemble | — | stitch | take count |
 | Shot · talk | one low-effort call: message + text + references + Cast & World + conversation + latest take (video) → reply, new text, adds, removes | — | adds only from Cast & World, removes only its own; every element the new text names rides as a reference; the sheet's Landmarks / At the start / At the end follow the text |

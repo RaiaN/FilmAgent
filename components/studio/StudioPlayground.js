@@ -333,7 +333,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
           </span>
           {/* The film's look: pick one, type your own, or let the crew read it from the script. */}
           <span title="The film's look. The crew follows it in everything it makes next; plates already made keep theirs." style={{ flex: '0 0 230px' }}>
-            <Select aria-label="Style" showSearch allowCreate prefix="Style" value={s.style || ''} onChange={changeStyle} options={[{ label: 'From the script', value: '' }, ...STYLES.map((x) => ({ label: x, value: x }))]} style={{ width: '100%' }} getPopupContainer={() => rootRef.current} />
+            <Select aria-label="Style" showSearch allowCreate prefix="Style" value={s.style || ''} onChange={changeStyle} options={[{ label: 'From the script', value: '' }, ...STYLES.map((x) => ({ label: x, value: x }))]} style={{ width: '100%' }} triggerProps={{ autoAlignPopupWidth: false, autoAlignPopupMinWidth: true }} getPopupContainer={() => rootRef.current} />
           </span>
           {/* The film's video model: what Camera drafts on, unless a shot picks its own. Premium drafts finish at 1080p or 4K. */}
           <span title="What Camera drafts on. Seedance 2.5 finishes at 1080p; Premium at 1080p or 4K." style={{ flex: '0 0 160px' }}>

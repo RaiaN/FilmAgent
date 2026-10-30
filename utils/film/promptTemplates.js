@@ -310,15 +310,6 @@ Return ONLY the prompt text — no quotes, no JSON, no commentary.`,
   },
 
 
-  // ---- Story: idea → blueprint (the story-builder skill) → critique; the look ----
-  // The skill rides whole as {skill}; user text is sentinel-injected VERBATIM by
-  // utils/film/core/story.js. Every block is word-capped and the cap is code-checked.
-  'story.architect.user': {
-    agent: 'Story',
-    label: 'Architect — idea to blueprint (instruction)',
-    vars: ['{idea}'],
-    text: 'THE IDEA:\n{idea}',
-  },
   // ---- SHOT card continuity lines (the frame a card carries from the card it continues) ----
   'story.ref.state': {
     agent: 'Shot',

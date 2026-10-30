@@ -1,17 +1,17 @@
 // THE STUDIO'S FILM — one object, saved inside the project (project.studio).
 //
-//   brief     the script and the crew's text deliveries (script · breakdown)
+//   brief     the script and the crew's text deliveries (screenplay · script breakdown)
 //   elements  Cast & World: characters, places, props — each a set of plate VERSIONS, one picked
-//   scenes    scenes → shots; a shot holds take versions (the circled one picked)
+//   scenes    numbered scenes (from the picked breakdown, or by hand) → shots; a scene holds its
+//             blocking versions, a shot its take versions (the circled one picked)
 //   cut       assembled cuts (versions)
-//   threads   the conversation per scope: requests, deliveries, questions, call sheets
-//   sheets    call sheets — paid work waiting for the director's approval
+//   threads   the conversation per scope: requests, deliveries, questions
 //
-// Every crew deliverable is a VERSION in a container ({ versions, picked }). Nothing enters
-// the film until the director picks it; a note makes the next version (parent + note).
+// Every crew deliverable is a VERSION in a container ({ versions, picked }) with a status:
+// running → review (new, waiting for the director) → picked · kept (seen, not the pick) ·
+// rejected, or failed. Nothing enters the film until the director picks it; a note makes the
+// next version (parent + note).
 // Pure functions only — the React shell owns state, the runners own the calls.
-
-import { parseScript } from '../core/scriptForm';
 
 export const uid = (p = '') => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
@@ -23,15 +23,14 @@ export const emptyStudio = () => ({
   script: '',
   // The film's video model; a shot may name its own.
   videoModel: 'seedance25',
-  // The 1st AD's breakdown of the script (form, numbered scenes, sheets, elements), made when
-  // the director asks for it; it knows which script it read.
-  breakdown: null,
+  // The 1st AD's shot list as picked (people, places, scenes and their shots); it knows which
+  // script it read.
+  shotList: null,
   brief: { versions: [] },
   elements: [],
   scenes: [],
   cut: { versions: [], picked: null },
   threads: {},
-  sheets: [],
   gens: 0,
 });
 
@@ -41,9 +40,9 @@ export const loadStudio = (input) => {
   const base = emptyStudio();
   if (!input || typeof input !== 'object') return base;
   // The brief is the script and its text deliveries; nothing else rides along from an older save.
-  const { look: _look, ...data } = input;
+  const { look: _look, sheets: _sheets, ...data } = input;
   const brief = { ...base.brief, ...(data.brief || {}) };
-  const versions = (brief.versions || []).filter((v) => v.kind !== 'look');
+  const versions = (brief.versions || []).filter((v) => v.kind === 'script' || v.kind === 'shotList');
   return {
     ...base,
     ...data,
@@ -51,17 +50,16 @@ export const loadStudio = (input) => {
     cut: { ...base.cut, ...(data.cut || {}) },
     elements: Array.isArray(data.elements) ? data.elements : [],
     // A shot carries its takes; nothing else rides along from an older save.
-    scenes: (Array.isArray(data.scenes) ? data.scenes : []).map((sc) => ({ ...sc, shots: (sc.shots || []).map(({ stills: _stills, ...sh }) => sh) })),
+    scenes: (Array.isArray(data.scenes) ? data.scenes : []).map((sc) => ({ blocking: { versions: [], picked: null }, ...sc, shots: (sc.shots || []).map(({ stills: _stills, ...sh }) => sh) })),
     threads: data.threads && typeof data.threads === 'object' ? data.threads : {},
-    sheets: Array.isArray(data.sheets) ? data.sheets : [],
   };
 };
 
 // Anything the director or the crew put in: a script, any version (a
-// delivery waiting for review), elements, scenes, a thread message, a call sheet.
+// delivery waiting for review), elements, scenes, a thread message.
 export const hasStudioWork = (s) => !!(s && (String(s.script || '').trim()
   || (s.brief?.versions || []).length || (s.cut?.versions || []).length || (s.elements || []).length || (s.scenes || []).length
-  || Object.values(s.threads || {}).some((m) => (m || []).length) || (s.sheets || []).length));
+  || Object.values(s.threads || {}).some((m) => (m || []).length)));
 
 // ---- scopes ------------------------------------------------------------------------
 // A scope is where the director is standing: { type: 'brief' | 'world' | 'element' |
@@ -87,13 +85,14 @@ export const shotNumber = (s, shotId) => {
 export const pad2 = (n) => String(n).padStart(2, '0');
 
 // ---- containers (anything with versions) ---------------------------------------------
-// A ref names one container: { at: 'brief' } · { at: 'element', id } · { at: 'take',
-// sceneId, shotId } · { at: 'cut' }.
+// A ref names one container: { at: 'brief' } · { at: 'element', id } · { at: 'scene',
+// sceneId } (its blocking) · { at: 'take', sceneId, shotId } · { at: 'cut' }.
 export const containerOf = (s, ref) => {
   if (!ref) return null;
   if (ref.at === 'brief') return s.brief;
   if (ref.at === 'cut') return s.cut;
   if (ref.at === 'element') return findElement(s, ref.id);
+  if (ref.at === 'scene') return findScene(s, ref.sceneId)?.blocking || null;
   const shot = findShot(s, ref.sceneId, ref.shotId);
   if (!shot) return null;
   return shot.takes;
@@ -106,6 +105,7 @@ export const updateContainer = (s, ref, fn) => {
   if (ref.at === 'brief') return { ...s, brief: fn(s.brief) };
   if (ref.at === 'cut') return { ...s, cut: fn(s.cut) };
   if (ref.at === 'element') return { ...s, elements: s.elements.map((e) => (e.id === ref.id ? fn(e) : e)) };
+  if (ref.at === 'scene') return { ...s, scenes: s.scenes.map((sc) => (sc.id === ref.sceneId ? { ...sc, blocking: fn(sc.blocking || { versions: [], picked: null }) } : sc)) };
   return mapShot(s, ref.sceneId, ref.shotId, (sh) => ({ ...sh, takes: fn(sh.takes) }));
 };
 export const addVersion = (s, ref, version) => updateContainer(s, ref, (c) => ({ ...c, versions: [...(c.versions || []), version] }));
@@ -115,13 +115,14 @@ export const patchVersion = (s, ref, vid, patch) => updateContainer(s, ref, (c) 
 export const versionOf = (s, ref, vid) => (containerOf(s, ref)?.versions || []).find((v) => v.id === vid) || null;
 export const pickedOf = (c) => (c?.versions || []).find((v) => v.id === c.picked) || null;
 
-// Picking makes the version the container's choice; the one it replaces stays as history.
+// Picking makes the version the container's choice; the one it replaces and the other new
+// ones beside it are seen (kept as history).
 export const pickVersion = (s, ref, vid) => updateContainer(s, ref, (c) => ({
   ...c,
   picked: vid,
   versions: (c.versions || []).map((v) => {
     if (v.id === vid) return { ...v, status: 'picked' };
-    if (v.status === 'picked') return { ...v, status: 'kept' };
+    if (v.status === 'picked' || v.status === 'review') return { ...v, status: 'kept' };
     return v;
   }),
 }));
@@ -130,6 +131,14 @@ export const rejectVersion = (s, ref, vid) => updateContainer(s, ref, (c) => ({
   picked: c.picked === vid ? null : c.picked,
   versions: (c.versions || []).map((v) => (v.id === vid ? { ...v, status: 'rejected' } : v)),
 }));
+
+// What the director sees of a container's versions: never a failed one (that lives in
+// Generations ▸ Failed only) or an archived one.
+export const visible = (v) => !!v && v.status !== 'failed' && !v.archived;
+
+// Archiving takes versions out of sight (Generations and the crew feed) without deleting them;
+// unarchiving brings them back. `items` are { ref, vid }.
+export const archiveVersions = (s, items, archived = true) => items.reduce((x, { ref, vid }) => patchVersion(x, ref, vid, { archived }), s);
 
 // ---- elements --------------------------------------------------------------------------
 export const newElement = ({ kind, name, desc = '' }) => ({ id: uid('el-'), kind, name: String(name || '').trim(), desc: String(desc || '').trim(), versions: [], picked: null });
@@ -182,7 +191,10 @@ export const staleOf = (s, shot) => {
     .map(([id]) => findElement(s, id).name);
 };
 
-export const newScene = (title = '') => ({ id: uid('sc-'), title: title || 'New scene', shots: [] });
+// A scene: its title, and — from the shot list — its number, slugline, place, time, the
+// script's own words (what the 1st AD blocks) and the people in it; its blocking versions;
+// its shots.
+export const newScene = (title = '', x = {}) => ({ id: uid('sc-'), title: title || 'New scene', n: x.n || null, slug: x.slug || '', place: x.place || '', time: x.time || '', text: x.text || '', people: x.people || [], blocking: { versions: [], picked: null }, shots: [] });
 
 // ---- the shot list (from a breakdown, by hand, or from footage) ----------------------------
 export const newShot = (x) => ({
@@ -207,8 +219,9 @@ export const newShot = (x) => ({
 
 // ---- review: everything waiting on the director ----------------------------------------
 export const containersOf = (s) => {
-  const out = [{ ref: { at: 'brief' }, c: s.brief, label: 'Brief', scope: { type: 'brief' } }];
+  const out = [{ ref: { at: 'brief' }, c: s.brief, label: 'Script', scope: { type: 'brief' } }];
   s.elements.forEach((el) => out.push({ ref: { at: 'element', id: el.id }, c: el, label: el.name, scope: { type: 'element', id: el.id } }));
+  s.scenes.forEach((sc, i) => out.push({ ref: { at: 'scene', sceneId: sc.id }, c: sc.blocking, label: `${pad2(i + 1)} ${sc.title} · blocking`, scope: { type: 'scene', id: sc.id } }));
   s.scenes.forEach((sc) => sc.shots.forEach((sh) => {
     const n = pad2(shotNumber(s, sh.id));
     const scope = { type: 'shot', sceneId: sc.id, id: sh.id };
@@ -217,17 +230,13 @@ export const containersOf = (s) => {
   out.push({ ref: { at: 'cut' }, c: s.cut, label: 'Cut', scope: { type: 'cut' } });
   return out;
 };
-export const reviewQueue = (s) => {
-  const deliveries = [];
-  let working = 0;
-  containersOf(s).forEach(({ ref, c, label, scope }) => (c?.versions || []).forEach((v) => {
-    if (v.status === 'review') deliveries.push({ ref, v, label, scope });
-    if (v.status === 'running') working += 1;
-  }));
-  const approvals = s.sheets.filter((x) => x.status === 'pending');
-  const questions = Object.entries(s.threads).flatMap(([key, msgs]) => msgs.filter((m) => m.kind === 'question' && !m.answered).map((m) => ({ key, m })));
-  const stale = s.scenes.flatMap((sc) => sc.shots.map((sh) => ({ sc, sh, who: staleOf(s, sh) })).filter((x) => x.who.length));
-  return { deliveries, approvals, questions, stale, working, waiting: deliveries.length + approvals.length + questions.length + stale.length };
+// What waits for a verdict (oldest first, the order to review in) and what is rendering.
+export const newWork = (s) => {
+  const all = containersOf(s).flatMap(({ ref, c, label, scope }) => (c?.versions || []).map((v) => ({ ref, v, label, scope })));
+  return {
+    fresh: all.filter((x) => x.v.status === 'review').sort((a, b) => (a.v.at || 0) - (b.v.at || 0)),
+    working: all.filter((x) => x.v.status === 'running').length,
+  };
 };
 
 // ---- scene status (the spine) ------------------------------------------------------------
@@ -372,62 +381,15 @@ export const allVersions = (s) => containersOf(s)
   .flatMap(({ ref, c, label, scope }) => (c?.versions || []).map((v) => ({ ref, v, label, scope })))
   .sort((a, b) => (b.v.at || 0) - (a.v.at || 0));
 
-// ---- the plan: the crew's next jobs, read off the breakdown and what exists -----------------
-// A short hash of the script, so a breakdown knows which script it read.
+// ---- the shot list ----------------------------------------------------------------------------
+// A short hash of the script, so a shot list knows which script it read.
 export const scriptHash = (text) => {
   let h = 0;
   const t = String(text || '');
   for (let i = 0; i < t.length; i += 1) h = ((h << 5) - h + t.charCodeAt(i)) | 0; // eslint-disable-line no-bitwise
   return String(h >>> 0); // eslint-disable-line no-bitwise
 };
-export const breakdownFresh = (s) => !!s.breakdown && s.breakdown.scriptHash === scriptHash(s.script);
-const named = (s, kind, name) => s.elements.find((e) => !e.viewOf && e.kind === kind && e.name.toLowerCase() === String(name).toLowerCase());
-const plated = (s, kind, name) => !!plateOf(named(s, kind, name));
-// Each step: who does it, what, whether it's done, and the request that does it. The first
-// step not done is the next one; steps after it wait.
-export const planOf = (s) => {
-  if (!String(s.script || '').trim()) return [];
-  const b = breakdownFresh(s) ? s.breakdown : null;
-  // The form is code (sluglines), so the plan is right before anyone runs.
-  const screenplay = parseScript(s.script).form === 'screenplay';
-  const shots = s.scenes.flatMap((sc) => sc.shots.map((sh) => ({ sc, sh })));
-  const unplated = b && screenplay ? [
-    ...b.elements.cast.filter((e) => !plated(s, 'character', e.name)).map((e) => ({ kind: 'character', name: e.name })),
-    ...b.elements.places.filter((e) => !plated(s, 'location', e.name)).map((e) => ({ kind: 'location', name: e.name })),
-  ].map((x) => ({ ...x, el: named(s, x.kind, x.name) })) : [];
-  // An unplated name is rendering, waiting for your pick in Review, or not cast yet.
-  const versionsOf = (el) => el?.versions || [];
-  const rendering = unplated.filter((x) => versionsOf(x.el).some((v) => v.status === 'running'));
-  const toPick = unplated.filter((x) => !rendering.includes(x) && versionsOf(x.el).some((v) => v.status === 'review'));
-  const missing = unplated.filter((x) => !rendering.includes(x) && !toPick.includes(x)).map((x) => x.name);
-  const castSheet = (s.sheets || []).find((sh) => sh.status === 'pending' && sh.req?.agent === 'casting');
-  const firstToPick = toPick[0] && { ref: { at: 'element', id: toPick[0].el.id }, vid: [...toPick[0].el.versions].reverse().find((v) => v.status === 'review').id };
-  const names = (xs) => `${xs.slice(0, 3).map((x) => x.name || x).join(', ')}${xs.length > 3 ? '…' : ''}`;
-  const picked = b ? (s.brief?.versions || []).find((v) => v.kind === 'scriptBreakdown' && v.status === 'picked' && v.payload?.scriptHash === b.scriptHash) : null;
-  const waiting = !b && screenplay ? [...(s.brief?.versions || [])].reverse().find((v) => v.kind === 'scriptBreakdown' && v.status === 'review' && v.payload?.scriptHash === scriptHash(s.script)) : null;
-  const firstWithout = (test) => shots.find(({ sh }) => !test(sh));
-  const drafted = (sh) => !!sh.takes?.picked;
-  const brief = { type: 'brief' };
-  const steps = [
-    { id: 'screenplay', agent: 'writers', label: 'Write the screenplay', done: screenplay, req: { agent: 'writers', action: 'develop', scope: brief, text: s.script, apply: true } },
-    // A breakdown the AD delivered for this script waits for you in Review; picking it is the step.
-    waiting
-      ? { id: 'breakdown', agent: 'you', label: 'Review the breakdown', done: false, review: { ref: { at: 'brief' }, vid: waiting.id } }
-      : { id: 'breakdown', agent: 'ad', label: 'Break down the script', done: !!b && b.form === 'screenplay' && screenplay, req: { agent: 'ad', action: 'plan', scope: brief, text: '' }, ...(picked ? { review: { ref: { at: 'brief' }, vid: picked.id } } : {}) },
-    castSheet
-      ? { id: 'cast', agent: 'you', label: 'Approve the casting call sheet', done: false, review: { sheet: castSheet.id } }
-      : missing.length || !unplated.length
-        ? { id: 'cast', agent: 'casting', label: missing.length ? `Cast ${missing.length} · ${names(missing)}` : 'Cast the film', done: !!b && screenplay && !unplated.length, req: { agent: 'casting', action: 'cast', scope: { type: 'world' }, text: missing.length ? `Cast exactly these, by these names: ${missing.join(', ')}.` : '', names: unplated.filter((x) => missing.includes(x.name)).map(({ kind, name }) => ({ kind, name })) } }
-        : toPick.length
-          ? { id: 'cast', agent: 'you', label: `Pick the cast · ${toPick.length} · ${names(toPick)}`, done: false, review: firstToPick }
-          : { id: 'cast', agent: 'casting', label: `Rendering the cast · ${rendering.length}`, done: false, working: true },
-    { id: 'block', agent: 'ad', label: 'Block the scenes', done: shots.length > 0, req: { agent: 'ad', action: 'breakdown', scope: brief, text: '' } },
-  ];
-  const noTake = firstWithout(drafted);
-  steps.push({ id: 'drafts', agent: 'camera', label: noTake ? `Drafts · ${noTake.sc.title}` : 'Drafts', done: shots.length > 0 && !noTake, req: noTake ? { agent: 'camera', action: 'draft', scope: { type: 'scene', id: noTake.sc.id }, text: '' } : null });
-  steps.push({ id: 'cut', agent: 'editor', label: 'First cut', done: !!s.cut?.picked, req: { agent: 'editor', action: 'assemble', scope: { type: 'cut' }, text: '' } });
-  return steps;
-};
+export const shotListFresh = (s) => !!s.shotList && s.shotList.scriptHash === scriptHash(s.script);
 
 // ---- video models -------------------------------------------------------------------------
 // The models a film or a shot drafts on. A draft finishes only on the model that made it, at

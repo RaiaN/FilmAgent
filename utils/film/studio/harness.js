@@ -1,12 +1,13 @@
-// THE HARNESS — the eight parts every crew member is made of (docs/studio.md).
+// THE HARNESS — the parts every crew member is made of (docs/studio.md).
 //
 //   read · guard · think · each · step both phases  (step: the stage the job is on, shown live)
-//   ask · sheet · go                   PLAN only  (decide what a request will do; never spends)
+//   ask · go                           PLAN only  (check the request, say what it will make; never spends)
 //   make · check · open · spend · addElements    RUN only   (do it; every result is a version)
-//   reply · reviseShot                            RUN only   (the Shot answers in words and edits itself)
+//   reply · reviseShot · reviseFilm               RUN only   (the Shot and the Script answer in words and edit themselves)
 //
 // The two phases get two different views of the harness, so a plan cannot make or deliver
-// and a run cannot ask: the rules hold by construction.
+// and a run cannot ask: the rules hold by construction. A run delivers only into the
+// containers its contract names (crew.js `lands`), and stops when the director presses Stop.
 import {
   uid, threadKeyOf, findScene, findShot, versionOf, addVersion, patchVersion, addMessage, patchMessage,
   shotNumber, pad2, unplatedOf,
@@ -65,31 +66,40 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
   const think = (verb, args) => verb(args, ctx);
 
   // ---- EACH: a scene-wide request over its shots, a few at a time ------------------------------
-  const each = (items, fn, n = 3) => runWithConcurrency(items.map((x) => () => fn(x)), n);
+  // (a run's own `each` starts nothing more once the director pressed Stop).
+  const each = (items, fn, n = 3, stopped = () => false) => runWithConcurrency(items.map((x) => () => (stopped() ? null : fn(x))), n);
 
-  // ---- ASK / SHEET / GO: what a plan returns --------------------------------------------------
+  // ---- ASK / GO: what a plan returns ------------------------------------------------------------
   // A question's options are requests.
   const ask = (text, options) => ({ question: { text, options } });
   // The crew never invents a face or a place: a named element without a plate is a question.
+  // A view is drawn by the Designer from its place's plate; anyone or anything else is cast.
   ask.unplated = (req, shots, s = get()) => {
     if (req.force) return null;
     const missing = [...new Map(shots.flatMap(({ shot }) => unplatedOf(s, shot)).map((e) => [e.id, e])).values()];
     if (!missing.length) return null;
+    const views = missing.filter((e) => e.viewOf);
+    const sceneOfView = views.length ? shots.find(({ shot }) => unplatedOf(s, shot).some((e) => e.viewOf))?.sceneId : null;
     return ask(`${missing.map((e) => e.name).join(', ')} ${missing.length === 1 ? 'has' : 'have'} no plate.`, [
-      ...missing.slice(0, 3).map((e) => ({ label: `Cast ${e.name}`, req: { agent: e.kind === 'character' ? 'casting' : 'designer', action: 'variation', scope: { type: 'element', id: e.id }, text: e.desc || e.name } })),
+      ...(views.length ? [{ label: 'Draw the views', req: { agent: 'designer', action: 'views', scope: { type: 'scene', id: sceneOfView }, text: '' } }] : []),
+      ...missing.filter((e) => !e.viewOf).slice(0, 3).map((e) => ({ label: `Cast ${e.name}`, req: { agent: e.kind === 'character' ? 'casting' : 'designer', action: 'variation', scope: { type: 'element', id: e.id }, text: e.desc || e.name } })),
       { label: 'Go ahead without', req: { ...req, force: true } },
     ]);
   };
-  const sheet = (jobs, summary, payload, counts = {}) => ({ sheet: { jobs, summary, payload, ...counts } });
-  const go = (payload = {}) => ({ now: true, payload });
+  // What the run will make, in a line the delivery shows while it works ("3 drafts · 24 s").
+  const go = (payload = {}, summary = '') => ({ now: true, payload, summary });
 
-  // ---- a VERSION: running → review | failed ----------------------------------------------------
-  const version = (ref, vid) => ({
-    ref, id: vid,
-    patch: (p) => set((s) => patchVersion(s, ref, vid, p)),
-    done: (p) => set((s) => patchVersion(s, ref, vid, { status: 'review', ...p })),
-    fail: (e) => set((s) => patchVersion(s, ref, vid, { status: 'failed', error: e?.message || String(e) })),
-  });
+  // ---- a VERSION: running → review | failed --------------------------------------------------
+  // Only a running version changes: one the director stopped stays stopped.
+  const version = (ref, vid) => {
+    const live = (fn) => (p) => set((s) => (versionOf(s, ref, vid)?.status === 'running' ? fn(s, p) : s));
+    return {
+      ref, id: vid,
+      patch: live((s, p) => patchVersion(s, ref, vid, p)),
+      done: live((s, p) => patchVersion(s, ref, vid, { status: 'review', ...p })),
+      fail: live((s, e) => patchVersion(s, ref, vid, { status: 'failed', error: e?.message || String(e) })),
+    };
+  };
 
   // ---- CHECK: what a result is flagged with ----------------------------------------------------
   const check = {
@@ -135,6 +145,9 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
     // One take: shoot, poll, store; resolves when it lands. An EDIT rides its master as
     // @video1 and sends neither ratio nor duration — both follow the source.
     take: async ({ v, prompt, list, seconds, draft, master = null, flags = [], modelKey = VIDEO_MODEL }) => {
+      // What the take is made from — the prompt and every reference in [Image N] order — is on
+      // the version before anything is sent, so a take that fails still shows it.
+      v.patch({ prompt, ...(list.length ? { inputs: inputsOf(list) } : {}) });
       // Every reference goes as an Asset Library asset — a raw image is never sent.
       const missed = [];
       const refAssetIds = await registerRefs(list, missed);
@@ -152,8 +165,7 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
         if (r?.elementId && r.versionId) set((s) => patchVersion(s, { at: 'element', id: r.elementId }, r.versionId, { assetId: null }));
         throw e;
       }
-      // What the take was made from, as sent: the prompt and every reference in [Image N] order.
-      v.patch({ taskId, prompt, ...(list.length ? { inputs: inputsOf(list) } : {}) });
+      v.patch({ taskId });
       await poll(v, taskId, { draft, flags, modelKey });
     },
     // A circled draft finished on the model that drafted it, 10-bit MOV — the same picture.
@@ -180,12 +192,15 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
   };
 
   // ---- OPEN: a request's delivery — versions announced in its thread, provenance attached -----
-  const deliver = (req) => {
+  const deliver = (req, contract, summary) => {
     const who = req.agent;
     const note = String(req.note || '').trim();
     const parent = req.from?.vid || null;
-    const msg = say(req.scope, { from: who, kind: 'delivery', items: [] });
+    const msg = say(req.scope, { from: who, kind: 'delivery', items: [], summary: summary || '' });
+    const stopped = () => !!(get().threads[threadKeyOf(req.scope)] || []).find((m) => m.id === msg)?.stopped;
     const open = (ref, base) => {
+      if (!(contract.lands || []).includes(ref.at)) throw new Error(`${who} delivered into ${ref.at}, outside its contract (${(contract.lands || []).join(', ') || 'nothing'}).`);
+      if (stopped()) throw new Error('Stopped.');
       const vid = uid('v-');
       set((s) => addVersion(s, ref, { id: vid, at: Date.now(), status: 'running', by: who, parent, note, ...base }));
       set((s) => {
@@ -198,7 +213,7 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
     const reply = (m) => say(req.scope, { from: who, ...m });
     // What the crew is doing right now, on the request's message (the thread and the plan show it).
     const stage = (text) => sayPatch(req.scope, msg, { stage: text, stageAt: Date.now() });
-    return { open, note, reply, stage, end: () => sayPatch(req.scope, msg, { finished: true }) };
+    return { open, note, reply, stage, stopped, end: () => sayPatch(req.scope, msg, { finished: true }) };
   };
   // A shot's text and references changed by the crew; what they were rides on the reply so
   // the director can undo it.
@@ -208,6 +223,9 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
     set((s) => ({ ...s, scenes: s.scenes.map((sc) => (sc.id !== sceneId ? sc : { ...sc, shots: sc.shots.map((sh) => (sh.id === shotId ? { ...sh, ...patch } : sh)) })) }));
     return { motion: before.motion, elementIds: before.elementIds };
   };
+  // The Script's own changes (the screenplay, a scene's shots), applied at once; the caller keeps
+  // what they were on its reply for Undo.
+  const reviseFilm = (fn) => set(fn);
   const spend = (n) => set((s) => ({ ...s, gens: (s.gens || 0) + n }));
   // Elements a delivery brings with it (Casting's new cast and places).
   const addElements = (els) => { if (els.length) set((s) => ({ ...s, elements: [...s.elements, ...els] })); };
@@ -228,11 +246,12 @@ export const createHarness = ({ get, set, ctx, stageOf = () => '' }) => {
   });
   const both = { read, guard, think, each };
   return {
-    plan: (onStage) => { const st = staged(onStage); return { ...both, think: st.think, step: st.step, ask, sheet, go }; },
-    run: (req) => {
-      const d = deliver(req);
+    plan: (onStage) => { const st = staged(onStage); return { ...both, think: st.think, step: st.step, ask, go }; },
+    run: (req, contract, summary) => {
+      const d = deliver(req, contract, summary);
       const st = staged(d.stage);
-      return { h: { ...both, think: st.think, step: st.step, make: st.make, check, open: d.open, note: d.note, reply: d.reply, reviseShot, spend, addElements }, end: d.end };
+      const eachRun = (items, fn, n) => each(items, fn, n, d.stopped);
+      return { h: { ...both, each: eachRun, think: st.think, step: st.step, make: st.make, check, open: d.open, note: d.note, reply: d.reply, stopped: d.stopped, reviseShot, reviseFilm, spend, addElements }, end: d.end };
     },
     version,
     make,

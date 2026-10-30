@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { IconClose, IconPlus } from '@arco-design/web-react/icon';
+import { Message } from '@arco-design/web-react';
+import { IconClose, IconPlus, IconCopy } from '@arco-design/web-react/icon';
 import { C, MONO, Label, storeFile } from './ui';
 import { findElement, findShot, pickedOf, newElement, uid, KIND_LABEL } from '../../utils/film/studio/model';
 
@@ -36,13 +37,13 @@ export const InputsStrip = ({ items, size = 26, max = 6 }) => {
   );
 };
 
-// The inputs of one version, named, with the prompt that was sent (Review).
+// The inputs of one version, named, with the prompt that was sent (the viewer).
 export const InputsPanel = ({ s, v }) => {
   const items = inputsOf(s, v);
-  if (!items.length && !v.prompt) return null;
+  if (!items.length && (!v.prompt || v.entry)) return null;
   return (
     <div style={{ display: 'grid', gap: 8 }}>
-      <Label>Made from</Label>
+      {items.length > 0 && <Label>Made from</Label>}
       {items.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           {items.map((it, i) => (
@@ -54,10 +55,13 @@ export const InputsPanel = ({ s, v }) => {
           ))}
         </div>
       )}
-      {v.prompt && (
+      {v.prompt && !v.entry && (
         <details>
-          <summary style={{ cursor: 'pointer', fontSize: 12, color: C.muted }}>Prompt sent</summary>
-          <pre style={{ whiteSpace: 'pre-wrap', margin: '8px 0 0', padding: '10px 12px', fontFamily: MONO, fontSize: 12, lineHeight: 1.6, color: C.text, background: C.raised, border: `1px solid ${C.line}`, borderRadius: 8, maxHeight: 280, overflow: 'auto' }}>{v.prompt}</pre>
+          <summary style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: C.text, cursor: 'pointer', listStyle: 'none' }}>
+            Prompt
+            <span role="button" className="st-chip" title="Copy the prompt" aria-label="Copy the prompt" onClick={(e) => { e.preventDefault(); navigator.clipboard.writeText(v.prompt).then(() => Message.success({ content: 'Prompt copied', duration: 1500 }), () => Message.error('Could not copy')); }} style={{ cursor: 'pointer', display: 'inline-grid', placeItems: 'center', width: 26, height: 26, borderRadius: 6, border: `1px solid ${C.line}`, color: C.text }}><IconCopy /></span>
+          </summary>
+          <pre style={{ whiteSpace: 'pre-wrap', margin: '8px 0 0', padding: '10px 12px', fontFamily: MONO, fontSize: 12, lineHeight: 1.6, color: C.text, background: C.raised, border: `1px solid ${C.line}`, borderRadius: 8, maxHeight: 360, overflow: 'auto' }}>{v.prompt}</pre>
         </details>
       )}
     </div>

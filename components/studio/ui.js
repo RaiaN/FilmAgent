@@ -27,9 +27,11 @@ export const CREW_LOOK = {
   you: { color: C.accent, short: 'You' },
   board: { color: '#9aa3b2', short: 'Bd' },
   shot: { color: '#f0abfc', short: 'Sh' },
+  script: { color: '#fcd34d', short: 'Sc' },
+  cast: { color: '#fda4af', short: 'CW' },
 };
 export const crewColor = (id) => CREW_LOOK[id]?.color || C.muted;
-const CREW_NAMES = { writers: 'Writers', ad: '1st AD', casting: 'Casting', designer: 'Designer', camera: 'Camera', vfx: 'VFX', editor: 'Editor', you: 'You', board: 'Canvas', shot: 'Shot' };
+const CREW_NAMES = { writers: 'Writers', ad: '1st AD', casting: 'Casting', designer: 'Designer', camera: 'Camera', vfx: 'VFX', editor: 'Editor', you: 'You', board: 'Canvas', shot: 'Shot', script: 'Script', cast: 'Cast & World' };
 export const crewWho = (id) => CREW_NAMES[id] || 'Studio';
 
 // Everything Arco can't take inline: hover states, the script page, scrollbars.
@@ -51,11 +53,15 @@ export const STUDIO_CSS = `${STUDIO_ARCO_DARK}
 .studio .st-card:hover { border-color: ${C.lineHi}; background: ${C.hover}; }
 .studio .st-chip { transition: background .12s, border-color .12s; }
 .studio .st-chip:hover { background: ${C.hover}; border-color: ${C.lineHi}; }
+.studio .st-tile { transition: transform .14s, box-shadow .14s; }
+.studio .st-tile:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(0,0,0,0.5); }
+.studio .st-stage { transition: background .12s, color .12s; }
+.studio .st-stage:hover { background: ${C.hover}; }
 .studio .st-ghost { opacity: .55; transition: opacity .12s; }
 .studio .st-ghost:hover { opacity: 1; }
 .studio .st-script.arco-textarea, .studio .st-script.arco-textarea:hover, .studio .st-script.arco-textarea:focus {
   background: transparent; border: none; box-shadow: none; color: #e9e4da; padding: 0;
-  font-family: ${SCRIPT_FONT}; font-size: 14.5px; line-height: 1.75; resize: none;
+  font-family: ${SCRIPT_FONT}; font-size: 15.5px; line-height: 1.75; resize: none;
 }
 .studio .st-bare.arco-input, .studio .st-bare.arco-input:hover, .studio .st-bare.arco-textarea, .studio .st-bare.arco-textarea:hover { background: transparent; border-color: transparent; }
 .studio .st-bare.arco-input:focus, .studio .st-bare.arco-textarea:focus { background: ${C.raised}; border-color: ${C.line}; box-shadow: none; }
@@ -78,20 +84,28 @@ export const Avatar = ({ id, size = 24 }) => {
 };
 
 // One version as a tile: its picture (a take shows its poster), or its state.
-export const Tile = ({ v, w = 96, ratio = '16 / 9', picked, onClick, title, badge }) => {
-  const box = { width: w, aspectRatio: ratio, borderRadius: 6, overflow: 'hidden', background: '#08090b', position: 'relative', flex: '0 0 auto', cursor: onClick ? 'pointer' : 'default', boxShadow: picked ? `0 0 0 2px ${C.gold}` : `inset 0 0 0 1px ${C.line}` };
+export const Tile = ({ v, w = 96, ratio = '16 / 9', picked, onClick, title, badge, big, fit = 'cover', position = 'center' }) => {
+  const box = { width: w, aspectRatio: ratio, borderRadius: big ? 14 : 8, overflow: 'hidden', background: '#08090b', position: 'relative', flex: '0 0 auto', cursor: onClick ? 'pointer' : 'default', boxShadow: picked ? `0 0 0 2px ${C.gold}` : `inset 0 0 0 1px ${C.line}` };
   let inner = null;
   if (!v) inner = null;
   else if (v.status === 'running') inner = <div className="st-pulse" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: C.work, background: C.workSoft }}><IconLoading /></div>;
   else if (v.status === 'failed') inner = <div title={v.error} style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: C.bad, background: '#2a1416' }}><IconExclamationCircle /></div>;
-  else if (isVideo(v)) inner = v.posterUrl
-    ? <><img src={v.posterUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /><IconPlayArrowFill style={{ position: 'absolute', right: 4, bottom: 4, color: '#fff', fontSize: 12, filter: 'drop-shadow(0 1px 2px #000)' }} /></>
-    : <video src={mediaOf(v)} preload="metadata" muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />;
-  else if (mediaOf(v)) inner = <img src={mediaOf(v)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />;
+  else if (isVideo(v)) {
+    inner = (
+      <>
+        {v.posterUrl
+          ? <img src={v.posterUrl} alt="" style={{ width: '100%', height: '100%', objectFit: fit, display: 'block' }} />
+          : <video src={mediaOf(v)} preload="metadata" muted style={{ width: '100%', height: '100%', objectFit: fit, display: 'block' }} />}
+        {big
+          ? <span className="st-play" style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: 68, height: 68, borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'rgba(8,9,11,0.55)', backdropFilter: 'blur(6px)', color: '#fff', fontSize: 28, pointerEvents: 'none' }}><IconPlayArrowFill /></span>
+          : <IconPlayArrowFill style={{ position: 'absolute', right: 5, bottom: 5, color: '#fff', fontSize: 13, filter: 'drop-shadow(0 1px 2px #000)' }} />}
+      </>
+    );
+  } else if (mediaOf(v)) inner = <img src={mediaOf(v)} alt="" style={{ width: '100%', height: '100%', objectFit: fit, objectPosition: position, display: 'block' }} />;
   return (
     <div role={onClick ? 'button' : undefined} onClick={onClick} title={title || v?.error || ''} style={box}>
       {inner}
-      {badge && <span style={{ position: 'absolute', left: 3, top: 3, fontSize: 8.5, fontWeight: 700, letterSpacing: 0.4, color: '#fff', background: 'rgba(0,0,0,0.6)', borderRadius: 3, padding: '0 3px' }}>{badge}</span>}
+      {badge && <span style={{ position: 'absolute', left: big ? 12 : 4, top: big ? 12 : 4, fontSize: big ? 12 : 9.5, fontWeight: 700, letterSpacing: 0.4, color: '#fff', background: 'rgba(0,0,0,0.62)', borderRadius: 4, padding: big ? '2px 7px' : '0 4px' }}>{badge}</span>}
     </div>
   );
 };
@@ -108,12 +122,11 @@ export const Pill = ({ children, color = C.text, bg = C.raised, style }) => (
 );
 export const Dot = ({ color, pulse, size = 7 }) => <span className={pulse ? 'st-pulse' : undefined} style={{ width: size, height: size, borderRadius: '50%', background: color, display: 'inline-block', flex: '0 0 auto' }} />;
 
-// A page's head: its title, a quiet line under it, what you can do here on the right.
-export const PageHead = ({ title, sub, right, children }) => (
-  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+// A page's head: its title, what you can do here on the right.
+export const PageHead = ({ title, right, children }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap', minHeight: 40 }}>
     <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-      {children || <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.4, color: C.ink, lineHeight: 1.2 }}>{title}</div>}
-      {sub && <div style={{ fontSize: 12.5, color: C.muted, marginTop: 4 }}>{sub}</div>}
+      {children || <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: -0.6, color: C.ink, lineHeight: 1.2 }}>{title}</div>}
     </div>
     {right && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>{right}</div>}
   </div>
@@ -129,10 +142,10 @@ export const DropArea = ({ onFiles, accept = () => true, children, style, hint =
   const [over, setOver] = useState(0);
   return (
     <div
-      onDragEnter={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setOver((n) => n + 1); } }}
-      onDragLeave={() => setOver((n) => Math.max(0, n - 1))}
-      onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); }}
-      onDrop={(e) => { e.preventDefault(); setOver(0); const fs = [...(e.dataTransfer?.files || [])].filter(accept); if (fs.length) onFiles(fs); }}
+      onDragEnter={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); e.stopPropagation(); setOver((n) => n + 1); } }}
+      onDragLeave={(e) => { e.stopPropagation(); setOver((n) => Math.max(0, n - 1)); }}
+      onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); e.stopPropagation(); } }}
+      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setOver(0); const fs = [...(e.dataTransfer?.files || [])].filter(accept); if (fs.length) onFiles(fs); }}
       style={{ position: 'relative', ...style }}
     >
       {children}

@@ -154,37 +154,20 @@ export const withDialogueGate = async (source, field, run) => {
 
 // AUTHOR one shot from its verbatim span. ONE corrective re-ask names any span dialogue
 // the motion dropped; still missing → `missingDialogue` (the card flags it, never silently).
-// ---- SCENES: the film blocked scene by scene (Studio) ---------------------------------
-// Two passes so no planner call grows with the whole film: DIVIDE (text only) splits the
-// script into scenes and names each place once with its landmarks; then one SHEET call per
-// scene blocks it — 4 at a time, a continuing scene after the one it continues (it opens on
-// that scene's end frame). Each scene is ONE take that may cut between its views. Code checks
-// what each pass promises — verbatim quotes, 4–15 s, a known place; every beat on a listed
-// view, a gaze target that is never the lens, a start and an end — with ONE corrective
-// re-ask naming the failures, then an error naming the scene.
-const LENS_RE = /\b(camera|lens|viewer|audience)\b/i;
-const SHEET_CONCURRENCY = 4;
+// ---- BLOCK ONE SCENE (Studio): the 1st AD's scene sheet --------------------------------
+// One planner call per scene: the scene's own words (never the whole script), its place's
+// landmarks when an earlier scene there already fixed them, the end frame of the scene before
+// when it is in the same place, and the plates of who is in it. The scene is ONE take that may
+// cut between its views. Code checks what the call promises — 4–15 s, landmarks, 1–3 views,
+// every beat on a listed view, a gaze target that is never the lens, a start and an end — with
+// ONE corrective re-ask naming the failures, then an error naming the scene.
+// The camera itself — never "the audience", which on a stage is people in the scene.
+const LENS_RE = /\b(camera|lens)\b/i;
 const str = (x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim();
-const divideProblems = ({ places, scenes }, script, refCount, plateNames = []) => {
-  const src = scriptWords(script);
-  const out = [];
-  if (!scenes.length) return ['no scenes came back'];
-  places.forEach((pl) => { if (!pl.name || !pl.landmarks) out.push(`place "${pl.name || '?'}": needs a name and its landmarks`); });
-  scenes.forEach((sc, i) => {
-    const tag = `scene ${i + 1} ("${sc.title}")`;
-    if (!normText(sc.quote) || !src.includes(normText(sc.quote))) out.push(`${tag}: its quote is not word-for-word in the script`);
-    if (!(sc.seconds >= MOMENT_SECONDS[0] && sc.seconds <= MOMENT_SECONDS[1])) out.push(`${tag}: seconds must be ${MOMENT_SECONDS[0]}–${MOMENT_SECONDS[1]}`);
-    if (!sc.place) out.push(`${tag}: no place named`);
-    else if (!places.some((pl) => pl.name === sc.place)) out.push(`${tag}: its place "${sc.place}" is not one of the places listed`);
-    if (sc.badFigures.length) out.push(`${tag}: figures ${sc.badFigures.join(', ')} are not attached (${refCount} plates)`);
-    sc.unplated.forEach((u) => { if (plateNames.includes(u.name.toLowerCase())) out.push(`${tag}: "${u.name}" has a plate — list it in figures, not unplated`); });
-    if (i === 0 && sc.continues) out.push(`${tag}: the first scene cannot continue from a scene before it`);
-    if (sc.continues && i > 0 && sc.place !== scenes[i - 1].place) out.push(`${tag}: continues from the scene before but is in another place`);
-  });
-  return out;
-};
 const sheetProblems = (sh) => {
   const out = [];
+  if (!(sh.seconds >= MOMENT_SECONDS[0] && sh.seconds <= MOMENT_SECONDS[1])) out.push(`seconds must be ${MOMENT_SECONDS[0]}–${MOMENT_SECONDS[1]}`);
+  if (!sh.landmarks) out.push('no landmarks for the place');
   if (!sh.views.length || sh.views.length > 3) out.push('needs 1–3 views');
   sh.views.forEach((vw) => { if (!vw.name || !vw.from) out.push('every view needs a name and where the camera stands'); });
   if (!sh.start) out.push('no start frame described');
@@ -199,112 +182,49 @@ const sheetProblems = (sh) => {
   return out;
 };
 const retryLine = (problems) => `\nRETRY — your previous answer broke these rules; fix every one:\n${problems.map((x) => `• ${x}`).join('\n')}\n`;
-// At most `n` jobs in flight; a job may wait on another before taking its slot.
-const gate = (n) => {
-  let free = n;
-  const queue = [];
-  const release = () => { free += 1; const next = queue.shift(); if (next) next(); };
-  return async (job) => {
-    if (free <= 0) await new Promise((r) => queue.push(r));
-    free -= 1;
-    try { return await job(); } finally { release(); }
-  };
-};
-export const storyboardScenes = async ({ script = '', references = [], labels = [], places = [], note = '', config } = {}, ctx) => {
-  const text = String(script || '').trim();
-  if (!text) throw new Error('Write the script first.');
+
+export const blockScene = async ({ scene, landmarks = '', before = '', people = [], references = [], labels = [], unplated = [], note = '', effort = null, config } = {}, ctx) => {
+  const words = String(scene?.text || '').trim();
+  if (!words) throw new Error('This scene has no words to block — it needs its script.');
   const refs = fitList(references, 10, 'plates for the 1st AD');
   if (labels.length !== refs.length) throw new Error(`${refs.length} plates but ${labels.length} names for them.`);
-  fitText(text, 12000, 'The script');
+  fitText(words, 12000, 'The scene');
   fitText(String(note || ''), 1500, "The director's note");
-  const roster = labels.map((l, i) => `[Image ${i + 1}] ${l}`).join('\n') || '(no plates yet)';
-  const noteLine = String(note || '').trim() ? `\nDIRECTOR'S NOTE — apply it:\n${String(note).trim()}\n` : '';
-  const reason = (system, prompt, images) => ctx.client.reason({ prompt, systemPrompt: system, images, modelId: getModel('reasoner', config), reasoningEffort: getRuntime(config).reasoningEffort });
-
-  // DIVIDE — scenes and places, text only.
-  const divideSystem = await crewStep('crew-ad', 'divide', {
-    refCount: String(refs.length),
-    roster,
-    places: places.length ? `PLACES THAT ALREADY EXIST — when a scene happens in one of them, use its name EXACTLY; a place that is none of them keeps the script's own name:\n${places.map((x) => `- ${x}`).join('\n')}` : 'The film has no named places yet — name each place once and keep the name.',
-  });
-  const divide = async (retry) => {
-    const { content } = await reason(divideSystem, `SCRIPT:\n"""\n${text}\n"""\n${noteLine}${retry}\nDivide the film and return the JSON.`, []);
+  const roster = labels.map((l, i) => `[Image ${i + 1}] ${l}`).join('\n') || '(no plates)';
+  const system = await crewStep('crew-ad', 'sheet', { refCount: String(refs.length), roster });
+  const fence = '"""';
+  const brief = [
+    `THE SCENE TO BLOCK — ${scene.slug || scene.title || 'the scene'}`,
+    `Place: ${scene.place || 'as the scene says'}.`,
+    landmarks ? `The place's landmarks are FIXED (an earlier scene there set them) — block against them and return them unchanged: ${landmarks}` : 'The place has no landmarks yet — set them.',
+    people.length ? `The people in it — name each EXACTLY so, whatever the scene calls them: ${people.map((p) => (p.aka?.length ? `${p.name} (the script also says ${p.aka.join(', ')})` : p.name)).join('; ')}.` : '',
+    unplated.length ? `In it, with no plate (use these script names): ${unplated.join(', ')}.` : '',
+    before ? `The scene before happens in the same place and ends on this frame: ${before}` : '',
+    `The scene's words:\n${fence}\n${words}\n${fence}`,
+    String(note || '').trim() ? `DIRECTOR'S NOTE — apply it:\n${String(note).trim()}` : '',
+  ].filter(Boolean).join('\n');
+  const ask = async (retry) => {
+    const { content } = await ctx.client.reason({ prompt: `${brief}\n${retry}\nBlock this scene and return the JSON.`, systemPrompt: system, images: refs, modelId: getModel('reasoner', config), reasoningEffort: effort || getRuntime(config).reasoningEffort });
     const raw = parseJson(content) || {};
     return {
-      places: (Array.isArray(raw.places) ? raw.places : []).map((pl) => ({ name: str(pl?.name), landmarks: str(pl?.landmarks) })),
-      scenes: (Array.isArray(raw.scenes) ? raw.scenes : []).map((sc, i) => {
-        const figs = Array.isArray(sc?.figures) ? [...new Set(sc.figures.map((x) => Number(x)))] : [];
-        return {
-          title: str(sc?.title) || `Scene ${i + 1}`,
-          quote: String(sc?.quote || '').trim(),
-          place: str(sc?.place),
-          seconds: Math.round(Number(sc?.seconds)),
-          continues: sc?.continues === true,
-          figures: figs.filter((x) => x >= 1 && x <= refs.length),
-          badFigures: figs.filter((x) => !(x >= 1 && x <= refs.length)),
-          unplated: (Array.isArray(sc?.unplated) ? sc.unplated : [])
-            .map((u) => ({ name: str(u?.name), kind: str(u?.kind).toLowerCase() === 'prop' ? 'prop' : 'character' }))
-            .filter((u) => u.name),
-        };
-      }),
+      seconds: Math.round(Number(raw.seconds)),
+      landmarks: landmarks || str(raw.landmarks),
+      views: (Array.isArray(raw.views) ? raw.views : []).map((vw) => ({ name: str(vw?.name), from: str(vw?.from) })),
+      start: str(raw.start),
+      beats: (Array.isArray(raw.beats) ? raw.beats : []).map((b) => ({ view: str(b?.view), action: str(b?.action), looksAt: str(b?.looksAt) })),
+      against: str(raw.against),
+      sound: str(raw.sound),
+      end: str(raw.end),
     };
   };
-  let plan = await divide('');
-  const plateNames = labels.map((l) => String(l).replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase());
-  let problems = divideProblems(plan, text, refs.length, plateNames);
-  if (problems.length) {
-    plan = await divide(retryLine(problems));
-    problems = divideProblems(plan, text, refs.length, plateNames);
+  let out = await ask('');
+  let bad = sheetProblems(out);
+  if (bad.length) {
+    out = await ask(retryLine(bad));
+    bad = sheetProblems(out);
   }
-  if (problems.length) throw new Error(`The scene list failed the checks: ${problems.join(' · ')}`);
-  const landmarksOf = (place) => plan.places.find((pl) => pl.name === place)?.landmarks || '';
-
-  // SHEET — each scene blocked on its own; a continuing scene opens on the end frame before it.
-  const sheetSystem = await crewStep('crew-ad', 'sheet', { refCount: String(refs.length), roster });
-  const sheet = async (sc, i, before) => {
-    const tag = `Scene ${i + 1} ("${sc.title}")`;
-    const brief = [
-      `THE SCENE TO BLOCK — scene ${i + 1} of ${plan.scenes.length}: "${sc.title}", ${sc.seconds} seconds.`,
-      `Place: ${sc.place}. Landmarks: ${landmarksOf(sc.place)}`,
-      `In it, as their plates: ${sc.figures.length ? sc.figures.map((g) => labels[g - 1]).join(', ') : 'nobody'}.`,
-      sc.unplated.length ? `In it, with no plate (use these script names): ${sc.unplated.map((u) => u.name).join(', ')}.` : '',
-      `The script's words for this scene:\n"""\n${sc.quote}\n"""`,
-      before ? `It CONTINUES from the scene before, whose end frame is: ${before.end}` : '',
-    ].filter(Boolean).join('\n');
-    const ask = async (retry) => {
-      const { content } = await reason(sheetSystem, `THE WHOLE SCRIPT, for context:\n"""\n${text}\n"""\n\n${brief}\n${noteLine}${retry}\nBlock this scene and return the JSON.`, refs);
-      const raw = parseJson(content) || {};
-      return {
-        views: (Array.isArray(raw.views) ? raw.views : []).map((vw) => ({ name: str(vw?.name), from: str(vw?.from) })),
-        start: str(raw.start),
-        beats: (Array.isArray(raw.beats) ? raw.beats : []).map((b) => ({ view: str(b?.view), action: str(b?.action), looksAt: str(b?.looksAt) })),
-        against: str(raw.against),
-        sound: str(raw.sound),
-        end: str(raw.end),
-      };
-    };
-    let out = await ask('');
-    let bad = sheetProblems(out);
-    if (bad.length) {
-      out = await ask(retryLine(bad));
-      bad = sheetProblems(out);
-    }
-    if (bad.length) throw new Error(`${tag} failed the checks: ${bad.join(' · ')}`);
-    const { badFigures, ...rest } = sc;
-    return { ...rest, landmarks: landmarksOf(sc.place), ...out };
-  };
-  const slot = gate(SHEET_CONCURRENCY);
-  const done = [];
-  const blocked = (i) => {
-    if (!done[i]) {
-      done[i] = (async () => {
-        const before = plan.scenes[i].continues ? await blocked(i - 1) : null;
-        return slot(() => sheet(plan.scenes[i], i, before));
-      })();
-    }
-    return done[i];
-  };
-  return Promise.all(plan.scenes.map((_, i) => blocked(i)));
+  if (bad.length) throw new Error(`${scene.slug || 'The scene'} failed the checks: ${bad.join(' · ')}`);
+  return { place: scene.place, ...out };
 };
 
 // A scene sheet as the shot's text: where the camera is for each beat (a new view is a

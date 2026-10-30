@@ -1,32 +1,68 @@
-# Studio: the @ syntax and the harness
+# Studio: the harness makes a film with you, step by step
 
-The Studio is built from two things:
+A film goes through four stages, always on top of the screen:
 
-1. **The @ syntax:** how you talk to the film crew, and how the crew answers.
-2. **The harness:** what every crew member is made of.
+**1 Script → 2 Cast & World → 3 Scenes → 4 Cut**
 
-They meet in one noun, the **version**. Every result is a version: a script, a plate, a frame, a take or a cut.
-- The harness makes versions.
-- Your sentences pick, note or reject them.
+The stage fills the screen; the crew panel sits beside it (Crew in the header hides it). Above the composer is **the next step**: one button, the one thing to do now. Press it and the job runs, or what waits for you opens.
+
+| Stage | The steps | What you see |
+|---|---|---|
+| **Script** | your idea or screenplay → the Writers' screenplay → the AD's shot list | the screenplay as a page beside the shot list |
+| **Cast & World** | Casting draws a plate for everyone and everywhere → you pick | big plates: Cast, Places, Props |
+| **Scenes** | the Designer's views → the Camera's 480p drafts, or your performance footage and a VFX edit → you circle a take | every scene as a big picture; a scene is a monitor with its takes, its cast and its beats |
+| **Cut** | the rough cut from the circled takes → each scene's Final at full resolution → the cut again | the film over its timeline |
+
+**Generations** (in the header) shows every render.
+
+Three rules hold everywhere:
+
+1. **Agents do the work.** The next step, or `@Agent [words]` where you stand. That agent does its one job at once and delivers versions into one place.
+2. **You review.** Every version an agent delivers waits for your verdict: **Pick** (Circle a take), **Note** (an edit of that version) or **Reject**.
+3. **Everything an agent makes can be edited from your words.** A note in the viewer edits the version you look at; words without an `@` edit what you stand on. Either way the edit is a new version of that output, its parent the one edited, and only what the words touch changes (`editorFor` / `talkerFor` in `crew.js`). A change the checks refuse gets one corrective re-ask; what is still refused is said on the reply ("Not applied: …"), which never claims it.
+
+Nothing runs by itself: every job starts when you press it or ask for it.
+
+### The guide
+
+`utils/film/studio/guide.js` reads the next step from the film as it stands; it stores nothing. A step is a crew job (`run`), versions waiting for you (`review`), a job that needs your words (`say`: the `@` goes in the composer), your own words on the page (`write`) or a scene's circled drafts at full resolution (`final`).
+
+- **Where you stand comes first:** what is open on this shot, this scene, this stage; else the film's next step, and pressing it takes you there.
+- **A render never holds up the rest:** while one scene renders, the next step is the next scene's; what comes back waits for you there.
+- **The Script holds up what stands on it:** Cast & World and Scenes open once the shot list is picked. A film started from footage has no Script to wait for. A script changed after the film was laid out asks for a new list and holds nothing up.
+- **A shot drafts once what rides on it is settled:** no plate of it rendering or waiting for you.
+- **The rough cut comes first:** the cut opens when every shot has a circled take, in 480p. Finals follow once the cut holds, and a new circled take asks for the cut again.
+- **Your performance:** a clip dropped on a shot's monitor is a circled take of that shot; the next step is its VFX edit, from your words.
 
 | | |
 |---|---|
-| **Version life** | `running → review → picked` (the one before it becomes `kept`) · `rejected` · `failed` |
-| **Who moves it** | Only the crew creates and finishes versions. Only you pick, note or reject them. Your own footage arrives already picked. |
+| **Version life** | `running → review (new) → picked`, with siblings and the pick it replaces becoming `kept` · `rejected` · `failed` |
+| **Who moves it** | Only the crew creates and finishes versions. Only you pick, note or reject them. Your own footage and images arrive already picked. |
 
 ---
 
-## 1. The @ syntax
+## 1. The agents and their contracts
 
-### You → crew
+Each job is a contract, declared once in `crew.js`: where it works, what it delivers in one line (shown in the @ menu), and where that lands. The harness refuses a delivery anywhere else.
 
-```
-@Agent [words]
-```
+| @ | Where | Delivers | Lands in |
+|---|---|---|---|
+| **Writers** | Script | a screenplay of your idea (one call; code checks sluglines) | the Script |
+| **AD** | Script | the shot list: every scene (code, from the sluglines) and its shots — one line each, where the camera is and what we see — with the film's people listed once each; a scene that fails its checks is listed with its error and no shots (`@AD` there plans it again) | the Script |
+| **AD** | Scene | that scene's shots again, from its own words (one take: its views are the shots; landmarks, start, end and what everyone looks at fold away under Details) | the scene |
+| **Casting** | Cast & World | a plate for everyone in Cast & World without one, under their exact names; with nobody waiting, the film's cast from the script | each element |
+| **Casting** | a character | 2 variations (an anchor first if it has no plate) | that element |
+| **Designer** | a place or prop | 2 variations | that element |
+| **Designer** | Scene | the views its blocking needs, each an edit of the place's picked plate | each view |
+| **Camera** | Scene · shot | a 480p draft of each shot; at a scene, a shot whose draft still waits for you is skipped | each shot |
+| **VFX** | Shot | an edit of the circled take — only what you name changes | the shot |
+| **Editor** | Cut | the circled takes, in order, as one cut | the cut |
+| **Cast & World** (no `@`) | Cast & World · an element | an answer; told to, it renames, re-describes, adds or removes people, places and props (nothing in a shot is removed), and edits pictures — an image edit of that element's plate, a new version waiting for you. A new look edits the description and the picture together. Undo on the reply for names and descriptions. | each element |
+| **Editor** (no `@`) | Cut | an answer; told to, it reorders or drops shots and assembles the cut again — a new version, its parent the cut edited | the cut |
+| **Script** (no `@`) | Script · scene | an answer; told to, it rewrites the screenplay or a scene's shots at once (Undo on the reply). At a scene it is that scene's shots. A scene's new shots are a new picked blocking; its shot is made from them. | — |
+| **Shot** (no `@`) | Shot | an answer; told to, it rewrites its own text and references at once (Undo on the reply). Watches the latest take. | — |
 
-- **One agent, one job.** No verb: the agent does its job on whatever you're looking at (the brief, Cast & World, an element, a scene, the selected shot, or the cut).
-- **The words.** They are for this one job only, e.g. "slower push-in".
-- **The shot's own text** (*What happens*) is the shot itself, and every future take is made from it. Only you and the Shot change it: by hand, or by talking to the shot.
+**Buttons, not @:** *Final* on a draft (the same picture in MOV on the model that drafted it — 2.5: 1080p · Premium: 1080p or 4K — within the draft's 7 days) and *Draw again* on a Casting plate (the plate from its edited prompt).
 
 **Resolution (no guessing):**
 
@@ -34,117 +70,96 @@ They meet in one noun, the **version**. Every result is a version: a script, a p
 |---|---|
 | `@Camera slower push-in` | its job here, with your words |
 | `@Casting` where it has no job (e.g. on a place) | says it has nothing to do here |
-| no `@`, a shot selected | the **Shot** answers, or changes its text and references at once (Undo on the reply) |
+| no `@`, a shot selected | the **Shot** answers, or changes its text and references |
+| no `@`, at the Script or a scene | the **Script** answers, or changes the screenplay or the scene's shots |
+| no `@`, at Cast & World or on one of it | **Cast & World** answers, or changes itself |
+| no `@`, at the Cut | the **Editor** answers, or re-cuts |
 | no `@`, anywhere else | asks "Who's this for?" |
 
-### You → a version
+**What landing does when you pick:**
+- a screenplay becomes the script (your text stays as a version of the brief);
+- the shot list lays the film out: every scene (slugline, place, the scene's words, who is in it) with its shot, and every person and place it names becomes an element without a plate;
+- a scene's blocking becomes the scene's shot (a shot blocked before keeps its takes), gives the place its landmarks, and makes each view an element of the place; people and props without a plate become elements;
+- anything else becomes its container's choice.
 
-```
-pick v · circle v · reject v · note v [@3.2s] : words · approve sheet · cancel sheet · answer option
-```
+**A scene is one take.** The AD blocks a scene from its own words with the plates of who is in it; a place blocked before keeps its landmarks, and the scene before in the same place hands over its end frame. In every beat each person's eyes are on something in the scene — never the lens.
 
-- **A note is a request to whoever made the version.** The new version's parent is the noted one. A note on an edit is redone from the source with both notes.
-- **An answer is a request:** each option the crew offers is itself one.
+**Video model.** The film drafts on Seedance 2.5 or Seedance 2.5 Premium (header select); a shot can pick its own (*Drafts on* on the selected shot).
 
-### Crew → you
+## 2. Review
 
-```
-deliver(versions) · ask(question, options) · sheet(jobs) · fail(what to fix)
-```
-
-- **Paid work** (images, video) always comes as a **call sheet** first. Nothing is spent until you approve it.
-- **Free work** (planner calls, stitching) just runs.
-
-### The crew
-
-| @ | Job | Where | Paid |
-|---|---|---|---|
-| **Writers** | develop | brief | — |
-| **AD** | break the script down when you press Go on that plan step — numbered scenes (from the sluglines) with length in eighths of a page, one breakdown sheet per scene (cast, extras, props, wardrobe, dressing, special, sound — copied from the scene's words), the film's elements — and keep the plan (Writers → Casting → Block → Drafts → Cut, Go on the next step; the cast step moves through Go → approve the call sheet → rendering → pick the plates in Review, and closes when every breakdown name has a picked plate). Block the film: one scene sheet per scene — place and landmarks, camera views, start, beats (view · action · what everyone looks at), what works against them, sound, end | brief | — |
-| **Casting** | faces: cast the film (Cast & World) · recast a character (its element) | Cast & World · character | images |
-| **Designer** | places and props: redesign (place · prop) · the views a scene sheet asks for, drawn from the place's plate (scene · shot) | place · prop · scene · shot | images |
-| **Camera** | draft takes (480p); a shot marked *Starts where the previous shot ends* starts on that shot's last frame | scene · shot | video |
-| **VFX** | edit any take, yours or the crew's: only what you name changes | shot | video |
-| **Editor** | assemble the circled takes | cut | — |
-| **Shot** (no `@` needed) | talk to the shot: answers questions; when told, rewrites its text and adds or removes references from Cast & World — applied at once, Undo on the reply. Watches the latest take. | shot | — |
-
-At a scene, a shot job runs over every shot that still needs it.
-
-**A scene is one take.** The order: script → Casting → AD blocks → Designer draws the views → Camera drafts from the text and the plates (cast, place, views). A scene the AD marks as continuing opens on the last frame of the scene before. In every beat each person's eyes are on something in the scene — never the lens.
-
-**Video model.** The film drafts on Seedance 2.5 or Seedance 2.5 Premium (header select); a shot can pick its own (*Drafts on* on the selected shot). Camera drafts each shot on its model at 480p.
-
-**Final** is a button, not a crew job: on a draft in Review, or *Final N circled drafts* on a scene. It renders the same picture in MOV on the model that drafted it, at a resolution that model offers — 2.5: 1080p · Premium: 1080p or 4K (one button each) — within the draft's 7 days. A note on a final reworks its draft.
+- **The crew panel** shows each delivery as it works — the stage it is on and how long, with **Stop** — and then its versions with ★ (pick) and ✕ (reject) right on them.
+- **The viewer** opens any version full screen: compare with the current pick, every version of it, what the checks found wrong, its inputs and prompt, the shot's references, a Casting plate's prompt (*Draw again*), and the verdicts — Pick, a note to whoever made it, Final, Reject. After a verdict it moves on to the next new version.
+- **"N new"** in the header opens the viewer on the oldest version waiting for you; each stage shows how many wait in it.
+- **The stages** show the film as it stands: picked plates, circled takes, the shot list beside the screenplay, a scene's monitor. A new version shows where it landed with a NEW badge.
+- **Generations** shows every render, running and finished; any card opens the viewer.
 
 ---
 
-## 2. The harness
+## 3. The harness
 
-**Every crew member is two functions over one shared harness `h`:**
+**Every job is two functions over one shared harness `h`:**
 
 ```
-plan(h, request)          → ask | sheet | go
+plan(h, request)          → ask | go(payload, summary)
 run(h, request, payload)  → versions
 ```
 
-### The parts
-
 | Part | Does | Phase |
 |---|---|---|
-| **read** | the context: the shots in reach, their text for the model, the plates in `[Image N]` order, the look, the previous take and its last frame | both |
+| **read** | the context: the shots in reach, their text for the model, the plates in `[Image N]` order, the previous take and its last frame | both |
 | **guard** | stops with an error that names the fix | both |
-| **think** | one planner or vision call through a prompt template (free) | both |
-| **each** | a scene-wide job over its shots, a few at a time | both |
-| **ask / sheet / go** | what a plan returns | plan |
+| **think** | one planner or vision call through a crew skill step (free) | both |
+| **each** | a scene-wide job over its shots, a few at a time; nothing more starts after Stop | both |
+| **step** | the stage the job is on, shown live in the feed | both |
+| **ask / go** | a question whose options are requests · go with what the run will make ("3 drafts · 24 s") | plan |
 | **make** | the engines: Seedream images, Seedance takes (start → poll), finish a draft, stitch; registers sources and references as assets | run |
 | **check** | flags a result against what was promised (plates sent, dialogue kept, clip watched…); retries once, never patches silently | run |
-| **open** | starts a version and announces it in the thread; it ends `done` (to review) or `failed` | run |
+| **open** | starts a version in a container the contract names and announces it in the thread; it ends `done` (new) or `failed`; a stopped version stays stopped | run |
 | **reply · reviseShot** | the Shot's answer in its thread; its own text and references changed, what they were kept on the reply for Undo | run |
 
 **The rules hold by construction:**
-- A plan gets no `make` or `open`.
-- A run gets no `ask`.
-- Every `make` happens inside an opened version.
+- A plan gets no `make` or `open`; a run gets no `ask`.
+- Every `make` happens inside an opened version, in a container the contract names.
 
-### Each crew member, in harness parts
+### Each job, in harness parts
 
 | Job | think | make | check |
 |---|---|---|---|
-| Writers · develop | idea → script | — | — |
-| AD · block | one scene sheet per scene | — | verbatim quotes, 4–15 s, places, 1–3 views, every beat on a listed view with a gaze target that is never the lens, start and end; places with no plate |
-| Designer · views | — | image edits of the place plate | — |
-| Casting · cast | cast plan (in `plan`) | images | a plate that didn't render; every name the plan step asked for comes back under that name (one corrective re-ask, then an error naming the missing ones) |
+| Writers | idea → screenplay | — | sluglines |
+| AD · shot list | the people once each (low effort), then every scene blocked — scenes in one place one after another (shared landmarks, the end frame before), places side by side | — | every name is the script's and nobody is listed twice; per scene as AD · block |
+| AD · block | one call: the scene's words + landmarks + the end frame before + plates | — | 4–15 s, landmarks, 1–3 views, every beat on a listed view with a gaze target that is never the lens, start and end |
+| Casting · cast | cast plan (in `plan`) | images | every element waiting comes back under its exact name (one corrective re-ask, then an error naming the missing ones); a plate that didn't render |
+| Casting · draw again | — | images from the edited prompt | — |
 | Casting · recast / Designer · redesign | — | image edits (an anchor first if there's no plate) | per image |
-| Camera · draft | prompt composed from the shot's text against its plates (and, for a continuing shot, the previous shot's last frame); a scene sheet is the authority on what happens | 480p take | references sent; no unasked toward-the-lens wording |
+| Designer · views | — | image edits of the place plate | — |
+| Camera · draft | prompt composed from the shot's text against its plates (and, for a continuing shot, the previous shot's last frame) | 480p take | references sent; no unasked toward-the-lens wording |
 | Final (button) | — | the draft at a resolution its model offers, MOV | a resolution its model doesn't offer is an error naming the ones it does |
 | VFX · edit | watch the clip, then write the change | 1080p MOV edit | written without watching; scope closed |
 | Editor · assemble | — | stitch | take count |
-| Shot · talk | one low-effort call: message + text + references + Cast & World + conversation + latest take (video) → reply, new text, adds, removes | — | adds only from Cast & World, removes only its own; every element the new text names rides as a reference; the sheet's Landmarks / At the start / At the end follow the text |
+| Cast & World · talk | one low-effort call: message + every element (kind, description, picture or not, shots it is in) + conversation → reply, changes, additions, removals, pictures | images (one edit per picture) | names are the film's or new and free; kinds; nothing in a shot is removed; a new look for something with a picture edits the picture too (one re-ask) |
+| Editor · talk | one low-effort call: message + the cut's order + every circled shot → reply, new order | stitch | only circled shots, none twice |
+| Script · talk | one low-effort call: message + screenplay + the shot list (or the scene's shots) + conversation → reply, new screenplay, changed scenes | — | a new screenplay keeps sluglines; a changed scene is the film's, 1–6 shots (the AD plans with 1–4), each on a known camera position or one that says where it stands, eyes never on the lens unless asked — what fails is reported on the reply, not applied |
+| Shot · talk | one low-effort call: message + text + references + Cast & World + conversation + latest take (video) → reply, new text, adds, removes | — | adds only from Cast & World, removes only its own; every element the new text names rides as a reference |
 
-**Adding a crew member** (Sound, say) takes three things:
-- a `{ plan, run }` entry in `runners.js`;
-- its jobs in `crew.js`;
-- a template.
+**Adding an agent** (Sound, say) takes three things: its contract in `crew.js`, a `{ plan, run }` entry in `runners.js`, and its crew skill.
 
 ---
 
 ## Around the two
 
-- **Canvas work is mirrored in automatically.** Plates become elements, and SHOT cards become shots of the scene "Board" with their takes. It's a merge, so what you change in the Studio stays.
-- **Stale.** A circled take made with an earlier cast or place is flagged stale. You either keep it or shoot it again.
+- **Canvas work is mirrored in automatically.** Plates become elements and SHOT cards become shots with their takes. It's a merge, so what you change in the Studio stays.
+- **Stale.** A circled take made with an earlier cast or place says so on its shot: *Shoot again* or *Keep*.
 
-**Open:**
-- no note route for the cut;
-- staleness tracks cast and places only;
-- no Sound crew;
-- shots can't be reordered.
+**Open:** no note route for the cut; staleness tracks cast and places only; no Sound agent; shots can't be reordered; work other than takes in flight does not survive a reload.
 
 ## Code
 
 | What | Where |
 |---|---|
 | Versions, scenes, elements, the Canvas mirror | `utils/film/studio/model.js` |
-| The crew and the @ parser | `utils/film/studio/crew.js` |
+| The contracts and the @ parser | `utils/film/studio/crew.js` |
 | The harness | `utils/film/studio/harness.js` |
-| Each crew member's plan and run | `utils/film/studio/runners.js` |
-| Direct · Review · Generations | `components/studio/` |
+| Each job's plan and run; what picking lands | `utils/film/studio/runners.js` |
+| The next step and the stages | `utils/film/studio/guide.js` |
+| The stages (pages + crew panel) · the viewer · Generations | `components/studio/` |

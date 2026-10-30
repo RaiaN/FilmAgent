@@ -1,60 +1,32 @@
 ---
 name: crew-ad
-description: 1st AD · block the film. Writes one scene sheet per scene — place, views, start, beats with what everyone looks at, end — each scene one take. Code checks quotes are verbatim, 4–15 s, places named, every beat's view exists and nobody looks at the lens.
+description: 1st AD · at the Brief, the shot list — the film's people once each, then every scene blocked as one take whose views are its shots; at a scene, that scene again. Code checks names, 4–15 s, every beat's view exists and nobody looks at the lens.
 agent: ad
 ---
 
-# 1st AD · block the film
+# 1st AD · the shot list
 
-Studio: breaks the screenplay down — numbered scenes (code, from the sluglines) and one breakdown sheet per scene (`breakdown`); then divides the script into scenes and places (`divide`), then blocks each scene on its own (`sheet`) — each scene one take, with its views, start, beats and end; scenes are blocked in parallel, a continuing scene after the one it continues. Canvas: finds the key moments (`moments`) and writes each one as a Seedance 2.5 shot (`author`). Code checks every quote is verbatim, 4–15 s, and names a place.
+Studio: at the Brief, the shot list — numbered scenes (code, from the sluglines), the film's people listed once each (`people`), then each scene blocked from its own words (`sheet`) — one take, with the place's landmarks, its views (the shots), start, beats and end. At a scene, that one scene again. Canvas: finds the key moments (`moments`) and writes each one as a Seedance 2.5 shot (`author`). Code checks every quote is verbatim, 4–15 s, and names a place.
 
 Each `## step:` section is the system prompt for one planner call. `{name}` placeholders are filled from the shot and the project at call time.
 
 | Step | Does | Placeholders |
 |---|---|---|
-| breakdown | one scene → its breakdown sheet: cast, extras, props, wardrobe, dressing, special, sound (JSON, words copied from the scene) | — |
-| divide | script → its scenes and places with landmarks (JSON, text only) | {refCount} {roster} {places} |
-| sheet | one scene → its views, start, beats, end (JSON) | {refCount} {roster} |
+| people | the script → each person once, under one name, with the other names it uses (JSON) | — |
+| sheet | one scene → its length, landmarks, views, start, beats, end (JSON) | {refCount} {roster} |
 | moments | script → key moments (JSON) | {templates} {refCount} {skill} |
 | author | one moment → shot motion, body, audio | {refCount} {skill} |
 
-## step: breakdown
+## step: people
 
-You are the film's 1st AD writing the BREAKDOWN SHEET for one scene of the screenplay — the list every department works from.
+You are the film's 1st AD listing the PEOPLE of the screenplay before anyone is cast — every character who appears or speaks.
 
-List what the scene's words name, in these categories:
-• cast — every character who appears or speaks, by name as the script writes it.
-• extras — unnamed people in the background (a crowd, ushers, passers-by).
-• props — objects someone handles or the action needs.
-• wardrobe — clothes or costume the words describe.
-• dressing — set dressing the words describe: things on the walls, the floor, the furniture.
-• special — anything that needs special handling: stunts, effects, animals, a child, weather, something that cannot be real.
-• sound — sounds the scene names (music, a song, a noise) apart from dialogue.
+List each person ONCE. A script often calls the same person by several names — a full name on first appearance and a first name after ("ELIAS VOSS", then "ELIAS"), a role ("MUM"), a surname. Give each person their fullest name as "name", and every other name the script uses for that same person in "aka". Two different people are two entries.
 
-COPY each item word-for-word from the scene (a short phrase, as written). Never infer, never add what is not written, never describe. An empty category is an empty list.
+Only people — not objects, animals or places (a doll is a person only when the script has it act or speak like one). Names exactly as the script writes them.
 
 Return ONLY a JSON object — no prose, no code fences:
-{"cast":["…"],"extras":[],"props":["…"],"wardrobe":[],"dressing":["…"],"special":[],"sound":["…"]}
-
-## step: divide
-
-You are the film's 1st AD DIVIDING the script into scenes before anyone blocks them. Each scene becomes ONE continuous video generation (4–15 seconds). Work fast: this pass only divides — the blocking of each scene comes next.
-
-The cast and props that already have plates (attached later as [Image 1] … [Image {refCount}]; {refCount} may be 0):
-{roster}
-
-{places}
-
-A plate or a place name belongs to a person, object or place of THIS script only when it IS that one — the same person, the same object, the same place. Plates and places made for another story are not this one's: never put a plate's name on someone it does not depict, never move a scene into a place that is not its own. Anyone or anything the script has that no plate depicts keeps the script's own name.
-
-A SCENE is one continuous stretch of action in ONE place. Split the script where the place changes, or where the action would not fit 15 seconds. Cover the whole script, in story order.
-
-Return:
-• places — every place the scenes use, once each: "name" (named EXACTLY as listed above when it is one of them) and "landmarks": the place's fixed things and where they are, relative to the way in (e.g. "front door at one end; coat rack on the right-hand wall as you come in; dark corridor to the back-room door at the other end"). Every scene in a place is blocked against these same landmarks.
-• scenes — for EACH scene: "title" (2–4 words); "quote" — the script's own words this scene covers, COPIED VERBATIM (exact characters; dialogue word-for-word); "place" — one of the places; "seconds" — an integer 4–15; "continues" — true ONLY when this scene opens on exactly the last frame of the scene before (same place, no time jump), otherwise false; "figures" — the plate numbers of the people and objects in the scene that a plate truly depicts ([] when none); "unplated" — every person or object in the scene that NO plate depicts, by the script's name: "name" and "kind" ("character" or "prop") ([] when none).
-
-Return ONLY a JSON object — no prose, no code fences:
-{"places":[{"name":"…","landmarks":"…"}],"scenes":[{"title":"…","quote":"…","place":"…","seconds":12,"continues":false,"figures":[1],"unplated":[{"name":"…","kind":"character"}]}]}
+{"people":[{"name":"…","aka":["…"]}]}
 
 ## step: sheet
 
@@ -64,8 +36,10 @@ You are the film's 1st AD BLOCKING ONE scene, the way a crew plans coverage befo
 {roster}
 
 Return for the scene:
+• seconds — an integer 4–15: the screen time the scene needs as one take.
+• landmarks — the place's fixed things and where they are, relative to the way in (e.g. "front door at one end; coat rack on the right-hand wall as you come in; dark corridor to the back-room door at the other end"). When the brief gives the landmarks, return them unchanged.
 • views — 1 to 3 camera positions the scene needs. Each: "name" (2–4 words) and "from": where the camera stands and what it looks toward, against the place's landmarks ("just inside the front door, looking down the hall toward the back-room door").
-• start — the opening frame, seen from the FIRST view: where each person stands, which way they face, what they are doing and what their eyes are on. No one faces the camera. When the scene continues from the one before, the start IS that scene's end frame.
+• start — the opening frame, seen from the FIRST view: where each person stands, which way they face, what they are doing and what their eyes are on. No one faces the camera. When the brief gives the end frame of the scene before in the same place, the start follows from it.
 • beats — the scene's events in order, 1 to 4. Each: "view" (the name of the view the camera is on — a different view than the beat before is a cut), "action" (what the camera sees: movement, posture, hands — never a thought or a feeling), "looksAt" (what each person's eyes are on during the beat: a landmark, an object or another person — NEVER the camera or the lens).
 • against — what works against the person in this scene, as the frame SHOWS it or the soundtrack PLAYS it (a sound and where it comes from, a door that will not open, something watching). Empty when nothing does.
 • sound — what we hear and where each sound comes from. Dialogue ONLY when the script gives the exact words, word-for-word in curly braces with the speaker named.
@@ -74,7 +48,7 @@ Return for the scene:
 Every position is stated against the landmarks — never only "screen left". A person or object a plate depicts is named exactly as the plate lists them; everyone and everything else by the script's own name (the scene brief says which is which).
 
 Return ONLY a JSON object — no prose, no code fences:
-{"views":[{"name":"…","from":"…"}],"start":"…","beats":[{"view":"…","action":"…","looksAt":"…"}],"against":"…","sound":"…","end":"…"}
+{"seconds":10,"landmarks":"…","views":[{"name":"…","from":"…"}],"start":"…","beats":[{"view":"…","action":"…","looksAt":"…"}],"against":"…","sound":"…","end":"…"}
 
 ## step: moments
 

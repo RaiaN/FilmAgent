@@ -8,7 +8,7 @@
 // at once: the plan checks the request and says what it will make, the run makes it.
 import {
   uid, findScene, findShot, findElement, pickedOf, newElement, newShot, shotRefs, modelText, threadKeyOf,
-  namedText, usedOf, shotNumber, pad2, plateOf, KIND_LABEL, tokenized, scriptHash, modelOfShot, videoModelLabel, newScene,
+  namedText, usedOf, shotNumber, pad2, plateOf, KIND_LABEL, tokenized, scriptHash, modelOfShot, videoModelLabel, newScene, withFilmStyle,
 } from './model';
 import { crewStep } from '../skills';
 import { crewById, actionOf } from './crew';
@@ -56,12 +56,12 @@ const ACTIONS = {
     plan: (h, req) => {
       const idea = String(req.text || '').trim() || (req.from ? h.read.version(req.from.ref, req.from.vid)?.idea : '');
       h.guard(idea, 'Tell the Writers the idea: @Writers <your idea>.');
-      return h.go({ idea }, 'a screenplay');
+      return h.go({ idea, style: h.read.state().style }, 'a screenplay');
     },
     run: async (h, req, p) => {
       const v = h.open({ at: 'brief' }, { kind: 'script', idea: p.idea });
       try {
-        const text = await h.think(writeScreenplay, { idea: p.idea, note: h.note });
+        const text = await h.think(writeScreenplay, { idea: p.idea, note: [p.style ? `The film's look is already set (${p.style}): write no other.` : '', h.note].filter(Boolean).join('\n') });
         v.done({ text, title: 'Screenplay' });
       } catch (e) { v.fail(e); }
     },
@@ -150,7 +150,7 @@ const ACTIONS = {
       const todo = s.elements.filter((e) => !e.viewOf && e.kind !== 'prop' && !plateOf(e) && !(e.versions || []).some((v) => v.status === 'running' || v.status === 'review'));
       h.guard(String(s.script || '').trim() || String(req.text || '').trim(), 'Write the script first, or tell Casting who to cast: @Casting <who>.');
       const existing = s.elements.filter((e) => !e.viewOf).map((e) => ({ name: e.name, kind: e.kind, plated: !!plateOf(e) || !todo.includes(e) }));
-      const note = [req.text, req.note].filter(Boolean).join('\n');
+      const note = [s.style ? `The film's visual style is set: ${s.style}. Every prompt's medium and the shared style follow it, whatever the script says.` : '', req.text, req.note].filter(Boolean).join('\n');
       const names = todo.map((e) => ({ kind: e.kind, name: e.name }));
       // Each waiting element must come back under exactly its name, or it stays without a
       // plate. One corrective re-ask, then a loud error naming what is missing.
@@ -160,7 +160,7 @@ const ACTIONS = {
       if (absent(out).length) out = await h.think(castPlanFromIdea, { idea: s.script || req.text, existing, note: `${note}\nYour last plan left out ${absent(out).map((n) => `${n.name} (${n.kind})`).join(', ')}. Include every one of them, named exactly as written here.` });
       const left = absent(out);
       h.guard(!left.length, `Casting left out ${left.map((n) => `${n.name} (${n.kind})`).join(', ')} — they wait in Cast & World under these names.`);
-      return h.go({ arr: out.arr, style: out.style }, `${plural(out.arr.length, 'plate')} · ${plural(imagesOf(out.arr), 'image')} · ${imageModelLabel()}`);
+      return h.go({ arr: out.arr, style: [s.style, out.style].filter(Boolean).join('. ') }, `${plural(out.arr.length, 'plate')} · ${plural(imagesOf(out.arr), 'image')} · ${imageModelLabel()}`);
     },
     run: async (h, req, p) => {
       const { arr } = p;
@@ -190,7 +190,7 @@ const ACTIONS = {
       const v = h.read.version(req.from.ref, req.from.vid);
       h.guard(v?.entry, 'This plate has no prompt to draw again from.');
       h.guard(req.entry, 'Edit the prompt first.');
-      return h.go({ entry: req.entry, style: v.style || '' }, `1 plate · ${plural(imagesOf([req.entry]), 'image')} · ${imageModelLabel()}`);
+      return h.go({ entry: req.entry, style: h.read.state().style || v.style || '' }, `1 plate · ${plural(imagesOf([req.entry]), 'image')} · ${imageModelLabel()}`);
     },
     run: async (h, req, p) => {
       h.spend(imagesOf([p.entry]));
@@ -575,7 +575,7 @@ const editPicture = async (h, el, words) => {
   const ref = { at: 'element', id: el.id };
   const base = plateOf(el);
   const v = h.open(ref, { kind: 'plate', note: words, parent: base?.id || null, ...(base && (base.cacheUrl || base.url) ? { inputs: [{ n: 1, label: 'the picked plate', url: base.cacheUrl || base.url, role: 'source', versionId: base.id }] } : {}) });
-  const out = await h.make.image(el.kind === 'character' ? characterVariations : locationVariations, { imageUrl: base ? (base.cacheUrl || base.url) : '', direction: base ? words : [el.desc, words].filter(Boolean).join('. ') || el.name, count: 1, imageModel: defaultImageModelKey() }, {
+  const out = await h.make.image(el.kind === 'character' ? characterVariations : locationVariations, { imageUrl: base ? (base.cacheUrl || base.url) : '', direction: base ? words : withFilmStyle(h.read.state(), [el.desc, words].filter(Boolean).join('. ') || el.name), count: 1, imageModel: defaultImageModelKey() }, {
     onPlanned: (specs) => v.patch({ prompt: specs[0]?.prompt }),
     onItem: (item) => v.done({ url: item.url, cacheUrl: item.cacheUrl || null, prompt: item.prompt }),
     onFail: (i, msg) => v.fail(new Error(msg)),
@@ -613,7 +613,7 @@ const variation = {
     const el = findElement(s, req.scope.id);
     const ref = { at: 'element', id: el.id };
     const base = req.from ? h.read.version(ref, req.from.vid, s) : plateOf(el);
-    const direction = [h.note, req.text].filter(Boolean).join('. ') || el.desc || el.name;
+    const direction = withFilmStyle(base ? null : s, [h.note, req.text].filter(Boolean).join('. ') || el.desc || el.name);
     h.spend(p.images || p.count);
     const baseInput = base && (base.cacheUrl || base.url) ? [{ n: 1, label: req.from ? 'the plate noted' : 'the picked plate', url: base.cacheUrl || base.url, role: 'source', versionId: base.id }] : [];
     const vs = Array.from({ length: p.count }, () => h.open(ref, { kind: 'plate', inputs: baseInput }));
@@ -658,13 +658,13 @@ const shootDrafts = async (h, req, p) => {
         report(out);
         prompt = [out.action, out.audio].filter(Boolean).join('\n');
       } else if (opening || shot.sheet) {
-        const out = await h.think(composeShotAction, { text: [modelText(s, shot.motion || shot.quote, imageOf), req.text, shot.audio].filter(Boolean).join('\n'), references: list.map((r) => absLocalMediaUrl(r.url)), roster, kfIndices: opening ? [1] : [], modelKey, job: shot.turn, derive: !shot.sheet });
+        const out = await h.think(composeShotAction, { text: [modelText(s, shot.motion || shot.quote, imageOf), req.text, shot.audio].filter(Boolean).join('\n'), references: list.map((r) => absLocalMediaUrl(r.url)), roster, kfIndices: opening ? [1] : [], modelKey, job: shot.turn, derive: !shot.sheet, style: s.style || '' });
         report(out);
         prompt = [out.action, out.audio].filter(Boolean).join('\n');
       } else {
         prompt = [modelText(s, shot.motion || shot.quote, imageOf), req.text, shot.audio].filter(Boolean).join('\n');
       }
-      await h.make.take({ v, prompt, list, seconds: shot.seconds, draft: true, flags, modelKey });
+      await h.make.take({ v, prompt: withFilmStyle(s, prompt), list, seconds: shot.seconds, draft: true, flags, modelKey });
     } catch (e) { v.fail(e); }
   }, 3);
 };

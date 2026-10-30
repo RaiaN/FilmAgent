@@ -91,8 +91,32 @@ describe('the Studio shell', () => {
     const html = await mount(<StudioPlayground projectStudio={{ projectId: 'p', nonce: 1, data: { ...inWork(), scenes: inWork().scenes.map((sc) => ({ ...sc, shots: sc.shots.map((sh) => ({ ...sh, takes: { ...sh.takes, versions: sh.takes.versions.filter((v) => v.status !== 'running') } })) })) } }} onStudioChange={noop} projectTitle="Test" />);
     expect(html).toMatch(/\d+ new/);
     ['Script', 'Cast &amp; World', 'Scenes', 'Cut'].forEach((stage) => expect(html).toContain(stage));
+    expect(html).toContain('From the script');
     expect(html).toMatch(/Generations/);
     expect(html).not.toMatch(/>Review</);
+  });
+});
+
+describe('switching projects', () => {
+  test("the project you leave never comes into the one you open", async () => {
+    const box = document.createElement('div');
+    const root = createRoot(box);
+    const saved = [];
+    const onChange = (id, data) => saved.push({ id, names: data.elements.map((e) => e.name) });
+    const boardA = { projectId: 'A', nodes: [], bible: [{ id: 'b1', role: 'character', name: 'Only in A', url: 'a.png' }] };
+    const film = (projectId, nonce) => ({ projectId, nonce, data: { ...emptyStudio(), script: 'An idea' } });
+    await act(async () => { root.render(<StudioPlayground projectStudio={film('A', 1)} board={boardA} onStudioChange={onChange} />); });
+    expect(saved.some((x) => x.id === 'A' && x.names.includes('Only in A'))).toBe(true);
+    saved.length = 0;
+    // B opens while the board is still A's, as it is for one render when a project is switched.
+    await act(async () => { root.render(<StudioPlayground projectStudio={film('B', 2)} board={boardA} onStudioChange={onChange} />); });
+    expect(saved.filter((x) => x.names.includes('Only in A') && x.id === 'B')).toEqual([]);
+    const boardB = { projectId: 'B', nodes: [], bible: [{ id: 'b2', role: 'character', name: 'Only in B', url: 'b.png' }] };
+    await act(async () => { root.render(<StudioPlayground projectStudio={film('B', 2)} board={boardB} onStudioChange={onChange} />); });
+    const last = saved[saved.length - 1];
+    expect(last.id).toBe('B');
+    expect(last.names).toEqual(['Only in B']);
+    await act(async () => { root.unmount(); });
   });
 });
 

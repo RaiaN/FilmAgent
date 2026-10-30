@@ -84,6 +84,8 @@ Each job is a contract, declared once in `crew.js`: where it works, what it deli
 
 **A scene is one take.** The AD blocks a scene from its own words with the plates of who is in it; a place blocked before keeps its landmarks, and the scene before in the same place hands over its end frame. In every beat each person's eyes are on something in the scene — never the lens.
 
+**Style.** The film's look, in the header: pick one, type your own, or leave it on *From the script*, where Casting reads it from the script's words. The Writers write no other look, every plate prompt ends with it word for word, and every shot prompt carries it (code adds it when the writer left it out). It applies to what the crew makes next: plates already made keep theirs, and a view or edit follows the plate it is made from.
+
 **Video model.** The film drafts on Seedance 2.5 or Seedance 2.5 Premium (header select); a shot can pick its own (*Drafts on* on the selected shot).
 
 ## 2. Review

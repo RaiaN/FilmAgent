@@ -1,6 +1,6 @@
 // THE GUIDE — the film's one next step, read from the film as it stands.
 import { nextStep, stepsOf, stageStates } from '../utils/film/studio/guide';
-import { emptyStudio, addVersion, pickVersion, scriptHash } from '../utils/film/studio/model';
+import { emptyStudio, addVersion, pickVersion, scriptHash, withFilmStyle, loadStudio } from '../utils/film/studio/model';
 import { applyShotList } from '../utils/film/studio/runners';
 
 const SCRIPT = 'INT. FLAT – NIGHT\nDAN opens the door.';
@@ -132,5 +132,19 @@ describe('the stages as they stand', () => {
     expect(st.world.count).toMatch(/^0\//);
     expect(st.scenes.count).toBe('0/1');
     expect(st.fresh.cut).toBe(1);
+  });
+});
+
+describe('the film style', () => {
+  test('a prompt carries it once; with none set, nothing is added', () => {
+    const s = { ...emptyStudio(), style: 'Anime' };
+    expect(withFilmStyle(s, 'She walks.')).toBe('She walks.\nVisual style: Anime.');
+    expect(withFilmStyle(s, 'An anime girl walks.')).toBe('An anime girl walks.');
+    expect(withFilmStyle(emptyStudio(), 'She walks.')).toBe('She walks.');
+  });
+  test('a film saved before it existed opens on the script', () => {
+    const { style: _gone, ...old } = emptyStudio();
+    expect(loadStudio(old).style).toBe('');
+    expect(loadStudio({ ...old, style: 'Anime' }).style).toBe('Anime');
   });
 });

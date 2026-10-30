@@ -23,6 +23,8 @@ export const emptyStudio = () => ({
   script: '',
   // The film's video model; a shot may name its own.
   videoModel: 'seedance25',
+  // The film's look, in the director's words; empty: the crew reads it from the script.
+  style: '',
   // The 1st AD's shot list as picked (people, places, scenes and their shots); it knows which
   // script it read.
   shotList: null,
@@ -390,6 +392,16 @@ export const scriptHash = (text) => {
   return String(h >>> 0); // eslint-disable-line no-bitwise
 };
 export const shotListFresh = (s) => !!s.shotList && s.shotList.scriptHash === scriptHash(s.script);
+
+// ---- the look -----------------------------------------------------------------------------
+// What the Style menu offers; anything else the director types is the style as written. The value
+// goes to the crew word for word.
+export const STYLES = ['Watercolor storybook animation', '3D animated feature film', 'Hand-drawn 2D animation', 'Stop-motion clay animation', 'Anime', 'Photoreal live action', 'Black-and-white film'];
+// A prompt that carries the film's style: added by code when the writer left it out.
+export const withFilmStyle = (s, prompt) => {
+  const style = String(s?.style || '').trim();
+  return !style || String(prompt || '').toLowerCase().includes(style.toLowerCase()) ? prompt : [prompt, `Visual style: ${style}.`].filter(Boolean).join('\n');
+};
 
 // ---- video models -------------------------------------------------------------------------
 // The models a film or a shot drafts on. A draft finishes only on the model that made it, at

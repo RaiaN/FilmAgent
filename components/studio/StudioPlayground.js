@@ -7,7 +7,7 @@ import { Viewer } from './Viewer';
 import GenerationsView from './GenerationsView';
 import {
   emptyStudio, loadStudio, syncBoard, uid, threadKeyOf, addMessage, patchMessage, findShot, pickVersion, rejectVersion,
-  patchVersion, pickedOf, newWork, usedOf, versionOf, VIDEO_MODELS,
+  patchVersion, pickedOf, newWork, usedOf, versionOf, VIDEO_MODELS, STYLES,
 } from '../../utils/film/studio/model';
 import { createRunners, applyShotList, applyBlocking } from '../../utils/film/studio/runners';
 import { editorFor } from '../../utils/film/studio/crew';
@@ -139,7 +139,9 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   }, [projectStudio?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   // The project's Canvas, mirrored: new plates, SHOT cards and takes come in as they appear.
   useEffect(() => {
-    if (!linked || board?.projectId !== linked) return;
+    // Switching projects, this runs once with the new film already loaded and `linked` and `board`
+    // still the old project's: only a board of the project that is open now comes in.
+    if (!linked || linked !== projectStudio?.projectId || board?.projectId !== linked) return;
     const next = syncBoard(get(), board);
     if (next !== get()) set(next);
   }, [board, linked, projectStudio?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -307,6 +309,10 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     version: (ref, v, label) => toCanvas((x) => versionToCanvas(x, ref, v, label)),
   } : null;
 
+  const changeStyle = (style) => {
+    set((x) => ({ ...x, style: String(style || '').trim() }));
+    if (get().elements.some((e) => pickedOf(e))) Message.info({ content: 'The crew follows this from now on. Plates already made keep their look.', duration: 5000 });
+  };
   const title = String(projectTitle || '').replace(/^Project\s+/, '').replace(/^"|"$/g, '');
 
   return (
@@ -325,8 +331,12 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
             <IconApps />Generations
             {work.working > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: C.work, fontSize: 13 }}><Dot color={C.work} pulse />{work.working}</span>}
           </span>
+          {/* The film's look: pick one, type your own, or let the crew read it from the script. */}
+          <span title="The film's look. The crew follows it in everything it makes next; plates already made keep theirs." style={{ flex: '0 0 230px' }}>
+            <Select aria-label="Style" showSearch allowCreate prefix="Style" value={s.style || ''} onChange={changeStyle} options={[{ label: 'From the script', value: '' }, ...STYLES.map((x) => ({ label: x, value: x }))]} style={{ width: '100%' }} getPopupContainer={() => rootRef.current} />
+          </span>
           {/* The film's video model: what Camera drafts on, unless a shot picks its own. Premium drafts finish at 1080p or 4K. */}
-          <span title="What Camera drafts on. Seedance 2.5 finishes at 1080p; Premium at 1080p or 4K." style={{ flex: '0 0 176px' }}>
+          <span title="What Camera drafts on. Seedance 2.5 finishes at 1080p; Premium at 1080p or 4K." style={{ flex: '0 0 160px' }}>
             <Select value={s.videoModel} onChange={(videoModel) => set((x) => ({ ...x, videoModel }))} options={VIDEO_MODELS.map((m) => ({ label: m.label, value: m.key }))} style={{ width: '100%' }} getPopupContainer={() => rootRef.current} />
           </span>
           <span role="button" className="st-stage" aria-pressed={crewOpen} onClick={toggleCrew} title={crewOpen ? 'Hide the crew' : 'Show the crew'} style={{ height: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 600, flex: '0 0 auto', color: crewOpen ? C.ink : C.text, background: crewOpen ? C.hover : 'transparent' }}><IconUserGroup />Crew</span>

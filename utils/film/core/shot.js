@@ -78,7 +78,12 @@ export const directShotAction = async ({ text = '', note = '', references = [], 
 // refuses a prompt that sends anyone toward the lens the shot text never asked for.
 const GAZE_LINE = "EYES: in every beat, say what each person's eyes are on — a landmark, an object or another person in the scene. Nobody looks at, turns to, faces or walks toward the camera or the lens unless the director's text says so. Where the text names what someone looks at, keep it.";
 const LENS_GAZE = /\b(?:look|looks|looking|stare|stares|staring|gaze|gazes|gazing|glance|glances|glancing|eyes|face|faces|facing|turn|turns|turning|walk|walks|walking|step|steps|stepping|lean|leans|leaning|move|moves|moving)\b[^.]{0,40}?\b(?:toward|towards|at|into|to)\s+(?:the\s+)?(camera|lens|viewer)\b/gi;
-const lensGazes = (t) => [...String(t || '').matchAll(LENS_GAZE)].map((m) => m[0]);
+// "No one faces the camera" forbids it: words that rule it out in the same clause are no gaze.
+const RULED_OUT = /(?:\b(?:no one|nobody|none|neither|never|not|without|avoids?|avoiding)\b|n['’]t\b)[^.;,!?]{0,24}$/i;
+export const lensGazes = (t) => {
+  const text = String(t || '');
+  return [...text.matchAll(LENS_GAZE)].filter((m) => !RULED_OUT.test(text.slice(0, m.index))).map((m) => m[0]);
+};
 
 // derive = false: the shot's text is the authority on what happens (a scene sheet) — the
 // start frame only fixes the opening, nothing is re-read from it.

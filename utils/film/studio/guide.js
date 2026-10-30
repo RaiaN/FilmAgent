@@ -120,18 +120,21 @@ export const stepsOf = (s) => {
   const allCircled = shots.length > 0 && circled.length === shots.length;
   if (running(s.cut)) out.push({ id: 'cut.working', stage: 'cut', scope: { type: 'cut' }, working: true });
   else if (cutWaits) out.push({ id: 'cut.review', stage: 'cut', scope: { type: 'cut' }, label: 'Review the cut', review: { ref: { at: 'cut' }, vid: cutWaits.id } });
-  // Once no take is rendering or waiting for you: what is circled then is what the cut holds.
-  else if (allCircled && shots.every((sh) => !running(sh.takes) && !waiting(sh.takes))) {
-    const same = cut && [...(cut.takes || [])].sort().join() === circled.map((sh) => sh.takes.picked).sort().join();
-    if (!same) out.push({ id: 'cut.assemble', stage: 'cut', scope: { type: 'cut' }, label: cut ? 'Assemble the cut again' : 'Assemble the rough cut', agent: 'editor', run: { agent: 'editor', action: 'assemble', scope: { type: 'cut' }, text: '' } });
-    // The cut holds: the circled drafts finish at full resolution, scene by scene.
-    if (same) {
+  else if (allCircled) {
+    // The rough cut is in: every scene's circled drafts finish at full resolution, all at once.
+    const finals = [];
+    if (cut) {
       s.scenes.forEach((sc, i) => {
         const list = toFinish(sc);
         const res = finalsOfShots(list);
-        if (list.length && res.length) out.push({ id: `scene.${sc.id}.final`, stage: 'scenes', scope: { type: 'scene', id: sc.id }, label: `Final scene ${i + 1} · ${res[0]}`, agent: 'camera', final: { sceneId: sc.id, res: res[0] } });
+        if (list.length && res.length) finals.push({ id: `scene.${sc.id}.final`, stage: 'scenes', scope: { type: 'scene', id: sc.id }, label: `Final scene ${i + 1} · ${res[0]}`, agent: 'camera', final: { sceneId: sc.id, res: res[0] } });
       });
     }
+    out.push(...finals);
+    // The cut, once no take is rendering or waiting for you: what is circled then is what it holds.
+    const settled = shots.every((sh) => !running(sh.takes) && !waiting(sh.takes));
+    const same = cut && [...(cut.takes || [])].sort().join() === circled.map((sh) => sh.takes.picked).sort().join();
+    if (settled && !same && !finals.length) out.push({ id: 'cut.assemble', stage: 'cut', scope: { type: 'cut' }, label: cut ? 'Assemble the cut again' : 'Assemble the rough cut', agent: 'editor', run: { agent: 'editor', action: 'assemble', scope: { type: 'cut' }, text: '' } });
   }
   return out;
 };
@@ -153,7 +156,9 @@ export const nextStep = (s, scope) => {
 // what waits for you.
 export const stageStates = (s) => {
   const all = newWork(s);
-  const at = (id) => (x) => STAGE_OF_REF[x.ref.at] === id;
+  // A view of a place belongs to the scene that needs it, not to Cast & World.
+  const stageOfWork = (x) => (x.ref.at === 'element' && findElement(s, x.ref.id)?.viewOf ? 'scenes' : STAGE_OF_REF[x.ref.at]);
+  const at = (id) => (x) => stageOfWork(x) === id;
   const running_ = (id) => {
     if (id === 'script') return running(s.brief);
     if (id === 'world') return s.elements.some((e) => !e.viewOf && running(e));

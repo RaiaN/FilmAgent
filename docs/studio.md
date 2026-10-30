@@ -31,7 +31,7 @@ Nothing runs by itself: every job starts when you press it or ask for it.
 - **A render never holds up the rest:** while one scene renders, the next step is the next scene's; what comes back waits for you there.
 - **The Script holds up what stands on it:** Cast & World and Scenes open once the shot list is picked. A film started from footage has no Script to wait for. A script changed after the film was laid out asks for a new list and holds nothing up.
 - **A shot drafts once what rides on it is settled:** no plate of it rendering or waiting for you.
-- **The rough cut comes first:** the cut opens when every shot has a circled take, in 480p. Finals follow once the cut holds, and a new circled take asks for the cut again.
+- **The rough cut comes first:** the cut opens when every shot has a circled take, in 480p. Every scene's Final follows, all at once; once they are in and circled, the cut again.
 - **Your performance:** a clip dropped on a shot's monitor is a circled take of that shot; the next step is its VFX edit, from your words.
 
 | | |
@@ -48,7 +48,7 @@ Each job is a contract, declared once in `crew.js`: where it works, what it deli
 | @ | Where | Delivers | Lands in |
 |---|---|---|---|
 | **Writers** | Script | a screenplay of your idea (one call; code checks sluglines) | the Script |
-| **AD** | Script | the shot list: every scene (code, from the sluglines) and its shots — one line each, where the camera is and what we see — with the film's people listed once each; a scene that fails its checks is listed with its error and no shots (`@AD` there plans it again) | the Script |
+| **AD** | Script | the shot list: every scene (code, from the sluglines) and its shots — one line each, where the camera is and what we see — with the film's people (and any animal the story follows) listed once each; a scene that fails its checks is listed with its error and no shots (`@AD` there plans it again) | the Script |
 | **AD** | Scene | that scene's shots again, from its own words (one take: its views are the shots; landmarks, start, end and what everyone looks at fold away under Details) | the scene |
 | **Casting** | Cast & World | a plate for everyone in Cast & World without one, under their exact names; with nobody waiting, the film's cast from the script | each element |
 | **Casting** | a character | 2 variations (an anchor first if it has no plate) | that element |
@@ -151,7 +151,7 @@ run(h, request, payload)  → versions
 - **Canvas work is mirrored in automatically.** Plates become elements and SHOT cards become shots with their takes. It's a merge, so what you change in the Studio stays.
 - **Stale.** A circled take made with an earlier cast or place says so on its shot: *Shoot again* or *Keep*.
 
-**Open:** no note route for the cut; staleness tracks cast and places only; no Sound agent; shots can't be reordered; work other than takes in flight does not survive a reload.
+**Open:** props drawn after the shot list ride on a shot only once it is told to ("Add the fox as a reference") or the AD plans that scene again;  staleness tracks cast and places only; no Sound agent; shots can't be reordered; work other than takes in flight does not survive a reload.
 
 ## Code
 

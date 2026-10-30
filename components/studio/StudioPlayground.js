@@ -29,7 +29,7 @@ const Stages = ({ s, scope, on, go }) => {
   const st = stageStates(s);
   const here = stageOf(scope);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 auto', flex: '0 0 auto' }}>
       {STAGES.map(({ id, label }, i) => {
         const active = on && here === id;
         const done = st[id].done;
@@ -313,12 +313,12 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     <div ref={rootRef} className="studio" style={{ position: 'relative', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', height: 'calc(100vh - 84px)', background: C.bg, border: '1px solid #000', borderRadius: 14, overflow: 'hidden', textAlign: 'left', color: C.ink }}>
       <style dangerouslySetInnerHTML={{ __html: STUDIO_CSS }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 18px', height: 68, borderBottom: `1px solid ${C.line}`, background: C.panel }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '0 1 auto' }}>
           <span style={{ width: 28, height: 28, borderRadius: 8, background: C.accent, display: 'grid', placeItems: 'center', flex: '0 0 auto' }}><span style={{ width: 0, height: 0, borderLeft: `9px solid ${C.accentInk}`, borderTop: '6px solid transparent', borderBottom: '6px solid transparent', marginLeft: 3 }} /></span>
           <ProjectMenu project={project} title={title} container={() => rootRef.current} />
         </div>
         <Stages s={s} scope={scope} on={mode === 'direct'} go={(id) => { setMode('direct'); setScope(scopeOfStage(id)); }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 0 auto', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto', justifyContent: 'flex-end' }}>
           {/* What waits for your verdict, oldest first: the pill opens the viewer on it. */}
           {work.fresh.length > 0 && <span role="button" onClick={() => nextNew()} title="Open what waits for your verdict" style={{ height: 38, padding: '0 16px', display: 'inline-flex', alignItems: 'center', borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 700, background: C.warn, color: C.accentInk, whiteSpace: 'nowrap', flex: '0 0 auto' }}>{work.fresh.length} new</span>}
           <span role="button" className="st-stage" onClick={() => setMode(mode === 'generations' ? 'direct' : 'generations')} style={{ height: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', flex: '0 0 auto', color: mode === 'generations' ? C.ink : C.text, background: mode === 'generations' ? C.hover : 'transparent' }}>

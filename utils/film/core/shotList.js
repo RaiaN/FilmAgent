@@ -24,7 +24,7 @@ const SCENES_AT_ONCE = 4;
 const norm = (t) => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const hasWords = (hay, name) => ` ${norm(hay)} `.includes(` ${norm(name)} `);
 // A name as the film carries it: a screenplay writes a character in capitals — "DAN" is Dan.
-export const display = (name) => (name === name.toUpperCase() ? name.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase()) : name);
+export const display = (name) => (name === name.toUpperCase() ? name.toLowerCase().replace(/(^|[^\p{L}\p{N}'’])(\p{L})/gu, (m, before, c) => before + c.toUpperCase()) : name);
 
 // The names a person goes by: their name and every other name the script uses for them.
 export const namesOf = (p) => [p.name, ...(p.aka || [])];

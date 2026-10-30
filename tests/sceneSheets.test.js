@@ -188,3 +188,28 @@ describe('Camera never sends anyone toward the lens', () => {
     expect(ctx.client.reason.mock.calls[0][0].systemPrompt).toMatch(/EYES: in every beat/);
   });
 });
+
+describe('names from capitals', () => {
+  const { display } = require('../utils/film/core/shotList');
+  test('every word starts with a capital, and nothing after an apostrophe does', () => {
+    expect(display("MORWEN'S COTTAGE")).toBe("Morwen's Cottage");
+    expect(display('HEMLOCK VILLAGE-SQUARE')).toBe('Hemlock Village-Square');
+    expect(display('Already Written')).toBe('Already Written');
+  });
+});
+
+describe('the lens gate reads what the prompt says', () => {
+  const { lensGazes } = require('../utils/film/core/shot');
+  test.each([
+    'No one faces or looks toward the camera.',
+    'Nobody looks at the lens.',
+    'She never turns to the camera.',
+    "She doesn't look at the camera.",
+    'The cat is not facing the camera.',
+  ])('forbidding it is not doing it: %s', (t) => expect(lensGazes(t)).toEqual([]));
+  test.each([
+    'She turns and looks at the camera.',
+    'No one speaks. She looks at the camera.',
+    'Not a word, she walks toward the camera.',
+  ])('doing it is still caught: %s', (t) => expect(lensGazes(t).length).toBe(1));
+});

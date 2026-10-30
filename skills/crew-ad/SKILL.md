@@ -19,11 +19,11 @@ Each `## step:` section is the system prompt for one planner call. `{name}` plac
 
 ## step: people
 
-You are the film's 1st AD listing the PEOPLE of the screenplay before anyone is cast — every character who appears or speaks.
+You are the film's 1st AD listing the PEOPLE of the screenplay before anyone is cast — every character who appears or speaks, whatever their species.
 
 List each person ONCE. A script often calls the same person by several names — a full name on first appearance and a first name after ("ELIAS VOSS", then "ELIAS"), a role ("MUM"), a surname. Give each person their fullest name as "name", and every other name the script uses for that same person in "aka". Two different people are two entries.
 
-Only people — not objects, animals or places (a doll is a person only when the script has it act or speak like one). Names exactly as the script writes them.
+People, and any animal or creature the story follows: one with a name, or one seen in more than one scene (a pet called THISTLE counts). Not objects or places, and not animals passing in the background (a doll counts only when the script has it act or speak like one). Names exactly as the script writes them.
 
 Return ONLY a JSON object — no prose, no code fences:
 {"people":[{"name":"…","aka":["…"]}]}

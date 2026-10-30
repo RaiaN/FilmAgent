@@ -91,7 +91,41 @@ describe('the cut waits for the takes', () => {
   });
 });
 
+describe('finals', () => {
+  const twoScenes = () => {
+    const script = `${SCRIPT}\nINT. HALL – DAY\nDAN waits.`;
+    const list = { ...LIST, scriptHash: scriptHash(script), scenes: [...LIST.scenes, { ...LIST.scenes[0], n: 2, slug: 'INT. HALL – DAY', text: 'DAN waits.' }] };
+    const base = applyShotList({ ...emptyStudio(), script }, list);
+    let s = base.elements.reduce((x, el) => plate(x, el), base);
+    s.scenes.forEach((sc, i) => { const ref = { at: 'take', sceneId: sc.id, shotId: sc.shots[0].id }; s = pickVersion(addVersion(s, ref, { id: `t${i}`, at: 1, by: 'camera', kind: 'take', status: 'review', url: 'u.mp4', draft: { taskId: 'x', modelKey: 'seedance25', at: Date.now() } }), ref, `t${i}`); });
+    return pickVersion(addVersion(s, { at: 'cut' }, { id: 'c', at: 2, by: 'editor', kind: 'cut', status: 'review', url: 'c.mp4', takes: ['t0', 't1'] }), { at: 'cut' }, 'c');
+  };
+  test('one rendering never holds up the next, and the cut waits for them all', () => {
+    let s = twoScenes();
+    const [one, two] = s.scenes;
+    expect(stepsOf(s).filter((x) => x.final).length).toBe(2);
+    const ref = { at: 'take', sceneId: one.id, shotId: one.shots[0].id };
+    s = addVersion(s, ref, { id: 'f0', parent: 't0', final: true, at: 3, by: 'camera', kind: 'take', status: 'running' });
+    const steps = stepsOf(s);
+    expect(steps.filter((x) => x.final).map((x) => x.final.sceneId)).toEqual([two.id]);
+    expect(steps.some((x) => x.id === 'cut.assemble')).toBe(false);
+  });
+  test('all finals circled: the cut again', () => {
+    let s = twoScenes();
+    s.scenes.forEach((sc, i) => { const ref = { at: 'take', sceneId: sc.id, shotId: sc.shots[0].id }; s = pickVersion(addVersion(s, ref, { id: `f${i}`, parent: `t${i}`, final: true, at: 3, by: 'camera', kind: 'take', status: 'review', url: 'f.mov', res: '1080p' }), ref, `f${i}`); });
+    expect(nextStep(s, { type: 'cut' }).run).toMatchObject({ agent: 'editor', action: 'assemble' });
+  });
+});
+
 describe('the stages as they stand', () => {
+  test('a new view waits under Scenes, a new plate under Cast & World', () => {
+    let s = laidOut();
+    const view = s.elements.find((e) => e.viewOf);
+    const place = s.elements.find((e) => !e.viewOf);
+    s = addVersion(s, { at: 'element', id: view.id }, { id: 'v', at: 1, kind: 'plate', status: 'review' });
+    s = addVersion(s, { at: 'element', id: place.id }, { id: 'p', at: 1, kind: 'plate', status: 'review' });
+    expect(stageStates(s).fresh).toMatchObject({ scenes: 1, world: 1 });
+  });
   test('counts what is done and what waits', () => {
     const st = stageStates(addVersion(laidOut(), { at: 'cut' }, { id: 'c', kind: 'cut', status: 'review', at: 1 }));
     expect(st.script.done).toBe(true);

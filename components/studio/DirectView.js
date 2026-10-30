@@ -164,6 +164,7 @@ const WorldPage = ({ s, set, open, toast }) => {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
                 <span style={{ fontSize: 24, fontWeight: 700, color: C.ink, letterSpacing: -0.4 }}>{KIND_LABEL[k]}</span>
                 {list.length > 0 && <span style={{ fontSize: 15, color: C.muted, fontFamily: MONO }}>{list.length}</span>}
+                <span role="button" className="st-chip" title={`Add to ${KIND_LABEL[k]}`} aria-label={`Add to ${KIND_LABEL[k]}`} onClick={() => setAdding({ kind: k, name: '' })} style={{ alignSelf: 'center', cursor: 'pointer', width: 30, height: 30, borderRadius: 9, border: `1px solid ${C.line}`, display: 'grid', placeItems: 'center', color: C.text }}><IconPlus /></span>
               </div>
               {adding?.kind === k && (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 12, border: `1px solid ${C.accent}`, background: C.raised, borderRadius: 12, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -175,11 +176,6 @@ const WorldPage = ({ s, set, open, toast }) => {
               )}
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${TILE[k].min}px, 1fr))`, gap: 18 }}>
                 {list.map((el) => <NameTile key={el.id} el={el} s={s} open={open} />)}
-                {adding?.kind !== k && (
-                  <div role="button" className="st-card" title={`Add to ${KIND_LABEL[k]}`} aria-label={`Add to ${KIND_LABEL[k]}`} onClick={() => setAdding({ kind: k, name: '' })} style={{ cursor: 'pointer', border: `1px dashed ${C.lineHi}`, borderRadius: 16, aspectRatio: TILE[k].ratio, display: 'grid', placeItems: 'center', color: C.muted, fontSize: 30 }}>
-                    <IconPlus />
-                  </div>
-                )}
               </div>
             </DropArea>
           );

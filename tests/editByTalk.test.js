@@ -115,6 +115,16 @@ describe('an edit is a new version of what was edited', () => {
     expect(l2.payload.scenes[0].sheet.beats.map((b) => b.view)).toEqual(['Close']);
     expect(s.scenes).toEqual([]);
   });
+  test('a place renamed takes its views with it', async () => {
+    const flat = newElement({ kind: 'location', name: 'Flat', desc: 'a flat' });
+    const view = { ...newElement({ kind: 'location', name: 'Flat · Wide' }), viewOf: flat.id };
+    const st = studio({ elements: [flat, view] });
+    await talk(st, reasoner({ reply: 'Renamed.', changes: [{ name: 'Flat', rename: 'The Flat' }], add: [], remove: [], pictures: [] }), { agent: 'cast', action: 'talk', scope: { type: 'world' }, text: 'call it The Flat' });
+    expect(st.get().elements.map((e) => e.name)).toEqual(['The Flat', 'The Flat · Wide']);
+    const undo = st.get().threads.world.find((m) => m.kind === 'reply').change.undo;
+    expect(undo.elements.map((e) => e.name)).toEqual(['Flat', 'Flat · Wide']);
+  });
+
   test('talking to Cast & World edits names and descriptions at once, with Undo; who is in a shot stays', async () => {
     const dan = newElement({ kind: 'character', name: 'Dan', desc: 'a man' });
     const sc = { ...newScene('Flat'), shots: [{ id: 'sh1', elementIds: [dan.id], takes: { versions: [], picked: null } }] };

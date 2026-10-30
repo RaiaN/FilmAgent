@@ -29,18 +29,18 @@ const Stages = ({ s, scope, on, go }) => {
   const st = stageStates(s);
   const here = stageOf(scope);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 auto', flex: '0 0 auto' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 auto', flex: '0 1 auto', minWidth: 0 }}>
       {STAGES.map(({ id, label }, i) => {
         const active = on && here === id;
         const done = st[id].done;
         const fresh = st.fresh[id];
         return (
           <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {i > 0 && <span style={{ width: 22, height: 2, borderRadius: 1, background: C.lineHi }} />}
+            {i > 0 && <span className="st-link" style={{ width: 22, height: 2, borderRadius: 1, background: C.lineHi }} />}
             <span role="button" className="st-stage" onClick={() => go(id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 10, height: 44, padding: '0 16px 0 10px', borderRadius: 12, cursor: 'pointer', background: active ? C.hover : 'transparent', whiteSpace: 'nowrap' }}>
               <span style={{ width: 26, height: 26, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 13.5, fontWeight: 700, flex: '0 0 auto', background: active ? C.accent : done ? C.goodSoft : C.raised, color: active ? C.accentInk : done ? C.good : C.muted, boxShadow: active || done ? 'none' : `inset 0 0 0 1px ${C.lineHi}` }}>{done && !active ? <IconCheck /> : i + 1}</span>
               <span style={{ fontSize: 16, fontWeight: active ? 700 : 600, color: active ? C.ink : C.text, letterSpacing: -0.1 }}>{label}</span>
-              {st[id].count && <span style={{ fontFamily: MONO, fontSize: 13, color: C.muted }}>{st[id].count}</span>}
+              {st[id].count && <span className="st-count" style={{ fontFamily: MONO, fontSize: 13, color: C.muted }}>{st[id].count}</span>}
               {st.working[id] && <Dot color={C.work} pulse size={8} />}
               {fresh > 0 && <span style={{ minWidth: 22, height: 22, padding: '0 6px', boxSizing: 'border-box', borderRadius: 11, background: C.warn, color: C.accentInk, fontSize: 12.5, fontWeight: 700, display: 'grid', placeItems: 'center' }}>{fresh}</span>}
             </span>
@@ -316,30 +316,30 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   const title = String(projectTitle || '').replace(/^Project\s+/, '').replace(/^"|"$/g, '');
 
   return (
-    <div ref={rootRef} className="studio" style={{ position: 'relative', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', height: 'calc(100vh - 84px)', background: C.bg, border: '1px solid #000', borderRadius: 14, overflow: 'hidden', textAlign: 'left', color: C.ink }}>
+    <div ref={rootRef} className="studio" style={{ position: 'relative', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', gridTemplateColumns: 'minmax(0, 1fr)', height: 'calc(100vh - 84px)', background: C.bg, border: '1px solid #000', borderRadius: 14, overflow: 'hidden', textAlign: 'left', color: C.ink }}>
       <style dangerouslySetInnerHTML={{ __html: STUDIO_CSS }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 18px', height: 68, borderBottom: `1px solid ${C.line}`, background: C.panel }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 18px', height: 68, minWidth: 0, borderBottom: `1px solid ${C.line}`, background: C.panel }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '0 1 auto' }}>
           <span style={{ width: 28, height: 28, borderRadius: 8, background: C.accent, display: 'grid', placeItems: 'center', flex: '0 0 auto' }}><span style={{ width: 0, height: 0, borderLeft: `9px solid ${C.accentInk}`, borderTop: '6px solid transparent', borderBottom: '6px solid transparent', marginLeft: 3 }} /></span>
           <ProjectMenu project={project} title={title} container={() => rootRef.current} />
         </div>
         <Stages s={s} scope={scope} on={mode === 'direct'} go={(id) => { setMode('direct'); setScope(scopeOfStage(id)); }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 1 auto', minWidth: 0, justifyContent: 'flex-end' }}>
           {/* What waits for your verdict, oldest first: the pill opens the viewer on it. */}
           {work.fresh.length > 0 && <span role="button" onClick={() => nextNew()} title="Open what waits for your verdict" style={{ height: 38, padding: '0 16px', display: 'inline-flex', alignItems: 'center', borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 700, background: C.warn, color: C.accentInk, whiteSpace: 'nowrap', flex: '0 0 auto' }}>{work.fresh.length} new</span>}
-          <span role="button" className="st-stage" onClick={() => setMode(mode === 'generations' ? 'direct' : 'generations')} style={{ height: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', flex: '0 0 auto', color: mode === 'generations' ? C.ink : C.text, background: mode === 'generations' ? C.hover : 'transparent' }}>
-            <IconApps />Generations
+          <span role="button" className="st-stage" aria-label="Generations" title="Generations" onClick={() => setMode(mode === 'generations' ? 'direct' : 'generations')} style={{ height: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', flex: '0 0 auto', color: mode === 'generations' ? C.ink : C.text, background: mode === 'generations' ? C.hover : 'transparent' }}>
+            <IconApps /><span className="st-wide">Generations</span>
             {work.working > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: C.work, fontSize: 13 }}><Dot color={C.work} pulse />{work.working}</span>}
           </span>
           {/* The film's look: pick one, type your own, or let the crew read it from the script. */}
-          <span title="The film's look. The crew follows it in everything it makes next; plates already made keep theirs." style={{ flex: '0 0 230px' }}>
+          <span title="The film's look. The crew follows it in everything it makes next; plates already made keep theirs." style={{ flex: '0 1 230px', minWidth: 130 }}>
             <Select aria-label="Style" showSearch allowCreate prefix="Style" value={s.style || ''} onChange={changeStyle} options={[{ label: 'From the script', value: '' }, ...STYLES.map((x) => ({ label: x, value: x }))]} style={{ width: '100%' }} triggerProps={{ autoAlignPopupWidth: false, autoAlignPopupMinWidth: true }} getPopupContainer={() => rootRef.current} />
           </span>
           {/* The film's video model: what Camera drafts on, unless a shot picks its own. Premium drafts finish at 1080p or 4K. */}
-          <span title="What Camera drafts on. Seedance 2.5 finishes at 1080p; Premium at 1080p or 4K." style={{ flex: '0 0 160px' }}>
+          <span title="What Camera drafts on. Seedance 2.5 finishes at 1080p; Premium at 1080p or 4K." style={{ flex: '0 1 160px', minWidth: 118 }}>
             <Select value={s.videoModel} onChange={(videoModel) => set((x) => ({ ...x, videoModel }))} options={VIDEO_MODELS.map((m) => ({ label: m.label, value: m.key }))} style={{ width: '100%' }} getPopupContainer={() => rootRef.current} />
           </span>
-          <span role="button" className="st-stage" aria-pressed={crewOpen} onClick={toggleCrew} title={crewOpen ? 'Hide the crew' : 'Show the crew'} style={{ height: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 600, flex: '0 0 auto', color: crewOpen ? C.ink : C.text, background: crewOpen ? C.hover : 'transparent' }}><IconUserGroup />Crew</span>
+          <span role="button" className="st-stage" aria-pressed={crewOpen} onClick={toggleCrew} title={crewOpen ? 'Hide the crew' : 'Show the crew'} aria-label="Crew" style={{ height: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 600, flex: '0 0 auto', color: crewOpen ? C.ink : C.text, background: crewOpen ? C.hover : 'transparent' }}><IconUserGroup /><span className="st-wide">Crew</span></span>
         </div>
       </div>
 

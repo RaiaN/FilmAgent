@@ -160,7 +160,7 @@ const ACTIONS = {
       if (absent(out).length) out = await h.think(castPlanFromIdea, { idea: s.script || req.text, existing, note: `${note}\nYour last plan left out ${absent(out).map((n) => `${n.name} (${n.kind})`).join(', ')}. Include every one of them, named exactly as written here.` });
       const left = absent(out);
       h.guard(!left.length, `Casting left out ${left.map((n) => `${n.name} (${n.kind})`).join(', ')} — they wait in Cast & World under these names.`);
-      return h.go({ arr: out.arr, style: [s.style, out.style].filter(Boolean).join('. ') }, `${plural(out.arr.length, 'plate')} · ${plural(imagesOf(out.arr), 'image')} · ${imageModelLabel()}`);
+      return h.go({ arr: out.arr, style: !s.style || lower(out.style).includes(lower(s.style)) ? out.style : [s.style, out.style].filter(Boolean).join('. ') }, `${plural(out.arr.length, 'plate')} · ${plural(imagesOf(out.arr), 'image')} · ${imageModelLabel()}`);
     },
     run: async (h, req, p) => {
       const { arr } = p;
@@ -483,18 +483,27 @@ const ACTIONS = {
       const named = (n) => els.find((e) => e.name === n);
       const added = out.add.map((a) => newElement({ kind: a.kind, name: a.name, desc: a.desc }));
       const touched = [...new Set([...out.changes.map((c) => c.name), ...out.remove])].map(named).filter(Boolean);
+      // Views take a renamed place's name, so Undo gives it back to them too.
+      const viewsMoved = s.elements.filter((e) => e.viewOf && out.changes.some((c) => c.rename && named(c.name)?.id === e.viewOf));
       const changed = out.changes.length || added.length || out.remove.length;
       if (changed) {
         h.reviseFilm((x) => ({
           ...x,
           elements: [...x.elements
             .filter((e) => !out.remove.includes(e.name) || e.viewOf)
-            .map((e) => { const c = out.changes.find((y) => y.name === e.name && !e.viewOf); return c ? { ...e, ...(c.rename ? { name: c.rename } : {}), ...(c.desc ? { desc: c.desc } : {}) } : e; }), ...added],
+            .map((e) => {
+              // A place's views carry its name: they are renamed with it.
+              const place = e.viewOf ? x.elements.find((y) => y.id === e.viewOf) : null;
+              const moved = place && out.changes.find((y) => y.name === place.name && y.rename);
+              if (moved) return { ...e, name: e.name.replace(place.name, moved.rename) };
+              const c = out.changes.find((y) => y.name === e.name && !e.viewOf);
+              return c ? { ...e, ...(c.rename ? { name: c.rename } : {}), ...(c.desc ? { desc: c.desc } : {}) } : e;
+            }), ...added],
         }));
       }
       h.reply({
         kind: 'reply', text: out.reply,
-        change: changed ? { renamed: out.changes.filter((c) => c.rename).map((c) => `${c.name} → ${c.rename}`), described: out.changes.filter((c) => c.desc).map((c) => c.rename || c.name), added: added.map((e) => e.name), removed: out.remove, undo: { elements: touched, added: added.map((e) => e.id) } } : null,
+        change: changed ? { renamed: out.changes.filter((c) => c.rename).map((c) => `${c.name} → ${c.rename}`), described: out.changes.filter((c) => c.desc).map((c) => c.rename || c.name), added: added.map((e) => e.name), removed: out.remove, undo: { elements: [...touched, ...viewsMoved], added: added.map((e) => e.id) } } : null,
         unknown: out.rejected,
       });
       // Pictures: each an image edit of the element's plate (an anchor first when it has none).

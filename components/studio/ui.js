@@ -57,6 +57,8 @@ export const STUDIO_CSS = `${STUDIO_ARCO_DARK}
 .studio .st-tile:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(0,0,0,0.5); }
 .studio .st-stage { transition: background .12s, color .12s; }
 .studio .st-stage:hover { background: ${C.hover}; }
+@media (max-width: 1640px) { .studio .st-count { display: none; } }
+@media (max-width: 1480px) { .studio .st-wide { display: none; } .studio .st-link { display: none; } }
 .studio .st-ghost { opacity: .55; transition: opacity .12s; }
 .studio .st-ghost:hover { opacity: 1; }
 .studio .st-script.arco-textarea, .studio .st-script.arco-textarea:hover, .studio .st-script.arco-textarea:focus {

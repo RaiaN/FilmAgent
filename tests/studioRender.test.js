@@ -89,7 +89,6 @@ describe('the Studio shell', () => {
     const html = await mount(<StudioPlayground projectStudio={{ projectId: 'p', nonce: 1, data: { ...inWork(), scenes: inWork().scenes.map((sc) => ({ ...sc, shots: sc.shots.map((sh) => ({ ...sh, takes: { ...sh.takes, versions: sh.takes.versions.filter((v) => v.status !== 'running') } })) })) } }} onStudioChange={noop} projectTitle="Test" />);
     expect(html).toMatch(/\d+ new/);
     ['Script', 'Cast &amp; World', 'Scenes', 'Cut'].forEach((stage) => expect(html).toContain(stage));
-    expect(html).toContain('Generate');
     expect(html).toMatch(/Generations/);
     expect(html).not.toMatch(/>Review</);
   });

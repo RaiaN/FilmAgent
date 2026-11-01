@@ -25,10 +25,10 @@ const Card = ({ label, value, onClick, active, children }) => (
 );
 const Pill = ({ children, ...rest }) => <span {...rest} style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '0 13px', borderRadius: 12, background: C.raised, color: C.ink, fontSize: 14.5, whiteSpace: 'nowrap', cursor: rest.onClick ? 'pointer' : 'default', flex: '0 0 auto', ...rest.style }}>{children}</span>;
 
-export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setStyle, compact = false }) => {
+export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setStyle }) => {
   const [open, setOpen] = useState(false);
-  // The Script page and a short window keep the room for the page; the bar opens when you use it.
-  useEffect(() => { setOpen(!compact && window.innerHeight >= TALL_WINDOW); }, [compact]);
+  // A short window keeps the room for the takes; the bar opens when you use it.
+  useEffect(() => { setOpen(window.innerHeight >= TALL_WINDOW); }, []);
   const [caret, setCaret] = useState(0);
   const [closed, setClosed] = useState(false);
   const [active, setActive] = useState(0);
@@ -74,7 +74,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
   const targetLabel = editing ? `Editing ${bar.source}` : shot ? `Shot ${pad2(shotNumber(s, shot.id))} · ${shot.title}` : 'Not on a shot: lands in Generations';
   return (
     <div style={{ background: C.panel, borderTop: `1px solid ${C.line}`, padding: '12px 18px 14px' }}>
-      <div style={{ maxWidth: 1400, margin: '0 auto', display: 'grid', gap: 10 }}>
+      <div style={{ maxWidth: 1400, margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 24 }}>
           <span style={{ fontSize: 14, color: shot || editing ? C.accent : C.muted, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{targetLabel}</span>
           {bar.parent && <span style={{ fontSize: 13, color: C.muted, flex: '0 0 auto' }}>Reworks {bar.parent}</span>}
@@ -111,8 +111,8 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
               ))}
             </div>
           )}
-          <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 10, alignContent: 'space-between' }}>
-            <Input.TextArea ref={area} className="st-bare" aria-label="Describe the shot" value={bar.text} onFocus={() => setOpen(true)} onChange={(v, e) => { patch({ text: v }); setCaret(e?.target?.selectionStart ?? v.length); setClosed(false); setActive(0); }} onKeyDown={onKeys} onKeyUp={(e) => setCaret(e.target.selectionStart)} onClick={(e) => setCaret(e.target.selectionStart)} autoSize={{ minRows: open ? 2 : 1, maxRows: open ? 5 : 2 }} placeholder="Describe the shot, @ to add cast, places and takes" style={{ fontSize: 17, lineHeight: 1.5, color: C.ink }} />
+          <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10, alignContent: 'space-between' }}>
+            <Input.TextArea ref={area} className="st-bare" aria-label="Describe the shot" value={bar.text} onFocus={() => setOpen(true)} onChange={(v, e) => { patch({ text: v }); setCaret(e?.target?.selectionStart ?? v.length); setClosed(false); setActive(0); }} onKeyDown={onKeys} onKeyUp={(e) => setCaret(e.target.selectionStart)} onClick={(e) => setCaret(e.target.selectionStart)} autoSize={{ minRows: open ? 2 : 1, maxRows: open ? 5 : 1 }} placeholder="Describe the shot, @ to add cast, places and takes" style={{ fontSize: 17, lineHeight: 1.5, color: C.ink }} />
             {open && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Dropdown trigger="click" getPopupContainer={popup} droplist={<Menu onClickMenuItem={(k) => patch({ model: k, seconds: Math.min(bar.seconds, videoTraits(k).maxSeconds) })}>{VIDEO_MODELS.map((m) => <Menu.Item key={m.key}>{m.label}</Menu.Item>)}</Menu>}><Pill onClick={() => {}} style={{ background: C.bg }}>{VIDEO_MODELS.find((m) => m.key === bar.model)?.label || bar.model}<IconDown style={{ fontSize: 12, color: C.muted }} /></Pill></Dropdown>

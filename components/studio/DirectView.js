@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Input, InputNumber, Select } from '@arco-design/web-react';
-import { IconClose, IconPlus, IconStarFill, IconUpload, IconFile, IconDownload, IconLeft, IconRight, IconLoading, IconPlayArrowFill } from '@arco-design/web-react/icon';
+import { Button, Dropdown, Input, InputNumber, Menu } from '@arco-design/web-react';
+import { IconClose, IconPlus, IconStarFill, IconUpload, IconFile, IconDownload, IconLeft, IconRight, IconLoading, IconMore, IconPlayArrowFill } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Tile, Empty, Pill, PageHead, DropArea, CanvasButton, crewColor, mediaOf, storeFile, readFile, readText } from './ui';
 import { stageLocalAsset } from '../../utils/film/canvasModel';
-import { ELEMENT_KINDS, KIND_LABEL, VIDEO_MODELS, videoModelLabel, findElement, findScene, namedText, tokenized, pickedOf, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
+import { ELEMENT_KINDS, KIND_LABEL, findElement, findScene, namedText, pickedOf, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
 import { needsOfScene } from '../../utils/film/studio/bar';
 import { sceneHero, viewsOfShot, finalsOfShots, toFinish } from '../../utils/film/studio/guide';
 import { parseScript } from '../../utils/film/core/scriptForm';
 import { shotsOf } from '../../utils/film/core/shotList';
 import { sceneMotion } from '../../utils/film/core/storyboard';
-import { ShotList } from './ShotList';
 
 // Text that commits when you leave the field; `live` also commits a moment after you stop typing.
 const LIVE_MS = 400;
@@ -40,7 +39,7 @@ const isClip = (f) => f.type.startsWith('video/');
 const KIND_COLOR = { character: crewColor('casting'), location: crewColor('designer'), prop: '#ffd166' };
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 // A page fills the stage and scrolls in itself.
-const PAGE = { height: '100%', overflowY: 'auto', padding: '32px 40px 72px', boxSizing: 'border-box' };
+const PAGE = { height: '100%', overflowY: 'auto', padding: 'clamp(16px, 2.4vw, 32px) clamp(16px, 3vw, 40px) 48px', boxSizing: 'border-box' };
 
 // WORKING: what a crew job is doing now and for how long — "Planning the cast · 0:23".
 const clock = (ms) => { const sec = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; };
@@ -71,15 +70,15 @@ const ScriptPage = ({ s, set, toast, setScope, actions }) => {
   };
   const write = (v) => set((x) => ({ ...x, script: v, scriptAt: Date.now() }));
   const screenplay = parseScript(script).form === 'screenplay';
-  const fresh = shotListFresh(s);
-  // Break down and Write take the words on screen, typed a moment ago or not.
+  const fresh = shotListFresh(s) || !s.shotList;
+  // Break down and Write take the words on screen, typed a moment ago or not. A film already broken
+  // down only offers it again when its script has changed.
   const breakdown = screenplay
     ? <Button size="large" type="primary" loading={actions.busy('Breaking down')} onClick={() => actions.breakdown(script)}>{s.scenes.length ? 'Break down again' : 'Break down into shots'}</Button>
     : <Button size="large" type="primary" disabled={!script.trim()} loading={actions.busy('Writing')} onClick={() => actions.write(script)}>Write the screenplay</Button>;
-  // The shot list as the film has it now: every scene with its picked shots.
-  const live = s.scenes.some((sc) => pickedOf(sc.blocking)) ? { people: s.shotList?.people || [], scenes: s.scenes.map((sc, i) => ({ n: i + 1, place: sc.place || sc.title, time: sc.place ? sc.time : '', sheet: pickedOf(sc.blocking)?.payload || null })) } : null;
+  const offered = !s.scenes.length || !fresh;
   // An empty film opens on the headline and the script, big; a screenplay is a page.
-  if (!screenplay && !live) {
+  if (!screenplay && !s.scenes.length) {
     return (
       <DropArea onFiles={(fs) => openScript(fs[0])} accept={(f) => !isMedia(f)} hint="Drop to open the script" style={{ ...PAGE, display: 'grid', placeItems: 'center' }}>
         <div style={{ width: 'min(1040px, 100%)', display: 'grid', gap: 22 }}>
@@ -103,19 +102,16 @@ const ScriptPage = ({ s, set, toast, setScope, actions }) => {
     </div>
   );
   return (
-    <DropArea onFiles={(fs) => openScript(fs[0])} accept={(f) => !isMedia(f)} hint="Drop to open the script" style={{ height: '100%', display: 'grid', gridTemplateColumns: live ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', minHeight: 0 }}>
-      <div style={PAGE}>
-        <div style={{ maxWidth: live ? 'none' : 960, margin: '0 auto', display: 'grid', gap: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{breakdown}</div>
-          {paper}
-        </div>
+    <DropArea onFiles={(fs) => openScript(fs[0])} accept={(f) => !isMedia(f)} hint="Drop to open the script" style={PAGE}>
+      <div style={{ maxWidth: 960, margin: '0 auto', display: 'grid', gap: 16 }}>
+        {offered && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
+            {s.scenes.length > 0 && <span style={{ fontSize: 14, color: C.warn }}>The script changed</span>}
+            {breakdown}
+          </div>
+        )}
+        {paper}
       </div>
-      {live && (
-        <div style={{ ...PAGE, borderLeft: `1px solid ${C.line}`, background: C.panel }}>
-          {!fresh && <div style={{ marginBottom: 18 }}><Pill color={C.warn} bg={C.warnSoft} style={{ fontSize: 13, padding: '3px 10px' }}>The script changed</Pill></div>}
-          <ShotList list={live} heroOf={(n) => sceneHero(s, s.scenes[n - 1])} onScene={(n) => setScope({ type: 'scene', id: s.scenes[n - 1].id })} />
-        </div>
-      )}
     </DropArea>
   );
 };
@@ -398,20 +394,19 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
   const viewNamed = (name) => views.find((el) => el.name.endsWith(`· ${name}`));
   const beats = sh.sheet && namedText(s, sh.motion) === sceneMotion(sh.sheet) ? shotsOf(sh.sheet) : null;
   return (
-    <div role="button" onClick={() => select(on ? null : sh.id)} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.75fr) minmax(320px, 1fr)', gap: 28, padding: 18, borderRadius: 20, cursor: 'pointer', border: `1px solid ${on ? C.accent : C.line}`, background: on ? '#1b1815' : C.panel, boxShadow: on ? `0 0 0 3px ${C.accentSoft}` : 'none' }}>
-      <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gap: 12, alignContent: 'start', minWidth: 0 }}>
+    <div role="button" onClick={() => select(on ? null : sh.id)} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(260px, 1fr)', gap: 20, padding: 14, borderRadius: 18, cursor: 'pointer', border: `1px solid ${on ? C.accent : C.line}`, background: on ? '#1b1815' : C.panel, boxShadow: on ? `0 0 0 3px ${C.accentSoft}` : 'none' }}>
+      <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, min(100%, calc(36vh * 16 / 9)))', justifyContent: 'center', gap: 10, alignContent: 'start', minWidth: 0 }}>
         {hero
           ? <Tile big v={hero} w="100%" badge={takeBadge(hero)} onClick={hero.status === 'running' ? undefined : (e) => { e.stopPropagation(); review(ref, hero.id); }} />
           : (
-            <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 14, background: '#08090b', boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 14 }}>
+            <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 14, background: '#08090b', boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 6 }}>
               <span style={{ fontFamily: MONO, fontSize: 56, fontWeight: 700, color: '#2c3038' }}>{pad2(n)}</span>
-              <UploadButton size="large" icon={<IconUpload />} accept="video/*" loading={!!importing} onFiles={importHere}>{importing ? `Importing ${importing}` : 'Your performance'}</UploadButton>
+              <span style={{ fontSize: 14, color: importing ? C.work : C.muted }}>{importing ? `Importing ${importing}` : 'No take yet'}</span>
             </div>
           )}
         {takes.length > 0 && (
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, paddingTop: 2, paddingLeft: 2 }} onClick={(e) => e.stopPropagation()}>
             {takes.map((v) => <Tile key={v.id} v={v} w={148} badge={takeBadge(v)} picked={sh.takes.picked === v.id} onClick={v.status !== 'running' ? () => review(ref, v.id) : undefined} />)}
-            <span style={{ flex: '0 0 auto', alignSelf: 'center' }}><UploadButton type="text" size="large" icon={<IconUpload />} accept="video/*" loading={!!importing} onFiles={importHere} title="Your performance" aria-label="Your performance" /></span>
           </div>
         )}
       </DropArea>
@@ -422,9 +417,7 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
             ? <span onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 120 }}><Draft value={sh.title} onCommit={(v) => patchShot(sh.id, { title: v })} style={{ fontSize: 16, fontWeight: 600 }} /></span>
             : !single && <span style={{ fontSize: 17, fontWeight: 600, flex: 1, minWidth: 0, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sh.title}</span>}
           <span style={{ flex: on || !single ? '0 0 auto' : 1 }} />
-          {sh.videoModel && sh.videoModel !== s.videoModel && <Pill color={C.text} bg="transparent" style={{ border: `1px solid ${C.line}`, fontSize: 12 }}>{videoModelLabel(sh.videoModel)}</Pill>}
-          <span style={{ fontFamily: MONO, fontSize: 14, color: C.muted }}>{sh.seconds}s</span>
-          {canvas && <CanvasButton size={30} title={sh.boardCard ? 'Show its card in Canvas' : 'Open in Canvas'} onClick={() => canvas.shot(scene.id, sh.id)} />}
+                    <span style={{ fontFamily: MONO, fontSize: 14, color: C.muted }}>{sh.seconds}s</span>
           {take && <IconStarFill style={{ color: C.gold, fontSize: 18 }} title="Circled" />}
         </div>
         {stale.length > 0 && (
@@ -458,19 +451,7 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
         ) : !on && (
           <div style={{ fontSize: 15, color: C.text, lineHeight: 1.6, display: '-webkit-box', WebkitLineClamp: 8, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{namedText(s, sh.motion) || sh.quote || ''}</div>
         )}
-        {on && (
-          <div onClick={(e) => e.stopPropagation()} style={{ display: 'grid', gap: 12 }}>
-            {/* What every take is made from: a shot the AD planned folds it away behind its beats. */}
-            <details open={!beats}>
-              <summary style={{ fontSize: 14, color: C.text, cursor: 'pointer', marginBottom: 8 }}>Text</summary>
-              <Draft area value={namedText(s, sh.motion)} onCommit={(v) => patchShot(sh.id, { motion: tokenized(s, v, sh.elementIds) })} autoSize={{ minRows: 6, maxRows: 18 }} placeholder="What happens in the shot" style={{ fontSize: 15, lineHeight: 1.6 }} />
-            </details>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Select value={sh.videoModel || ''} onChange={(k) => patchShot(sh.id, { videoModel: k || null })} options={[{ label: `Film · ${videoModelLabel(s.videoModel)}`, value: '' }, ...VIDEO_MODELS.map((m) => ({ label: m.label, value: m.key }))]} style={{ flex: '1 1 200px' }} getPopupContainer={(node) => node.parentElement} />
-              <Button status="danger" type="text" onClick={() => { removeShot(sh.id); select(null); }}>Remove</Button>
-            </div>
-          </div>
-        )}
+        {on && <div onClick={(e) => e.stopPropagation()}><Button status="danger" type="text" onClick={() => { removeShot(sh.id); select(null); }}>Remove shot</Button></div>}
       </div>
     </div>
   );
@@ -509,6 +490,7 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
   const [importing, setImporting] = useState('');
   const [script, setScript] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const footage = useRef(null);
   const needs = needsOfScene(s, scene);
   const blockings = scene.blocking?.versions || [];
   const blockRunning = blockings.some((v) => v.status === 'running');
@@ -532,10 +514,15 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
             {(needs.names.length > 0 || needs.views > 0) && <Button size="large" type="primary" loading={actions.busy('Casting') || actions.busy('Drawing')} onClick={() => actions.generateMissing(scene)}>Generate missing · {needs.names.length + needs.views}</Button>}
             {scene.shots.some((sh) => pickedOf(sh.takes)) && <Button size="large" icon={<IconPlayArrowFill />} onClick={() => setPlaying(true)}>Play scene</Button>}
             {finishing.length > 0 && finalRes.map((res) => <Button key={res} size="large" onClick={() => actions.finalScene(finishing, res)}>Final · {res}</Button>)}
-            {scene.text && <Button size="large" type={script ? 'primary' : 'secondary'} onClick={() => setScript((o) => !o)}>Script</Button>}
-            <Button size="large" icon={<IconPlus />} onClick={addShot}>Shot</Button>
-            <UploadButton size="large" icon={<IconUpload />} accept="video/*" loading={!!importing} onFiles={importFiles}>{importing ? `Importing ${importing}` : 'Footage'}</UploadButton>
-            {canvas && scene.shots.length > 0 && <CanvasButton size={40} title="Open the scene's shots in Canvas" onClick={() => canvas.scene(scene.id)} />}
+            <input ref={footage} type="file" accept="video/*" multiple hidden onChange={(e) => { const fs = [...(e.target.files || [])]; if (fs.length) importFiles(fs); e.target.value = ''; }} />
+            <Dropdown trigger="click" position="br" droplist={(
+              <Menu onClickMenuItem={(k) => { if (k === 'shot') addShot(); if (k === 'script') setScript((o) => !o); if (k === 'footage') footage.current?.click(); if (k === 'canvas') canvas.scene(scene.id); }}>
+                <Menu.Item key="shot">Add a shot</Menu.Item>
+                {scene.text && <Menu.Item key="script">{script ? 'Hide the script' : "Show the scene's script"}</Menu.Item>}
+                <Menu.Item key="footage">{importing ? `Importing ${importing}` : 'Import footage'}</Menu.Item>
+                {canvas && scene.shots.length > 0 && <Menu.Item key="canvas">Open in Canvas</Menu.Item>}
+              </Menu>
+            )}><Button size="large" icon={<IconMore />} aria-label="More" /></Dropdown>
           </>
         )}
       >

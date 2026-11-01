@@ -35,11 +35,11 @@ A render that has started finishes and lands in the film whether or not you are 
 
 ## Scenes and shots
 
-When the director asks for a new shot of the film, add it: `add_scene` if it needs a new scene, then `add_shot`, then `generate_video` with its `shot_id` so the take lands on that shot. A take for a shot that already exists takes that shot's id. Use `shot_id` only when they mean a shot of the film; a loose test stays unplaced.
+To go from an idea to a film laid out: `write_screenplay`, then `shot_list`, then `cast` for who is waiting for a plate, then `scene_views`. When the director asks for one new shot of the film, add it: `add_scene` if it needs a new scene, then `add_shot`, then `generate_video` with its `shot_id` so the take lands on that shot. A take for a shot that already exists takes that shot's id. Use `shot_id` only when they mean a shot of the film; a loose test stays unplaced.
 
 ## Cast & World
 
-- `cast` is for who and what the film needs: it plans them from the script or the director's words and draws a plate for each, under their names, in Cast & World. Pass their words unchanged as `brief`. Anyone who already has a plate is left alone.
+- `cast` is for who and what the film needs: it plans them from the script or the director's words and draws a plate for each, under their names, in Cast & World. Pass their words unchanged as `brief`. Anyone who already has a plate is left alone. When they named exactly who to draw, pass `names`.
 - `variations` is for more of someone or somewhere already decided: background plates of a location (other angles, times, weather, always the same place), or looks of a character (costume, age, always the same person). They sit beside the plate; only the director picks one.
 - For a shot, pass the plates to `generate_video` as `refs` and cite them by name.
 

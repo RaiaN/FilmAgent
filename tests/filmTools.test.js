@@ -390,11 +390,11 @@ describe('a render ends whatever the agent does', () => {
     expect(await s.tools.call('settle_renders', { project })).toEqual({ running: 0 });
     expect(allVersions(film(s)).find((x) => x.v.name === 'T1').v).toMatchObject({ status: 'failed', error: 'Ark no longer has this render.' });
   });
-  test('a render Studio started is left to Studio', async () => {
+  test('a render on the Canvas is left to the Canvas', async () => {
     let asked = 0;
     const { s, project } = await started(() => { asked += 1; return { status: 'running' }; });
     const stored = s.cloud.get(project);
-    stored.project.studio.unplaced.versions.forEach((v) => { if (v.name === 'T1') v.by = 'studio'; });
+    stored.project.studio.unplaced.versions.forEach((v) => { if (v.name === 'T1') v.by = 'board'; });
     expect(await s.tools.call('settle_renders', { project })).toEqual({ running: 0 });
     expect(asked).toBe(0);
   });

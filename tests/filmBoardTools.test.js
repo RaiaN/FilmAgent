@@ -319,3 +319,77 @@ describe('variations', () => {
     expect(out.results[0].error).toMatch(/planner down/);
   });
 });
+
+describe('script to film', () => {
+  const SCREENPLAY = 'INT. FLAT - NIGHT\nDAN opens the door.\n\nEXT. STREET - DAY\nDAN runs.';
+  const SHEET = { seconds: 8, landmarks: 'door at one end', views: [{ name: 'Wide', from: 'by the window' }], start: 'Dan at the door', beats: [{ view: 'Wide', action: 'Dan opens the door', looksAt: 'the door' }], against: 'it sticks', sound: 'creak', end: 'door open' };
+  const laidOut = (studio) => {
+    const layout = require('../utils/film/studio/layout');
+    return layout.applyShotList(studio || emptyStudio(), { people: [{ name: 'Dan', aka: [] }], places: ['Flat'], scriptHash: '0', scenes: [{ n: 1, slug: 'INT. FLAT - NIGHT', place: 'Flat', time: 'Night', text: 'Dan opens the door.', people: ['Dan'], sheet: SHEET }] });
+  };
+
+  test('an idea is no screenplay, and the tool says so before spending', async () => {
+    const s = setup();
+    await expect(s.tools.call('shot_list', { project: 'film', script: 'A man loses his dog.' })).rejects.toThrow(/not a screenplay/);
+    expect(s.client.reason).not.toHaveBeenCalled();
+  });
+  test('breaking down again needs the director to agree', async () => {
+    const s = setup({ studio: laidOut() });
+    await expect(s.tools.call('shot_list', { project: 'film', script: SCREENPLAY })).rejects.toThrow(/replaces them/);
+    expect(s.client.reason).not.toHaveBeenCalled();
+  });
+  test('a screenplay replaces the earlier text, which stays as a version', async () => {
+    const s = setup({ studio: { ...emptyStudio(), script: 'my idea' } });
+    s.client.reason.mockImplementation(async () => ({ content: SCREENPLAY }));
+    await s.tools.call('write_screenplay', { project: 'film', idea: 'my idea' });
+    expect(s.film().script).toBe(SCREENPLAY);
+    expect(s.film().brief.versions[0]).toMatchObject({ text: 'my idea', kind: 'script' });
+  });
+  test('scene views are edits of the place plate, and the first becomes the view plate', async () => {
+    const film = laidOut();
+    const place = film.elements.find((e) => e.name === 'Flat');
+    place.versions = [{ id: 'p1', kind: 'plate', name: 'R1', status: 'picked', url: 'flat.png', at: 1 }];
+    place.picked = 'p1';
+    const s = setup({ studio: film });
+    const out = await s.tools.call('scene_views', { project: 'film', scene_id: film.scenes[0].id });
+    expect(out.results).toHaveLength(1);
+    expect(s.seen.images[0].referenceImages).toEqual(['flat.png']);
+    const view = s.film().elements.find((e) => e.viewOf === place.id);
+    expect(view.picked).toBe(view.versions[0].id);
+  });
+  test('views wait for the place to have a plate', async () => {
+    const film = laidOut();
+    const s = setup({ studio: film });
+    await expect(s.tools.call('scene_views', { project: 'film', scene_id: film.scenes[0].id })).rejects.toThrow(/Flat has no plate/);
+  });
+  test('cast by name draws exactly those, under those names', async () => {
+    const s = setup();
+    s.client.reason.mockImplementation(async () => ({ content: JSON.stringify({ assets: [{ type: 'location', name: 'The Harbour', prompt: 'a harbour' }, { type: 'prop', name: 'Oil Can', prompt: 'an oil can' }] }) }));
+    const out = await s.tools.call('cast', { project: 'film', brief: 'x', names: ['The Harbour'] });
+    expect(out.results).toHaveLength(1);
+    expect(s.film().elements.map((e) => e.name)).toEqual(['The Harbour']);
+  });
+  test('cast by name refuses when the planner renames someone, after one corrective ask', async () => {
+    const s = setup();
+    s.client.reason.mockImplementation(async () => ({ content: JSON.stringify({ assets: [{ type: 'character', name: 'Keeper Morwen', facePrompt: 'x' }] }) }));
+    await expect(s.tools.call('cast', { project: 'film', brief: 'x', names: ['Morwen'] })).rejects.toThrow(/left out Morwen/);
+    expect(s.client.reason).toHaveBeenCalledTimes(2);
+    expect(s.seen.images).toHaveLength(0);
+  });
+  test('a take stays where its source is', async () => {
+    const film = laidOut();
+    const s = setup({ studio: film });
+    const shotId = film.scenes[0].shots[0].id;
+    await s.tools.call('generate_video', { project: 'film', prompt: 'Walks', seconds: 6, quality: 'draft', shot_id: shotId });
+    Object.assign(s.film().scenes[0].shots[0].takes.versions[0], { status: 'review', url: 'https://x/t.mp4', draft: { taskId: 'task-1', modelKey: 'seedance25', at: Date.now() } });
+    await s.tools.call('finish', { project: 'film', name: 'T1' });
+    await s.tools.call('generate_video', { project: 'film', prompt: 'Runs', seconds: 6, quality: 'draft', parent: 'T1' });
+    expect(s.film().scenes[0].shots[0].takes.versions.map((v) => v.name)).toEqual(['T1', 'T2', 'T3']);
+  });
+  test('a tab\'s copy merges in, and a new film is created', async () => {
+    const s = setup();
+    const out = await s.tools.call('merge_film', { project: 'film', name: 'F', studio: { ...emptyStudio(), script: 'typed in the tab' } });
+    expect(s.film().script).toBe('typed in the tab');
+    expect(out.names).toEqual({});
+  });
+});

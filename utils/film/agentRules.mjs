@@ -4,7 +4,7 @@
 
 export const RUN_LIMITS = { calls: 60, failedRenders: 2, errors: 6, hardStopAfter: 5 };
 
-export const RENDERS = ['generate_image', 'edit_image', 'cast', 'variations', 'storyboard', 'previz', 'generate_video', 'edit_video', 'previz_animatic', 'finish'];
+export const RENDERS = ['generate_image', 'edit_image', 'cast', 'variations', 'scene_views', 'storyboard', 'previz', 'generate_video', 'edit_video', 'previz_animatic', 'finish'];
 const REPORT = 'Start no more work. Tell the director plainly what is done, what is not and why.';
 
 // A connection that dropped says nothing about the call: the same call can work a moment later.

@@ -103,3 +103,15 @@ describe('short names', () => {
     expect(allVersions(named)[0].v.name).toBeUndefined();
   });
 });
+
+describe('the script', () => {
+  test('goes by when it was written, with its shot list', () => {
+    const { mergeStudio } = require('../utils/film/studio/sync');
+    const { emptyStudio } = require('../utils/film/studio/model');
+    const server = { ...emptyStudio(), script: 'new', shotList: { scenes: [] }, scriptAt: 2 };
+    const tab = { ...emptyStudio(), script: 'old', shotList: null, scriptAt: 1 };
+    expect(mergeStudio(server, tab)).toMatchObject({ script: 'new', shotList: { scenes: [] }, scriptAt: 2 });
+    expect(mergeStudio({ ...server, scriptAt: 1 }, { ...tab, scriptAt: 2 }).script).toBe('old');
+    expect(mergeStudio({ ...server, scriptAt: undefined }, { ...tab, scriptAt: undefined }).script).toBe('old');
+  });
+});

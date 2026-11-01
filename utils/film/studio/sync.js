@@ -1,7 +1,7 @@
 // ONE FILM, SEVERAL WRITERS. The agent changes the film on the server while a Studio tab holds its
 // own copy, so saves merge instead of overwriting. Versions, elements, scenes, shots and messages
 // have ids and merge by id; what one side removed is recorded (`removed`) so a merge can't bring it
-// back. Only the tab edits the script and the like, so its values win on those fields.
+// back. The script goes by when it was written; on the film's look and model the tab's values win.
 import { allVersions } from './model';
 
 const FINISHED_STATUS = { review: 1, kept: 2, picked: 2, rejected: 2, failed: 2 };
@@ -65,9 +65,14 @@ export const mergeStudio = (server, local) => {
   });
   const names = { ...(server.names || {}) };
   Object.entries(local.names || {}).forEach(([k, n]) => { names[k] = Math.max(names[k] || 0, n); });
+  // The script and its shot list go together, and the later writer wins them.
+  const scripted = (server.scriptAt || 0) > (local.scriptAt || 0) ? server : local;
   const out = {
     ...server,
     ...local,
+    script: scripted.script,
+    shotList: scripted.shotList,
+    scriptAt: scripted.scriptAt,
     removed,
     names,
     threads,

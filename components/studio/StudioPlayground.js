@@ -24,11 +24,26 @@ const SETTLE_MS = 8000;
 // FilmAgent uses, on the same film; a shot's newest take stands until you reject it.
 // GENERATIONS shows every render. Saved inside the open project.
 
+const JOB_POLL_MS = 1500;
+// Tools run as background jobs on the server: the page only asks after them now and then, so its
+// pictures never queue behind a long render.
 const callTool = async (tool, args) => {
-  const res = await fetch('/api/film/tools', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, args }) });
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(out.error || `${tool} answered ${res.status}`);
-  return out;
+  const res = await fetch('/api/film/tools', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, args, background: true }) });
+  const started = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(started.error || `${tool} answered ${res.status}`);
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, JOB_POLL_MS));
+    // eslint-disable-next-line no-await-in-loop
+    const poll = await fetch(`/api/film/tools?job=${encodeURIComponent(started.job)}`);
+    // eslint-disable-next-line no-await-in-loop
+    const job = await poll.json().catch(() => ({}));
+    if (!poll.ok) throw new Error(job.error || `${tool} answered ${poll.status}`);
+    if (job.done) {
+      if (job.error) throw new Error(job.error);
+      return job.out;
+    }
+  }
 };
 
 // THE STAGES, always on top: where the film stands, and what waits in each.
@@ -169,13 +184,18 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     return () => { live = false; clearTimeout(timer); };
   }, [linked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A render ends whether or not anyone is waiting: while this film has one running, ask.
+  // A render ends whether or not anyone is waiting: while this film has one running, ask, one pass
+  // at a time.
   useEffect(() => {
     if (!linked) return undefined;
-    const timer = setInterval(() => {
-      if (allVersions(get()).some((x) => x.v.status === 'running' && x.v.taskId && x.v.by !== 'board')) callTool('settle_renders', { project: linked }).catch(() => {});
-    }, SETTLE_MS);
-    return () => clearInterval(timer);
+    let live = true;
+    let timer = null;
+    const tick = async () => {
+      if (allVersions(get()).some((x) => x.v.status === 'running' && x.v.taskId && x.v.by !== 'board')) await callTool('settle_renders', { project: linked }).catch(() => {});
+      if (live) timer = setTimeout(tick, SETTLE_MS);
+    };
+    timer = setTimeout(tick, SETTLE_MS);
+    return () => { live = false; clearTimeout(timer); };
   }, [linked, get]);
   // The bar follows the shot you are on.
   useEffect(() => {
@@ -183,7 +203,9 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     const shot = scope.type === 'shot' ? findShot(get(), scope.sceneId, scope.id) : scene?.shots[0];
     if (!shot) return;
     const sceneId = scope.type === 'shot' ? scope.sceneId : scope.id;
-    showBar(bars.current[shot.id] || barForShot(get(), sceneId, shot));
+    // Words left on a shot wait for you; a shot with none shows its own.
+    const left = bars.current[shot.id];
+    showBar(String(left?.text || '').trim() ? left : barForShot(get(), sceneId, shot));
   }, [scope]); // eslint-disable-line react-hooks/exhaustive-deps
   // Words you have not touched follow the film: a plate that arrives joins the shot.
   useEffect(() => {

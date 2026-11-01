@@ -130,7 +130,7 @@ export const Dot = ({ color, pulse, size = 7 }) => <span className={pulse ? 'st-
 // A page's head: its title, what you can do here on the right.
 export const PageHead = ({ title, right, children }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap', minHeight: 40 }}>
-    <div style={{ flex: '1 1 420px', minWidth: 0 }}>
+    <div style={{ flex: '1 1 560px', minWidth: 0 }}>
       {children || <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: -0.6, color: C.ink, lineHeight: 1.2 }}>{title}</div>}
     </div>
     {right && <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>{right}</div>}

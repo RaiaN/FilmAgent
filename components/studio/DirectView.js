@@ -235,7 +235,7 @@ const ElementPage = ({ s, set, el, pick, review, toast, open, canvas, actions })
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 320px)', gap: 28, alignItems: 'start' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 14, justifyItems: 'center', minWidth: 0 }}>
           {hero && mediaOf(hero)
-            ? <img role="button" src={mediaOf(hero)} alt={el.name} onClick={() => review({ at: 'element', id: el.id }, hero.id)} style={{ display: 'block', maxWidth: '100%', maxHeight: 'max(280px, 100vh - 330px)', borderRadius: 16, cursor: 'zoom-in' }} />
+            ? <img role="button" src={thumbOf(mediaOf(hero), 1600)} alt={el.name} onClick={() => review({ at: 'element', id: el.id }, hero.id)} style={{ display: 'block', minWidth: 240, minHeight: 240, background: C.raised, maxWidth: '100%', maxHeight: 'max(280px, 100vh - 330px)', borderRadius: 16, cursor: 'zoom-in' }} />
             : <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 'max(280px, 100vh - 330px)', borderRadius: 16, border: `1px dashed ${C.lineHi}`, display: 'grid', placeItems: 'center', fontSize: 15, color: C.muted }}>No plate yet</div>}
           {versions.length > 1 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
@@ -376,13 +376,11 @@ export const importFootage = async ({ files, sceneId, shotId = null, set, toast,
 
 const takeBadge = (v) => (v.status === 'running' ? null : v.footage ? 'YOURS' : v.edit ? 'VFX' : v.res === '4K' ? '4K' : v.res === '1080p' ? 'HD' : v.res === '480p' ? 'DRAFT' : null);
 
-// ONE SHOT: the monitor with its takes on one side; its cast and its beats, each on the picture of
-// its view, on the other. A clip dropped on the monitor is a take of this shot.
+// ONE SHOT: a carousel of its takes, newest first (a click opens them to compare), with the plates it
+// uses beside it. A clip dropped on the carousel is a take of this shot.
 const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, review, toast, onStale, single, actions }) => {
   const [importing, setImporting] = useState('');
-  const take = takeOf(sh);
   const takes = (sh.takes.versions || []).filter((v) => visible(v) && v.status !== 'rejected');
-  const hero = take || takes.find((v) => v.status === 'running') || null;
   const stale = staleOf(s, sh);
   const n = shotNumber(s, sh.id);
   const ref = { at: 'take', sceneId: scene.id, shotId: sh.id };
@@ -408,18 +406,19 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: plates.length ? 'minmax(0, 1fr) 124px' : 'minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
-        <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, min(100%, calc(max(240px, 100vh - 420px) * 16 / 9)))', justifyContent: 'center', gap: 10, alignContent: 'start', minWidth: 0 }}>
-          {hero
-            ? <Tile big v={withParentPoster(sh.takes, hero)} w="100%" badge={takeBadge(hero)} onClick={hero.status === 'running' ? undefined : (e) => { e.stopPropagation(); review(ref, hero.id); }} />
-            : (
-              <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 14, background: '#08090b', boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 6 }}>
-                <span style={{ fontFamily: MONO, fontSize: 56, fontWeight: 700, color: '#2c3038' }}>{pad2(n)}</span>
-                <span style={{ fontSize: 14, color: importing ? C.work : C.muted }}>{importing ? `Importing ${importing}` : 'No take yet'}</span>
-              </div>
-            )}
-          {takes.length > 0 && (
-            <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, paddingTop: 2, paddingLeft: 2 }} onClick={(e) => e.stopPropagation()}>
-              {takes.map((v) => <Tile key={v.id} v={withParentPoster(sh.takes, v)} w={148} badge={takeBadge(v)} onClick={v.status !== 'running' ? () => review(ref, v.id) : undefined} />)}
+        <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10, alignContent: 'start', minWidth: 0 }}>
+          {takes.length > 0 ? (
+            <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 12, overflowX: 'auto', scrollSnapType: 'x proximity', padding: '2px 2px 8px' }}>
+              {[...takes].reverse().map((v) => (
+                <div key={v.id} style={{ flex: '0 0 auto', width: 'min(82%, calc(max(200px, 100vh - 400px) * 16 / 9))', scrollSnapAlign: 'start' }}>
+                  <Tile big v={withParentPoster(sh.takes, v)} w="100%" badge={takeBadge(v)} onClick={v.status !== 'running' ? () => review(ref, v.id) : undefined} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 'max(200px, 100vh - 400px)', borderRadius: 14, background: '#08090b', boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 6 }}>
+              <span style={{ fontFamily: MONO, fontSize: 56, fontWeight: 700, color: '#2c3038' }}>{pad2(n)}</span>
+              <span style={{ fontSize: 14, color: importing ? C.work : C.muted }}>{importing ? `Importing ${importing}` : 'No take yet'}</span>
             </div>
           )}
         </DropArea>

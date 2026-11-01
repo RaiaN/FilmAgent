@@ -522,7 +522,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       const named = await change(project, (film) => {
         const next = slots.reduce((acc, slot) => {
           const known = acc.elements.find((e) => e.kind === slot.kind && same(e.name, slot.name));
-          const el = known || newElement({ kind: slot.kind, name: slot.name, desc: String(slot.entry.facePrompt || slot.entry.prompt || slot.entry.presencePrompt || '').slice(0, 300) });
+          const el = known || newElement({ kind: slot.kind, name: slot.name });
           const withEl = known ? acc : { ...acc, elements: [...acc.elements, el] };
           return addVersion(withEl, { at: 'element', id: el.id }, { id: slot.vid, at: now(), by: BY, tags: ['cast'], kind: 'plate', label: slot.name, status: 'running', style });
         }, film);

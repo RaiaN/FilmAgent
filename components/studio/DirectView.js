@@ -220,28 +220,29 @@ const ElementPage = ({ s, set, el, pick, review, toast, open, canvas, actions })
   const back = base ? { type: 'element', id: base.id } : { type: 'world' };
   return (
     <DropArea onFiles={upload} accept={isImage} hint="Drop to add a version" style={PAGE}>
-      <PageHead right={canvas && p ? <CanvasButton size={36} onClick={() => canvas.element(el)} /> : null}>
+      <PageHead right={(
+        <>
+          <UploadButton size="large" icon={<IconUpload />} loading={busy} onFiles={upload}>Upload</UploadButton>
+          {canvas && p && <CanvasButton size={40} onClick={() => canvas.element(el)} />}
+        </>
+      )}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span role="button" className="st-chip" title={base ? base.name : 'Cast & World'} aria-label="Back" onClick={() => open(back)} style={{ width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center', border: `1px solid ${C.line}`, color: C.text, cursor: 'pointer', flex: '0 0 auto' }}><IconLeft /></span>
           <Draft className="st-bare" value={el.name} onCommit={(v) => patch({ name: v })} style={{ fontSize: 30, fontWeight: 700, padding: '0 4px', color: C.ink, height: 44, letterSpacing: -0.6 }} />
         </div>
       </PageHead>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 32, alignItems: 'start' }}>
-        <div style={{ display: 'grid', gap: 18, minWidth: 0 }}>
-          <div style={{ borderRadius: 18, overflow: 'hidden', background: '#0b0c0e', border: `1px solid ${C.line}`, display: 'grid', placeItems: 'center', minHeight: 320 }}>
-            {hero && mediaOf(hero)
-              ? <img role="button" src={mediaOf(hero)} alt="" onClick={() => review({ at: 'element', id: el.id }, hero.id)} style={{ width: '100%', maxHeight: 'calc(100vh - 340px)', objectFit: 'contain', cursor: 'zoom-in', display: 'block' }} />
-              : <UploadButton size="large" icon={<IconUpload />} loading={busy} onFiles={upload}>Your image</UploadButton>}
-          </div>
-          {versions.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-              {versions.map((v) => <Tile key={v.id} v={v} w={el.kind === 'location' ? 200 : 132} ratio={el.kind === 'location' ? '16 / 9' : '1'} picked={el.picked === v.id} badge={v.status === 'review' ? 'NEW' : null} onClick={v.status !== 'running' ? () => review({ at: 'element', id: el.id }, v.id) : undefined} title="Open" />)}
-              {hero && <UploadButton size="large" type="text" icon={<IconUpload />} loading={busy} onFiles={upload} aria-label="Your image" title="Your image" />}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(260px, 320px)', gap: 28, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 14, justifyItems: 'center', minWidth: 0 }}>
+          {hero && mediaOf(hero)
+            ? <img role="button" src={mediaOf(hero)} alt={el.name} onClick={() => review({ at: 'element', id: el.id }, hero.id)} style={{ display: 'block', maxWidth: '100%', maxHeight: 'max(280px, 100vh - 330px)', borderRadius: 16, cursor: 'zoom-in' }} />
+            : <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: 'max(280px, 100vh - 330px)', borderRadius: 16, border: `1px dashed ${C.lineHi}`, display: 'grid', placeItems: 'center', fontSize: 15, color: C.muted }}>No plate yet</div>}
+          {versions.length > 1 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
+              {versions.map((v) => <Tile key={v.id} v={v} w={el.kind === 'location' ? 160 : 96} ratio={el.kind === 'location' ? '16 / 9' : '1'} position="top" picked={el.picked === v.id} badge={v.status === 'review' ? 'NEW' : null} onClick={v.status !== 'running' ? () => review({ at: 'element', id: el.id }, v.id) : undefined} title="Open" />)}
             </div>
           )}
         </div>
         <div style={{ display: 'grid', gap: 20, minWidth: 0 }}>
-          <Draft area value={el.desc} onCommit={(v) => patch({ desc: v })} autoSize={{ minRows: 5, maxRows: 14 }} placeholder="Who or what this is" style={{ fontSize: 15, lineHeight: 1.6 }} />
           {!el.viewOf && (
             <div style={{ display: 'grid', gap: 10, padding: 14, borderRadius: 14, background: C.raised }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{el.kind === 'location' ? 'Background plates' : el.kind === 'character' ? 'Looks' : 'Variations'}</span>
@@ -252,6 +253,10 @@ const ElementPage = ({ s, set, el, pick, review, toast, open, canvas, actions })
               </div>
             </div>
           )}
+          <details>
+            <summary style={{ fontSize: 14, color: C.text, cursor: 'pointer', marginBottom: 8 }}>Description</summary>
+            <Draft area value={el.desc} onCommit={(v) => patch({ desc: v })} autoSize={{ minRows: 4, maxRows: 12 }} placeholder="Who or what this is" style={{ fontSize: 14.5, lineHeight: 1.55 }} />
+          </details>
           {views.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               {views.map((vw) => {

@@ -3,12 +3,10 @@ import { Button, Dropdown, Input, InputNumber, Menu } from '@arco-design/web-rea
 import { IconClose, IconPlus, IconStarFill, IconUpload, IconFile, IconDownload, IconLeft, IconRight, IconLoading, IconMore, IconPlayArrowFill } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Tile, Empty, Pill, PageHead, DropArea, CanvasButton, crewColor, mediaOf, storeFile, readFile, readText } from './ui';
 import { stageLocalAsset } from '../../utils/film/canvasModel';
-import { ELEMENT_KINDS, KIND_LABEL, findElement, findScene, namedText, pickedOf, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
-import { needsOfScene } from '../../utils/film/studio/bar';
-import { sceneHero, viewsOfShot, finalsOfShots, toFinish } from '../../utils/film/studio/guide';
+import { ELEMENT_KINDS, KIND_LABEL, findElement, findScene, pickedOf, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
+import { elementsOfShot, needsOfScene } from '../../utils/film/studio/bar';
+import { sceneHero, finalsOfShots, toFinish } from '../../utils/film/studio/guide';
 import { parseScript } from '../../utils/film/core/scriptForm';
-import { shotsOf } from '../../utils/film/core/shotList';
-import { sceneMotion } from '../../utils/film/core/storyboard';
 
 // Text that commits when you leave the field; `live` also commits a moment after you stop typing.
 const LIVE_MS = 400;
@@ -378,7 +376,7 @@ const takeBadge = (v) => (v.status === 'running' ? null : v.status === 'review' 
 
 // ONE SHOT: the monitor with its takes on one side; its cast and its beats, each on the picture of
 // its view, on the other. A clip dropped on the monitor is a take of this shot.
-const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, review, toast, canvas, onStale, single }) => {
+const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, review, toast, onStale, single, actions }) => {
   const [importing, setImporting] = useState('');
   const take = pickedOf(sh.takes);
   const takes = (sh.takes.versions || []).filter((v) => visible(v) && v.status !== 'rejected');
@@ -388,70 +386,51 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
   const n = shotNumber(s, sh.id);
   const ref = { at: 'take', sceneId: scene.id, shotId: sh.id };
   const importHere = (files) => importFootage({ files, sceneId: scene.id, shotId: sh.id, set, toast, onProgress: setImporting });
-  const faces = facesOf(s, [sh]);
-  const others = (sh.elementIds || []).map((id) => findElement(s, id)).filter((el) => el && el.kind === 'prop');
-  const views = viewsOfShot(s, sh);
-  const viewNamed = (name) => views.find((el) => el.name.endsWith(`· ${name}`));
-  const beats = sh.sheet && namedText(s, sh.motion) === sceneMotion(sh.sheet) ? shotsOf(sh.sheet) : null;
+  const plates = elementsOfShot(s, sh);
   return (
-    <div role="button" onClick={() => select(on ? null : sh.id)} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(260px, 1fr)', gap: 20, padding: 14, borderRadius: 18, cursor: 'pointer', border: `1px solid ${on ? C.accent : C.line}`, background: on ? '#1b1815' : C.panel, boxShadow: on ? `0 0 0 3px ${C.accentSoft}` : 'none' }}>
-      <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, min(100%, calc(36vh * 16 / 9)))', justifyContent: 'center', gap: 10, alignContent: 'start', minWidth: 0 }}>
-        {hero
-          ? <Tile big v={hero} w="100%" badge={takeBadge(hero)} onClick={hero.status === 'running' ? undefined : (e) => { e.stopPropagation(); review(ref, hero.id); }} />
-          : (
-            <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 14, background: '#08090b', boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 6 }}>
-              <span style={{ fontFamily: MONO, fontSize: 56, fontWeight: 700, color: '#2c3038' }}>{pad2(n)}</span>
-              <span style={{ fontSize: 14, color: importing ? C.work : C.muted }}>{importing ? `Importing ${importing}` : 'No take yet'}</span>
+    <div role="button" onClick={() => select(on ? null : sh.id)} style={{ display: 'grid', gap: 10, padding: 14, borderRadius: 18, cursor: 'pointer', border: `1px solid ${on ? C.accent : C.line}`, background: on ? '#1b1815' : C.panel, boxShadow: on ? `0 0 0 3px ${C.accentSoft}` : 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 32 }}>
+        <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 16, color: C.accent }}>{pad2(n)}</span>
+        {on
+          ? <span onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 120 }}><Draft value={sh.title} onCommit={(v) => patchShot(sh.id, { title: v })} style={{ fontSize: 16, fontWeight: 600 }} /></span>
+          : <span style={{ fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{single ? '' : sh.title}</span>}
+        {on && <span onClick={(e) => e.stopPropagation()}><Button status="danger" type="text" onClick={() => { removeShot(sh.id); select(null); }}>Remove shot</Button></span>}
+      </div>
+      {stale.length > 0 && (
+        <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px', background: C.warnSoft, borderRadius: 10, fontSize: 13.5, color: C.warn }}>
+          <span style={{ flex: 1, minWidth: 0 }}>Made with an earlier {stale.join(', ')}</span>
+          <Button size="small" onClick={() => onStale.redo(scene.id, sh.id)}>Shoot again</Button>
+          <Button size="small" type="text" onClick={() => onStale.keep(scene.id, sh.id)}>Keep</Button>
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: plates.length ? 'minmax(0, 1fr) 124px' : 'minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
+        <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, min(100%, calc(46vh * 16 / 9)))', justifyContent: 'center', gap: 10, alignContent: 'start', minWidth: 0 }}>
+          {hero
+            ? <Tile big v={hero} w="100%" badge={takeBadge(hero)} onClick={hero.status === 'running' ? undefined : (e) => { e.stopPropagation(); review(ref, hero.id); }} />
+            : (
+              <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 14, background: '#08090b', boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 6 }}>
+                <span style={{ fontFamily: MONO, fontSize: 56, fontWeight: 700, color: '#2c3038' }}>{pad2(n)}</span>
+                <span style={{ fontSize: 14, color: importing ? C.work : C.muted }}>{importing ? `Importing ${importing}` : 'No take yet'}</span>
+              </div>
+            )}
+          {takes.length > 0 && (
+            <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, paddingTop: 2, paddingLeft: 2 }} onClick={(e) => e.stopPropagation()}>
+              {takes.map((v) => <Tile key={v.id} v={v} w={148} badge={takeBadge(v)} picked={sh.takes.picked === v.id} onClick={v.status !== 'running' ? () => review(ref, v.id) : undefined} />)}
             </div>
           )}
-        {takes.length > 0 && (
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, paddingTop: 2, paddingLeft: 2 }} onClick={(e) => e.stopPropagation()}>
-            {takes.map((v) => <Tile key={v.id} v={v} w={148} badge={takeBadge(v)} picked={sh.takes.picked === v.id} onClick={v.status !== 'running' ? () => review(ref, v.id) : undefined} />)}
-          </div>
-        )}
-      </DropArea>
-      <div style={{ display: 'grid', gap: 18, alignContent: 'start', minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 32 }}>
-          <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 16, color: C.accent }}>{pad2(n)}</span>
-          {on
-            ? <span onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 120 }}><Draft value={sh.title} onCommit={(v) => patchShot(sh.id, { title: v })} style={{ fontSize: 16, fontWeight: 600 }} /></span>
-            : !single && <span style={{ fontSize: 17, fontWeight: 600, flex: 1, minWidth: 0, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sh.title}</span>}
-          <span style={{ flex: on || !single ? '0 0 auto' : 1 }} />
-                    <span style={{ fontFamily: MONO, fontSize: 14, color: C.muted }}>{sh.seconds}s</span>
-          {take && <IconStarFill style={{ color: C.gold, fontSize: 18 }} title="Circled" />}
-        </div>
-        {stale.length > 0 && (
-          <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px', background: C.warnSoft, borderRadius: 10, fontSize: 13.5, color: C.warn }}>
-            <span style={{ flex: 1, minWidth: 0 }}>Made with an earlier {stale.join(', ')}</span>
-            <Button size="small" onClick={() => onStale.redo(scene.id, sh.id)}>Shoot again</Button>
-            <Button size="small" type="text" onClick={() => onStale.keep(scene.id, sh.id)}>Keep</Button>
-          </div>
-        )}
-        {(faces.length > 0 || others.length > 0) && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {faces.map((el) => <Face key={el.id} el={el} size={44} />)}
-            {others.map((el) => { const p = pickedOf(el); return <span key={el.id} title={el.name} style={{ width: 44, height: 44, borderRadius: 10, overflow: 'hidden', background: C.raised, boxShadow: `inset 0 0 0 1px ${C.line}`, flex: '0 0 auto' }}>{p && <img src={mediaOf(p)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}</span>; })}
-          </div>
-        )}
-        {beats ? (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {beats.map((b, i) => {
-              const view = viewNamed(b.view);
-              const pv = view ? pickedOf(view) : null;
+        </DropArea>
+        {plates.length > 0 && (
+          <div role="button" aria-label="Open this shot's references in the bar" title="Open in the bar" className="st-chip" onClick={(e) => { e.stopPropagation(); if (!on) select(sh.id); actions.openBar(); }} style={{ display: 'grid', gap: 8, padding: 6, borderRadius: 12, border: '1px solid transparent', maxHeight: 'calc(46vh + 100px)', overflowY: 'auto' }}>
+            {plates.map((el) => {
+              const p = plateOf(el);
               return (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '112px minmax(0, 1fr)', gap: 12, alignItems: 'start' }}>
-                  <div title={b.view} style={{ aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', background: '#0b0c0e', boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', fontSize: 11, color: C.muted, textAlign: 'center', padding: pv ? 0 : 6 }}>
-                    {pv ? <img src={mediaOf(pv)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /> : b.view}
-                  </div>
-                  <span title={b.action} style={{ fontSize: 14.5, lineHeight: 1.5, color: C.text, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.action}</span>
+                <div key={el.id} title={el.name} style={{ aspectRatio: el.kind === 'location' ? '16 / 9' : '1', borderRadius: 8, overflow: 'hidden', background: '#0b0c0e', boxShadow: p ? `inset 0 0 0 1px ${C.line}` : `inset 0 0 0 1px ${C.warn}`, display: 'grid', placeItems: 'center', padding: p ? 0 : 6, fontSize: 11, lineHeight: 1.25, color: C.muted, textAlign: 'center' }}>
+                  {p ? <img src={mediaOf(p)} alt={el.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: el.kind === 'character' ? 'top' : 'center', display: 'block' }} /> : el.name.split(' · ').pop()}
                 </div>
               );
             })}
           </div>
-        ) : !on && (
-          <div style={{ fontSize: 15, color: C.text, lineHeight: 1.6, display: '-webkit-box', WebkitLineClamp: 8, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{namedText(s, sh.motion) || sh.quote || ''}</div>
         )}
-        {on && <div onClick={(e) => e.stopPropagation()}><Button status="danger" type="text" onClick={() => { removeShot(sh.id); select(null); }}>Remove shot</Button></div>}
       </div>
     </div>
   );
@@ -546,7 +525,7 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
       )}
       {playing && <PlayScene s={s} scene={scene} onClose={() => setPlaying(false)} />}
       <div style={{ display: 'grid', gap: 18 }}>
-        {scene.shots.map((sh) => <ShotBlock key={sh.id} s={s} set={set} scene={scene} sh={sh} on={scope.type === 'shot' && scope.id === sh.id} select={selectShot} patchShot={patchShot} removeShot={removeShot} review={review} toast={toast} canvas={canvas} onStale={onStale} single={scene.shots.length === 1 && sh.title === scene.title} />)}
+        {scene.shots.map((sh) => <ShotBlock key={sh.id} s={s} set={set} scene={scene} sh={sh} on={scope.type === 'shot' && scope.id === sh.id} select={selectShot} patchShot={patchShot} removeShot={removeShot} review={review} toast={toast} onStale={onStale} single={scene.shots.length === 1 && sh.title === scene.title} actions={actions} />)}
       </div>
     </DropArea>
   );

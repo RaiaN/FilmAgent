@@ -100,6 +100,8 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   const [view, setView] = useState(null);
   // What is being made right now, for the top bar and each button's spinner.
   const [jobs, setJobs] = useState([]);
+  // Collapsed, the page keeps the room for the takes; the plates beside a shot or the bar itself open it.
+  const [barOpen, setBarOpen] = useState(false);
   // The bar: one per shot you have been on, so your words wait for you. `touched` keeps your words
   // from being replaced when a plate arrives.
   const bars = useRef({});
@@ -216,6 +218,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   };
   const actions = {
     busy: (label) => jobs.some((j) => j.label === label),
+    openBar: () => setBarOpen(true),
     write: (idea) => run('Writing', async () => { await sync(); await tool('write_screenplay', { idea }); }),
     breakdown: (script) => {
       const go = (replace) => run('Breaking down', async () => {
@@ -387,7 +390,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       ) : (
         <GenerationsView s={s} set={set} open={review} />
       )}
-      {linked && (mode !== 'direct' || scope.type === 'scene' || scope.type === 'shot') && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} busy={actions.busy('Generating')} container={() => rootRef.current} setStyle={changeStyle} />}
+      {linked && (mode !== 'direct' || scope.type === 'scene' || scope.type === 'shot') && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} busy={actions.busy('Generating')} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
       {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFinal={final} onReject={rejectInView} canvas={canvas} waiting={work.fresh} onNextNew={() => nextNew(view.vid)} />}
     </div>
   );

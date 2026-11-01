@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button, Dropdown, Input, InputNumber, Menu } from '@arco-design/web-react';
 import { IconClose, IconDown, IconPlus, IconSound, IconMute, IconUp, IconPlayArrowFill, IconLoading } from '@arco-design/web-react/icon';
 import RefDrawer from '../film/canvas/RefDrawer';
@@ -11,7 +11,6 @@ import { videoTraits } from '../../utils/film/suiteConfig';
 
 // THE GENERATE BAR — the big control: references, the film's look and the prompt, then the render's
 // settings and Generate. Docked under every page; it fills in from the shot you are on.
-const TALL_WINDOW = 860;
 const DRAWER_TABS = [{ key: 'all', label: 'All' }, ...ASSET_GROUPS.map((g) => ({ key: g.key, label: g.label }))];
 
 const Card = ({ label, value, onClick, active, children }) => (
@@ -25,10 +24,7 @@ const Card = ({ label, value, onClick, active, children }) => (
 );
 const Pill = ({ children, ...rest }) => <span {...rest} style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '0 13px', borderRadius: 12, background: C.raised, color: C.ink, fontSize: 14.5, whiteSpace: 'nowrap', cursor: rest.onClick ? 'pointer' : 'default', flex: '0 0 auto', ...rest.style }}>{children}</span>;
 
-export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setStyle }) => {
-  const [open, setOpen] = useState(false);
-  // A short window keeps the room for the takes; the bar opens when you use it.
-  useEffect(() => { setOpen(window.innerHeight >= TALL_WINDOW); }, []);
+export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setStyle, open, setOpen }) => {
   const [caret, setCaret] = useState(0);
   const [closed, setClosed] = useState(false);
   const [active, setActive] = useState(0);

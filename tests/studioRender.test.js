@@ -58,7 +58,7 @@ const mount = async (el) => {
   return html;
 };
 const noop = () => {};
-const ACTIONS = { busy: () => false, write: noop, breakdown: noop, cast: noop, variations: noop, generateMissing: noop, finalScene: noop, assemble: noop };
+const ACTIONS = { busy: () => false, openBar: noop, write: noop, breakdown: noop, cast: noop, variations: noop, generateMissing: noop, finalScene: noop, assemble: noop };
 const films = { 'just laid out': laidOut, 'in full work': inWork };
 if (process.env.STUDIO_STATE) films['from a file'] = () => JSON.parse(fs.readFileSync(process.env.STUDIO_STATE, 'utf8'));
 const scopesOf = (s) => [

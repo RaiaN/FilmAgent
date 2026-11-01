@@ -1,4 +1,4 @@
-// THE GUIDE — the film's one next step, read from the film as it stands.
+// THE STAGES — where the film stands, read from the film as it is.
 import { stageStates } from '../utils/film/studio/guide';
 import { emptyStudio, addVersion, pickVersion, scriptHash, withFilmStyle, loadStudio } from '../utils/film/studio/model';
 import { applyShotList } from '../utils/film/studio/layout';

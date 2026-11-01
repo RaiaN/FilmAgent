@@ -81,7 +81,10 @@ export const barSummary = (bar) => {
 // Who and what a shot still needs: elements with no plate, and views with no plate.
 export const needsOfShot = (s, shot) => {
   const els = usableOf(s, shot).filter((el) => !plateOf(el));
-  return { names: els.filter((el) => !el.viewOf).map((el) => el.name), views: els.filter((el) => el.viewOf).length };
+  const views = els.filter((el) => el.viewOf);
+  // A view is drawn from its place's plate, so a place with a view to draw is needed too.
+  const places = views.map((el) => findElement(s, el.viewOf)).filter((el) => el && !plateOf(el));
+  return { names: [...new Set([...els.filter((el) => !el.viewOf), ...places].map((el) => el.name))], views: views.length };
 };
 export const needsOfScene = (s, scene) => {
   const all = scene.shots.map((sh) => needsOfShot(s, sh));

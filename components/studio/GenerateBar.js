@@ -11,6 +11,7 @@ import { videoTraits } from '../../utils/film/suiteConfig';
 
 // THE GENERATE BAR — the big control: references, the film's look and the prompt, then the render's
 // settings and Generate. Docked under every page; it fills in from the shot you are on.
+const TALL_WINDOW = 860;
 const DRAWER_TABS = [{ key: 'all', label: 'All' }, ...ASSET_GROUPS.map((g) => ({ key: g.key, label: g.label }))];
 
 const Card = ({ label, value, onClick, active, children }) => (
@@ -25,9 +26,9 @@ const Card = ({ label, value, onClick, active, children }) => (
 const Pill = ({ children, ...rest }) => <span {...rest} style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '0 13px', borderRadius: 12, background: C.raised, color: C.ink, fontSize: 14.5, whiteSpace: 'nowrap', cursor: rest.onClick ? 'pointer' : 'default', flex: '0 0 auto', ...rest.style }}>{children}</span>;
 
 export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setStyle, compact = false }) => {
-  const [open, setOpen] = useState(!compact);
-  // The Script page keeps the room for the script; the bar opens when you use it.
-  useEffect(() => { setOpen(!compact); }, [compact]);
+  const [open, setOpen] = useState(false);
+  // The Script page and a short window keep the room for the page; the bar opens when you use it.
+  useEffect(() => { setOpen(!compact && window.innerHeight >= TALL_WINDOW); }, [compact]);
   const [caret, setCaret] = useState(0);
   const [closed, setClosed] = useState(false);
   const [active, setActive] = useState(0);
@@ -111,7 +112,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
             </div>
           )}
           <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 10, alignContent: 'space-between' }}>
-            <Input.TextArea ref={area} className="st-bare" aria-label="Describe the shot" value={bar.text} onFocus={() => setOpen(true)} onChange={(v, e) => { patch({ text: v }); setCaret(e?.target?.selectionStart ?? v.length); setClosed(false); setActive(0); }} onKeyDown={onKeys} onKeyUp={(e) => setCaret(e.target.selectionStart)} onClick={(e) => setCaret(e.target.selectionStart)} autoSize={{ minRows: open ? 2 : 1, maxRows: open ? 8 : 3 }} placeholder="Describe the shot, @ to add cast, places and takes" style={{ fontSize: 17, lineHeight: 1.5, color: C.ink }} />
+            <Input.TextArea ref={area} className="st-bare" aria-label="Describe the shot" value={bar.text} onFocus={() => setOpen(true)} onChange={(v, e) => { patch({ text: v }); setCaret(e?.target?.selectionStart ?? v.length); setClosed(false); setActive(0); }} onKeyDown={onKeys} onKeyUp={(e) => setCaret(e.target.selectionStart)} onClick={(e) => setCaret(e.target.selectionStart)} autoSize={{ minRows: open ? 2 : 1, maxRows: open ? 5 : 2 }} placeholder="Describe the shot, @ to add cast, places and takes" style={{ fontSize: 17, lineHeight: 1.5, color: C.ink }} />
             {open && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Dropdown trigger="click" getPopupContainer={popup} droplist={<Menu onClickMenuItem={(k) => patch({ model: k, seconds: Math.min(bar.seconds, videoTraits(k).maxSeconds) })}>{VIDEO_MODELS.map((m) => <Menu.Item key={m.key}>{m.label}</Menu.Item>)}</Menu>}><Pill onClick={() => {}} style={{ background: C.bg }}>{VIDEO_MODELS.find((m) => m.key === bar.model)?.label || bar.model}<IconDown style={{ fontSize: 12, color: C.muted }} /></Pill></Dropdown>

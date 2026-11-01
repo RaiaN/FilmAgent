@@ -61,17 +61,19 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
   const popup = () => container() || document.body;
   const editing = !!bar.source;
   const ready = !!String(bar.text).trim() && !busy;
-  const targetLabel = editing ? `Editing ${bar.source}` : shot ? `Shot ${pad2(shotNumber(s, shot.id))} · ${shot.title}` : 'Not on a shot: lands in Generations';
+  // Said only when the page doesn't already say it.
+  const inScene = shot ? s.scenes.find((sc) => sc.id === bar.sceneId) : null;
+  const targetLabel = editing ? `Editing ${bar.source}` : !shot ? 'Not on a shot: lands in Generations' : inScene?.shots.length > 1 ? `Shot ${pad2(shotNumber(s, shot.id))}` : '';
   return (
-    <div style={{ background: C.panel, borderTop: `1px solid ${C.line}`, padding: '12px 18px 14px' }}>
+    <div style={{ background: C.panel, borderTop: `1px solid ${C.line}`, padding: '8px 14px 10px' }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 24 }}>
-          <span style={{ fontSize: 14, color: shot || editing ? C.accent : C.muted, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{targetLabel}</span>
-          {bar.parent && <span style={{ fontSize: 13, color: C.muted, flex: '0 0 auto' }}>Reworks {bar.parent}</span>}
-          {(editing || bar.parent) && <span role="button" aria-label="Back to a new take" title="Back to a new take" onClick={() => patch({ source: null, parent: null })} style={{ color: C.muted, cursor: 'pointer', display: 'inline-flex' }}><IconClose /></span>}
-          <span style={{ flex: 1 }} />
-          <span role="button" aria-label={open ? 'Fewer controls' : 'More controls'} onClick={() => setOpen((o) => !o)} style={{ color: C.muted, cursor: 'pointer', display: 'inline-flex' }}>{open ? <IconDown /> : <IconUp />}</span>
-        </div>
+        {(targetLabel || bar.parent) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 22 }}>
+            <span style={{ fontSize: 14, color: shot || editing ? C.accent : C.muted, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{targetLabel}</span>
+            {bar.parent && <span style={{ fontSize: 13, color: C.muted, flex: '0 0 auto' }}>Reworks {bar.parent}</span>}
+            {(editing || bar.parent) && <span role="button" aria-label="Back to a new take" title="Back to a new take" onClick={() => patch({ source: null, parent: null })} style={{ color: C.muted, cursor: 'pointer', display: 'inline-flex' }}><IconClose /></span>}
+          </div>
+        )}
         {open && (
           <div style={{ display: 'flex', gap: 8 }}>
             <Card label="References" value={`${bar.refs.length}/${traits.refCap}`} onClick={() => setBrowsing(true)}>
@@ -109,6 +111,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
               </div>
             )}
           </div>
+          <span role="button" aria-label={open ? 'Fewer controls' : 'More controls'} onClick={() => setOpen((o) => !o)} style={{ alignSelf: 'center', color: C.muted, cursor: 'pointer', display: 'inline-flex', flex: '0 0 auto', padding: 4 }}>{open ? <IconDown /> : <IconUp />}</span>
           <button type="button" className="st-generate" aria-label="Generate" disabled={!ready} onClick={onGenerate} style={{ flex: '0 0 auto', width: open ? 200 : 150, border: 'none', borderRadius: 16, background: ready ? C.gold : C.hover, color: ready ? C.accentInk : C.muted, cursor: ready ? 'pointer' : 'default', display: 'grid', placeItems: 'center', alignContent: 'center', gap: 4, padding: '10px 12px', textAlign: 'center' }}>
             <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: 0.2, display: 'inline-flex', alignItems: 'center', gap: 7 }}>{busy ? <IconLoading /> : <IconPlayArrowFill />}{editing ? 'Edit' : 'Generate'}</span>
             <span style={{ fontSize: 12.5, opacity: 0.8 }}>{barSummary(bar)}</span>

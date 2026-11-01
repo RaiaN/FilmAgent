@@ -388,14 +388,17 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
   const importHere = (files) => importFootage({ files, sceneId: scene.id, shotId: sh.id, set, toast, onProgress: setImporting });
   const plates = elementsOfShot(s, sh);
   return (
-    <div role="button" onClick={() => select(on ? null : sh.id)} style={{ display: 'grid', gap: 10, padding: 14, borderRadius: 18, cursor: 'pointer', border: `1px solid ${on ? C.accent : C.line}`, background: on ? '#1b1815' : C.panel, boxShadow: on ? `0 0 0 3px ${C.accentSoft}` : 'none' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 32 }}>
-        <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 16, color: C.accent }}>{pad2(n)}</span>
-        {on
-          ? <span onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 120 }}><Draft value={sh.title} onCommit={(v) => patchShot(sh.id, { title: v })} style={{ fontSize: 16, fontWeight: 600 }} /></span>
-          : <span style={{ fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{single ? '' : sh.title}</span>}
-        {on && <span onClick={(e) => e.stopPropagation()}><Button status="danger" type="text" onClick={() => { removeShot(sh.id); select(null); }}>Remove shot</Button></span>}
-      </div>
+    <div role={single ? undefined : 'button'} onClick={single ? undefined : () => select(on ? null : sh.id)} style={single ? { display: 'grid', gap: 10 } : { display: 'grid', gap: 10, padding: 14, borderRadius: 18, cursor: 'pointer', border: `1px solid ${on ? C.accent : C.line}`, background: on ? '#1b1815' : C.panel, boxShadow: on ? `0 0 0 3px ${C.accentSoft}` : 'none' }}>
+      {/* A scene's only shot goes by the scene's number and name, on the page above. */}
+      {!single && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 32 }}>
+          <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 16, color: C.accent }}>{pad2(n)}</span>
+          {on
+            ? <span onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 120 }}><Draft value={sh.title} onCommit={(v) => patchShot(sh.id, { title: v })} style={{ fontSize: 16, fontWeight: 600 }} /></span>
+            : <span style={{ fontSize: 16, fontWeight: 600, flex: 1, minWidth: 0, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sh.title}</span>}
+          {on && <span onClick={(e) => e.stopPropagation()}><Button status="danger" type="text" onClick={() => { removeShot(sh.id); select(null); }}>Remove shot</Button></span>}
+        </div>
+      )}
       {stale.length > 0 && (
         <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px', background: C.warnSoft, borderRadius: 10, fontSize: 13.5, color: C.warn }}>
           <span style={{ flex: 1, minWidth: 0 }}>Made with an earlier {stale.join(', ')}</span>
@@ -404,7 +407,7 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: plates.length ? 'minmax(0, 1fr) 124px' : 'minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
-        <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, min(100%, calc(46vh * 16 / 9)))', justifyContent: 'center', gap: 10, alignContent: 'start', minWidth: 0 }}>
+        <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, min(100%, calc(max(240px, 100vh - 420px) * 16 / 9)))', justifyContent: 'center', gap: 10, alignContent: 'start', minWidth: 0 }}>
           {hero
             ? <Tile big v={hero} w="100%" badge={takeBadge(hero)} onClick={hero.status === 'running' ? undefined : (e) => { e.stopPropagation(); review(ref, hero.id); }} />
             : (
@@ -420,11 +423,11 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
           )}
         </DropArea>
         {plates.length > 0 && (
-          <div role="button" aria-label="Open this shot's references in the bar" title="Open in the bar" className="st-chip" onClick={(e) => { e.stopPropagation(); if (!on) select(sh.id); actions.openBar(); }} style={{ display: 'grid', gap: 8, padding: 6, borderRadius: 12, border: '1px solid transparent', maxHeight: 'calc(46vh + 100px)', overflowY: 'auto' }}>
+          <div role="button" aria-label="Open this shot's references in the bar" title="Open in the bar" className="st-chip" onClick={(e) => { e.stopPropagation(); if (!on) select(sh.id); actions.openBar(); }} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 6, borderRadius: 12, border: '1px solid transparent', maxHeight: 'max(340px, 100vh - 320px)', overflowY: 'auto' }}>
             {plates.map((el) => {
               const p = plateOf(el);
               return (
-                <div key={el.id} title={el.name} style={{ aspectRatio: el.kind === 'location' ? '16 / 9' : '1', borderRadius: 8, overflow: 'hidden', background: '#0b0c0e', boxShadow: p ? `inset 0 0 0 1px ${C.line}` : `inset 0 0 0 1px ${C.warn}`, display: 'grid', placeItems: 'center', padding: p ? 0 : 6, fontSize: 11, lineHeight: 1.25, color: C.muted, textAlign: 'center' }}>
+                <div key={el.id} title={el.name} style={{ flex: '0 0 auto', width: '100%', aspectRatio: el.kind === 'location' ? '16 / 9' : '1', borderRadius: 8, overflow: 'hidden', background: '#0b0c0e', boxShadow: p ? `inset 0 0 0 1px ${C.line}` : `inset 0 0 0 1px ${C.warn}`, display: 'grid', placeItems: 'center', padding: p ? 0 : 6, fontSize: 11, lineHeight: 1.25, color: C.muted, textAlign: 'center' }}>
                   {p ? <img src={mediaOf(p)} alt={el.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: el.kind === 'character' ? 'top' : 'center', display: 'block' }} /> : el.name.split(' · ').pop()}
                 </div>
               );
@@ -495,11 +498,12 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
             {finishing.length > 0 && finalRes.map((res) => <Button key={res} size="large" onClick={() => actions.finalScene(finishing, res)}>Final · {res}</Button>)}
             <input ref={footage} type="file" accept="video/*" multiple hidden onChange={(e) => { const fs = [...(e.target.files || [])]; if (fs.length) importFiles(fs); e.target.value = ''; }} />
             <Dropdown trigger="click" position="br" droplist={(
-              <Menu onClickMenuItem={(k) => { if (k === 'shot') addShot(); if (k === 'script') setScript((o) => !o); if (k === 'footage') footage.current?.click(); if (k === 'canvas') canvas.scene(scene.id); }}>
+              <Menu onClickMenuItem={(k) => { if (k === 'shot') addShot(); if (k === 'script') setScript((o) => !o); if (k === 'footage') footage.current?.click(); if (k === 'canvas') canvas.scene(scene.id); if (k === 'remove') { removeShot(scene.shots[0].id); selectShot(null); } }}>
                 <Menu.Item key="shot">Add a shot</Menu.Item>
                 {scene.text && <Menu.Item key="script">{script ? 'Hide the script' : "Show the scene's script"}</Menu.Item>}
                 <Menu.Item key="footage">{importing ? `Importing ${importing}` : 'Import footage'}</Menu.Item>
                 {canvas && scene.shots.length > 0 && <Menu.Item key="canvas">Open in Canvas</Menu.Item>}
+                {scene.shots.length === 1 && <Menu.Item key="remove">Remove the shot</Menu.Item>}
               </Menu>
             )}><Button size="large" icon={<IconMore />} aria-label="More" /></Dropdown>
           </>
@@ -525,7 +529,7 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
       )}
       {playing && <PlayScene s={s} scene={scene} onClose={() => setPlaying(false)} />}
       <div style={{ display: 'grid', gap: 18 }}>
-        {scene.shots.map((sh) => <ShotBlock key={sh.id} s={s} set={set} scene={scene} sh={sh} on={scope.type === 'shot' && scope.id === sh.id} select={selectShot} patchShot={patchShot} removeShot={removeShot} review={review} toast={toast} onStale={onStale} single={scene.shots.length === 1 && sh.title === scene.title} actions={actions} />)}
+        {scene.shots.map((sh) => <ShotBlock key={sh.id} s={s} set={set} scene={scene} sh={sh} on={scope.type === 'shot' && scope.id === sh.id} select={selectShot} patchShot={patchShot} removeShot={removeShot} review={review} toast={toast} onStale={onStale} single={scene.shots.length === 1} actions={actions} />)}
       </div>
     </DropArea>
   );

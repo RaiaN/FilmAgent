@@ -36,9 +36,9 @@ const TASK_FAILED = ['failed', 'expired', 'cancelled'];
 // ---- Browser client: talks to the app's own Next.js API routes ----------------
 // Used by the canvas (L4). Keeps the existing request shapes unchanged.
 
-export const createBrowserClient = () => ({
+export const createBrowserClient = ({ base = '' } = {}) => ({
   async generateImage({ prompt, referenceImages, size, keepAspectArea, model, optimizePrompt }) {
-    const res = await fetch('/api/film/imagine', {
+    const res = await fetch(`${base}/api/film/imagine`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, referenceImages, size, keepAspectArea, model, optimizePrompt }),
@@ -54,7 +54,7 @@ export const createBrowserClient = () => ({
   // eighteen times, and would miss the nineteenth.
   async reason({ prompt, systemPrompt, images, video, modelId, reasoningEffort }) {
     const planner = await plannerSkillLine(reasonerSlotOf());
-    const res = await fetch('/api/seed', {
+    const res = await fetch(`${base}/api/seed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -91,7 +91,7 @@ export const createBrowserClient = () => ({
       if (duration && duration !== 'auto') body.duration = Number(duration);
       if (outputFormat) body.output_format = outputFormat;
     }
-    const res = await fetch('/api/seedance', {
+    const res = await fetch(`${base}/api/seedance`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -106,7 +106,7 @@ export const createBrowserClient = () => ({
   // Frames at given times from a video — each one is checked into the media store by
   // the route, so every url that comes back is durable.
   async extractFrames({ url, timestamps, maxWidth }) {
-    const res = await fetch('/api/film/frames', {
+    const res = await fetch(`${base}/api/film/frames`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url, timestamps, ...(maxWidth ? { maxWidth } : {}) }),
@@ -125,7 +125,7 @@ export const createBrowserClient = () => ({
       let res;
       let data;
       try {
-        res = await fetch(`/api/seedance-status?taskId=${encodeURIComponent(taskId)}`);
+        res = await fetch(`${base}/api/seedance-status?taskId=${encodeURIComponent(taskId)}`);
         data = await res.json().catch(() => ({}));
       } catch {
         continue;
@@ -143,7 +143,7 @@ export const createBrowserClient = () => ({
   // up to 3 audio clips (@Audio1..N) OR one image). The BytePlus voice key lives
   // server-side (BYTEPLUSVOICE_API_KEY) — no key rides along.
   async generateSpeech({ text, imageData, audioRefs, format, sampleRate }) {
-    const res = await fetch('/api/film/audio', {
+    const res = await fetch(`${base}/api/film/audio`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, imageData, audioRefs, format, sampleRate }),

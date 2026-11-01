@@ -11,6 +11,7 @@ import {
 } from '../../utils/film/studio/model';
 import { createRunners, applyShotList, applyBlocking } from '../../utils/film/studio/runners';
 import { editorFor } from '../../utils/film/studio/crew';
+import { mergeStudio, sameFilm, withRemovals } from '../../utils/film/studio/sync';
 import { STAGES, stageOf, scopeOfStage, stageStates, nextStep } from '../../utils/film/studio/guide';
 import { elementToCanvas, shotToCanvas, versionToCanvas } from '../../utils/film/studio/canvasLink';
 import { createBrowserClient } from '../../utils/film/core/client';
@@ -18,6 +19,7 @@ import { createBrowserClient } from '../../utils/film/core/client';
 const CREW_WIDTH_KEY = 'studio-crew-width';
 const CREW_OPEN_KEY = 'studio-crew-open';
 const CREW_WIDTH = [320, 820];
+const FOLLOW_MS = 2000;
 
 // STUDIO — the harness makes a film with you, step by step: Script → Cast & World → Scenes → Cut.
 // The stages are the page; the crew panel beside them holds the one next step (the guide), the
@@ -125,11 +127,14 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   // Load with the project — once per load (a re-run of this effect must never put an older
   // snapshot back); every change goes back into it.
   const loadedNonce = useRef(null);
+  // The film as last matched with the cloud, to see what was removed since and what moved.
+  const synced = useRef({ film: null, revision: null });
   useEffect(() => {
     if (!projectStudio?.projectId || loadedNonce.current === projectStudio.nonce) return;
     loadedNonce.current = projectStudio.nonce;
     const loaded = loadStudio(projectStudio.data);
     set(loaded);
+    synced.current = { film: loaded, revision: null };
     setLinked(projectStudio.projectId);
     // A film opens where its next step is.
     setScope(nextStep(loaded, null)?.scope || (loaded.scenes.length ? { type: 'scenes' } : { type: 'brief' }));
@@ -148,8 +153,35 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   useEffect(() => {
     // Every change goes into the project at once — the project's save decides when it
     // reaches disk and cloud.
-    if (linked && onStudioChange) onStudioChange(linked, s);
+    if (!linked) return;
+    const marked = withRemovals(synced.current.film, s);
+    synced.current.film = marked;
+    if (marked !== s) { set(marked); return; }
+    if (onStudioChange) onStudioChange(linked, s);
   }, [s, linked]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What the film tools do reaches this tab: their changes merge into the film held here.
+  useEffect(() => {
+    if (!linked) return undefined;
+    let live = true;
+    let timer = null;
+    const tick = async () => {
+      try {
+        const since = synced.current.revision ? `&since=${encodeURIComponent(synced.current.revision)}` : '';
+        const res = await fetch(`/api/film/cloud?action=studio&id=${encodeURIComponent(linked)}${since}`);
+        const out = await res.json();
+        if (live && res.ok && !out.same && out.revision) {
+          synced.current.revision = out.revision;
+          if (out.studio) {
+            const merged = mergeStudio(loadStudio(out.studio), get());
+            if (!sameFilm(merged, get())) set(merged);
+          }
+        }
+      } catch { /* the next tick asks again */ }
+      if (live) timer = setTimeout(tick, FOLLOW_MS);
+    };
+    tick();
+    return () => { live = false; clearTimeout(timer); };
+  }, [linked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toast = (t) => Message.error({ content: t, duration: 6000 });
   const say = (sc, msg) => set((x) => addMessage(x, threadKeyOf(sc), msg));
@@ -241,6 +273,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       return;
     }
     if (ref.at === 'scene') { land((y) => applyBlocking(y, ref.sceneId, v.payload)); return; }
+    if (ref.at === 'unplaced') { toast('This has no place in the film yet: tell FilmAgent where it goes.'); return; }
     land((y) => y);
   };
   // The director's own text, kept as a version when a screenplay replaces it.
@@ -256,7 +289,10 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   const rejectInView = (ref, v) => { reject(ref, v); nextNew(v.id); };
   // A NOTE is an edit of the version you look at, by the agent whose output it is (editorFor):
   // the edit is the next version, its parent the one you noted.
-  const note = (ref, v, text) => request(editorFor(get(), ref, v, text));
+  const note = (ref, v, text) => {
+    if (ref.at === 'unplaced') { toast('This has no place in the film yet: tell FilmAgent where it goes.'); return; }
+    request(editorFor(get(), ref, v, text));
+  };
   // Casting's plate drawn again from the prompt you edited in the viewer.
   const redraw = (ref, v, entry) => request({ agent: 'casting', action: 'redraw', scope: { type: 'element', id: ref.id }, text: '', from: { ref, vid: v.id }, entry });
   // A take made with an earlier plate: keep it as it is, or shoot it again.

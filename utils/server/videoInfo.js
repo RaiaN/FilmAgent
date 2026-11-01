@@ -1,4 +1,8 @@
 import { spawn } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { storeKeyFromUrl, readStoreBytes } from './mediaStore';
 
 // ffmpeg-static helpers shared by the Tools routes (ffmpeg-static ships no ffprobe).
 
@@ -50,4 +54,34 @@ export const parseInfo = (stderr) => {
     layout: (/Hz, ([^,]+)/.exec(aline) || [])[1] || '',
   } : null;
   return { spec, audio };
+};
+
+// What a picture or video in the store (or at a URL) actually is, and how loud it is.
+export const probeMedia = async (url) => {
+  const key = storeKeyFromUrl(url);
+  let buffer;
+  let contentType;
+  if (key) ({ buffer, contentType } = await readStoreBytes(key));
+  else {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Could not read the file (HTTP ${res.status}).`);
+    buffer = Buffer.from(await res.arrayBuffer());
+    contentType = res.headers.get('content-type') || '';
+  }
+  const type = String(contentType).split('/')[0];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'film-probe-'));
+  try {
+    const file = path.join(dir, 'media');
+    fs.writeFileSync(file, buffer);
+    const { stderr } = await run(await ffmpegPath(), ['-hide_banner', '-i', file, '-af', 'volumedetect', '-f', 'null', '-']);
+    const { spec, audio } = parseInfo(stderr);
+    const db = (name) => { const m = new RegExp(`${name}: (-?[\\d.]+) dB`).exec(stderr); return m ? Number(m[1]) : null; };
+    if (type === 'image') return { type, width: spec.width, height: spec.height, bytes: buffer.length };
+    return {
+      type, width: spec.width, height: spec.height, seconds: r2(spec.durationSec), fps: spec.fps, codec: spec.codec, bits: spec.bits, pixel_format: spec.pixFmt, bytes: buffer.length,
+      has_audio: !!audio, ...(audio ? { mean_volume_db: db('mean_volume'), max_volume_db: db('max_volume') } : {}),
+    };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 };

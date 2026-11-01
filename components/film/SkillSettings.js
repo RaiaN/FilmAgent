@@ -27,7 +27,7 @@ const SkillSettings = ({ visible, onClose }) => {
   const [draft, setDraft] = useState(null); // {name, text, models} while adding
   const refresh = () => setBump((b) => b + 1);
 
-  useEffect(() => { if (visible) hydrateSkills().then(() => setReady(true)); }, [visible]);
+  useEffect(() => { if (visible) hydrateSkills().catch((e) => Message.error(e.message)).then(() => setReady(true)); }, [visible]);
 
   const skills = ready ? allSkills() : [];
   // Slots a skill can bind to. The PLANNER slots are the odd ones: a skill bound there

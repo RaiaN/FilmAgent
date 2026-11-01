@@ -24,7 +24,7 @@ const ago = (ms) => {
   return h < 24 ? `${h} h ago` : `${Math.round(h / 24)} d ago`;
 };
 // Where a version belongs: the brief, Cast & World, a scene, or the cut.
-const placeOf = (ref) => (ref.at === 'brief' ? 'brief' : ref.at === 'element' ? 'world' : ref.at === 'cut' ? 'cut' : `scene:${ref.sceneId}`);
+const placeOf = (ref) => (ref.at === 'brief' ? 'brief' : ref.at === 'element' ? 'world' : ref.at === 'cut' ? 'cut' : ref.at === 'unplaced' ? 'unplaced' : `scene:${ref.sceneId}`);
 
 const Segmented = ({ items, value, onChange, counts = {}, live }) => (
   <div style={{ display: 'flex', background: C.bg, border: `1px solid ${C.line}`, borderRadius: 9, padding: 3 }}>
@@ -54,7 +54,7 @@ const Card = ({ s, ref_, v, label, now, open, archive }) => {
         <span style={{ position: 'absolute', right: 8, top: 8, fontSize: 11, color: '#d7d9de', background: 'rgba(8,9,11,0.78)', borderRadius: 6, padding: '2px 7px', fontFamily: v.status === 'running' ? MONO : undefined }}>{v.status === 'running' ? clock(now - (v.at || now)) : v.at ? ago(now - v.at) : ''}</span>
       </div>
       <div style={{ padding: '10px 12px 12px', display: 'grid', gap: 5, minWidth: 0 }}>
-        <div style={{ fontSize: 15.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+        <div style={{ fontSize: 15.5, fontWeight: 600, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name ? <span style={{ fontFamily: MONO, color: C.accent, marginRight: 8 }}>{v.name}</span> : null}{v.label || label}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.muted, minWidth: 0 }}>
           <Avatar id={v.by} size={18} /><span style={{ color: crewColor(v.by) }}>{crewWho(v.by)}</span>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {KIND[v.kind] || v.kind}{v.res ? ` · ${v.res}` : ''}{v.model === 'seedance25Premium' ? ' · Premium' : ''}{v.format === 'mov' ? ' · MOV' : ''}{v.edit ? ' · edit' : ''}</span>
@@ -78,12 +78,13 @@ const Card = ({ s, ref_, v, label, now, open, archive }) => {
   );
 };
 
-const GenerationsView = ({ s, set, open }) => {
+// `archive` replaces how archiving reaches the film, for a view that doesn't hold it itself.
+const GenerationsView = ({ s, set, open, archive: archiveTo }) => {
   const [place, setPlace] = useState('any');
   const [type, setType] = useState('any');
   const all = allVersions(s);
   const every = all.filter((x) => !x.v.archived);
-  const archive = (items, on) => set((x) => archiveVersions(x, items, on));
+  const archive = archiveTo || ((items, on) => set((x) => archiveVersions(x, items, on)));
   const [state, setState] = useState(every.some((x) => x.v.status === 'running') ? 'active' : 'all');
   const scoped = every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && (type === 'any' || TYPE_OF[x.v.kind] === type));
   const running = scoped.filter((x) => x.v.status === 'running');
@@ -103,6 +104,7 @@ const GenerationsView = ({ s, set, open }) => {
     { label: 'Cast & World', value: 'world' },
     ...s.scenes.map((sc, i) => ({ label: `${pad2(i + 1)} ${sc.title}`, value: `scene:${sc.id}` })),
     { label: 'Cut', value: 'cut' },
+    { label: 'Unplaced', value: 'unplaced' },
   ];
   return (
     <div style={{ overflowY: 'auto', padding: '32px 40px 72px', minHeight: 0 }}>

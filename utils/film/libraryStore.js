@@ -2,9 +2,12 @@
 
 const API = '/api/film/library';
 
-export const listLibrary = async () => {
+// With a project: only what belongs to it (see libraryMatch.js).
+const scope = (project) => (project ? `project=${encodeURIComponent(project)}` : '');
+
+export const listLibrary = async (project = null, { withFilm = false } = {}) => {
   try {
-    const res = await fetch(API);
+    const res = await fetch(project ? `${API}?${scope(project)}${withFilm ? '&film=1' : ''}` : API);
     if (!res.ok) return [];
     const data = await res.json();
     return data?.items || [];
@@ -25,8 +28,8 @@ export const addToLibrary = async (entry) => {
 };
 
 // List-only: forget the entry, keep the underlying asset in storage.
-export const removeFromLibrary = async ({ id, url }) => {
-  const res = await fetch(`${API}?action=remove`, {
+export const removeFromLibrary = async ({ id, url, project = null }) => {
+  const res = await fetch(`${API}?action=remove&${scope(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, url }),
@@ -37,8 +40,8 @@ export const removeFromLibrary = async ({ id, url }) => {
 
 // Permanent: delete the TOS object + Assets-API asset, then drop the entry.
 // Returns { items, report }. Irreversible — callers must confirm first.
-export const deleteFromLibrary = async ({ id, url, assetId }) => {
-  const res = await fetch(`${API}?action=delete`, {
+export const deleteFromLibrary = async ({ id, url, assetId, project = null }) => {
+  const res = await fetch(`${API}?action=delete&${scope(project)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, url, assetId }),
@@ -48,10 +51,11 @@ export const deleteFromLibrary = async ({ id, url, assetId }) => {
   return { items: data.items || [], report: data.report || {} };
 };
 
-// Permanent: wipe the WHOLE library — best-effort delete of every asset's storage,
-// then empty the index. Returns { items: [], report: { cleared, failed } }. Confirm first.
-export const clearLibrary = async () => {
-  const res = await fetch(`${API}?action=clear`, { method: 'POST' });
+// Permanent: wipe a project's part of the library, or with no project all of it — best-effort delete
+// of each asset's storage, then drop them from the index. Returns { items: [], report: { cleared, failed } }.
+// Confirm first.
+export const clearLibrary = async (project = null) => {
+  const res = await fetch(`${API}?action=clear&${scope(project)}`, { method: 'POST' });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error || 'Clear failed');
   return { items: data.items || [], report: data.report || {} };

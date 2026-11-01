@@ -2,6 +2,7 @@ import { getServerTosConfig, hasServerTosConfig, putTosObject, downloadTosObject
 import { CLOUD_MEDIA_PREFIX, checkInBytes, mediaFilePath, mediaFileExists, mirrorKeyToTos, clearUnmirrored, deleteStoreKey } from '../../../utils/server/mediaStore';
 import fs from 'fs';
 import { hasStudioWork } from '../../../utils/film/studio/model';
+import { mergeStudio, nameVersions } from '../../../utils/film/studio/sync';
 
 // CLOUD PROJECT STORE — save/list/load whole film projects against the user's own TOS
 // bucket. The bytes are (normally) ALREADY up: the media route mirrors every check-in
@@ -20,6 +21,21 @@ import { hasStudioWork } from '../../../utils/film/studio/model';
 export const config = {
   api: { bodyParser: { sizeLimit: '60mb' }, responseLimit: false },
 };
+
+// Saves to one project run one at a time: the check that a save is based on the latest copy and the
+// write are one step. Next reloads this module while developing; the queue and revisions outlive that.
+const saveQueues = globalThis.filmCloudSaveQueues || new Map();
+globalThis.filmCloudSaveQueues = saveQueues;
+const revisions = globalThis.filmCloudRevisions || new Map();
+globalThis.filmCloudRevisions = revisions;
+const oneSaveAtATime = (id, work) => {
+  const run = (saveQueues.get(id) || Promise.resolve()).then(work, work);
+  saveQueues.set(id, run.catch(() => {}));
+  return run;
+};
+// What a tab's save is checked against: the last save from a tab. The film tools save too, and those
+// merge rather than conflict. A manifest from before `tabSavedAt` was saved by a tab.
+const tabBaseOf = (m) => ('tabSavedAt' in m ? m.tabSavedAt : m.savedAt) ?? null;
 
 const MANIFEST_VERSION = 1;
 const PROJECTS_PREFIX = 'projects';
@@ -134,9 +150,10 @@ export default async function cloudHandler(req, res) {
 
   try {
     if (req.method === 'POST') {
-      const { project, baseSavedAt = null, force = false } = req.body || {};
+      const { project, baseSavedAt = null, force = false, writer = 'tab', baseRevision = null } = req.body || {};
       const id = sanitizeId(project?.id);
       if (!project || !id) return res.status(400).json({ error: 'a project with an id is required' });
+      return await oneSaveAtATime(id, async () => {
 
       // NO BLIND OVERWRITES. A save names the cloud version it was based on (baseSavedAt —
       // the savedAt this session last loaded or saved). If the cloud copy has moved on since
@@ -145,20 +162,25 @@ export default async function cloudHandler(req, res) {
       const mKey = manifestKey(id);
       let prevBuffer = null;
       let prevSavedAt = null;
+      let prevManifest = null;
       try {
         const prev = await downloadTosObject({ ...cfg, objectKey: mKey });
         prevBuffer = prev.buffer;
-        prevSavedAt = JSON.parse(prev.buffer.toString('utf8')).savedAt || null;
+        prevManifest = JSON.parse(prev.buffer.toString('utf8'));
+        prevSavedAt = prevManifest.savedAt || null;
       } catch { /* first save — nothing there */ }
-      if (prevBuffer && !force && prevSavedAt !== baseSavedAt) {
-        return res.status(409).json({ conflict: true, cloudSavedAt: prevSavedAt, error: 'The cloud copy changed since this session last saw it (another tab, machine or person saved it).' });
+      const prevTabBase = prevManifest ? tabBaseOf(prevManifest) : null;
+      // The film tools change the latest copy, and try again if another save got in first.
+      if (writer === 'tools' && prevManifest && prevSavedAt !== baseRevision) return res.status(409).json({ conflict: true, cloudSavedAt: prevSavedAt, error: 'Saved by someone else first.' });
+      if (writer === 'tab' && prevManifest && !force && prevTabBase !== null && prevTabBase !== baseSavedAt) {
+        return res.status(409).json({ conflict: true, cloudSavedAt: prevTabBase, error: 'The cloud copy changed since this session last saw it (another tab, machine or person saved it).' });
       }
 
       // An EMPTY canvas must never clobber a real save: a desynced client (the exact
       // failure that produced an empty "Glass Horizon" manifest over a full board) or
       // a fresh scratch saving by accident keeps the existing manifest intact.
-      // Studio work counts as work too — a project can live there alone.
-      const incomingWork = (project?.canvas?.nodes || []).length || hasStudioWork(project?.studio);
+      // Studio work and film-tools results count as work too — a project can live there alone.
+      const incomingWork = (project?.canvas?.nodes || []).length || hasStudioWork(project?.studio) || (project?.film?.results || []).length;
       if (!incomingWork) {
         const existing = await headTosObject({ ...cfg, objectKey: manifestKey(sanitizeId(project?.id)) }).catch(() => ({ exists: false }));
         if (existing.exists) return res.status(409).json({ error: 'Refusing to overwrite a cloud save with an EMPTY board — open the cloud copy instead, or use a new project id.' });
@@ -166,6 +188,14 @@ export default async function cloudHandler(req, res) {
 
       // Work on a CLONE — rescues rewrite fields in the manifest, never the live board.
       const copy = JSON.parse(JSON.stringify(project));
+      // A tab holds its own copy of the film while the tools change it: its save merges with what
+      // they did. The session belongs to the tools.
+      if (writer === 'tab' && prevManifest?.project) {
+        if (prevManifest.project.studio && copy.studio) copy.studio = mergeStudio(prevManifest.project.studio, copy.studio);
+        else if (prevManifest.project.studio) copy.studio = prevManifest.project.studio;
+        if (prevManifest.project.session) copy.session = prevManifest.project.session;
+      }
+      if (copy.studio) copy.studio = nameVersions(copy.studio);
       const rescuedInline = await rescueDataUrls(copy);
       const missingNodes = await rescueNakedNodes(copy);
       const keys = collectStoreKeys(JSON.stringify(copy));
@@ -185,19 +215,23 @@ export default async function cloudHandler(req, res) {
         media: [...keys],
         project: copy,
       };
+      manifest.tabSavedAt = writer === 'tab' ? manifest.savedAt : prevTabBase;
       const buf = Buffer.from(JSON.stringify(manifest));
       await putTosObject({ ...cfg, objectKey: mKey, buffer: buf, contentType: 'application/json', overwrite: true });
+      revisions.set(id, manifest.savedAt);
 
       return res.status(200).json({
         ok: true,
         projectId: id,
         savedAt: manifest.savedAt,
+        revision: manifest.savedAt,
         mediaCount: keys.size,
         uploadedNow: uploaded.length,
         rescuedInline,
         manifestBytes: buf.length,
         // Honest report: assets whose bytes exist NOWHERE (expired before any check-in).
         missing: [...missingNodes.map((m) => m.label), ...lost],
+      });
       });
     }
 
@@ -231,7 +265,25 @@ export default async function cloudHandler(req, res) {
           throw Object.assign(new Error(e?.statusCode === 404 ? 'No cloud save found for this project' : `manifest fetch failed: ${e.message}`), { statusCode: e?.statusCode === 404 ? 404 : 502 });
         });
         const manifest = JSON.parse(buffer.toString('utf8'));
-        return res.status(200).json({ project: manifest.project, media: manifest.media || [], savedAt: manifest.savedAt, name: manifest.name });
+        revisions.set(id, manifest.savedAt);
+        return res.status(200).json({ project: manifest.project, media: manifest.media || [], savedAt: tabBaseOf(manifest) ?? manifest.savedAt, revision: manifest.savedAt, name: manifest.name });
+      }
+
+      // The film as it stands, for a tab following the tools' work. `since` saves the download when
+      // nothing moved.
+      if (action === 'studio') {
+        const id = sanitizeId(req.query.id);
+        if (!id) return res.status(400).json({ error: 'id is required' });
+        if (req.query.since && revisions.get(id) === req.query.since) return res.status(200).json({ same: true, revision: req.query.since });
+        try {
+          const { buffer } = await downloadTosObject({ ...cfg, objectKey: manifestKey(id) });
+          const manifest = JSON.parse(buffer.toString('utf8'));
+          revisions.set(id, manifest.savedAt);
+          return res.status(200).json({ revision: manifest.savedAt, studio: manifest.project?.studio || null });
+        } catch (e) {
+          if (e?.statusCode === 404) return res.status(200).json({ revision: null, studio: null });
+          throw e;
+        }
       }
 
       return res.status(400).json({ error: `unknown action '${action}'` });

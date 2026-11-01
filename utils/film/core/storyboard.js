@@ -382,6 +382,39 @@ export const storyboardKeyframe = async ({ body = '', shotTemplate = '', style =
   return { url, cacheUrl, prompt, editMissing }; // prompt = the EXACT sent prompt — stashed as promptUsed
 };
 
+// An authored moment numbers its references from 1; the sheet numbers them across the whole pool.
+export const localToPoolTags = (text, figures) => {
+  let t = String(text || '');
+  (figures || []).forEach((g, i) => { t = t.split(`[Image ${i + 1}]`).join(`@@P${g}@@`); });
+  return t.replace(/@@P(\d+)@@/g, '[Image $1]');
+};
+
+// THE PANELS, all at once: key moments, each moment's setting plate joins the pool, each moment
+// authored. `count` asks for exactly that many; the planner gets one corrective ask, then it is an
+// error. `plateOf(place)` gives the film's plate for a place, or nothing.
+export const storyboardPanels = async ({ script = '', style = '', references = [], labels = [], places = [], plateOf = () => null, note = '', count = 0, config } = {}, ctx) => {
+  const ask = (extra = '') => storyboardMoments({ script, style, references, labels, places, config, note: [note, count ? `Select exactly ${count} moments.` : '', extra].filter(Boolean).join('\n') }, ctx);
+  let moments = await ask();
+  if (count && moments.length !== count) moments = await ask(`Your last answer had ${moments.length}.`);
+  if (count && moments.length !== count) throw new Error(`The script gave ${moments.length} key moments, not the ${count} asked for.`);
+  const pool = [...references];
+  const settingOf = new Map();
+  [...new Set(moments.map((m) => m.place))].forEach((place) => {
+    const plate = plateOf(place);
+    if (!plate) return;
+    if (!pool.includes(plate)) pool.push(plate);
+    settingOf.set(place, pool.indexOf(plate) + 1);
+  });
+  const panels = [];
+  await runWithConcurrency(moments.map((m, i) => async () => {
+    const setting = settingOf.get(m.place);
+    const figures = setting && !m.figures.includes(setting) ? [...m.figures, setting] : m.figures;
+    const a = await storyboardAuthor({ script, span: m.span, beat: m.beat, job: m.job, shotTemplate: m.shotTemplate, seconds: m.seconds, prevBeat: moments[i - 1]?.beat || '', nextBeat: moments[i + 1]?.beat || '', references: figures.map((g) => pool[g - 1]), settingIndex: figures.indexOf(setting) + 1, config }, ctx);
+    panels[i] = { ...m, figures, body: localToPoolTags(a.body, figures), motion: localToPoolTags(a.motion, figures), audio: a.audio, expression: a.expression, missingDialogue: a.missingDialogue || [] };
+  }));
+  return { panels, references: pool };
+};
+
 // SINGLE-IMAGE mode: render the WHOLE storyboard as ONE sheet (a grid of numbered panels). Composed
 // from the division `shots` + the full reference pool (attached in [Image 1..N] order, so the panel
 // bodies' [Image N] map correctly and the cast stays consistent). One Seedream call → one image.
@@ -475,7 +508,7 @@ export const describeFrame = async ({ imageUrl, config } = {}, ctx) => {
 // plates become the canonical anchors every shot then references. In the UI the results
 // land as CANDIDATES with suggested-role chips — the user's tag locks them; headless
 // runs (no human) adopt them directly.
-const CAST_ROLE = { character: 'character', creature: 'character', location: 'location', prop: 'prop' };
+export const CAST_ROLE = { character: 'character', creature: 'character', location: 'location', prop: 'prop' };
 
 // Render a parsed asset array (the cast schema — type + facePrompt/bodyPrompt/presencePrompt/
 // prompt) into bible PLATES. Used by castFromIdea (the Cast & World idea read). Each plate carries

@@ -9,8 +9,9 @@ import { getModelCapabilities } from '../utils/modelCapabilities';
 import SeedancePlayground from '../components/SeedancePlayground';
 import SeedreamPlayground from '../components/SeedreamPlayground';
 import LLMPlayground from '../components/LLMPlayground';
-import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
+import CanvasPlayground from '../components/film/CanvasPlayground';
 import StudioPlayground from '../components/studio/StudioPlayground';
+import FilmAgentPlayground from '../components/film/FilmAgentPlayground';
 import AssetUploadPlayground from '../components/AssetUploadPlayground';
 import VideoEnhancePlayground from '../components/VideoEnhancePlayground';
 import ArtifactVerifyPlayground from '../components/ArtifactVerifyPlayground';
@@ -39,7 +40,7 @@ const buildInitialResultState = () =>
 const TOOL_TABS = ['seedream', 'seedance', 'tech-test', 'headroom', 'video-enhance', 'asset-upload', 'verify', 'llm'];
 
 export default function Home() {
-  const [activeModelId, setActiveModelId] = useState('studio');
+  const [activeModelId, setActiveModelId] = useState('film-agent');
   const [lastToolId, setLastToolId] = useState('seedream');
   useEffect(() => {
     let cancelled = false;
@@ -64,7 +65,7 @@ export default function Home() {
     return () => { cancelled = true; };
   }, []);
 
-  const baseSchema = baseSchemas[activeModelId] || {}; // film-agent has no form schema
+  const baseSchema = baseSchemas[activeModelId] || {}; // canvas has no form schema
   // uiSchema is now static/default matching baseSchema
   const [uiSchema, setUiSchema] = useState({
     description: baseSchema.description || '',
@@ -134,7 +135,7 @@ export default function Home() {
 
   const handleModelFamilyChange = (newFamily) => {
       setActiveModelId(newFamily);
-      const newBaseSchema = baseSchemas[newFamily] || {}; // film-agent and asset-upload have no form schema
+      const newBaseSchema = baseSchemas[newFamily] || {}; // canvas and asset-upload have no form schema
       setUiSchema({
         description: newBaseSchema.description || '',
         fields: newBaseSchema.fields || [],
@@ -174,7 +175,7 @@ export default function Home() {
   const [projectControls, setProjectControls] = useState(null);
   // Studio → Canvas: what to put on the board, and the board tab brought forward.
   const [canvasInject, setCanvasInject] = useState(null);
-  const openInCanvas = (payload) => { setCanvasInject({ ...payload, nonce: Date.now() }); setActiveModelId('film-agent'); };
+  const openInCanvas = (payload) => { setCanvasInject({ ...payload, nonce: Date.now() }); setActiveModelId('canvas'); };
   const handleStudioChange = useCallback((projectId, data) => setStudioSave({ projectId, data }), []);
   const [filmProjectTitle, setFilmProjectTitle] = useState('');
 
@@ -351,9 +352,9 @@ export default function Home() {
     }
   };
 
-  // The full-canvas Film Agent gets a compact header so the canvas gets the
+  // The full-canvas tools get a compact header so the canvas gets the
   // vertical space instead of a big title + description.
-  const isCanvasTool = activeModelId === 'film-agent' || activeModelId === 'studio';
+  const isCanvasTool = activeModelId === 'canvas' || activeModelId === 'studio' || activeModelId === 'film-agent';
 
   return (
     <>
@@ -361,7 +362,7 @@ export default function Home() {
         <title>ModelArk Starter Kit</title>
       </Head>
       <Layout className="layout-container" style={{ height: '100vh' }}>
-        {/* The top Studio | Canvas | Tools tabs cover navigation; Settings sits in the
+        {/* The top FilmAgent | Studio | Canvas | Tools tabs cover navigation; Settings sits in the
             top-right corner. */}
         <Content style={{ padding: isCanvasTool ? '8px 16px 14px' : '12px 24px 16px', background: '#f6f7f9', overflowY: 'auto' }}>
             <div style={{ maxWidth: isCanvasTool ? '98%' : 1000, margin: '0 auto', position: 'relative' }}>
@@ -377,6 +378,13 @@ export default function Home() {
                                 {/* Level 1: primary experience vs. the Tools meta tab */}
                                 <Button.Group size="small">
                                     <Button
+                                        type={activeModelId === 'film-agent' ? 'primary' : 'secondary'}
+                                        onClick={() => handleModelFamilyChange('film-agent')}
+                                    >
+                                        <IconVideoCamera style={{ marginRight: 8, color: '#f9cc44' }} />
+                                        FilmAgent
+                                    </Button>
+                                    <Button
                                         type={activeModelId === 'studio' ? 'primary' : 'secondary'}
                                         onClick={() => handleModelFamilyChange('studio')}
                                     >
@@ -384,8 +392,8 @@ export default function Home() {
                                         Studio
                                     </Button>
                                     <Button
-                                        type={activeModelId === 'film-agent' ? 'primary' : 'secondary'}
-                                        onClick={() => handleModelFamilyChange('film-agent')}
+                                        type={activeModelId === 'canvas' ? 'primary' : 'secondary'}
+                                        onClick={() => handleModelFamilyChange('canvas')}
                                     >
                                         <IconMindMapping style={{ marginRight: 8 }} />
                                         Canvas
@@ -469,11 +477,14 @@ export default function Home() {
                         result={seedreamResult}
                     />
                 </div>
+                <div style={{ display: activeModelId === 'film-agent' ? 'block' : 'none' }}>
+                    <FilmAgentPlayground active={activeModelId === 'film-agent'} project={projectControls} />
+                </div>
                 <div style={{ display: activeModelId === 'studio' ? 'block' : 'none' }}>
                     <StudioPlayground board={studioBoard} projectStudio={studioLoad} onStudioChange={handleStudioChange} projectTitle={filmProjectTitle} project={projectControls} onOpenInCanvas={openInCanvas} />
                 </div>
-                <div style={{ display: activeModelId === 'film-agent' ? 'block' : 'none' }}>
-                    <FilmAgentPlayground
+                <div style={{ display: activeModelId === 'canvas' ? 'block' : 'none' }}>
+                    <CanvasPlayground
                         formValues={formValues}
                         setFormValues={setFormValues}
                         onProjectTitle={setFilmProjectTitle}
@@ -514,7 +525,7 @@ export default function Home() {
                     />
                 </div>
                 <div style={{ marginTop: 24 }}>
-                     {!['llm', 'film-agent', 'asset-upload', 'video-enhance', 'verify', 'tech-test', 'headroom'].includes(activeModelId) && (
+                     {!['llm', 'canvas', 'asset-upload', 'video-enhance', 'verify', 'tech-test', 'headroom'].includes(activeModelId) && (
                         <ResultViewer
                           result={seedreamResult}
                           modelType={activeModelId}

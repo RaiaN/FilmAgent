@@ -53,7 +53,7 @@ import { createProduction } from '../../../utils/film/core/production';
 import { animate as animateOp, finishDraft, generateFilmAudio } from '../../../utils/film/core/operations';
 import { startTake } from '../../../utils/film/core/shoot';
 import { previzPlan, previzSchematic, previzAnimaticPrompt, previzCutPrompt, totalSecondsOf, ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK } from '../../../utils/film/core/previz';
-import { describeFrame, storyboardMoments, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
+import { describeFrame, localToPoolTags, storyboardMoments, storyboardAuthor, storyboardKeyframe, storyboardSheet, storyboardShotBody, enhanceStill, maskFrame } from '../../../utils/film/core/storyboard';
 import { runWithConcurrency } from '../../../utils/film/core/parallel';
 import { renderTemplate, clampResolution, maxShotSeconds, clampShotSeconds, AUTO_SECONDS, videoModelKeyOf, defaultVideoModelKey, defaultImageModelKey, imageModelKeyOf, videoTraits, DRAFT_MODE, draftFinalsOf, VIDEO_MODEL_OPTIONS, resolveModelId } from '../../../utils/film/suiteConfig';
 import { createBrowserClient } from '../../../utils/film/core/client';
@@ -357,12 +357,6 @@ const poolUrls = (refs) => (refs || []).map((r) => poolRef(r).url).filter(Boolea
 // The author writes against ONLY its shot's figure refs (structural activation — it
 // cannot cite an image it never saw), numbering them locally [Image 1..k]; the stored
 // text speaks GLOBAL pool numbers, so remap local → pool via sentinel swap.
-const localToPoolTags = (text, figures) => {
-  let t = String(text || '');
-  (figures || []).forEach((g, i) => { t = t.split(`[Image ${i + 1}]`).join(`@@P${g}@@`); });
-  return t.replace(/@@P(\d+)@@/g, '[Image $1]');
-};
-
 const buildInitialLayerState = (project) => {
   const settings = {};
   const visibility = {};
@@ -1105,7 +1099,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, inject }) => {
       // thumbnail so the Library grid can preview it (the TOS url would 403).
       if (kind === 'image') {
         const thumb = await makeThumbnail(dataUrl);
-        addToLibrary({ url, thumb, assetId, name: name || 'Upload', kind: 'image' })
+        addToLibrary({ project: project.id, url, thumb, assetId, name: name || 'Upload', kind: 'image' })
           .then((items) => setLibraryItems(items))
           .catch(() => { /* non-fatal */ });
       }
@@ -1196,8 +1190,8 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, inject }) => {
 
   // ---- library ----
   const refreshLibrary = useCallback(async () => {
-    setLibraryItems(await listLibrary());
-  }, []);
+    setLibraryItems(await listLibrary(project.id));
+  }, [project.id]);
 
   useEffect(() => { refreshLibrary(); }, [refreshLibrary]);
 
@@ -1246,7 +1240,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, inject }) => {
       cancelText: 'Cancel',
       onOk: async () => {
         try {
-          const { items, report } = await deleteFromLibrary({ id: item.id, url: item.url, assetId: item.assetId });
+          const { items, report } = await deleteFromLibrary({ project: project.id, id: item.id, url: item.url, assetId: item.assetId });
           setLibraryItems(items);
           const warn = [report.tos, report.asset].filter((r) => r && /failed|no-key/.test(r));
           if (warn.length) Message.warning(`Removed from library; storage delete: ${warn.join('; ')}`);
@@ -1334,7 +1328,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, inject }) => {
       setNodes((ns) => ns.map((n) => (n.id === node.id
         ? { ...n, data: { ...n.data, tosUrl: stableUrl, assetId, objectKey, preserved: true, preserving: false, expired: false } }
         : n)));
-      addToLibrary({ url: stableUrl, assetId, name: node.data.label || 'Asset', kind })
+      addToLibrary({ project: project.id, url: stableUrl, assetId, name: node.data.label || 'Asset', kind })
         .then((items) => setLibraryItems(items))
         .catch(() => { /* non-fatal */ });
       return stableUrl;
@@ -4928,7 +4922,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, inject }) => {
         const url = n.data.cacheUrl || n.data.url; // the store copy outlives signed remotes
         try {
           // eslint-disable-next-line no-await-in-loop
-          await addToLibrary({ url, thumb: n.data.kind === 'image' ? url : null, assetId: n.data.assetId || null, name: n.data.label || n.data.kind, kind: n.data.kind });
+          await addToLibrary({ project: project.id, url, thumb: n.data.kind === 'image' ? url : null, assetId: n.data.assetId || null, name: n.data.label || n.data.kind, kind: n.data.kind });
           ok += 1;
           const id = n.id;
           setNodes((ns) => ns.filter((x) => x.id !== id));

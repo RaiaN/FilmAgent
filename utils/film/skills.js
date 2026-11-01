@@ -37,13 +37,17 @@ const writeStore = (next) => {
   try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* quota — keep the session copy */ }
 };
 
+// A page reaches the route by its path; code on the server names the host it runs on.
+let skillsBase = '';
+export const setSkillsBase = (base) => { skillsBase = base; };
+
+// A read that fails says so and is tried again next time: an unread library is not an empty one.
 export const hydrateSkills = async ({ fresh = false } = {}) => {
   if (hydrated && !fresh) return diskSkills;
-  try {
-    const r = await fetch('/api/film/skills');
-    const j = await r.json();
-    diskSkills = Array.isArray(j.skills) ? j.skills : [];
-  } catch { diskSkills = []; }
+  const r = await fetch(`${skillsBase}/api/film/skills`);
+  if (!r.ok) throw new Error(`Could not read the skills: /api/film/skills answered ${r.status}.`);
+  const j = await r.json();
+  diskSkills = Array.isArray(j.skills) ? j.skills : [];
   hydrated = true;
   return diskSkills;
 };

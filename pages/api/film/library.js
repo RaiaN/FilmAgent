@@ -4,26 +4,42 @@ import os from 'os';
 import crypto from 'crypto';
 import { deleteTosObject, tosObjectKeyFromUrl } from '../../../utils/server/tosUpload';
 import { callAssetApi } from '../../../utils/server/assetApi';
+import { belongsTo, filmAssets, usesOf } from '../../../utils/film/libraryMatch';
+import { getServerTosConfig, hasServerTosConfig, putTosObject, downloadTosObject } from '../../../utils/server/tosUpload';
 
-// Persistent index of checked-in (preserved) assets, shared across all projects.
-// Stored alongside the recent-projects list in the user's home config dir.
+// THE LIBRARY: every picture and video added or made, shared across all projects, kept in the cloud.
+// The first read brings in what this machine's old index held.
+const OLD_LIBRARY_FILE = path.join(os.homedir(), '.modelark-starter-kit', 'film-agent-library.json');
+const LIBRARY_KEY = 'library/index.json';
 
-const LIBRARY_FILE = path.join(os.homedir(), '.modelark-starter-kit', 'film-agent-library.json');
-const MAX_ITEMS = 400;
-
-const readIndex = () => {
-  try {
-    if (!fs.existsSync(LIBRARY_FILE)) return [];
-    const list = JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8'));
-    return Array.isArray(list) ? list.filter((it) => it && it.url) : [];
-  } catch {
-    return [];
-  }
+const cfgOrThrow = () => {
+  const cfg = getServerTosConfig();
+  if (!hasServerTosConfig(cfg)) throw new Error('TOS is not configured (MODELARK_ASSET_* / MODELARK_TOS_BUCKET in .env.local)');
+  return cfg;
 };
-
-const writeIndex = (list) => {
-  fs.mkdirSync(path.dirname(LIBRARY_FILE), { recursive: true });
-  fs.writeFileSync(LIBRARY_FILE, JSON.stringify(list.slice(0, MAX_ITEMS), null, 2), 'utf8');
+const writeIndex = async (list) => {
+  await putTosObject({ ...cfgOrThrow(), objectKey: LIBRARY_KEY, buffer: Buffer.from(JSON.stringify(list)), contentType: 'application/json', overwrite: true });
+};
+const readIndex = async () => {
+  try {
+    const { buffer } = await downloadTosObject({ ...cfgOrThrow(), objectKey: LIBRARY_KEY });
+    const list = JSON.parse(buffer.toString('utf8'));
+    return Array.isArray(list) ? list.filter((it) => it && it.url) : [];
+  } catch (e) {
+    if (e?.statusCode !== 404) throw e;
+  }
+  const old = fs.existsSync(OLD_LIBRARY_FILE) ? JSON.parse(fs.readFileSync(OLD_LIBRARY_FILE, 'utf8')) : [];
+  const list = Array.isArray(old) ? old.filter((it) => it && it.url) : [];
+  await writeIndex(list);
+  return list;
+};
+// One change at a time: two renders finishing together must both land.
+const queue = globalThis.filmLibraryQueue || { last: Promise.resolve() };
+globalThis.filmLibraryQueue = queue;
+const oneAtATime = (work) => {
+  const run = queue.last.then(work, work);
+  queue.last = run.catch(() => {});
+  return run;
 };
 
 // Best-effort PERMANENT storage delete for ONE asset (TOS object + Assets-API asset).
@@ -65,17 +81,34 @@ async function deleteAssetStorage({ url, assetId, objectKey: bodyKey }) {
   return report;
 }
 
+// The Library as one project sees it: only what belongs to it. Without a project, everything.
+const scopedTo = async (projectId, items, { withFilm = false } = {}) => {
+  if (!projectId) return items;
+  let manifest = null;
+  try {
+    const { buffer } = await downloadTosObject({ ...cfgOrThrow(), objectKey: `projects/${projectId}/project.json` });
+    manifest = JSON.parse(buffer.toString('utf8'));
+  } catch (e) {
+    if (e?.statusCode !== 404) throw e;
+  }
+  const uses = usesOf(manifest);
+  const own = items.filter((it) => belongsTo(it, projectId, uses));
+  // To look at, the film's own plates and takes too. They aren't Library entries, so nothing deletes them from here.
+  return withFilm ? [...own, ...filmAssets(manifest?.project?.studio, own)] : own;
+};
+
 export default async function libraryHandler(req, res) {
-  const { action } = req.query;
+  const { action, project: scope } = req.query;
   try {
     if (req.method === 'GET') {
-      return res.status(200).json({ items: readIndex() });
+      return res.status(200).json({ items: await scopedTo(scope, await readIndex(), { withFilm: req.query.film === '1' }) });
     }
 
     if (req.method === 'POST' && action === 'add') {
-      const { url, assetId, name, kind = 'image', thumb } = req.body || {};
+      const { url, assetId, name, kind = 'image', thumb, project } = req.body || {};
       if (!url) return res.status(400).json({ error: 'url is required' });
-      const existing = readIndex();
+      return await oneAtATime(async () => {
+      const existing = await readIndex();
       // De-dupe by assetId (preferred) or url; move/refresh to the front.
       const deduped = existing.filter((it) =>
         (assetId ? it.assetId !== assetId : true) && it.url !== url);
@@ -89,19 +122,24 @@ export default async function libraryHandler(req, res) {
         assetId: assetId || null,
         name: name || 'Asset',
         kind,
+        ...(project ? { project } : {}),
         createdAt: new Date().toISOString(),
       };
       const next = [entry, ...deduped];
-      writeIndex(next);
-      return res.status(200).json({ item: entry, items: next });
+      await writeIndex(next);
+      return res.status(200).json({ item: entry, items: await scopedTo(project || scope, next) });
+      });
     }
 
     if (req.method === 'POST' && action === 'remove') {
       // List-only: drop the entry; the underlying TOS object + asset are kept.
       const { id, url } = req.body || {};
-      const next = readIndex().filter((it) => it.id !== id && it.url !== url);
-      writeIndex(next);
-      return res.status(200).json({ items: next });
+      const next = await oneAtATime(async () => {
+        const list = (await readIndex()).filter((it) => it.id !== id && it.url !== url);
+        await writeIndex(list);
+        return list;
+      });
+      return res.status(200).json({ items: await scopedTo(scope, next) });
     }
 
     if (req.method === 'POST' && action === 'delete') {
@@ -110,19 +148,24 @@ export default async function libraryHandler(req, res) {
       // (e.g. permissions) still removes the entry and reports what happened.
       const { id, url, assetId, objectKey } = req.body || {};
       const report = await deleteAssetStorage({ url, assetId, objectKey });
-      const next = readIndex().filter((it) => it.id !== id && it.url !== url);
-      writeIndex(next);
-      return res.status(200).json({ items: next, report });
+      const next = await oneAtATime(async () => {
+        const list = (await readIndex()).filter((it) => it.id !== id && it.url !== url);
+        await writeIndex(list);
+        return list;
+      });
+      return res.status(200).json({ items: await scopedTo(scope, next), report });
     }
 
     if (req.method === 'POST' && action === 'clear') {
-      // Permanent: wipe the WHOLE library — best-effort delete EVERY asset's TOS object +
-      // Assets-API asset (in parallel; each delete never throws), then empty the index. The
-      // index is cleared even if some storage deletes fail (those are reported, not fatal).
-      const items = readIndex();
+      // Permanent: wipe the library, or with a project only that project's part — best-effort delete
+      // each asset's TOS object + Assets-API asset (in parallel; each delete never throws), then drop
+      // them from the index, even if some storage deletes fail (those are reported, not fatal).
+      const all = await readIndex();
+      const items = await scopedTo(scope, all);
       const reports = await Promise.all(items.map((it) => deleteAssetStorage({ url: it.url, assetId: it.assetId, objectKey: it.objectKey })));
       const failed = reports.filter((r) => /failed/.test(r.tos) || /failed/.test(r.asset)).length;
-      writeIndex([]);
+      const gone = new Set(items);
+      await writeIndex(all.filter((it) => !gone.has(it)));
       return res.status(200).json({ items: [], report: { cleared: items.length, failed } });
     }
 

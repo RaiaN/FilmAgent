@@ -32,6 +32,11 @@ export const emptyStudio = () => ({
   elements: [],
   scenes: [],
   cut: { versions: [], picked: null },
+  // Pictures and videos without a place in the film yet.
+  unplaced: { versions: [], picked: null },
+  // Short names used so far (R, T), and what was removed, for merging (see sync.js).
+  names: {},
+  removed: {},
   threads: {},
   gens: 0,
 });
@@ -50,6 +55,7 @@ export const loadStudio = (input) => {
     ...data,
     brief: { ...brief, versions },
     cut: { ...base.cut, ...(data.cut || {}) },
+    unplaced: { ...base.unplaced, ...(data.unplaced || {}) },
     elements: Array.isArray(data.elements) ? data.elements : [],
     // A shot carries its takes; nothing else rides along from an older save.
     scenes: (Array.isArray(data.scenes) ? data.scenes : []).map((sc) => ({ blocking: { versions: [], picked: null }, ...sc, shots: (sc.shots || []).map(({ stills: _stills, ...sh }) => sh) })),
@@ -60,7 +66,7 @@ export const loadStudio = (input) => {
 // Anything the director or the crew put in: a script, any version (a
 // delivery waiting for review), elements, scenes, a thread message.
 export const hasStudioWork = (s) => !!(s && (String(s.script || '').trim()
-  || (s.brief?.versions || []).length || (s.cut?.versions || []).length || (s.elements || []).length || (s.scenes || []).length
+  || (s.brief?.versions || []).length || (s.cut?.versions || []).length || (s.unplaced?.versions || []).length || (s.elements || []).length || (s.scenes || []).length
   || Object.values(s.threads || {}).some((m) => (m || []).length)));
 
 // ---- scopes ------------------------------------------------------------------------
@@ -88,11 +94,12 @@ export const pad2 = (n) => String(n).padStart(2, '0');
 
 // ---- containers (anything with versions) ---------------------------------------------
 // A ref names one container: { at: 'brief' } · { at: 'element', id } · { at: 'scene',
-// sceneId } (its blocking) · { at: 'take', sceneId, shotId } · { at: 'cut' }.
+// sceneId } (its blocking) · { at: 'take', sceneId, shotId } · { at: 'cut' } · { at: 'unplaced' }.
 export const containerOf = (s, ref) => {
   if (!ref) return null;
   if (ref.at === 'brief') return s.brief;
   if (ref.at === 'cut') return s.cut;
+  if (ref.at === 'unplaced') return s.unplaced;
   if (ref.at === 'element') return findElement(s, ref.id);
   if (ref.at === 'scene') return findScene(s, ref.sceneId)?.blocking || null;
   const shot = findShot(s, ref.sceneId, ref.shotId);
@@ -106,6 +113,7 @@ const mapShot = (s, sceneId, shotId, fn) => ({
 export const updateContainer = (s, ref, fn) => {
   if (ref.at === 'brief') return { ...s, brief: fn(s.brief) };
   if (ref.at === 'cut') return { ...s, cut: fn(s.cut) };
+  if (ref.at === 'unplaced') return { ...s, unplaced: fn(s.unplaced || { versions: [], picked: null }) };
   if (ref.at === 'element') return { ...s, elements: s.elements.map((e) => (e.id === ref.id ? fn(e) : e)) };
   if (ref.at === 'scene') return { ...s, scenes: s.scenes.map((sc) => (sc.id === ref.sceneId ? { ...sc, blocking: fn(sc.blocking || { versions: [], picked: null }) } : sc)) };
   return mapShot(s, ref.sceneId, ref.shotId, (sh) => ({ ...sh, takes: fn(sh.takes) }));
@@ -119,18 +127,20 @@ export const pickedOf = (c) => (c?.versions || []).find((v) => v.id === c.picked
 
 // Picking makes the version the container's choice; the one it replaces and the other new
 // ones beside it are seen (kept as history).
-export const pickVersion = (s, ref, vid) => updateContainer(s, ref, (c) => ({
+export const pickVersion = (s, ref, vid, at = Date.now()) => updateContainer(s, ref, (c) => ({
   ...c,
   picked: vid,
+  pickedAt: at,
   versions: (c.versions || []).map((v) => {
     if (v.id === vid) return { ...v, status: 'picked' };
     if (v.status === 'picked' || v.status === 'review') return { ...v, status: 'kept' };
     return v;
   }),
 }));
-export const rejectVersion = (s, ref, vid) => updateContainer(s, ref, (c) => ({
+export const rejectVersion = (s, ref, vid, at = Date.now()) => updateContainer(s, ref, (c) => ({
   ...c,
   picked: c.picked === vid ? null : c.picked,
+  ...(c.picked === vid ? { pickedAt: at } : {}),
   versions: (c.versions || []).map((v) => (v.id === vid ? { ...v, status: 'rejected' } : v)),
 }));
 
@@ -230,6 +240,7 @@ export const containersOf = (s) => {
     out.push({ ref: { at: 'take', sceneId: sc.id, shotId: sh.id }, c: sh.takes, label: `${n} ${sh.title}`, scope });
   }));
   out.push({ ref: { at: 'cut' }, c: s.cut, label: 'Cut', scope: { type: 'cut' } });
+  if (s.unplaced) out.push({ ref: { at: 'unplaced' }, c: s.unplaced, label: 'Unplaced', scope: { type: 'scenes' } });
   return out;
 };
 // What waits for a verdict (oldest first, the order to review in) and what is rendering.

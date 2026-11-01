@@ -21,25 +21,31 @@ const TAB_DEFS = [
   { key: 'board', label: 'Board' },
   { key: 'media', label: 'A/V' },
 ];
-const bucketOf = (it) => (it.kind === 'audio' || it.kind === 'video' ? 'media' : (it.role || 'board'));
+const bucketOf = (it) => it.bucket || (it.kind === 'audio' || it.kind === 'video' ? 'media' : (it.role || 'board'));
+// Its look follows where it opens: Canvas is light, FilmAgent dark.
+const LIGHT = { panel: '#fff', line: '#e5e6eb', soft: '#f2f3f5', ink: undefined, muted: '#4e5969', on: '#165dff' };
+const DARK = { panel: '#14161a', line: '#262a31', soft: '#08090b', ink: '#eceae6', muted: '#b4b7be', on: '#ff9626' };
 
 // items: [{ id, url, label, role?, kind: 'image'|'audio'|'video', duration? }]
 // selection: Map(id → badge string: '3' | 'A1' | 'V2' | '✓') — LIVE, rebuilt by the parent.
-const RefDrawer = ({ title, hint, items = [], selection, onToggle, onClose, single = false }) => {
+// `tabs` and an item's `bucket` replace the default tabs; an item with `tile` shows as a picture
+// whatever its kind (`url` is then its picture).
+const RefDrawer = ({ title, hint, items = [], selection, onToggle, onClose, single = false, dark = false, tabs: tabDefs = TAB_DEFS, width = 340 }) => {
+  const T = dark ? DARK : LIGHT;
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('all');
   const buckets = useMemo(() => new Set(items.map(bucketOf)), [items]);
-  const tabs = TAB_DEFS.filter((t) => t.key === 'all' || buckets.has(t.key));
+  const tabs = tabDefs.filter((t) => t.key === 'all' || buckets.has(t.key));
   const ql = q.trim().toLowerCase();
   const shown = items.filter((it) => (tab === 'all' || bucketOf(it) === tab)
     && (!ql || String(it.label || '').toLowerCase().includes(ql)));
-  const images = shown.filter((it) => it.kind !== 'audio' && it.kind !== 'video');
-  const media = shown.filter((it) => it.kind === 'audio' || it.kind === 'video');
+  const images = shown.filter((it) => it.tile || (it.kind !== 'audio' && it.kind !== 'video'));
+  const media = shown.filter((it) => !it.tile && (it.kind === 'audio' || it.kind === 'video'));
   const pickedCount = selection ? selection.size : 0;
   return (
-    <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 340, zIndex: 10, borderLeft: '1px solid #e5e6eb', boxShadow: '-4px 0 16px rgba(0,0,0,0.08)', background: '#fff', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #f2f3f5' }}>
-        <Text style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0 }} ellipsis>{title || 'References'}</Text>
+    <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width, zIndex: 10, borderLeft: `1px solid ${T.line}`, boxShadow: '-4px 0 16px rgba(0,0,0,0.08)', background: T.panel, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid ${T.line}` }}>
+        <Text style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, color: T.ink }} ellipsis>{title || 'References'}</Text>
         {!single && pickedCount > 0 && <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>{pickedCount} on</Text>}
         <Button size="mini" type="text" icon={<IconClose />} onClick={onClose} />
       </div>
@@ -53,9 +59,9 @@ const RefDrawer = ({ title, hint, items = [], selection, onToggle, onClose, sing
                 onClick={() => setTab(t.key)}
                 style={{
                   cursor: 'pointer', fontSize: 11, padding: '1px 8px', borderRadius: 10,
-                  border: `1px solid ${tab === t.key ? '#165dff' : '#e5e6eb'}`,
-                  background: tab === t.key ? '#165dff' : 'transparent',
-                  color: tab === t.key ? '#fff' : (ROLE_COLOR[t.key] || '#4e5969'),
+                  border: `1px solid ${tab === t.key ? T.on : T.line}`,
+                  background: tab === t.key ? T.on : 'transparent',
+                  color: tab === t.key ? (dark ? '#1c1103' : '#fff') : (dark ? T.muted : (ROLE_COLOR[t.key] || T.muted)),
                 }}
               >
                 {t.label}
@@ -66,18 +72,18 @@ const RefDrawer = ({ title, hint, items = [], selection, onToggle, onClose, sing
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {images.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${dark ? 150 : 88}px, 1fr))`, gap: 8 }}>
             {images.map((it) => {
               const sel = selection ? selection.get(it.id) : null;
-              const ring = ROLE_COLOR[it.role] || '#165dff';
+              const ring = ROLE_COLOR[it.role] || T.on;
               return (
                 <div
                   key={it.id}
                   onClick={() => onToggle(it)}
                   title={`${it.label || 'image'}${sel ? ` — [Image ${sel}] · click to remove` : (single ? ' — click to pick' : ' — click to add')}`}
-                  style={{ cursor: 'pointer', borderRadius: 8, overflow: 'hidden', border: `2px solid ${sel ? ring : 'transparent'}`, boxShadow: sel ? 'none' : 'inset 0 0 0 1px #e5e6eb', background: '#fff' }}
+                  style={{ cursor: 'pointer', borderRadius: 8, overflow: 'hidden', border: `2px solid ${sel ? ring : 'transparent'}`, boxShadow: sel ? 'none' : `inset 0 0 0 1px ${T.line}`, background: T.panel }}
                 >
-                  <div style={{ position: 'relative', width: '100%', aspectRatio: '1 / 1', background: '#f2f3f5' }}>
+                  <div style={{ position: 'relative', width: '100%', aspectRatio: dark ? '16 / 9' : '1 / 1', background: T.soft }}>
                     {it.url && <img src={it.url} alt="" loading="lazy" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />}
                     {sel && (
                       <b style={{ position: 'absolute', left: 3, top: 3, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: ring, color: '#fff', fontSize: 10, fontWeight: 800, lineHeight: '16px', textAlign: 'center' }}>{sel}</b>
@@ -86,7 +92,7 @@ const RefDrawer = ({ title, hint, items = [], selection, onToggle, onClose, sing
                       <span style={{ position: 'absolute', right: 3, bottom: 3, width: 8, height: 8, borderRadius: 2, background: ROLE_COLOR[it.role] || '#f7ba1e' }} />
                     )}
                   </div>
-                  <Text style={{ display: 'block', fontSize: 10, padding: '2px 4px 3px' }} ellipsis>{it.label || 'image'}</Text>
+                  <Text style={{ display: 'block', fontSize: dark ? 12 : 10, padding: '2px 4px 3px', color: T.ink }} ellipsis>{it.label || 'image'}</Text>
                 </div>
               );
             })}
@@ -120,8 +126,8 @@ const RefDrawer = ({ title, hint, items = [], selection, onToggle, onClose, sing
         )}
       </div>
       {hint && (
-        <div style={{ padding: '8px 12px', borderTop: '1px solid #f2f3f5' }}>
-          <Text type="secondary" style={{ fontSize: 10 }}>{hint}</Text>
+        <div style={{ padding: '8px 12px', borderTop: `1px solid ${T.line}` }}>
+          <Text type="secondary" style={{ fontSize: dark ? 12 : 10 }}>{hint}</Text>
         </div>
       )}
     </div>

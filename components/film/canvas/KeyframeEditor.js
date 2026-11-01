@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Input, Select, Button, Typography, Message, Checkbox } from '@arco-design/web-react';
 import { IconPlus, IconCheck, IconLoading } from '@arco-design/web-react/icon';
 import { SHOT_TEMPLATES } from '../../../utils/film/recipes';
+import { bakeMarks, drawStrokes } from '../../../utils/film/marks';
 
 const { Text } = Typography;
 const SHOT_OPTS = SHOT_TEMPLATES.map((t) => ({ label: t.name, value: t.id }));
@@ -48,38 +49,13 @@ export default function KeyframeEditor({ mode = 'shot', shot = {}, pool = [], pr
     c.width = Math.max(1, Math.round(r.width)); c.height = Math.max(1, Math.round(r.height));
     const g = c.getContext('2d');
     g.clearRect(0, 0, c.width, c.height);
-    g.strokeStyle = '#ff2d2d'; g.lineWidth = 3; g.lineCap = 'round'; g.lineJoin = 'round';
-    strokes.forEach((pts) => {
-      g.beginPath();
-      pts.forEach((pt, i) => (i ? g.lineTo(pt.x * c.width, pt.y * c.height) : g.moveTo(pt.x * c.width, pt.y * c.height)));
-      g.stroke();
-    });
+    drawStrokes(g, strokes, c.width, c.height);
   }, [strokes, drawOn, preview]);
   const strokePoint = (e) => {
     const r = canvasRef.current.getBoundingClientRect();
     return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
   };
-  const bakeAnnotated = () => new Promise((resolve) => {
-    const im = new Image();
-    im.onload = () => {
-      try {
-        const c = document.createElement('canvas');
-        c.width = im.naturalWidth; c.height = im.naturalHeight;
-        const g = c.getContext('2d');
-        g.drawImage(im, 0, 0);
-        g.strokeStyle = '#ff2d2d'; g.lineWidth = Math.max(4, Math.round(c.width * 0.005)); g.lineCap = 'round'; g.lineJoin = 'round';
-        strokes.forEach((pts) => {
-          g.beginPath();
-          pts.forEach((pt, i) => (i ? g.lineTo(pt.x * c.width, pt.y * c.height) : g.moveTo(pt.x * c.width, pt.y * c.height)));
-          g.stroke();
-        });
-        resolve(c.toDataURL('image/jpeg', 0.92));
-      } catch { resolve(null); }
-    };
-    im.onerror = () => resolve(null);
-    im.crossOrigin = 'anonymous';
-    im.src = preview;
-  });
+  const bakeAnnotated = () => bakeMarks(preview, strokes);
 
   const toggleFig = (n) => setFigures((f) => (f.includes(n) ? f.filter((x) => x !== n) : [...f, n].sort((a, b) => a - b)));
   const inPool = useMemo(() => new Set(pool), [pool]);

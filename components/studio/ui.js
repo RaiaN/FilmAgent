@@ -29,9 +29,10 @@ export const CREW_LOOK = {
   shot: { color: '#f0abfc', short: 'Sh' },
   script: { color: '#fcd34d', short: 'Sc' },
   cast: { color: '#fda4af', short: 'CW' },
+  filmcode: { color: '#f9cc44', short: 'FA' },
 };
 export const crewColor = (id) => CREW_LOOK[id]?.color || C.muted;
-const CREW_NAMES = { writers: 'Writers', ad: '1st AD', casting: 'Casting', designer: 'Designer', camera: 'Camera', vfx: 'VFX', editor: 'Editor', you: 'You', board: 'Canvas', shot: 'Shot', script: 'Script', cast: 'Cast & World' };
+const CREW_NAMES = { filmcode: 'FilmAgent', writers: 'Writers', ad: '1st AD', casting: 'Casting', designer: 'Designer', camera: 'Camera', vfx: 'VFX', editor: 'Editor', you: 'You', board: 'Canvas', shot: 'Shot', script: 'Script', cast: 'Cast & World' };
 export const crewWho = (id) => CREW_NAMES[id] || 'Studio';
 
 // Everything Arco can't take inline: hover states, the script page, scrollbars.

@@ -6,7 +6,7 @@ import { stageLocalAsset } from '../../utils/film/canvasModel';
 import { ELEMENT_KINDS, KIND_LABEL, findElement, findScene, latestOf, pickedOf, takeOf, withParentPoster, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
 import { elementsOfShot, needsOfScene } from '../../utils/film/studio/bar';
 import { usePlayable } from '../film/usePlayable';
-import { sceneHero, finalsOfShots, toFinish } from '../../utils/film/studio/guide';
+import { sceneHero } from '../../utils/film/studio/guide';
 import { parseScript } from '../../utils/film/core/scriptForm';
 
 // Text that commits when you leave the field; `live` also commits a moment after you stop typing.
@@ -481,10 +481,6 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
   const addShots = (shots) => set((x) => ({ ...x, scenes: x.scenes.map((sc) => (sc.id === scene.id ? { ...sc, shots: [...sc.shots, ...shots] } : sc)) }));
   const removeShot = (id) => set((x) => ({ ...x, scenes: x.scenes.map((sc) => (sc.id !== scene.id ? sc : { ...sc, shots: sc.shots.filter((sh) => sh.id !== id) })) }));
   const importFiles = (files) => importFootage({ files, sceneId: scene.id, set, toast, onProgress: setImporting });
-  // Drafts that can still finish and have not (MOV, the same picture), at the resolutions
-  // every one of their models offers.
-  const finishing = toFinish(scene);
-  const finalRes = finalsOfShots(finishing);
   const addShot = () => { const sh = newShot({ title: 'New shot' }); addShots([sh]); selectShot(sh.id); };
   const i = s.scenes.findIndex((x) => x.id === scene.id);
   const step = (d) => s.scenes[i + d] && open({ type: 'scene', id: s.scenes[i + d].id });
@@ -496,7 +492,6 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
           <>
             {(needs.names.length > 0 || needs.views > 0) && <Button size="large" type="primary" loading={actions.busy('Casting') || actions.busy('Drawing')} onClick={() => actions.generateMissing(scene)}>Generate missing · {needs.names.length + needs.views}</Button>}
             {scene.shots.some(takeOf) && <Button size="large" icon={<IconPlayArrowFill />} onClick={() => setPlaying(true)}>Play scene</Button>}
-            {finishing.length > 0 && finalRes.map((res) => <Button key={res} size="large" onClick={() => actions.finalScene(finishing, res)}>Final · {res}</Button>)}
             <input ref={footage} type="file" accept="video/*" multiple hidden onChange={(e) => { const fs = [...(e.target.files || [])]; if (fs.length) importFiles(fs); e.target.value = ''; }} />
             <Dropdown trigger="click" position="br" droplist={(
               <Menu onClickMenuItem={(k) => { if (k === 'shot') addShot(); if (k === 'script') setScript((o) => !o); if (k === 'footage') footage.current?.click(); if (k === 'canvas') canvas.scene(scene.id); if (k === 'remove') { removeShot(scene.shots[0].id); selectShot(null); } }}>

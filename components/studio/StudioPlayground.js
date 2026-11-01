@@ -269,10 +269,6 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       if (needs.names.length) reportFailed(await tool('cast', { names: needs.names }));
       if (needs.views) reportFailed(await tool('scene_views', { scene_id: scene.id }));
     }),
-    finalScene: (shots, resolution) => run('Finishing', async () => {
-      const { names } = await sync();
-      await Promise.all(shots.map((sh) => tool('finish', { name: names[takeOf(sh).id], resolution })));
-    }),
     assemble: (leavesOut) => {
       const go = () => run('Assembling', async () => { await sync(); await tool('assemble', { without_missing: leavesOut }); });
       if (leavesOut) Modal.confirm({ title: 'Assemble without every shot?', content: 'Shots with no take yet are left out.', okText: 'Assemble', cancelText: 'Cancel', onOk: go });

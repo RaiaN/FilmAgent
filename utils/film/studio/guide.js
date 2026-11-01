@@ -1,7 +1,6 @@
 // THE STAGES — where the film stands in Script → Cast & World → Scenes → Cut, read from the film as
 // it is, never stored.
 import { findElement, pickedOf, shotListFresh, newWork, takeOf } from './model';
-import { DRAFT_MODE, draftFinalsOf } from '../suiteConfig';
 
 export const STAGES = [
   { id: 'script', label: 'Script' },
@@ -23,18 +22,6 @@ const allShots = (s) => s.scenes.flatMap((sc) => sc.shots);
 export const castOf = (s) => s.elements.filter((e) => !e.viewOf);
 export const viewsOfShot = (s, shot) => (shot.sheet?.viewIds || []).map((id) => findElement(s, id)).filter(Boolean);
 
-const finishable = (t) => !!t?.draft?.taskId && Date.now() - t.draft.at < DRAFT_MODE.ttlMs && !t.final;
-// The resolutions every shot's draft here can finish at.
-export const finalsOfShots = (shots) => {
-  const lists = shots.map(takeOf).filter(finishable).map((t) => draftFinalsOf(t.draft.modelKey || 'seedance25'));
-  return lists.length ? lists.reduce((a, b) => a.filter((r) => b.includes(r))) : [];
-};
-// A draft whose final waits or renders is not finished again.
-const hasFinal = (sh) => { const t = takeOf(sh); return (sh.takes.versions || []).some((v) => v.final && v.parent === t?.id && v.status !== 'failed' && v.status !== 'rejected'); };
-export const toFinish = (sc) => sc.shots.filter((sh) => finishable(takeOf(sh)) && !hasFinal(sh));
-
-// THE STAGES AS THEY STAND — for the stepper: done, how far (a short count), work in progress,
-// what waits for you.
 export const stageStates = (s) => {
   const all = newWork(s);
   // A view of a place belongs to the scene that needs it, not to Cast & World.

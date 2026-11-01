@@ -3,7 +3,7 @@
 //   brief     the script and the crew's text deliveries (screenplay · script breakdown)
 //   elements  Cast & World: characters, places, props — each a set of plate VERSIONS, one picked
 //   scenes    numbered scenes (from the picked breakdown, or by hand) → shots; a scene holds its
-//             blocking versions, a shot its take versions (the circled one picked)
+//             blocking versions, a shot its take versions
 //   cut       assembled cuts (versions)
 //   threads   the conversation per scope: requests, deliveries, questions
 //
@@ -193,10 +193,20 @@ export const unplatedOf = (s, shot) => (shot.elementIds || []).map((id) => findE
 
 // The element versions a take was made with — the basis for staleness.
 export const usedOf = (s, shot) => Object.fromEntries((shot.elementIds || []).map((id) => [id, findElement(s, id)?.picked || null]));
-// A shot is STALE when its circled take was made with an element version that is no longer
+// A shot is STALE when its take was made with an element version that is no longer
 // the picked one — the director changed the cast or the place.
+// A final is the same picture as its draft, so with no poster of its own it shows the draft's.
+export const withParentPoster = (c, v) => {
+  if (!v || v.posterUrl || !v.parent) return v;
+  const parent = (c?.versions || []).find((x) => x.id === v.parent);
+  return parent?.posterUrl ? { ...v, posterUrl: parent.posterUrl } : v;
+};
+
+// THE TAKE THAT STANDS: a shot's newest finished take. Rejecting one falls back to the one before.
+export const latestOf = (c) => withParentPoster(c, (c?.versions || []).filter((v) => !['running', 'failed', 'rejected'].includes(v.status) && !v.archived).reduce((a, b) => ((b.at || 0) >= (a?.at || 0) ? b : a), null));
+export const takeOf = (shot) => latestOf(shot?.takes);
 export const staleOf = (s, shot) => {
-  const basis = pickedOf(shot.takes);
+  const basis = takeOf(shot);
   if (!basis?.used) return [];
   return Object.entries(basis.used)
     .filter(([id, vid]) => { const el = findElement(s, id); return el && el.picked && el.picked !== vid; })
@@ -247,7 +257,8 @@ export const containersOf = (s) => {
 export const newWork = (s) => {
   const all = containersOf(s).flatMap(({ ref, c, label, scope }) => (c?.versions || []).map((v) => ({ ref, v, label, scope })));
   return {
-    fresh: all.filter((x) => x.v.status === 'review').sort((a, b) => (a.v.at || 0) - (b.v.at || 0)),
+    // Takes and cuts need no verdict: the newest stands.
+    fresh: all.filter((x) => x.v.status === 'review' && x.ref.at !== 'take' && x.ref.at !== 'cut').sort((a, b) => (a.v.at || 0) - (b.v.at || 0)),
     working: all.filter((x) => x.v.status === 'running').length,
   };
 };

@@ -3,7 +3,7 @@ import { IconLoading, IconExclamationCircle, IconPlayArrowFill, IconMindMapping 
 import { STUDIO_ARCO_DARK } from './theme';
 
 // Studio's look: a dark screening room. Tungsten for the director's hand (actions, the
-// selection), gold for what's circled, cyan for the crew at work, coral for what waits on you.
+// selection), gold for what's picked, cyan for the crew at work, coral for what waits on you.
 // Every crew member has a colour of their own.
 export const C = {
   bg: '#0e0f12', panel: '#14161a', raised: '#1b1e23', hover: '#22262d', line: '#262a31', lineHi: '#363b44',

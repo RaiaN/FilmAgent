@@ -10,7 +10,7 @@ import { CAST_ROLE, castDraftFromParsed, castPlanFromIdea, plateEdit, storyboard
 import { ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK, previzAnimaticPrompt, previzCutPrompt, previzPlan, previzSchematic, totalSecondsOf } from './core/previz';
 import { characterVariations, finishDraft, locationVariations } from './core/operations';
 import { DRAFT_MODE, clampShotSeconds, defaultImageModelKey, draftFinalsOf, getModel, videoTraits } from './suiteConfig';
-import { ELEMENT_KINDS, addVersion, allVersions, containersOf, emptyStudio, findShot, loadStudio, namedText, newElement, newScene, newShot, patchVersion, pickVersion, plateOf, rejectVersion, scriptHash, shotNumber, uid, updateContainer, usedOf, withFilmStyle } from './studio/model';
+import { ELEMENT_KINDS, addVersion, allVersions, containersOf, emptyStudio, findShot, loadStudio, namedText, newElement, newScene, newShot, patchVersion, pickVersion, plateOf, rejectVersion, scriptHash, shotNumber, takeOf, uid, updateContainer, usedOf, withFilmStyle } from './studio/model';
 import { mergeStudio, nameVersions, withRemovals } from './studio/sync';
 import { applyShotList } from './studio/layout';
 import { shotList } from './core/shotList';
@@ -50,7 +50,7 @@ export const FILM_TOOLS = [
   tool('add_scene', 'Add a scene to the film, after the last one. Renders nothing.', { ...PROJECT, title: str('Its title.'), place: str('Where it happens, if known.'), text: str('What happens, if known.') }, ['project', 'title']),
   tool('add_shot', 'Add a shot to a scene, after its last shot. Renders nothing. Shoot it with generate_video and shot_id.', { ...PROJECT, scene_id: str('The scene, from list_project or add_scene.'), title: str('Its title.'), seconds: { type: 'number', description: 'Its length in seconds, if known.' }, text: str("What the shot is, in the director's words.") }, ['project', 'scene_id', 'title']),
   tool('place', 'Give a result its place in the film: a picture to someone or something in Cast & World (it becomes their plate), a video to a shot. A new name in element adds them to Cast & World.', { ...PROJECT, name: str('The result, e.g. R1.'), element: str('Who or what the picture is, e.g. Morwen.'), kind: { type: 'string', enum: ELEMENT_KINDS }, description: str('A short description, for a new element.'), shot_id: str('For a video: the shot, from list_project.') }, ['project', 'name']),
-  tool('pick', 'Make a result the chosen one where it sits: a plate, or the circled take of a shot. Only when the director asked.', { ...PROJECT, name: str('The result.') }, ['project', 'name']),
+  tool('pick', 'Make a picture the plate of its element. Only when the director asked. A take needs no pick: the newest on a shot stands until rejected.', { ...PROJECT, name: str('The result.') }, ['project', 'name']),
   tool('reject', 'Reject a result. Only when the director asked.', { ...PROJECT, name: str('The result.') }, ['project', 'name']),
   tool('generate_image', 'Make a picture from a prompt, optionally from pictures in the film. Cite a picture in the prompt by its name, @R1 or @Morwen; it must be in refs. Returns when it is done.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Pictures it is made from, in order.'), model: { type: 'string', enum: IMAGE_KEYS }, size: str('e.g. 2K, or WxH for seedreamPro.'), label: str('What it is.') }, ['project', 'prompt']),
   tool('write_screenplay', "Write a screenplay from the director's idea and make it the film's script. Their earlier text stays as a version. Returns when it is done.", { ...PROJECT, idea: str("The idea, the director's words unchanged."), note: str("The director's note, if any.") }, ['project', 'idea']),
@@ -72,7 +72,7 @@ export const FILM_TOOLS = [
   tool('archive', 'Take results out of sight, or bring them back. Renders nothing.', { ...PROJECT, ids: names('Version ids.'), archived: { type: 'boolean' } }, ['project', 'ids', 'archived']),
   tool('forget_media', 'A file was deleted: take it out of the unplaced pool, and say what else still uses it.', { ...PROJECT, url: str('The file.') }, ['project', 'url']),
   tool('merge_film', 'Bring a Studio tab\'s copy of the film into the saved film, creating it if it is new.', { ...PROJECT, name: str('Its name, if it is new.'), studio: { type: 'object', description: 'The film as the tab holds it.' } }, ['project', 'studio']),
-  tool('assemble', 'Join the circled takes, in film order, into one cut. Renders nothing.', { ...PROJECT, without_missing: { type: 'boolean', description: 'Only when the director agreed to leave out shots with no circled take.' } }, ['project']),
+  tool('assemble', "Join each shot's newest take, in film order, into one cut. Renders nothing.", { ...PROJECT, without_missing: { type: 'boolean', description: 'Only when the director agreed to leave out shots with no take yet.' } }, ['project']),
   tool('settle_renders', 'Record every render of this film that has ended.', PROJECT, ['project']),
   tool('results', 'The film for the preview and Generations.', PROJECT, ['project']),
   tool('read_transcript', 'The session as saved.', PROJECT, ['project']),
@@ -221,14 +221,19 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
     const vid = uid('v-');
     return change(id, (s) => [addVersion(s, where, { id: vid, at: now(), by: BY, tags: [], ...base }), answerFor(vid)]);
   };
+  // A render shows from the moment it is asked for: getting its references ready can take minutes.
   const start = async (id, base, starter, where) => {
-    let taskId;
+    const made = await addNew(id, { ...base, status: 'running' }, where);
+    const settle = (patch) => change(id, (film) => {
+      const x = find(film, made.name);
+      return [patchVersion(film, x.ref, x.v.id, patch), answerFor(x.v.id)];
+    });
     try {
-      ({ taskId } = await starter());
+      const { taskId } = await starter();
+      return await settle({ taskId });
     } catch (e) {
-      return { ...(await addNew(id, { ...base, status: 'failed', error: e.message || String(e) }, where)), refused_by_model: true };
+      return { ...(await settle({ status: 'failed', error: e.message || String(e) })), refused_by_model: true };
     }
-    return addNew(id, { ...base, status: 'running', taskId }, where);
   };
   // A take stays where its source is: on the shot, or unplaced.
   const onShot = (ref) => (ref.at === 'take' ? ref : UNPLACED);
@@ -275,7 +280,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
           // eslint-disable-next-line no-await-in-loop
           await inLibrary({ ...x.v, url: st.video_url, cacheUrl: st.video_cache_url || null }, x.v.name, id);
           ended.push({ id: x.v.id, patch: {
-            status: 'review', url: st.video_url, cacheUrl: st.video_cache_url || null, lastFrameUrl: st.last_frame_cache_url || st.last_frame_url || null, posterUrl,
+            status: 'review', url: st.video_url, cacheUrl: st.video_cache_url || null, lastFrameUrl: st.last_frame_cache_url || st.last_frame_url || null, posterUrl: posterUrl || x.v.posterUrl || '',
             format: /\.mov(\?|$)/i.test(st.video_url) ? 'mov' : 'mp4',
             ...(x.v.isDraft ? { draft: { taskId: x.v.taskId, modelKey: x.v.model, at: now() } } : {}),
           } });
@@ -325,7 +330,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
         name: p.title || p.name,
         script: s.script || '',
         cast_and_world: s.elements.map((el) => ({ id: el.id, name: el.name, kind: el.kind, description: el.desc, plate: byName(s, el.picked) })),
-        scenes: s.scenes.map((sc, i) => ({ id: sc.id, n: i + 1, title: sc.title, text: sc.text, shots: sc.shots.map((sh) => ({ id: sh.id, title: sh.title, seconds: sh.seconds, text: namedText(s, sh.motion), circled: byName(s, sh.takes?.picked) })) })),
+        scenes: s.scenes.map((sc, i) => ({ id: sc.id, n: i + 1, title: sc.title, text: sc.text, shots: sc.shots.map((sh) => ({ id: sh.id, title: sh.title, seconds: sh.seconds, text: namedText(s, sh.motion), take: takeOf(sh)?.name || null })) })),
         results: media(s).filter((x) => !x.v.archived && (!tag || (x.v.tags || []).includes(tag))).map((x) => brief(s, x)),
       };
     },
@@ -402,6 +407,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
 
     pick: ({ project, name }) => change(project, (s) => {
       const x = find(s, name);
+      if (x.ref.at === 'take') fail(`${x.v.name} is a take: a shot's newest take stands. To go back to an earlier one, reject the newer.`);
       if (x.ref.at === 'unplaced') fail(`${x.v.name} has no place yet: place it first.`);
       ready(x);
       return [pickVersion(s, x.ref, x.v.id, now()), answerFor(x.v.id)];
@@ -436,17 +442,17 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       return { script: text };
     },
 
-    // The circled takes in film order, as one file. Shots with no circled take are named before
+    // Each shot's newest take in film order, as one file. Shots with no take yet are named before
     // anything is made, and left out only when asked.
     assemble: async ({ project, without_missing = false }) => {
       const { studio: s } = await load(project);
       const shots = s.scenes.flatMap((sc) => sc.shots);
-      const circled = shots.map((sh) => sh.takes?.versions?.find((v) => v.id === sh.takes.picked)).filter(Boolean);
-      if (!circled.length) fail('No shot has a circled take yet.');
-      if (circled.length < shots.length && !without_missing) fail(`${shots.length - circled.length} of ${shots.length} shots have no circled take.`);
-      const out = await api.post('/api/film/stitch', { shots: circled.map((v) => (isLocalMediaUrl(mediaOf(v)) ? `${origin}${mediaOf(v)}` : mediaOf(v))), name: 'Cut' });
+      const takes = shots.map(takeOf).filter(Boolean);
+      if (!takes.length) fail('No shot has a take yet.');
+      if (takes.length < shots.length && !without_missing) fail(`${shots.length - takes.length} of ${shots.length} shots have no take yet.`);
+      const out = await api.post('/api/film/stitch', { shots: takes.map((v) => (isLocalMediaUrl(mediaOf(v)) ? `${origin}${mediaOf(v)}` : mediaOf(v))), name: 'Cut' });
       if (!out.cacheUrl) fail('The assembled cut was not stored.');
-      const added = await addNew(project, { kind: 'cut', status: 'review', url: out.cacheUrl, cacheUrl: out.cacheUrl, posterUrl: await poster(out.cacheUrl), label: 'Cut', refs: circled.map((v) => v.name), parent: null }, { at: 'cut' });
+      const added = await addNew(project, { kind: 'cut', status: 'review', url: out.cacheUrl, cacheUrl: out.cacheUrl, posterUrl: await poster(out.cacheUrl), label: 'Cut', refs: takes.map((v) => v.name), parent: null }, { at: 'cut' });
       await inLibrary({ url: out.cacheUrl, kind: 'cut', label: 'Cut' }, added.name, project);
       return added;
     },
@@ -639,11 +645,10 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       const seconds = clampShotSeconds(ANIMATIC_MODEL, totalSecondsOf(src.plan));
       const fingerprint = fingerprintOf({ animatic: src.name, prompt, seconds });
       refuseFailed(s, fingerprint, director_asked_retry);
-      const assetIds = await assetsOf(project, [src]);
       const base = { kind: 'take', label: label || 'Animatic', prompt, parent: src.id, refs: [src.name], video_refs: [], model: ANIMATIC_MODEL, seconds, ratio: ANIMATIC_RATIO, res: DRAFT_RES, isDraft: true, fingerprint, plan: src.plan, tags: ['previz'] };
-      return start(project, base, () => startTake({
+      return start(project, base, async () => startTake({
         motion: prompt, refUrls: [mediaOf(src)], refRoles: [], durationSec: seconds, resolution: DRAFT_RES, ratio: ANIMATIC_RATIO, generateAudio: false, modelKey: ANIMATIC_MODEL, draft: true,
-      }, assetIds, ctx, { nameOf: () => src.name }));
+      }, await assetsOf(project, [src]), ctx, { nameOf: () => src.name }));
     },
 
     previz_shot_prompt: async ({ project, animatic }) => {
@@ -696,13 +701,15 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       const where = shot_id ? shotRef(s, shot_id) : parentAt?.at === 'take' ? parentAt : UNPLACED;
       const fingerprint = fingerprintOf({ prompt, refs: list.map((v) => v.name), clips: clips.map((v) => v.name), seconds, ratio, model, quality });
       refuseFailed(s, fingerprint, director_asked_retry);
-      const assetIds = await assetsOf(project, list);
-      const clipIds = await assetsOf(project, clips);
       const draft = quality === 'draft';
       const base = { kind: 'take', label, prompt, refs: list.map((v) => v.name), video_refs: clips.map((v) => v.name), model, seconds, ratio, res: draft ? DRAFT_RES : FINAL_RES, isDraft: draft, fingerprint, ...(parentId ? { parent: parentId } : {}), ...(where.at === 'take' ? { used: usedOf(s, findShot(s, where.sceneId, where.shotId)) } : {}) };
-      return start(project, base, () => startTake({
+      return start(project, base, async () => {
+        const assetIds = await assetsOf(project, list);
+        const clipIds = await assetsOf(project, clips);
+        return startTake({
         motion: sent, refUrls: list.map(mediaOf), refRoles: [], durationSec: seconds, resolution: draft ? DRAFT_RES : FINAL_RES, ratio, generateAudio: audio, modelKey: model, draft, outputFormat: draft ? null : 'mov', videoRefUrls: clipIds.map((a) => `asset://${a}`),
-      }, assetIds, ctx, { nameOf: (u) => list.find((v) => mediaOf(v) === u)?.name || 'a reference picture' }), where);
+      }, assetIds, ctx, { nameOf: (u) => list.find((v) => mediaOf(v) === u)?.name || 'a reference picture' });
+      }, where);
     },
 
     edit_video: async ({ project, source, prompt, refs = [], model = 'seedance25', label = '', director_asked_retry = false }) => {
@@ -716,12 +723,14 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       checkEditPrompt(sent);
       const fingerprint = fingerprintOf({ source: src.name, prompt, refs: list.map((v) => v.name), model });
       refuseFailed(s, fingerprint, director_asked_retry);
-      const [srcAsset] = await assetsOf(project, [src]);
-      const assetIds = await assetsOf(project, list);
       const base = { kind: 'take', edit: true, label, prompt, parent: src.id, refs: list.map((v) => v.name), model, seconds: src.seconds, res: FINAL_RES, fingerprint };
-      return start(project, base, () => startTake({
+      return start(project, base, async () => {
+        const [srcAsset] = await assetsOf(project, [src]);
+        const assetIds = await assetsOf(project, list);
+        return startTake({
         motion: sent, refUrls: list.map(mediaOf), refRoles: [], durationSec: 'auto', resolution: FINAL_RES, ratio: null, generateAudio: true, modelKey: model, draft: false, outputFormat: 'mov', videoRefUrls: [`asset://${srcAsset}`],
-      }, assetIds, ctx, { nameOf: (u) => list.find((v) => mediaOf(v) === u)?.name || 'a reference picture' }), onShot(find(s, src.name).ref));
+      }, assetIds, ctx, { nameOf: (u) => list.find((v) => mediaOf(v) === u)?.name || 'a reference picture' });
+      }, onShot(find(s, src.name).ref));
     },
 
     finish: async ({ project, name, resolution = FINAL_RES }) => {
@@ -733,7 +742,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       if (!finals.includes(resolution)) fail(`${d.model} finishes drafts at ${finals.join(' or ')}, not ${resolution}.`);
       const fingerprint = fingerprintOf({ finish: d.name, resolution });
       refuseFailed(s, fingerprint, false);
-      const base = { kind: 'take', final: true, label: d.label, prompt: d.prompt, parent: d.id, refs: d.refs, model: d.model, seconds: d.seconds, ratio: d.ratio, res: resolution, fingerprint, ...(d.used ? { used: d.used } : {}) };
+      const base = { kind: 'take', final: true, label: d.label, prompt: d.prompt, parent: d.id, refs: d.refs, model: d.model, seconds: d.seconds, ratio: d.ratio, res: resolution, fingerprint, ...(d.used ? { used: d.used } : {}), ...(d.posterUrl ? { posterUrl: d.posterUrl } : {}) };
       return start(project, base, () => finishDraft({ draftTaskId: d.draft.taskId, modelKey: d.draft.modelKey, resolution, outputFormat: 'mov' }, ctx), onShot(find(s, d.name).ref));
     },
 

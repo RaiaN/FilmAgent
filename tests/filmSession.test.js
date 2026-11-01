@@ -58,7 +58,8 @@ describe('the preview', () => {
     const dir = path.join(__dirname, '..', 'components', 'film');
     const src = fs.readFileSync(path.join(dir, 'Preview.js'), 'utf8');
     ['generate_', 'edit_video', 'api/film/tools', 'api/film/session', 'onPick', 'onReject'].forEach((word) => expect(src).not.toContain(word));
-    expect(src.match(/fetch\('([^']+)'/g)).toEqual(["fetch('/api/film/preview'"]);
+    expect(src.match(/fetch\('([^']+)'/g)).toBeNull();
+    expect(fs.readFileSync(path.join(dir, 'usePlayable.js'), 'utf8').match(/fetch\('([^']+)'/g)).toEqual(["fetch('/api/film/preview'"]);
     const seen = (await mount(<Preview results={[]} onLabel={() => {}} />)).box;
     expect(seen.querySelectorAll('button').length).toBe(0);
   });

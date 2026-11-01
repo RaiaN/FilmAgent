@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Input, Select } from '@arco-design/web-react';
 import { IconClose, IconLoading, IconExclamationCircle, IconPlus } from '@arco-design/web-react/icon';
 import { C, MONO } from '../studio/ui';
+import { usePlayable } from './usePlayable';
 
 // THE PREVIEW: shows what the project holds. It can play, compare, sort, filter, tag and label;
 // everything that makes or changes a result goes through the session. `onLabel` is the only thing it
@@ -15,24 +16,6 @@ export const arrange = (results, { sort = 'new', kind = '', tag = '' } = {}) => 
   const kept = results.filter((r) => (!tag || (r.tags || []).includes(tag)) && (!kind || (kind === 'you' ? r.by === 'you' : r.type === kind)));
   if (sort === 'name') return [...kept].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   return [...kept].sort((a, b) => (sort === 'old' ? a.at - b.at : b.at - a.at));
-};
-
-// A master the browser can't play gets an H.264 copy to watch.
-const usePlayable = (r) => {
-  const [url, setUrl] = useState('');
-  const [problem, setProblem] = useState('');
-  useEffect(() => {
-    setUrl('');
-    setProblem('');
-    if (!r?.url) return undefined;
-    if (r.type !== 'video' || r.format !== 'mov') { setUrl(r.url); return undefined; }
-    let live = true;
-    fetch('/api/film/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: r.url }) })
-      .then(async (res) => { const j = await res.json(); if (!res.ok) throw new Error(j.error); if (live) setUrl(j.url); })
-      .catch((e) => { if (live) setProblem(e.message); });
-    return () => { live = false; };
-  }, [r?.url, r?.format, r?.type]);
-  return { url, problem };
 };
 
 const clock = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };

@@ -51,8 +51,9 @@ export const requestOf = (s, bar) => {
   const pictures = cited.filter((w) => !clips.some((c) => same(c, w)));
   const refs = [...bar.refs];
   pictures.forEach((w) => { if (!refs.some((r) => same(r, w))) refs.push(w); });
-  if (bar.source) return { tool: 'edit_video', args: { source: bar.source, prompt: bar.text, refs, model: bar.model } };
-  return { tool: 'generate_video', args: { prompt: bar.text, refs, video_refs: [...new Set(clips)], seconds: bar.seconds, ratio: bar.ratio, model: bar.model, quality: bar.quality, audio: bar.audio, ...(bar.shotId ? { shot_id: bar.shotId } : {}), ...(bar.parent ? { parent: bar.parent } : {}) } };
+  // Pressing Generate is the director asking, so inputs that failed before may go again.
+  if (bar.source) return { tool: 'edit_video', args: { source: bar.source, prompt: bar.text, refs, model: bar.model, director_asked_retry: true } };
+  return { tool: 'generate_video', args: { prompt: bar.text, refs, video_refs: [...new Set(clips)], seconds: bar.seconds, ratio: bar.ratio, model: bar.model, quality: bar.quality, audio: bar.audio, director_asked_retry: true, ...(bar.shotId ? { shot_id: bar.shotId } : {}), ...(bar.parent ? { parent: bar.parent } : {}) } };
 };
 
 // What Generate will make, said on the button.

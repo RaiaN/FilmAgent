@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button, Select, Message } from '@arco-design/web-react';
 import { IconArchive, IconCopy, IconUndo } from '@arco-design/web-react/icon';
 import { C, MONO, Tile, Empty, Dot } from './ui';
-import { allVersions, archiveVersions, pad2 } from '../../utils/film/studio/model';
+import { allVersions, archiveVersions, containerOf, pad2, withParentPoster } from '../../utils/film/studio/model';
 
 // GENERATIONS — every render in the project, from either tab, the Canvas or your imports, as a wall
 // of previews: what is rendering first (with how long), then the newest, each with the prompt it
@@ -37,7 +37,7 @@ const iconBtn = { cursor: 'pointer', color: C.muted, width: 26, height: 26, bord
 const copy = (text) => navigator.clipboard.writeText(text).then(() => Message.success({ content: 'Prompt copied', duration: 1500 }), () => Message.error('Could not copy'));
 
 const Card = ({ s, ref_, v, label, now, open, archive }) => {
-  const [word, color] = STATUS[v.status] || ['', C.muted];
+  const [word, color] = TYPE_OF[v.kind] === 'video' && v.status !== 'running' && v.status !== 'failed' ? ['', C.muted] : STATUS[v.status] || ['', C.muted];
   const textual = TYPE_OF[v.kind] === 'text';
   const [prompt, setPrompt] = useState(false);
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
@@ -46,8 +46,8 @@ const Card = ({ s, ref_, v, label, now, open, archive }) => {
       <div style={{ position: 'relative' }}>
         {textual
           ? <div style={{ aspectRatio: '16 / 9', background: '#08090b', padding: '14px 16px', fontSize: 12, lineHeight: 1.55, color: C.text, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 7, WebkitBoxOrient: 'vertical' }}>{v.text || (v.kind === 'blocking' && v.payload ? [v.payload.start, ...(v.payload.beats || []).map((b) => b.action), v.payload.end].join(' ') : '') || (v.kind === 'shotList' ? `${(v.payload?.scenes || []).length} scenes` : '') || v.title || KIND[v.kind]}</div>
-          : <Tile v={v} w="100%" ratio="16 / 9" fit={v.kind === 'plate' ? 'contain' : 'cover'} />}
-        <span className={v.status === 'running' ? 'st-pulse' : undefined} style={{ position: 'absolute', left: 8, top: 8, fontSize: 11, fontWeight: 700, color, background: 'rgba(8,9,11,0.78)', borderRadius: 6, padding: '2px 7px' }}>{word}</span>
+          : <Tile v={withParentPoster(containerOf(s, ref_), v)} w="100%" ratio="16 / 9" fit={v.kind === 'plate' ? 'contain' : 'cover'} />}
+        {word && <span className={v.status === 'running' ? 'st-pulse' : undefined} style={{ position: 'absolute', left: 8, top: 8, fontSize: 11, fontWeight: 700, color, background: 'rgba(8,9,11,0.78)', borderRadius: 6, padding: '2px 7px' }}>{word}</span>}
         <span style={{ position: 'absolute', right: 8, top: 8, fontSize: 11, color: '#d7d9de', background: 'rgba(8,9,11,0.78)', borderRadius: 6, padding: '2px 7px', fontFamily: v.status === 'running' ? MONO : undefined }}>{v.status === 'running' ? clock(now - (v.at || now)) : v.at ? ago(now - v.at) : ''}</span>
       </div>
       <div style={{ padding: '10px 12px 12px', display: 'grid', gap: 5, minWidth: 0 }}>

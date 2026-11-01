@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Button, Dropdown, Input, InputNumber, Menu } from '@arco-design/web-react';
-import { IconClose, IconDown, IconPlus, IconSound, IconMute, IconUp, IconPlayArrowFill, IconLoading } from '@arco-design/web-react/icon';
+import { IconClose, IconDown, IconPlus, IconSound, IconMute, IconUp, IconPlayArrowFill } from '@arco-design/web-react/icon';
 import RefDrawer from '../film/canvas/RefDrawer';
 import { matchMentions, mentionAt, putMention } from '../film/Session';
 import { C, MONO, mediaOf } from './ui';
@@ -24,7 +24,7 @@ const Card = ({ label, value, onClick, active, children }) => (
 );
 const Pill = ({ children, ...rest }) => <span {...rest} style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '0 13px', borderRadius: 12, background: C.raised, color: C.ink, fontSize: 14.5, whiteSpace: 'nowrap', cursor: rest.onClick ? 'pointer' : 'default', flex: '0 0 auto', ...rest.style }}>{children}</span>;
 
-export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setStyle, open, setOpen }) => {
+export const GenerateBar = ({ s, bar, setBar, onGenerate, onBackToShot, container, setStyle, open, setOpen }) => {
   const [caret, setCaret] = useState(0);
   const [closed, setClosed] = useState(false);
   const [active, setActive] = useState(0);
@@ -60,7 +60,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
   const toggleRef = (it) => patch({ refs: on.has(it.mention.toLowerCase()) ? bar.refs.filter((r) => String(r).toLowerCase() !== it.mention.toLowerCase()) : [...bar.refs, it.mention] });
   const popup = () => container() || document.body;
   const editing = !!bar.source;
-  const ready = !!String(bar.text).trim() && !busy;
+  const ready = !!String(bar.text).trim();
   // Said only when the page doesn't already say it.
   const inScene = shot ? s.scenes.find((sc) => sc.id === bar.sceneId) : null;
   const targetLabel = editing ? `Editing ${bar.source}` : !shot ? 'Not on a shot: lands in Generations' : inScene?.shots.length > 1 ? `Shot ${pad2(shotNumber(s, shot.id))}` : '';
@@ -71,7 +71,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 22 }}>
             <span style={{ fontSize: 14, color: shot || editing ? C.accent : C.muted, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{targetLabel}</span>
             {bar.parent && <span style={{ fontSize: 13, color: C.muted, flex: '0 0 auto' }}>Reworks {bar.parent}</span>}
-            {(editing || bar.parent) && <span role="button" aria-label="Back to a new take" title="Back to a new take" onClick={() => patch({ source: null, parent: null })} style={{ color: C.muted, cursor: 'pointer', display: 'inline-flex' }}><IconClose /></span>}
+            {(editing || bar.parent) && <span role="button" aria-label="Back to a new take" title="Back to a new take" onClick={onBackToShot} style={{ color: C.muted, cursor: 'pointer', display: 'inline-flex' }}><IconClose /></span>}
           </div>
         )}
         {open && (
@@ -113,7 +113,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
           </div>
           <span role="button" className="st-chip" aria-label={open ? 'Fewer controls' : 'More controls'} title={open ? 'Fewer controls' : 'More controls'} onClick={() => setOpen((o) => !o)} style={{ alignSelf: 'center', width: 40, height: 40, borderRadius: 12, border: `1px solid ${C.lineHi}`, background: C.hover, color: C.ink, fontSize: 18, cursor: 'pointer', display: 'grid', placeItems: 'center', flex: '0 0 auto' }}>{open ? <IconDown /> : <IconUp />}</span>
           <button type="button" className="st-generate" aria-label="Generate" disabled={!ready} onClick={onGenerate} style={{ flex: '0 0 auto', width: open ? 200 : 150, border: 'none', borderRadius: 16, background: ready ? C.gold : C.hover, color: ready ? C.accentInk : C.muted, cursor: ready ? 'pointer' : 'default', display: 'grid', placeItems: 'center', alignContent: 'center', gap: 4, padding: '10px 12px', textAlign: 'center' }}>
-            <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: 0.2, display: 'inline-flex', alignItems: 'center', gap: 7 }}>{busy ? <IconLoading /> : <IconPlayArrowFill />}{editing ? 'Edit' : 'Generate'}</span>
+            <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: 0.2, display: 'inline-flex', alignItems: 'center', gap: 7 }}><IconPlayArrowFill />{editing ? 'Edit' : 'Generate'}</span>
             <span style={{ fontSize: 12.5, opacity: 0.8 }}>{barSummary(bar)}</span>
           </button>
         </div>

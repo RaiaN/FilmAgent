@@ -1,6 +1,6 @@
 // THE STAGES — where the film stands in Script → Cast & World → Scenes → Cut, read from the film as
 // it is, never stored.
-import { findElement, pickedOf, shotListFresh, newWork } from './model';
+import { findElement, pickedOf, shotListFresh, newWork, takeOf } from './model';
 import { DRAFT_MODE, draftFinalsOf } from '../suiteConfig';
 
 export const STAGES = [
@@ -24,14 +24,14 @@ export const castOf = (s) => s.elements.filter((e) => !e.viewOf);
 export const viewsOfShot = (s, shot) => (shot.sheet?.viewIds || []).map((id) => findElement(s, id)).filter(Boolean);
 
 const finishable = (t) => !!t?.draft?.taskId && Date.now() - t.draft.at < DRAFT_MODE.ttlMs && !t.final;
-// The resolutions every circled draft of these shots can finish at.
+// The resolutions every shot's draft here can finish at.
 export const finalsOfShots = (shots) => {
-  const lists = shots.map((sh) => pickedOf(sh.takes)).filter(finishable).map((t) => draftFinalsOf(t.draft.modelKey || 'seedance25'));
+  const lists = shots.map(takeOf).filter(finishable).map((t) => draftFinalsOf(t.draft.modelKey || 'seedance25'));
   return lists.length ? lists.reduce((a, b) => a.filter((r) => b.includes(r))) : [];
 };
-// A finished take of a draft that is circled: its final waits or renders, so it is not finished again.
-const hasFinal = (sh) => { const t = pickedOf(sh.takes); return (sh.takes.versions || []).some((v) => v.final && v.parent === t?.id && v.status !== 'failed' && v.status !== 'rejected'); };
-export const toFinish = (sc) => sc.shots.filter((sh) => finishable(pickedOf(sh.takes)) && !hasFinal(sh));
+// A draft whose final waits or renders is not finished again.
+const hasFinal = (sh) => { const t = takeOf(sh); return (sh.takes.versions || []).some((v) => v.final && v.parent === t?.id && v.status !== 'failed' && v.status !== 'rejected'); };
+export const toFinish = (sc) => sc.shots.filter((sh) => finishable(takeOf(sh)) && !hasFinal(sh));
 
 // THE STAGES AS THEY STAND — for the stepper: done, how far (a short count), work in progress,
 // what waits for you.
@@ -49,25 +49,23 @@ export const stageStates = (s) => {
   const cast = castOf(s);
   const plated = cast.filter((e) => pickedOf(e)).length;
   const shots = allShots(s);
-  const circled = shots.filter((sh) => pickedOf(sh.takes)).length;
+  const taken = shots.filter(takeOf).length;
   const script = String(s.script || '').trim();
   const listed = !script ? s.scenes.length > 0 : shotListFresh(s);
   return {
     script: { done: listed, count: listed && s.scenes.length ? plural(s.scenes.length, 'scene') : '' },
     world: { done: cast.length > 0 && plated === cast.length, count: cast.length ? `${plated}/${cast.length}` : '' },
-    scenes: { done: shots.length > 0 && circled === shots.length, count: shots.length ? `${circled}/${shots.length}` : '' },
+    scenes: { done: shots.length > 0 && taken === shots.length, count: shots.length ? `${taken}/${shots.length}` : '' },
     cut: { done: !!pickedOf(s.cut), count: '' },
     fresh: Object.fromEntries(STAGES.map(({ id }) => [id, all.fresh.filter(at(id)).length])),
     working: Object.fromEntries(STAGES.map(({ id }) => [id, running_(id)])),
   };
 };
 
-// The picture that stands for a scene: its circled take, else its newest take, else a view, else
+// The picture that stands for a scene: its first take, else a view, else
 // the place's plate.
 export const sceneHero = (s, sc) => {
-  const takes = sc.shots.flatMap((sh) => (sh.takes.versions || []).filter((v) => v.status !== 'failed' && v.status !== 'rejected' && v.status !== 'running' && !v.archived));
-  const circled = sc.shots.map((sh) => pickedOf(sh.takes)).find(Boolean);
-  const take = circled || takes[takes.length - 1];
+  const take = sc.shots.map(takeOf).find(Boolean);
   if (take) return take;
   const view = sc.shots.flatMap((sh) => viewsOfShot(s, sh)).map((el) => pickedOf(el)).find(Boolean);
   if (view) return view;

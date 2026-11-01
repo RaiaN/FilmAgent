@@ -24,7 +24,7 @@ describe('the stages as they stand', () => {
     expect(st.script.done).toBe(true);
     expect(st.world.count).toMatch(/^0\//);
     expect(st.scenes.count).toBe('0/1');
-    expect(st.fresh.cut).toBe(1);
+    expect(st.fresh.cut).toBe(0);
   });
 });
 

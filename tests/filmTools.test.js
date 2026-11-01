@@ -243,9 +243,9 @@ describe('placing and choosing', () => {
     await expect(s.tools.call('pick', { project, name: 'T1' })).rejects.toThrow('no place yet');
     await expect(s.tools.call('place', { project, name: 'R1', shot_id: sh.id })).rejects.toThrow('a shot takes videos');
     await s.tools.call('place', { project, name: 'T1', shot_id: sh.id });
-    expect((await s.tools.call('pick', { project, name: 'T1' })).status).toBe('picked');
+    await expect(s.tools.call('pick', { project, name: 'T1' })).rejects.toThrow('newest take stands');
     const list = await s.tools.call('list_project', { project });
-    expect(list.scenes[0].shots[0]).toMatchObject({ id: sh.id, text: 'she walks', circled: 'T1' });
+    expect(list.scenes[0].shots[0]).toMatchObject({ id: sh.id, text: 'she walks', take: 'T1' });
   });
   test('@Morwen means her current plate, and two of a name is a question', async () => {
     const s = studio();
@@ -292,9 +292,9 @@ describe('what code holds', () => {
     const project = await withPicture(s);
     await s.tools.call('generate_image', { project, prompt: 'x' });
     const real = s.cloud.get(project);
-    const api = { get: async () => JSON.parse(JSON.stringify({ project: real.project, revision: real.revision })), post: async () => ({ assetId: null, assetError: 'too small' }) };
+    const api = { get: async () => JSON.parse(JSON.stringify({ project: real.project, revision: real.revision })), post: async (route, body) => { if (route === '/api/film/cloud') { real.project = JSON.parse(JSON.stringify(body.project)); return { ok: true }; } return { assetId: null, assetError: 'too small' }; } };
     const bare = createFilmTools({ api, client: { startVideo }, probe: async () => IMG, skills: async () => [] });
-    await expect(bare.call('generate_video', { project, prompt: '@R2 walks', refs: ['R2'], seconds: 8, quality: 'draft' })).rejects.toThrow('Could not add R2 to the Asset Library: too small');
+    expect(await bare.call('generate_video', { project, prompt: '@R2 walks', refs: ['R2'], seconds: 8, quality: 'draft' })).toMatchObject({ status: 'failed', error: expect.stringContaining('Could not add R2 to the Asset Library: too small') });
     expect(startVideo).not.toHaveBeenCalled();
   });
   test('inputs that already failed are refused until the director asks', async () => {

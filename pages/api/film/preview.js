@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { storeKeyFromUrl, readStoreBytes, checkInBytes } from '../../../utils/server/mediaStore';
+import { storeKeyFromUrl, readStoreBytes, checkInBytes, checkInUrl } from '../../../utils/server/mediaStore';
 import { ffmpegPath, run } from '../../../utils/server/videoInfo';
 
 // A browser can't play a 10-bit 4:4:4 master, so the preview plays an H.264 copy made on first ask.
@@ -15,11 +15,14 @@ export default async function handler(req, res) {
     res.setHeader('Allow', ['POST']);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
-  const key = storeKeyFromUrl(String(req.body?.url || ''));
-  if (!key) return res.status(400).json({ error: 'Only a video in the media store can be previewed.' });
-  if (copies.has(key)) return res.status(200).json({ url: copies.get(key) });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'film-preview-'));
+  const asked = String(req.body?.url || '');
+  if (!storeKeyFromUrl(asked) && !/^https?:\/\//.test(asked)) return res.status(400).json({ error: 'That video has no address to fetch it from.' });
+  let dir = null;
   try {
+    // A render not yet in the media store comes in first.
+    const key = storeKeyFromUrl(asked) || storeKeyFromUrl((await checkInUrl(asked)).url);
+    if (copies.has(key)) return res.status(200).json({ url: copies.get(key) });
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'film-preview-'));
     const input = path.join(dir, 'in.mov');
     const output = path.join(dir, 'out.mp4');
     fs.writeFileSync(input, (await readStoreBytes(key)).buffer);
@@ -31,6 +34,6 @@ export default async function handler(req, res) {
   } catch (e) {
     return res.status(500).json({ error: e.message || String(e) });
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
 }

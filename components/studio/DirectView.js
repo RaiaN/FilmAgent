@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Dropdown, Input, InputNumber, Menu } from '@arco-design/web-react';
-import { IconClose, IconPlus, IconStarFill, IconUpload, IconFile, IconDownload, IconLeft, IconRight, IconLoading, IconMore, IconPlayArrowFill } from '@arco-design/web-react/icon';
+import { IconClose, IconPlus, IconUpload, IconFile, IconDownload, IconLeft, IconRight, IconLoading, IconMore, IconPlayArrowFill } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Tile, Empty, Pill, PageHead, DropArea, CanvasButton, crewColor, mediaOf, thumbOf, storeFile, readFile, readText } from './ui';
 import { stageLocalAsset } from '../../utils/film/canvasModel';
-import { ELEMENT_KINDS, KIND_LABEL, findElement, findScene, pickedOf, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
+import { ELEMENT_KINDS, KIND_LABEL, findElement, findScene, latestOf, pickedOf, takeOf, withParentPoster, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
 import { elementsOfShot, needsOfScene } from '../../utils/film/studio/bar';
+import { usePlayable } from '../film/usePlayable';
 import { sceneHero, finalsOfShots, toFinish } from '../../utils/film/studio/guide';
 import { parseScript } from '../../utils/film/core/scriptForm';
 
@@ -289,17 +290,13 @@ const SceneCard = ({ s, sc, i, open }) => {
   const hero = sceneHero(s, sc);
   const takes = sc.shots.flatMap((sh) => sh.takes.versions || []);
   const working = takes.some((v) => v.status === 'running') || (sc.blocking?.versions || []).some((v) => v.status === 'running');
-  const fresh = takes.filter((v) => v.status === 'review').length;
-  const circled = sc.shots.length > 0 && sc.shots.every((sh) => sh.takes?.picked);
   const faces = facesOf(s, sc.shots);
   return (
-    <div role="button" className="st-tile" onClick={() => open({ type: 'scene', id: sc.id })} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 16, overflow: 'hidden', background: '#0b0c0e', cursor: 'pointer', boxShadow: circled ? `0 0 0 2px ${C.gold}` : `inset 0 0 0 1px ${C.line}` }}>
+    <div role="button" className="st-tile" onClick={() => open({ type: 'scene', id: sc.id })} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 16, overflow: 'hidden', background: '#0b0c0e', cursor: 'pointer', boxShadow: `inset 0 0 0 1px ${C.line}` }}>
       {hero && (hero.kind === 'take' ? <Tile v={hero} w="100%" /> : <img src={thumbOf(mediaOf(hero), 800)} loading="lazy" decoding="async" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.72 }} />)}
       <span style={{ position: 'absolute', left: 14, top: 10, fontFamily: MONO, fontSize: 26, fontWeight: 700, color: '#fff', textShadow: '0 2px 8px rgba(0,0,0,0.75)' }}>{pad2(i + 1)}</span>
       <span style={{ position: 'absolute', right: 12, top: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
         {working && <span className="st-pulse" style={{ width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', background: C.workSoft, color: C.work }}><IconLoading /></span>}
-        {fresh > 0 && <Pill color={C.accentInk} bg={C.warn} style={{ fontWeight: 700, fontSize: 12.5, padding: '3px 10px' }}>{fresh} new</Pill>}
-        {circled && <span style={{ width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'rgba(8,9,11,0.7)', color: C.gold }}><IconStarFill /></span>}
       </span>
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '48px 16px 14px', background: 'linear-gradient(transparent, rgba(5,6,8,0.9))', display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 18, fontWeight: 700, color: '#fff', letterSpacing: -0.2, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.title}</span>
@@ -346,7 +343,7 @@ const posterOf = async (url) => {
   } catch { return ''; }
 };
 
-// YOUR FOOTAGE: each clip is a circled take (registered as an asset, so VFX can edit it) — of the
+// YOUR FOOTAGE: each clip is a take (registered as an asset, so VFX can edit it) — of the
 // shot you dropped it on, or of a new shot of the scene.
 export const importFootage = async ({ files, sceneId, shotId = null, set, toast, onProgress = () => {} }) => {
   for (let i = 0; i < files.length; i += 1) {
@@ -377,16 +374,15 @@ export const importFootage = async ({ files, sceneId, shotId = null, set, toast,
   onProgress('');
 };
 
-const takeBadge = (v) => (v.status === 'running' ? null : v.status === 'review' ? 'NEW' : v.footage ? 'YOURS' : v.edit ? 'VFX' : v.res === '4K' ? '4K' : v.res === '1080p' ? 'HD' : v.res === '480p' ? 'DRAFT' : null);
+const takeBadge = (v) => (v.status === 'running' ? null : v.footage ? 'YOURS' : v.edit ? 'VFX' : v.res === '4K' ? '4K' : v.res === '1080p' ? 'HD' : v.res === '480p' ? 'DRAFT' : null);
 
 // ONE SHOT: the monitor with its takes on one side; its cast and its beats, each on the picture of
 // its view, on the other. A clip dropped on the monitor is a take of this shot.
 const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, review, toast, onStale, single, actions }) => {
   const [importing, setImporting] = useState('');
-  const take = pickedOf(sh.takes);
+  const take = takeOf(sh);
   const takes = (sh.takes.versions || []).filter((v) => visible(v) && v.status !== 'rejected');
-  const fresh = takes.filter((v) => v.status === 'review');
-  const hero = take || fresh[fresh.length - 1] || takes.find((v) => v.status === 'running') || null;
+  const hero = take || takes.find((v) => v.status === 'running') || null;
   const stale = staleOf(s, sh);
   const n = shotNumber(s, sh.id);
   const ref = { at: 'take', sceneId: scene.id, shotId: sh.id };
@@ -414,7 +410,7 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
       <div style={{ display: 'grid', gridTemplateColumns: plates.length ? 'minmax(0, 1fr) 124px' : 'minmax(0, 1fr)', gap: 14, alignItems: 'start' }}>
         <DropArea onFiles={importHere} accept={isClip} hint="Drop your performance" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, min(100%, calc(max(240px, 100vh - 420px) * 16 / 9)))', justifyContent: 'center', gap: 10, alignContent: 'start', minWidth: 0 }}>
           {hero
-            ? <Tile big v={hero} w="100%" badge={takeBadge(hero)} onClick={hero.status === 'running' ? undefined : (e) => { e.stopPropagation(); review(ref, hero.id); }} />
+            ? <Tile big v={withParentPoster(sh.takes, hero)} w="100%" badge={takeBadge(hero)} onClick={hero.status === 'running' ? undefined : (e) => { e.stopPropagation(); review(ref, hero.id); }} />
             : (
               <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 14, background: '#08090b', boxShadow: `inset 0 0 0 1px ${C.line}`, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 6 }}>
                 <span style={{ fontFamily: MONO, fontSize: 56, fontWeight: 700, color: '#2c3038' }}>{pad2(n)}</span>
@@ -423,7 +419,7 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
             )}
           {takes.length > 0 && (
             <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, paddingTop: 2, paddingLeft: 2 }} onClick={(e) => e.stopPropagation()}>
-              {takes.map((v) => <Tile key={v.id} v={v} w={148} badge={takeBadge(v)} picked={sh.takes.picked === v.id} onClick={v.status !== 'running' ? () => review(ref, v.id) : undefined} />)}
+              {takes.map((v) => <Tile key={v.id} v={withParentPoster(sh.takes, v)} w={148} badge={takeBadge(v)} onClick={v.status !== 'running' ? () => review(ref, v.id) : undefined} />)}
             </div>
           )}
         </DropArea>
@@ -444,11 +440,12 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
   );
 };
 
-// PLAY SCENE: the circled takes in order. A shot with no circled take holds as a card for its length.
+// PLAY SCENE: each shot's take in order. A shot with no take yet holds as a card for its length.
 const PlayScene = ({ s, scene, onClose }) => {
   const [i, setI] = useState(0);
   const sh = scene.shots[i];
-  const take = sh ? pickedOf(sh.takes) : null;
+  const take = sh ? takeOf(sh) : null;
+  const { url: playable } = usePlayable(take ? { url: mediaOf(take), type: 'video', format: take.format || '' } : null);
   const next = () => (i + 1 < scene.shots.length ? setI(i + 1) : onClose());
   useEffect(() => {
     if (!sh || take) return undefined;
@@ -460,8 +457,8 @@ const PlayScene = ({ s, scene, onClose }) => {
     <div role="dialog" aria-label="Play scene" onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 20, background: '#000', display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ minHeight: 0, display: 'grid', placeItems: 'center' }}>
         {take
-          ? <video key={take.id} src={mediaOf(take)} autoPlay controls onEnded={next} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
-          : <span style={{ fontSize: 28, color: C.text, textAlign: 'center', padding: 40 }}>{pad2(shotNumber(s, sh.id))} · {sh.title}<br /><span style={{ fontSize: 16, color: C.muted }}>No circled take</span></span>}
+          ? playable && <video key={take.id} src={playable} autoPlay controls onEnded={next} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
+          : <span style={{ fontSize: 28, color: C.text, textAlign: 'center', padding: 40 }}>{pad2(shotNumber(s, sh.id))} · {sh.title}<br /><span style={{ fontSize: 16, color: C.muted }}>No take yet</span></span>}
       </div>
       <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 18px', background: C.panel }}>
         <span style={{ fontFamily: MONO, color: C.accent }}>{pad2(shotNumber(s, sh.id))}</span>
@@ -485,7 +482,7 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
   const addShots = (shots) => set((x) => ({ ...x, scenes: x.scenes.map((sc) => (sc.id === scene.id ? { ...sc, shots: [...sc.shots, ...shots] } : sc)) }));
   const removeShot = (id) => set((x) => ({ ...x, scenes: x.scenes.map((sc) => (sc.id !== scene.id ? sc : { ...sc, shots: sc.shots.filter((sh) => sh.id !== id) })) }));
   const importFiles = (files) => importFootage({ files, sceneId: scene.id, set, toast, onProgress: setImporting });
-  // Circled drafts that can still finish and have not (MOV, the same picture), at the resolutions
+  // Drafts that can still finish and have not (MOV, the same picture), at the resolutions
   // every one of their models offers.
   const finishing = toFinish(scene);
   const finalRes = finalsOfShots(finishing);
@@ -499,7 +496,7 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
         right={(
           <>
             {(needs.names.length > 0 || needs.views > 0) && <Button size="large" type="primary" loading={actions.busy('Casting') || actions.busy('Drawing')} onClick={() => actions.generateMissing(scene)}>Generate missing · {needs.names.length + needs.views}</Button>}
-            {scene.shots.some((sh) => pickedOf(sh.takes)) && <Button size="large" icon={<IconPlayArrowFill />} onClick={() => setPlaying(true)}>Play scene</Button>}
+            {scene.shots.some(takeOf) && <Button size="large" icon={<IconPlayArrowFill />} onClick={() => setPlaying(true)}>Play scene</Button>}
             {finishing.length > 0 && finalRes.map((res) => <Button key={res} size="large" onClick={() => actions.finalScene(finishing, res)}>Final · {res}</Button>)}
             <input ref={footage} type="file" accept="video/*" multiple hidden onChange={(e) => { const fs = [...(e.target.files || [])]; if (fs.length) importFiles(fs); e.target.value = ''; }} />
             <Dropdown trigger="click" position="br" droplist={(
@@ -542,17 +539,17 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
 
 // ---- CUT: the film, big, over its timeline -----------------------------------------------------
 const CutPage = ({ s, review, selectScene, actions }) => {
-  const cut = pickedOf(s.cut) || [...(s.cut.versions || [])].reverse().find((v) => v.status === 'review' || v.status === 'running');
+  const cut = latestOf(s.cut) || (s.cut.versions || []).find((v) => v.status === 'running');
   const scenes = s.scenes.filter((sc) => sc.shots.length);
   const secondsOf = (sc) => sc.shots.reduce((n, sh) => n + Math.max(1, Number(sh.seconds) || 1), 0);
   const ready = cut && cut.status !== 'running' && mediaOf(cut);
   const shots = s.scenes.flatMap((sc) => sc.shots);
-  const circled = shots.filter((sh) => pickedOf(sh.takes)).length;
+  const taken = shots.filter(takeOf).length;
   return (
     <div style={{ ...PAGE, display: 'grid', gap: 24, alignContent: 'start' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
-        <span style={{ fontFamily: MONO, fontSize: 14, color: C.muted }}>{circled}/{shots.length} circled</span>
-        <Button size="large" type="primary" disabled={!circled} loading={actions.busy('Assembling')} onClick={() => actions.assemble(circled < shots.length)}>Assemble</Button>
+        <span style={{ fontFamily: MONO, fontSize: 14, color: C.muted }}>{taken}/{shots.length} shots</span>
+        <Button size="large" type="primary" disabled={!taken} loading={actions.busy('Assembling')} onClick={() => actions.assemble(taken < shots.length)}>Assemble</Button>
       </div>
       <div style={{ position: 'relative' }}>
         {ready
@@ -560,7 +557,6 @@ const CutPage = ({ s, review, selectScene, actions }) => {
           : <div style={{ aspectRatio: '16 / 9', maxHeight: 'calc(100vh - 340px)', width: '100%', background: '#050607', border: `1px solid ${C.line}`, borderRadius: 18, display: 'grid', placeItems: 'center', color: cut?.status === 'running' ? C.work : '#2c3038', fontSize: 44 }}><span className={cut?.status === 'running' ? 'st-pulse' : undefined}>{cut?.status === 'running' ? <IconLoading /> : <IconPlayArrowFill />}</span></div>}
         {ready && (
           <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 8 }}>
-            {cut.status === 'review' && <Button type="primary" size="large" onClick={() => review({ at: 'cut' }, cut.id)}>New cut</Button>}
             <Button size="large" icon={<IconDownload />} href={mediaOf(cut)} download>{cut.format === 'mov' ? 'MOV' : 'MP4'}</Button>
           </div>
         )}
@@ -570,7 +566,7 @@ const CutPage = ({ s, review, selectScene, actions }) => {
           <div key={sc.id} style={{ flex: `${secondsOf(sc)} 1 0`, minWidth: 0, display: 'grid', gap: 8 }}>
             <div style={{ display: 'flex', gap: 3 }}>
               {sc.shots.map((sh) => {
-                const t = pickedOf(sh.takes);
+                const t = takeOf(sh);
                 const label = `${pad2(shotNumber(s, sh.id))} ${sh.title}`;
                 const box = { flex: `${Math.max(1, Number(sh.seconds) || 1)} 1 0`, minWidth: 56, height: 104, borderRadius: 10, overflow: 'hidden', cursor: 'pointer', position: 'relative' };
                 return t ? (

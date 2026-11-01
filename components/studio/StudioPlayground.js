@@ -8,7 +8,7 @@ import { Viewer } from './Viewer';
 import GenerationsView from './GenerationsView';
 import {
   emptyStudio, loadStudio, syncBoard, uid, findShot, pickVersion, rejectVersion,
-  patchVersion, pickedOf, newWork, usedOf, versionOf, allVersions,
+  patchVersion, pickedOf, newWork, takeOf, usedOf, versionOf, allVersions,
 } from '../../utils/film/studio/model';
 import { applyShotList, applyBlocking } from '../../utils/film/studio/layout';
 import { mergeStudio, sameFilm, withRemovals } from '../../utils/film/studio/sync';
@@ -21,7 +21,7 @@ const SETTLE_MS = 8000;
 
 // STUDIO — script to screen on one big screen: Script → Cast & World → Scenes → Cut, with the
 // Generate bar docked under every page. Its buttons call the film tools directly, the same tools
-// FilmAgent uses, on the same film; what they make waits for your verdict (circle, reject).
+// FilmAgent uses, on the same film; a shot's newest take stands until you reject it.
 // GENERATIONS shows every render. Saved inside the open project.
 
 const callTool = async (tool, args) => {
@@ -249,24 +249,31 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     }),
     finalScene: (shots, resolution) => run('Finishing', async () => {
       const { names } = await sync();
-      await Promise.all(shots.map((sh) => tool('finish', { name: names[pickedOf(sh.takes).id], resolution })));
+      await Promise.all(shots.map((sh) => tool('finish', { name: names[takeOf(sh).id], resolution })));
     }),
     assemble: (leavesOut) => {
       const go = () => run('Assembling', async () => { await sync(); await tool('assemble', { without_missing: leavesOut }); });
-      if (leavesOut) Modal.confirm({ title: 'Assemble without every shot?', content: 'Shots with no circled take are left out.', okText: 'Assemble', cancelText: 'Cancel', onOk: go });
+      if (leavesOut) Modal.confirm({ title: 'Assemble without every shot?', content: 'Shots with no take yet are left out.', okText: 'Assemble', cancelText: 'Cancel', onOk: go });
       else go();
     },
   };
+  // The bar as its shot starts it, or empty off a shot.
+  const barHome = (b = barRef.current) => {
+    const shot = b.shotId ? findShot(get(), b.sceneId, b.shotId) : null;
+    if (b.shotId) delete bars.current[b.shotId];
+    showBar(shot ? barForShot(get(), b.sceneId, shot) : emptyBar(get()));
+  };
   // GENERATE: the bar's one request, once per take. Your words stay, ready for the next try.
   const generate = () => run('Generating', async () => {
-    await sync();
     const b = barRef.current;
     const { tool: name, args } = requestOf(get(), b);
     const count = b.source ? 1 : b.count;
+    // An edit is done with once asked for: the bar goes back to its shot's own words.
+    if (b.source) barHome(b);
+    await sync();
     const made = await Promise.all(Array.from({ length: count }, () => tool(name, args)));
     const refused = made.find((r) => r.status === 'failed');
     if (refused) toast(`${refused.name} did not start: ${refused.error}`);
-    if (b.source) setBar((x) => ({ ...x, source: null }));
   });
 
   // ---- verdicts -----------------------------------------------------------------------------
@@ -324,7 +331,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   const onStale = {
     keep: (sceneId, shotId) => set((x) => {
       const sh = findShot(x, sceneId, shotId);
-      const tk = pickedOf(sh.takes);
+      const tk = takeOf(sh);
       return tk ? patchVersion(x, { at: 'take', sceneId, shotId }, tk.id, { used: usedOf(x, sh) }) : x;
     }),
     redo: (sceneId, shotId) => setScope({ type: 'shot', sceneId, id: shotId }),
@@ -390,7 +397,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       ) : (
         <GenerationsView s={s} set={set} open={review} />
       )}
-      {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} busy={actions.busy('Generating')} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
+      {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} onBackToShot={() => barHome()} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
       {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFinal={final} onReject={rejectInView} canvas={canvas} />}
     </div>
   );

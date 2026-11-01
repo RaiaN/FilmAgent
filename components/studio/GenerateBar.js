@@ -111,7 +111,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
               </div>
             )}
           </div>
-          <span role="button" aria-label={open ? 'Fewer controls' : 'More controls'} onClick={() => setOpen((o) => !o)} style={{ alignSelf: 'center', color: C.muted, cursor: 'pointer', display: 'inline-flex', flex: '0 0 auto', padding: 4 }}>{open ? <IconDown /> : <IconUp />}</span>
+          <span role="button" className="st-chip" aria-label={open ? 'Fewer controls' : 'More controls'} title={open ? 'Fewer controls' : 'More controls'} onClick={() => setOpen((o) => !o)} style={{ alignSelf: 'center', width: 40, height: 40, borderRadius: 12, border: `1px solid ${C.lineHi}`, background: C.hover, color: C.ink, fontSize: 18, cursor: 'pointer', display: 'grid', placeItems: 'center', flex: '0 0 auto' }}>{open ? <IconDown /> : <IconUp />}</span>
           <button type="button" className="st-generate" aria-label="Generate" disabled={!ready} onClick={onGenerate} style={{ flex: '0 0 auto', width: open ? 200 : 150, border: 'none', borderRadius: 16, background: ready ? C.gold : C.hover, color: ready ? C.accentInk : C.muted, cursor: ready ? 'pointer' : 'default', display: 'grid', placeItems: 'center', alignContent: 'center', gap: 4, padding: '10px 12px', textAlign: 'center' }}>
             <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: 0.2, display: 'inline-flex', alignItems: 'center', gap: 7 }}>{busy ? <IconLoading /> : <IconPlayArrowFill />}{editing ? 'Edit' : 'Generate'}</span>
             <span style={{ fontSize: 12.5, opacity: 0.8 }}>{barSummary(bar)}</span>

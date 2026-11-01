@@ -6,7 +6,7 @@ import { matchMentions, mentionAt, putMention } from '../film/Session';
 import { C, MONO, mediaOf } from './ui';
 import { pad2, shotNumber, findShot, VIDEO_MODELS, STYLES, allVersions } from '../../utils/film/studio/model';
 import { ASSET_GROUPS, filmAssets, resolveMention } from '../../utils/film/studio/assets';
-import { CHIPS, MAX_TAKES, MIN_SECONDS, RATIOS, barSummary, chipWords, setChip } from '../../utils/film/studio/bar';
+import { MAX_TAKES, MIN_SECONDS, RATIOS, barSummary } from '../../utils/film/studio/bar';
 import { videoTraits } from '../../utils/film/suiteConfig';
 
 // THE GENERATE BAR — the big control: references, the film's look and the prompt, then the render's
@@ -62,12 +62,6 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
   const on = new Set(bar.refs.map((r) => String(r).toLowerCase()));
   const selection = new Map(drawerItems.filter((it) => on.has(it.mention.toLowerCase())).map((it) => [it.id, '✓']));
   const toggleRef = (it) => patch({ refs: on.has(it.mention.toLowerCase()) ? bar.refs.filter((r) => String(r).toLowerCase() !== it.mention.toLowerCase()) : [...bar.refs, it.mention] });
-  const menuFor = (chip) => (
-    <Menu style={{ maxHeight: 320, overflowY: 'auto' }} onClickMenuItem={(k) => patch({ text: setChip(bar.text, chip.label, k === '_auto' ? '' : chip.options[Number(k)].words) })}>
-      <Menu.Item key="_auto">Auto</Menu.Item>
-      {chip.options.map((o, i) => <Menu.Item key={String(i)}>{o.label}</Menu.Item>)}
-    </Menu>
-  );
   const popup = () => container() || document.body;
   const editing = !!bar.source;
   const ready = !!String(bar.text).trim() && !busy;
@@ -92,11 +86,6 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, busy, container, setSt
             <Dropdown trigger="click" getPopupContainer={popup} droplist={<Menu style={{ maxHeight: 320, overflowY: 'auto' }} onClickMenuItem={(k) => setStyle(k === '_auto' ? '' : k)}><Menu.Item key="_auto">From the script</Menu.Item>{STYLES.map((x) => <Menu.Item key={x}>{x}</Menu.Item>)}</Menu>}>
               <span style={{ flex: '1 1 0', minWidth: 0, display: 'flex' }}><Card label="Film look" value={s.style || 'From the script'} /></span>
             </Dropdown>
-            {CHIPS.map((chip) => (
-              <Dropdown key={chip.key} trigger="click" getPopupContainer={popup} droplist={menuFor(chip)}>
-                <span style={{ flex: '1 1 0', minWidth: 0, display: 'flex' }}><Card label={chip.label} value={chipWords(bar.text, chip.label) || 'Auto'} /></span>
-              </Dropdown>
-            ))}
           </div>
         )}
         <div style={{ position: 'relative', display: 'flex', gap: 12, alignItems: 'stretch', background: C.raised, borderRadius: 20, padding: 12 }}>

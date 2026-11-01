@@ -1,7 +1,5 @@
 // THE GENERATE BAR, as data: what it holds, what it starts from on a shot, and the one request it
-// makes. What the prompt says is what is sent: a chip only writes its line into the prompt, where
-// it can be read and changed.
-import { SHOT_TEMPLATES } from '../recipes';
+// makes. What the prompt says is what is sent.
 import { videoTraits } from '../suiteConfig';
 import { allVersions, findElement, modelOfShot, plateOf } from './model';
 import { mentionSlug, resolveMention } from './assets';
@@ -11,21 +9,6 @@ export const MIN_SECONDS = 5;
 export const MAX_TAKES = 4;
 const TOKEN = /\{\{el:([a-z0-9-]+)\}\}/g;
 const CITATION = /@([\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*)/gu;
-
-const cameraWords = (t) => [t.framing, t.angle, t.move].filter(Boolean).join(', ');
-export const CHIPS = [
-  { key: 'camera', label: 'Camera', options: SHOT_TEMPLATES.filter(cameraWords).map((t) => ({ label: t.name, words: cameraWords(t) })) },
-  { key: 'color', label: 'Color', options: ['Warm amber', 'Cool steel blue', 'Muted, desaturated', 'Rich, saturated', 'Soft pastel', 'High-contrast black and white'].map((words) => ({ label: words, words })) },
-  { key: 'lighting', label: 'Lighting', options: ['Soft overcast daylight', 'Golden hour', 'Hard noon sun', 'Low-key, deep shadows', 'Practical lamps only', 'Moonlight'].map((words) => ({ label: words, words })) },
-];
-
-const lineOf = (label) => new RegExp(`^${label}: (.*?)\\.?$`, 'm');
-export const chipWords = (text, label) => lineOf(label).exec(String(text || ''))?.[1] || '';
-// A chip's line in the prompt: set, replaced, or taken out when `words` is empty.
-export const setChip = (text, label, words) => {
-  const without = String(text || '').replace(new RegExp(`\\n?^${label}: .*$`, 'm'), '').trim();
-  return words ? [without, `${label}: ${words}.`].filter(Boolean).join('\n') : without;
-};
 
 export const emptyBar = (s) => ({ shotId: null, sceneId: null, text: '', refs: [], seconds: 8, ratio: '16:9', model: s?.videoModel || 'seedance25', quality: 'draft', audio: true, count: 1, parent: null, source: null });
 

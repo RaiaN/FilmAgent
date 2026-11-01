@@ -300,6 +300,15 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
         return x?.v.status === 'running' ? patchVersion(acc, x.ref, e.id, e.patch) : acc;
       }, film), null]);
     }
+    // A 10-bit master can't play in a browser: its copy to watch is ready before anyone opens it.
+    ended.filter((e) => e.patch.format === 'mov').forEach((e) => {
+      api.post('/api/film/preview', { url: e.patch.cacheUrl || e.patch.url })
+        .then(({ url }) => change(id, (film) => {
+          const x = media(film).find((y) => y.v.id === e.id);
+          return [x ? patchVersion(film, x.ref, e.id, { playUrl: url }) : film, null];
+        }))
+        .catch(() => {});
+    });
     return open.length - ended.length;
   };
 

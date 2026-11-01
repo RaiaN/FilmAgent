@@ -444,7 +444,7 @@ const PlayScene = ({ s, scene, onClose }) => {
   const [i, setI] = useState(0);
   const sh = scene.shots[i];
   const take = sh ? takeOf(sh) : null;
-  const { url: playable } = usePlayable(take ? { url: mediaOf(take), type: 'video', format: take.format || '' } : null);
+  const { url: playable } = usePlayable(take ? { url: mediaOf(take), type: 'video', format: take.format || '', playUrl: take.playUrl } : null);
   const next = () => (i + 1 < scene.shots.length ? setI(i + 1) : onClose());
   useEffect(() => {
     if (!sh || take) return undefined;

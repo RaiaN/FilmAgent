@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Input } from '@arco-design/web-react';
 import { IconClose, IconStarFill } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Label, CanvasButton, mediaOf, isVideo, Tile } from './ui';
-import { containerOf, latestOf, pickedOf, videoModelLabel, visible, withParentPoster } from '../../utils/film/studio/model';
+import { containerOf, latestOf, patchVersion, pickedOf, videoModelLabel, visible, withParentPoster } from '../../utils/film/studio/model';
 import { DRAFT_MODE, draftFinalsOf } from '../../utils/film/suiteConfig';
 import { containerLabel } from '../../utils/film/studio/layout';
 import { InputsPanel, inputsOf } from './Refs';
@@ -46,10 +46,10 @@ const Blocking = ({ p }) => {
 const MEDIA_HEIGHT = 'max(240px, calc(100vh - 290px))';
 const MOV = /\.mov(\?|$)|key=[^&]+\.mov/i;
 // A take plays from what the browser can play: a 10-bit master through its viewing copy.
-const Player = ({ v, onTime }) => {
+const Player = ({ v, onTime, onCopy }) => {
   const ref = useRef(null);
   const format = v.format || (MOV.test(mediaOf(v)) ? 'mov' : '');
-  const { url, problem } = usePlayable({ url: mediaOf(v), type: 'video', format });
+  const { url, problem } = usePlayable({ url: mediaOf(v), type: 'video', format, playUrl: v.playUrl }, onCopy);
   if (problem) return <div style={{ minHeight: 160, background: '#1a0f10', borderRadius: 12, display: 'grid', placeItems: 'center', color: C.bad, padding: 24, textAlign: 'center' }}>{problem}</div>;
   if (!url) return <div style={{ aspectRatio: '16 / 9', maxHeight: MEDIA_HEIGHT, background: '#050607', borderRadius: 14, display: 'grid', placeItems: 'center', color: C.work }}><span className="st-pulse">Preparing a copy to watch</span></div>;
   return (
@@ -59,14 +59,14 @@ const Player = ({ v, onTime }) => {
     </div>
   );
 };
-const Big = ({ v, onTime }) => {
+const Big = ({ v, onTime, onCopy }) => {
   if (!v) return null;
   if (v.status === 'running') return <div style={{ aspectRatio: '16 / 9', background: '#050607', border: `1px solid ${C.line}`, borderRadius: 12, display: 'grid', placeItems: 'center', color: C.work }}><span className="st-pulse">Working…</span></div>;
   if (v.status === 'failed') return <div style={{ minHeight: 160, background: '#1a0f10', border: `1px solid ${C.line}`, borderRadius: 12, display: 'grid', placeItems: 'center', color: C.bad, padding: 24, textAlign: 'center' }}>{v.error || 'Failed'}</div>;
   if (v.kind === 'script') return <pre style={{ whiteSpace: 'pre-wrap', fontFamily: SCRIPT_FONT, fontSize: 13.5, lineHeight: 1.7, margin: '0 auto', padding: '48px 64px', maxWidth: 960, boxSizing: 'border-box', background: C.page, color: '#e9e4da', border: `1px solid ${C.line}`, borderRadius: 12 }}>{v.text}</pre>;
   if (v.kind === 'shotList') return v.payload ? <div style={{ margin: '0 auto', maxWidth: 960 }}><ShotList list={v.payload} /></div> : null;
   if (v.kind === 'blocking') return v.payload ? <Blocking p={v.payload} /> : null;
-  if (isVideo(v)) return <Player v={v} onTime={onTime} />;
+  if (isVideo(v)) return <Player v={v} onTime={onTime} onCopy={onCopy} />;
   return <img src={mediaOf(v)} alt="" style={{ width: '100%', maxHeight: MEDIA_HEIGHT, objectFit: 'contain', background: '#050607', borderRadius: 14, display: 'block' }} />;
 };
 
@@ -122,6 +122,8 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
   const latest = onShot ? latestOf(c) : null;
   const shownIds = onShot ? [...new Set([latest?.id, v.id, ...extra].filter(Boolean))] : [v.id];
   const shown = (c?.versions || []).filter((x) => shownIds.includes(x.id)).sort((a, b) => (b.at || 0) - (a.at || 0));
+  // A copy once made is the film's, so it never has to be made again.
+  const keepCopy = (x) => (playUrl) => set((film) => patchVersion(film, ref_, x.id, { playUrl }));
   const toggleTake = (id) => {
     if (id === v.id && shownIds.length > 1) { setExtra((x) => x.filter((y) => y !== id)); setView({ ref: ref_, vid: shownIds.find((y) => y !== id) }); return; }
     setExtra((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
@@ -161,11 +163,11 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
                 {shown.map((x) => (
                   <div key={x.id} role="button" onClick={() => setView({ ref: ref_, vid: x.id })} style={{ display: 'grid', gap: 6, padding: 6, borderRadius: 16, cursor: 'pointer', boxShadow: x.id === v.id ? `inset 0 0 0 2px ${C.accent}` : 'none' }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: x.id === v.id ? C.accent : C.text }}>{x.name}{x.id === latest?.id ? ' · Latest' : ''}{x.res ? ` · ${x.res}` : ''}</span>
-                    <Big v={x} onTime={x.id === v.id ? setTime : undefined} />
+                    <Big v={x} onTime={x.id === v.id ? setTime : undefined} onCopy={keepCopy(x)} />
                   </div>
                 ))}
               </div>
-            ) : <Big v={v} onTime={setTime} />}
+            ) : <Big v={v} onTime={setTime} onCopy={keepCopy(v)} />}
           </div>
           {details && (
             <div style={{ borderLeft: `1px solid ${C.line}`, padding: 16, overflowY: 'auto', minHeight: 0, display: 'grid', gap: 16, alignContent: 'start' }}>
@@ -183,7 +185,7 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
             <Button size="large" disabled={!note.trim()} onClick={send}>{isVideo(v) ? 'Edit' : 'Edit picture'}</Button>
             {ref_.at !== 'cut' && isVideo(v) && <Button size="large" onClick={() => { onRework(ref_, v); setView(null); }}>Rework</Button>}
             {finalRes.map((res) => <Button key={res} size="large" onClick={() => onFinal(ref_, v, res)} disabled={expired} title={expired ? 'Drafts finish within 7 days — draft the shot again' : `The same picture at ${res} MOV · ${videoModelLabel(v.draft.modelKey || 'seedance25')}`}>{finalsOf.length ? 'Final again' : 'Final'} · {res}</Button>)}
-            {v.status !== 'rejected' && <Button size="large" icon={<IconClose />} status="danger" onClick={() => onReject(ref_, v)} title="Reject" aria-label="Reject" />}
+            {v.status !== 'rejected' && <Button size="large" icon={<IconClose />} status="danger" onClick={() => onReject(ref_, v)}>Remove</Button>}
           </div>
         )}
       </div>

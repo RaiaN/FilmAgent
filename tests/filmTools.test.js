@@ -404,6 +404,33 @@ describe('a render ends whatever the agent does', () => {
   });
 });
 
+describe('a frame of a take', () => {
+  const ready = async () => {
+    const s = studio({ status: () => ({ status: 'succeeded', video_url: 'https://x/video.mp4' }) });
+    const project = await withPicture(s);
+    await s.tools.call('generate_video', { project, prompt: 'A', seconds: 8, quality: 'draft' });
+    await s.tools.call('wait', { project, names: ['T1'] });
+    return { s, project };
+  };
+  test('becomes a named picture that a new take can cite', async () => {
+    const { s, project } = await ready();
+    const out = await s.tools.call('grab_frame', { project, name: 'T1', at: 5.6 });
+    expect(out).toMatchObject({ name: 'R2', type: 'image', label: 'T1 at 5.6 s' });
+    expect(s.lib.some((it) => it.url === 'f5.6')).toBe(true);
+    const next = await s.tools.call('generate_video', { project, prompt: 'Then @R2 walks', refs: ['R2'], seconds: 8, quality: 'draft' });
+    expect(next.status).toBe('running');
+  });
+  test('the last frame is just before the end, and past the end there is none', async () => {
+    const { s, project } = await ready();
+    expect((await s.tools.call('grab_frame', { project, name: 'T1', last: true })).label).toBe('T1 last frame');
+    await expect(s.tools.call('grab_frame', { project, name: 'T1', at: 99 })).rejects.toThrow('no frame at 99');
+  });
+  test('a picture has no frames', async () => {
+    const { s, project } = await ready();
+    await expect(s.tools.call('grab_frame', { project, name: 'R1', at: 1 })).rejects.toThrow('is a picture');
+  });
+});
+
 describe('look and label', () => {
   test('a video comes back with frames across its length and its facts', async () => {
     const s = studio({ status: () => ({ status: 'succeeded', video_url: 'https://x/video.mp4' }) });

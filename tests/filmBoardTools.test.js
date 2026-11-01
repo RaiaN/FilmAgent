@@ -117,6 +117,13 @@ describe('resolution', () => {
     await expect(s.tools.call('generate_video', { ...ask, model: 'seedance25', resolution: '4K' })).rejects.toThrow(/at 1080p, not 4K/);
     expect(s.client.startVideo).not.toHaveBeenCalled();
   });
+  test('going on from a frame keeps the shot and shape, with the frame cited and referenced', () => {
+    const { barFromFrame, requestOf } = require('../utils/film/studio/bar');
+    const film = emptyStudio();
+    const bar = barFromFrame(film, { at: 'take', sceneId: 'a', shotId: 'b' }, { model: 'seedance25', seconds: 6, ratio: '9:16' }, 'R9');
+    expect(bar).toMatchObject({ shotId: 'b', sceneId: 'a', text: '@R9 ', refs: ['R9'], seconds: 6, ratio: '9:16' });
+    expect(requestOf(film, { ...bar, text: '@R9 she runs' }).args).toMatchObject({ refs: ['R9'], shot_id: 'b' });
+  });
   test('moving the bar off Premium brings 4K back to 1080p', () => {
     const { barOnModel, emptyBar, requestOf } = require('../utils/film/studio/bar');
     const bar = { ...emptyBar(emptyStudio()), model: 'seedance25Premium', quality: 'final', resolution: '4K', text: 'x' };

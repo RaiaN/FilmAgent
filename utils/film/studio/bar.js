@@ -33,6 +33,8 @@ export const barForShot = (s, sceneId, shot) => {
 
 // Reworking a take: its prompt and references again, as a new take beside it.
 export const barToRework = (s, ref, v) => ({ ...emptyBar(s), shotId: ref.shotId || null, sceneId: ref.sceneId || null, text: v.prompt || '', refs: v.refs || [], seconds: clampSeconds(v.model || s.videoModel, v.seconds), ratio: v.ratio || '16:9', model: v.model || s.videoModel, parent: v.name });
+// Going on from a frame of a take: the same shot and shape, the frame as a reference, your words next.
+export const barFromFrame = (s, ref, v, frameName) => ({ ...emptyBar(s), shotId: ref.shotId || null, sceneId: ref.sceneId || null, text: `@${frameName} `, refs: [frameName], seconds: clampSeconds(v.model || s.videoModel, v.seconds), ratio: v.ratio || '16:9', model: v.model || s.videoModel || 'seedance25' });
 // Editing a take: only what the words name changes.
 export const barToEdit = (s, ref, v, words = '') => ({ ...emptyBar(s), shotId: ref.shotId || null, sceneId: ref.sceneId || null, text: `Edit @${v.name}: ${words}`, model: v.model || s.videoModel, source: v.name });
 

@@ -13,7 +13,7 @@ import {
 import { applyShotList, applyBlocking } from '../../utils/film/studio/layout';
 import { mergeStudio, sameFilm, withRemovals } from '../../utils/film/studio/sync';
 import { STAGES, stageOf, scopeOfStage, stageStates } from '../../utils/film/studio/guide';
-import { barForShot, barToEdit, barToRework, emptyBar, needsOfScene, requestOf } from '../../utils/film/studio/bar';
+import { barForShot, barFromFrame, barToEdit, barToRework, emptyBar, needsOfScene, requestOf } from '../../utils/film/studio/bar';
 import { elementToCanvas, shotToCanvas, versionToCanvas } from '../../utils/film/studio/canvasLink';
 
 const FOLLOW_MS = 2000;
@@ -340,6 +340,15 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     else toBar(ref, barToEdit(get(), ref, { ...v, name }, text));
   };
   const rework = async (ref, v) => toBar(ref, barToRework(get(), ref, { ...v, name: await nameOf(v) }));
+  // A frame of a take: kept as a picture, or the start of the next take, as a reference in the bar.
+  const frame = (ref, v, at, how) => run('Taking a frame', async () => {
+    const name = await nameOf(v);
+    const out = await tool('grab_frame', { name, ...(how === 'last' ? { last: true } : { at }) });
+    if (how === 'keep') { Message.success({ content: `${out.name} is in Generations`, duration: 3000 }); return; }
+    setView(null);
+    toBar(ref, barFromFrame(get(), ref, v, out.name));
+    setBarOpen(true);
+  });
   // The bar lives on the shot: going there brings it, loaded.
   const toBar = (ref, next) => {
     setBar(next);
@@ -415,8 +424,8 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       ) : (
         <GenerationsView s={s} set={set} open={review} jobs={jobs} />
       )}
-      {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} onBackToShot={() => barHome()} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
-      {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFinal={final} onReject={rejectInView} canvas={canvas} />}
+      {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source || bar.refs.length) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} onBackToShot={() => barHome()} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
+      {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFrame={frame} onFinal={final} onReject={rejectInView} canvas={canvas} />}
     </div>
   );
 };

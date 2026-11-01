@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Input } from '@arco-design/web-react';
+import { Button, Dropdown, Input, Menu } from '@arco-design/web-react';
 import { IconClose, IconStarFill } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Label, CanvasButton, mediaOf, isVideo, Tile } from './ui';
 import { containerOf, latestOf, patchVersion, pickedOf, videoModelLabel, visible, withParentPoster } from '../../utils/film/studio/model';
@@ -100,7 +100,7 @@ const Versions = ({ c, vid, onSelect, kind, shownIds }) => {
   );
 };
 
-export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework, onFinal, onReject, canvas }) => {
+export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework, onFrame, onFinal, onReject, canvas }) => {
   const [note, setNote] = useState('');
   const [time, setTime] = useState(null);
   const [anchor, setAnchor] = useState(false);
@@ -188,6 +188,15 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
             <Input size="large" value={note} onChange={setNote} onPressEnter={send} placeholder={isVideo(v) ? 'What should change in this take' : 'What should change in this picture'} style={{ flex: '1 1 260px', fontSize: 15 }} />
             <Button size="large" disabled={!note.trim()} onClick={send}>{isVideo(v) ? 'Edit' : 'Edit picture'}</Button>
             {ref_.at !== 'cut' && isVideo(v) && <Button size="large" onClick={() => { onRework(ref_, v); setView(null); }}>Rework</Button>}
+            {isVideo(v) && (
+              <Dropdown trigger="click" position="top" droplist={(
+                <Menu onClickMenuItem={(how) => onFrame(ref_, v, time || 0, how)}>
+                  <Menu.Item key="here">Continue from {(time || 0).toFixed(1)} s</Menu.Item>
+                  <Menu.Item key="last">Continue from the last frame</Menu.Item>
+                  <Menu.Item key="keep">Keep this frame</Menu.Item>
+                </Menu>
+              )}><Button size="large">Frame</Button></Dropdown>
+            )}
             {finalRes.map((res) => <Button key={res} size="large" onClick={() => onFinal(ref_, v, res)} disabled={expired} title={expired ? 'Drafts finish within 7 days — draft the shot again' : `The same picture at ${res} MOV · ${videoModelLabel(v.draft.modelKey || 'seedance25')}`}>{finalsOf.length ? 'Final again' : 'Final'} · {res}</Button>)}
             {v.status !== 'rejected' && <Button size="large" icon={<IconClose />} status="danger" onClick={() => onReject(ref_, v)}>Remove</Button>}
           </div>

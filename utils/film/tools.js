@@ -28,6 +28,7 @@ const DRAFT_RES = DRAFT_MODE.resolution;
 const FINAL_RES = '1080p';
 const LOOK_POINTS = [0.05, 0.25, 0.45, 0.65, 0.85, 0.98];
 const WAIT_LIMIT_S = 240;
+const FRAME_S = 0.05;
 const POLL_MS = 4000;
 const SAVE_ATTEMPTS = 6;
 const EDIT_WORDS = /\b(edit|add|insert|remove|delete|modify|replace|change)/i;
@@ -62,6 +63,7 @@ export const FILM_TOOLS = [
   tool('previz', "Block a scene: plan who stands where, who moves, the cameras and timing, and draw it as a top-down schematic. Change the drawing with edit_image; the animatic follows the drawing. Returns when it is done.", { ...PROJECT, brief: str("The scene, the director's words unchanged."), camera: str('Their camera wishes, if any.'), label: str('What it is.') }, ['project', 'brief']),
   tool('previz_animatic', 'Start the moving blockout of a schematic: a draft with no sound, cut by the planned cameras, each person a coloured block. Returns at once; use wait.', { ...PROJECT, schematic: str('The schematic, from previz or an edit of it.'), label: str('What it is.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'schematic']),
   tool('previz_shot_prompt', 'Watch an animatic and write the prompt for the real scene: the named people, the place, the moves and the cuts, citing the animatic by name. Renders nothing.', { ...PROJECT, animatic: str('The animatic.') }, ['project', 'animatic']),
+  tool('grab_frame', 'Take one frame of a video as a picture in the film, from the master, to use as a reference. Renders nothing.', { ...PROJECT, name: str('The video, e.g. T3.'), at: { type: 'number', description: 'Seconds into it.' }, last: { type: 'boolean', description: 'Its last frame instead.' } }, ['project', 'name']),
   tool('edit_image', "Edit a picture from the director's words, optionally with their drawn marks. The new version sits beside the picture it edits. Returns when it is done.", { ...PROJECT, source: str('The picture to edit, e.g. R1.'), marked: str('The copy with their red marks on it, if they drew any.'), instruction: str("The director's words, unchanged."), label: str('What it is.') }, ['project', 'source', 'instruction']),
   tool('generate_video', 'Start a new take from a prompt and references. In the prompt, cite each reference by its name, @R1, @Morwen or @T3: every name cited must be in refs or video_refs, and code numbers them for the model. Returns at once; use wait.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures, in citation order.'), video_refs: names('Reference videos, in citation order.'), seconds: { type: 'number', description: 'Length in seconds.' }, ratio: str('e.g. 16:9, 9:16, adaptive.'), model: { type: 'string', enum: VIDEO_KEYS }, quality: { type: 'string', enum: ['draft', 'final'], description: 'draft is 480p and can be finished later. final is MOV now.' }, resolution: str('For a final: 1080p, or 4K on seedance25Premium.'), audio: { type: 'boolean', description: 'Generate sound. Defaults to on.' }, label: str('What it is.'), shot_id: str('The shot this take is for, from list_project or add_shot. Left out, it waits unplaced.'), parent: str('The result this one reworks, if any.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'prompt', 'seconds', 'quality']),
   tool('edit_video', 'Start an edit of a video: only what the prompt names changes. It must read as an instruction and cite the source by its name, e.g. @T3; cite pictures by name too, each in refs. Length and shape follow the source. Always 1080p MOV: there is no draft edit. Returns at once; use wait.', { ...PROJECT, source: str('The video to edit, e.g. T3.'), prompt: str('The instruction.'), refs: names('Pictures the edit uses, in citation order.'), model: { type: 'string', enum: VIDEO_KEYS }, label: str('What it is.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'source', 'prompt']),
@@ -666,6 +668,20 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       if (!src.plan) fail(`${src.name} is not an animatic.`);
       const prompt = await previzCutPrompt({ videoUrl: mediaOf(src), plan: src.plan }, ctx);
       return { prompt: prompt.replace(/@video\s?1\b/gi, `@${src.name}`), video_refs: [src.name] };
+    },
+
+    grab_frame: async ({ project, name, at, last = false }) => {
+      const { studio: s } = await load(project);
+      const [v] = videos(s, [name]);
+      const seconds = v.seconds || (await probe(mediaOf(v))).seconds || 0;
+      const t = last ? Math.max(0, seconds - FRAME_S) : Number(at);
+      if (!(t >= 0 && t <= seconds)) fail(`${v.name} runs ${seconds} s: there is no frame at ${at}.`);
+      const { frames } = await api.post('/api/film/frames', { url: mediaOf(v), timestamps: [t] });
+      const url = frames?.[0]?.url || fail(`No frame came back from ${v.name}.`);
+      const label = `${v.name} ${last ? 'last frame' : `at ${t.toFixed(1)} s`}`;
+      const added = await addNew(project, { kind: 'plate', status: 'kept', url, cacheUrl: url, label, parent: v.id, tags: ['frame'] });
+      await inLibrary({ url, kind: 'plate', label }, added.name, project);
+      return added;
     },
 
     edit_image: async ({ project, source, marked, instruction, label }) => {

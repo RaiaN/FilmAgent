@@ -13,6 +13,7 @@ const STEP = {
   read_result: (a) => `Reads ${a.name}`,
   read_skill: (a) => `Reads the ${a.id || 'skill list'} skill`,
   generate_image: () => 'Makes a picture',
+  grab_frame: (a) => `Takes a frame of ${a.name}`,
   edit_image: (a) => `Edits ${a.source}${a.marked ? ' using your marks' : ''}`,
   add_scene: (a) => `Adds the scene ${a.title}`,
   add_shot: (a) => `Adds the shot ${a.title}`,

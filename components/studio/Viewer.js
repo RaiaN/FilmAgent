@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Input } from '@arco-design/web-react';
 import { IconClose, IconStarFill, IconRight } from '@arco-design/web-react/icon';
-import { C, MONO, SCRIPT_FONT, Label, Avatar, CanvasButton, crewColor, crewWho, mediaOf, isVideo, Tile } from './ui';
-import { containerOf, findShot, pickedOf, videoModelLabel, visible } from '../../utils/film/studio/model';
+import { C, MONO, SCRIPT_FONT, Label, CanvasButton, mediaOf, isVideo, Tile } from './ui';
+import { containerOf, pickedOf, videoModelLabel, visible } from '../../utils/film/studio/model';
 import { DRAFT_MODE, draftFinalsOf } from '../../utils/film/suiteConfig';
 import { containerLabel } from '../../utils/film/studio/layout';
-import { InputsPanel, RefsEditor, inputsOf } from './Refs';
+import { InputsPanel, inputsOf } from './Refs';
 import { ShotList } from './ShotList';
 import { shotsOf } from '../../utils/film/core/shotList';
 
@@ -45,7 +45,7 @@ const Blocking = ({ p }) => {
 };
 
 // A version shown big: a take or cut plays (and tells the note its time), a plate shows, text reads.
-const MEDIA_HEIGHT = 'calc(100vh - 300px)';
+const MEDIA_HEIGHT = 'max(240px, calc(100vh - 290px))';
 const Big = ({ v, onTime }) => {
   const ref = useRef(null);
   if (!v) return null;
@@ -64,25 +64,20 @@ const Flags = ({ v }) => {
   return warned.length ? <div style={{ display: 'grid', gap: 4 }}>{warned.map((f, i) => <div key={i} style={{ fontSize: 14, color: C.warn, lineHeight: 1.45 }}>{f.text}</div>)}</div> : null;
 };
 
-const STATUS = { review: ['new', C.warn], picked: ['★', C.gold], running: ['working', C.work], failed: ['failed', C.bad], rejected: ['rejected', C.muted] };
 // Every version of the container, oldest → newest; the one on screen outlined.
 const Versions = ({ c, vid, onSelect, kind }) => {
   const textual = TEXT_KINDS.includes(kind);
   const list = (c?.versions || []).filter((v) => (visible(v) || v.id === vid) && (!textual || v.kind === kind));
   if (list.length < 2) return null;
   return (
-    <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
-      {list.map((v, i) => {
-        const [word, color] = STATUS[v.status] || ['', C.muted];
-        return (
-          <div key={v.id} role="button" onClick={() => onSelect(v.id)} style={{ display: 'grid', gap: 4, justifyItems: 'center', cursor: 'pointer', opacity: v.status === 'rejected' ? 0.4 : 1 }}>
-            {textual
-              ? <span style={{ width: 64, height: 36, borderRadius: 6, display: 'grid', placeItems: 'center', fontFamily: MONO, fontSize: 12, background: C.raised, boxShadow: v.id === vid ? `0 0 0 2px ${C.accent}` : `inset 0 0 0 1px ${C.line}`, color: C.ink }}>v{i + 1}</span>
-              : <span style={{ borderRadius: 7, boxShadow: v.id === vid ? `0 0 0 2px ${C.accent}` : 'none' }}><Tile v={v} w={v.kind === 'plate' ? 64 : 112} ratio={v.kind === 'plate' ? '1' : '16 / 9'} picked={v.status === 'picked'} /></span>}
-            <span style={{ fontSize: 10, fontWeight: 600, color }}>{word || `v${i + 1}`}</span>
-          </div>
-        );
-      })}
+    <div style={{ display: 'flex', justifyContent: 'center', gap: 8, overflowX: 'auto', padding: '2px 12px 10px', flex: '0 0 auto' }}>
+      {list.map((v, i) => (
+        <div key={v.id} role="button" onClick={() => onSelect(v.id)} style={{ cursor: 'pointer', flex: '0 0 auto', opacity: v.status === 'rejected' ? 0.4 : 1, borderRadius: 7, boxShadow: v.id === vid ? `0 0 0 2px ${C.accent}` : 'none' }}>
+          {textual
+            ? <span style={{ width: 64, height: 36, borderRadius: 6, display: 'grid', placeItems: 'center', fontFamily: MONO, fontSize: 12, background: C.raised, color: C.ink }}>v{i + 1}</span>
+            : <Tile v={v} w={v.kind === 'plate' ? 52 : 92} ratio={v.kind === 'plate' ? '1' : '16 / 9'} picked={v.status === 'picked'} badge={v.status === 'review' ? 'NEW' : null} />}
+        </div>
+      ))}
     </div>
   );
 };
@@ -91,10 +86,12 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
   const [note, setNote] = useState('');
   const [time, setTime] = useState(null);
   const [anchor, setAnchor] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const [details, setDetails] = useState(false);
   const ref_ = view.ref;
   const c = containerOf(s, ref_);
   const v = (c?.versions || []).find((x) => x.id === view.vid) || null;
-  useEffect(() => { setNote(''); setAnchor(false); setTime(null); }, [view.vid]);
+  useEffect(() => { setNote(''); setAnchor(false); setTime(null); setComparing(false); }, [view.vid]);
   useEffect(() => {
     const key = (e) => { if (e.key === 'Escape') setView(null); };
     window.addEventListener('keydown', key);
@@ -103,10 +100,10 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
   if (!v) return null;
   const current = ref_.at !== 'brief' ? pickedOf(c) : null;
   const compare = current && current.id !== v.id && current.status !== 'running' && v.status !== 'running' && v.status !== 'failed' && !TEXT_KINDS.includes(v.kind) ? current : null;
-  const shot = ref_.shotId ? findShot(s, ref_.sceneId, ref_.shotId) : null;
   const pickLabel = ref_.at === 'take' ? 'Circle' : 'Pick';
   const textual = TEXT_KINDS.includes(v.kind);
-  const side = !textual && ((v.flags || []).some((f) => f.warn) || v.prompt || inputsOf(s, v).length > 0 || shot);
+  const hasDetails = !textual && (v.prompt || inputsOf(s, v).length > 0);
+  const warned = (v.flags || []).some((f) => f.warn);
   // A draft finishes as the same picture in MOV, on the model that drafted it, at a resolution
   // that model offers (2.5: 1080p · Premium: 1080p or 4K), within the draft's 7 days.
   const finishable = ref_.at === 'take' && v.draft?.taskId && v.status !== 'running' && v.status !== 'failed';
@@ -122,41 +119,37 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
     setView(null);
   };
   return (
-    <div role="dialog" aria-label={containerLabel(s, ref_)} onClick={() => setView(null)} style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(5,6,8,0.86)', display: 'flex', justifyContent: 'center', alignItems: 'stretch', overflow: 'hidden', padding: 16 }}>
-      {/* The title and the versions stay on top and the verdicts at the bottom; only what is
-          between scrolls, so switching versions never jumps to the end of a long one. */}
-      <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 1760, display: 'flex', flexDirection: 'column', background: C.panel, border: `1px solid ${C.lineHi}`, borderRadius: 18, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gap: 12, padding: '14px 20px 12px', borderBottom: `1px solid ${C.line}`, flex: '0 0 auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 22, fontWeight: 700, color: C.ink, letterSpacing: -0.4 }}>{containerLabel(s, ref_)}</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted }}><Avatar id={v.by} size={22} /><span style={{ color: crewColor(v.by) }}>{crewWho(v.by)}</span>{v.res ? ` · ${v.res}` : ''}{v.model === 'seedance25Premium' ? ' · Premium' : ''}{v.format === 'mov' ? ' · MOV' : ''}</span>
-            {v.parent && v.note && <span style={{ fontSize: 13, color: C.muted, fontStyle: 'italic' }}>“{v.note}”</span>}
-            <span style={{ flex: 1 }} />
-            {canvas && !textual && mediaOf(v) && <CanvasButton size={36} onClick={() => canvas.version(ref_, v, containerLabel(s, ref_))} />}
-            {others > 0 && <Button onClick={onNextNew} icon={<IconRight />}>Next new · {others}</Button>}
-            <Button type="text" icon={<IconClose />} onClick={() => setView(null)} aria-label="Close" />
-          </div>
-          <Versions c={c} vid={v.id} kind={v.kind} onSelect={(vid) => setView({ ref: ref_, vid })} />
+    <div role="dialog" aria-label={containerLabel(s, ref_)} onClick={() => setView(null)} style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(5,6,8,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'stretch', overflow: 'hidden', padding: 10 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 1760, display: 'flex', flexDirection: 'column', background: C.panel, border: `1px solid ${C.lineHi}`, borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px 8px 18px', flex: '0 0 auto' }}>
+          <span style={{ fontSize: 17, fontWeight: 700, color: C.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name ? <span style={{ fontFamily: MONO, color: C.accent, marginRight: 8 }}>{v.name}</span> : null}{containerLabel(s, ref_)}</span>
+          <span style={{ fontSize: 13, color: C.muted, flex: '0 0 auto' }}>{[v.res, v.model === 'seedance25Premium' ? 'Premium' : '', v.format === 'mov' ? 'MOV' : ''].filter(Boolean).join(' · ')}</span>
+          <span style={{ flex: 1 }} />
+          {compare && <Button type={comparing ? 'primary' : 'secondary'} onClick={() => setComparing((o) => !o)}>Compare</Button>}
+          {hasDetails && <Button type={details ? 'primary' : 'secondary'} onClick={() => setDetails((o) => !o)}>Prompt</Button>}
+          {canvas && !textual && mediaOf(v) && <CanvasButton size={32} onClick={() => canvas.version(ref_, v, containerLabel(s, ref_))} />}
+          {others > 0 && <Button onClick={onNextNew} icon={<IconRight />}>Next new · {others}</Button>}
+          <Button type="text" icon={<IconClose />} onClick={() => setView(null)} aria-label="Close" />
         </div>
-        <div key={v.id} style={{ display: 'grid', gridTemplateColumns: side ? 'minmax(0, 1fr) 360px' : 'minmax(0, 1fr)', minHeight: 0, flex: '1 1 auto', overflow: 'hidden' }}>
-          <div style={{ padding: 20, overflowY: 'auto', minHeight: 0, display: 'grid', alignContent: textual ? 'start' : 'center' }}>
-            {compare ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div key={v.id} style={{ display: 'grid', gridTemplateColumns: details ? 'minmax(0, 1fr) minmax(260px, 340px)' : 'minmax(0, 1fr)', minHeight: 0, flex: '1 1 auto', overflow: 'hidden' }}>
+          <div style={{ padding: '0 12px 10px', overflowY: 'auto', minHeight: 0, display: 'grid', alignContent: textual ? 'start' : 'center' }}>
+            {comparing && compare ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div><Label>{ref_.at === 'take' ? 'Circled' : 'Picked'}</Label><Big v={compare} /></div>
                 <div><Label><span style={{ color: C.accent }}>This version</span></Label><Big v={v} onTime={setTime} /></div>
               </div>
             ) : <Big v={v} onTime={setTime} />}
           </div>
-          {side && (
-            <div style={{ borderLeft: `1px solid ${C.line}`, padding: 18, overflowY: 'auto', minHeight: 0, display: 'grid', gap: 20, alignContent: 'start' }}>
-              <Flags v={v} />
+          {details && (
+            <div style={{ borderLeft: `1px solid ${C.line}`, padding: 16, overflowY: 'auto', minHeight: 0, display: 'grid', gap: 16, alignContent: 'start' }}>
               <InputsPanel s={s} v={v} />
-              {shot && <RefsEditor s={s} set={set} sceneId={ref_.sceneId} shotId={ref_.shotId} toast={toast} />}
             </div>
           )}
         </div>
+        {warned && <div style={{ padding: '0 18px 8px', flex: '0 0 auto' }}><Flags v={v} /></div>}
+        <Versions c={c} vid={v.id} kind={v.kind} onSelect={(vid) => setView({ ref: ref_, vid })} />
         {v.status !== 'running' && v.status !== 'failed' && (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', background: C.raised, borderTop: `1px solid ${C.line}`, padding: '12px 20px', flexWrap: 'wrap', flex: '0 0 auto' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', background: C.raised, borderTop: `1px solid ${C.line}`, padding: '10px 14px', flexWrap: 'wrap', flex: '0 0 auto' }}>
             {v.status !== 'picked' ? <Button size="large" type="primary" icon={<IconStarFill />} onClick={() => onPick(ref_, v)} style={{ minWidth: 128 }}>{pickLabel}</Button> : <span style={{ color: C.gold, fontWeight: 700, fontSize: 15, padding: '0 8px' }}>★ {ref_.at === 'take' ? 'Circled' : 'Picked'}</span>}
             {isVideo(v) && time != null && <Button size="large" type={anchor ? 'primary' : 'secondary'} onClick={() => setAnchor((a) => !a)}>at {time.toFixed(1)} s</Button>}
             <Input size="large" value={note} onChange={setNote} onPressEnter={send} placeholder={isVideo(v) ? 'What should change in this take' : 'What should change in this picture'} style={{ flex: '1 1 260px', fontSize: 15 }} />

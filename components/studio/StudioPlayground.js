@@ -1,30 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Dropdown, Menu, Message, Modal, Select } from '@arco-design/web-react';
-import { IconApps, IconCheck, IconDown, IconUserGroup } from '@arco-design/web-react/icon';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Dropdown, Menu, Message, Modal } from '@arco-design/web-react';
+import { IconApps, IconCheck, IconDown } from '@arco-design/web-react/icon';
 import { C, MONO, STUDIO_CSS, Dot } from './ui';
-import { DirectPage, Thread, scopeTarget } from './DirectView';
+import { DirectPage, Working } from './DirectView';
+import { GenerateBar } from './GenerateBar';
 import { Viewer } from './Viewer';
 import GenerationsView from './GenerationsView';
 import {
-  emptyStudio, loadStudio, syncBoard, uid, threadKeyOf, addMessage, patchMessage, findShot, pickVersion, rejectVersion,
-  patchVersion, pickedOf, newWork, usedOf, versionOf, VIDEO_MODELS, STYLES,
+  emptyStudio, loadStudio, syncBoard, uid, findShot, pickVersion, rejectVersion,
+  patchVersion, pickedOf, newWork, usedOf, versionOf, allVersions,
 } from '../../utils/film/studio/model';
-import { createRunners, applyShotList, applyBlocking } from '../../utils/film/studio/runners';
-import { editorFor } from '../../utils/film/studio/crew';
+import { applyShotList, applyBlocking } from '../../utils/film/studio/layout';
 import { mergeStudio, sameFilm, withRemovals } from '../../utils/film/studio/sync';
-import { STAGES, stageOf, scopeOfStage, stageStates, nextStep } from '../../utils/film/studio/guide';
+import { STAGES, stageOf, scopeOfStage, stageStates } from '../../utils/film/studio/guide';
+import { barForShot, barToEdit, barToRework, emptyBar, needsOfScene, requestOf } from '../../utils/film/studio/bar';
 import { elementToCanvas, shotToCanvas, versionToCanvas } from '../../utils/film/studio/canvasLink';
-import { createBrowserClient } from '../../utils/film/core/client';
 
-const CREW_WIDTH_KEY = 'studio-crew-width';
-const CREW_OPEN_KEY = 'studio-crew-open';
-const CREW_WIDTH = [320, 820];
 const FOLLOW_MS = 2000;
+const SETTLE_MS = 8000;
 
-// STUDIO — the harness makes a film with you, step by step: Script → Cast & World → Scenes → Cut.
-// The stages are the page; the crew panel beside them holds the one next step (the guide), the
-// conversation and what the crew delivers, waiting for your verdict (pick · note · reject) — there
-// or in the viewer. GENERATIONS shows every render. Saved inside the open project.
+// STUDIO — script to screen on one big screen: Script → Cast & World → Scenes → Cut, with the
+// Generate bar docked under every page. Its buttons call the film tools directly, the same tools
+// FilmAgent uses, on the same film; what they make waits for your verdict (circle, reject).
+// GENERATIONS shows every render. Saved inside the open project.
+
+const callTool = async (tool, args) => {
+  const res = await fetch('/api/film/tools', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, args }) });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || `${tool} answered ${res.status}`);
+  return out;
+};
 
 // THE STAGES, always on top: where the film stands, and what waits in each.
 const Stages = ({ s, scope, on, go }) => {
@@ -70,7 +75,7 @@ const ProjectMenu = ({ project, title, container }) => {
       <Menu.Item key="save">Save now</Menu.Item>
       <Menu.Item key="new">New project</Menu.Item>
       <Menu.Item key="settings">Project settings…</Menu.Item>
-      <Menu.Item key="skills">Crew & model skills…</Menu.Item>
+      <Menu.Item key="skills">Model skills…</Menu.Item>
       <Menu.Item key="prompts">Prompt templates…</Menu.Item>
     </Menu>
   );
@@ -86,43 +91,25 @@ const ProjectMenu = ({ project, title, container }) => {
 
 const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle = '', board = null, project = null, onOpenInCanvas }) => {
   const rootRef = useRef(null);
-  // The film lives in a ref the crew can read and write mid-run, mirrored into React state.
+  // The film lives in a ref that work under way can read and write, mirrored into React state.
   const sRef = useRef(emptyStudio());
   const [s, setS] = useState(sRef.current);
   const set = useCallback((fn) => { sRef.current = typeof fn === 'function' ? fn(sRef.current) : fn; setS(sRef.current); }, []);
   const get = useCallback(() => sRef.current, []);
-  const ctx = useMemo(() => ({ client: createBrowserClient() }), []);
-  const crew = useMemo(() => createRunners({ get, set, ctx }), [get, set, ctx]);
-
   const [linked, setLinked] = useState(null);
   const [mode, setMode] = useState('direct');
   const [scope, setScope] = useState({ type: 'brief' });
   // The version open in the viewer ({ ref, vid }), or none.
   const [view, setView] = useState(null);
-  const [draft, setDraft] = useState('');
-  // Jobs still planning: no versions are out yet, so the next step waits for them.
-  const [planning, setPlanning] = useState(0);
-  // The crew panel's width: drag its edge; remembered per browser.
-  const [crewWidth, setCrewWidth] = useState(380);
-  const [crewOpen, setCrewOpen] = useState(true);
-  useEffect(() => {
-    try {
-      const w = Number(window.localStorage.getItem(CREW_WIDTH_KEY));
-      if (w) setCrewWidth(w);
-      if (window.localStorage.getItem(CREW_OPEN_KEY) === '0') setCrewOpen(false);
-    } catch { /* noop */ }
-  }, []);
-  const toggleCrew = () => setCrewOpen((o) => { try { window.localStorage.setItem(CREW_OPEN_KEY, o ? '0' : '1'); } catch { /* noop */ } return !o; });
-  const dragCrew = (e) => {
-    e.preventDefault();
-    const x0 = e.clientX;
-    const w0 = crewWidth;
-    let w = w0;
-    const move = (ev) => { w = Math.min(CREW_WIDTH[1], Math.max(CREW_WIDTH[0], w0 + (x0 - ev.clientX))); setCrewWidth(w); };
-    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); try { window.localStorage.setItem(CREW_WIDTH_KEY, String(Math.round(w))); } catch { /* noop */ } };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
-  };
+  // What is being made right now, for the top bar and each button's spinner.
+  const [jobs, setJobs] = useState([]);
+  // The bar: one per shot you have been on, so your words wait for you. `touched` keeps your words
+  // from being replaced when a plate arrives.
+  const bars = useRef({});
+  const [bar, setBarState] = useState(() => emptyBar(emptyStudio()));
+  const barRef = useRef(bar);
+  const showBar = (next) => { barRef.current = next; setBarState(next); if (next.shotId) bars.current[next.shotId] = next; };
+  const setBar = (fn) => showBar({ ...(typeof fn === 'function' ? fn(barRef.current) : fn), touched: true });
 
   // Load with the project — once per load (a re-run of this effect must never put an older
   // snapshot back); every change goes back into it.
@@ -136,11 +123,11 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     set(loaded);
     synced.current = { film: loaded, revision: null };
     setLinked(projectStudio.projectId);
-    // A film opens where its next step is.
-    setScope(nextStep(loaded, null)?.scope || (loaded.scenes.length ? { type: 'scenes' } : { type: 'brief' }));
+    bars.current = {};
+    showBar(emptyBar(loaded));
+    setScope(loaded.scenes.length ? { type: 'scenes' } : { type: 'brief' });
     setView(null);
     setMode('direct');
-    crew.resume();
   }, [projectStudio?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   // The project's Canvas, mirrored: new plates, SHOT cards and takes come in as they appear.
   useEffect(() => {
@@ -183,71 +170,104 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
     return () => { live = false; clearTimeout(timer); };
   }, [linked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toast = (t) => Message.error({ content: t, duration: 6000 });
-  const say = (sc, msg) => set((x) => addMessage(x, threadKeyOf(sc), msg));
-  const stillPlanning = (sc, id) => (get().threads[threadKeyOf(sc)] || []).some((m) => m.id === id);
+  // A render ends whether or not anyone is waiting: while this film has one running, ask.
+  useEffect(() => {
+    if (!linked) return undefined;
+    const timer = setInterval(() => {
+      if (allVersions(get()).some((x) => x.v.status === 'running' && x.v.taskId && x.v.by !== 'board')) callTool('settle_renders', { project: linked }).catch(() => {});
+    }, SETTLE_MS);
+    return () => clearInterval(timer);
+  }, [linked, get]);
+  // The bar follows the shot you are on.
+  useEffect(() => {
+    const scene = scope.type === 'scene' ? get().scenes.find((x) => x.id === scope.id) : null;
+    const shot = scope.type === 'shot' ? findShot(get(), scope.sceneId, scope.id) : scene?.shots[0];
+    if (!shot) return;
+    const sceneId = scope.type === 'shot' ? scope.sceneId : scope.id;
+    showBar(bars.current[shot.id] || barForShot(get(), sceneId, shot));
+  }, [scope]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Words you have not touched follow the film: a plate that arrives joins the shot.
+  useEffect(() => {
+    const b = barRef.current;
+    if (!b.shotId || b.touched) return;
+    const shot = findShot(s, b.sceneId, b.shotId);
+    if (shot) showBar(barForShot(s, b.sceneId, shot));
+  }, [s]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A REQUEST — @ = go: the plan checks it (or asks a question), then the crew works.
-  const request = async (req, { echo = true } = {}) => {
-    const sc = req.scope;
-    if (echo) say(sc, { from: 'you', kind: 'request', agent: req.agent, action: req.action, text: req.note ? req.note : req.text || '', target: sc.type === 'shot' ? scopeTarget(get(), sc) : '', ...(sc.type === 'shot' ? { shotId: sc.id } : {}) });
-    const pending = uid('m-');
-    const drop = () => set((x) => ({ ...x, threads: { ...x.threads, [threadKeyOf(sc)]: (x.threads[threadKeyOf(sc)] || []).filter((m) => m.id !== pending) } }));
-    say(sc, { id: pending, from: req.agent, kind: 'delivery', items: [] });
-    setPlanning((n) => n + 1);
+  const toast = (t) => Message.error({ content: t, duration: 6000 });
+
+  // ---- making things -------------------------------------------------------------------------
+  // The tab's film goes in first, so the tools work on what you see. Answers with every version's name.
+  const sync = () => callTool('merge_film', { project: linked, name: String(projectTitle || 'Untitled film'), studio: get() });
+  const run = async (label, work) => {
+    const job = { id: `${label}-${Date.now()}`, label, since: Date.now() };
+    setJobs((x) => [...x, job]);
     try {
-      const p = await crew.plan(req, { onStage: (text) => set((x) => patchMessage(x, threadKeyOf(sc), pending, { stage: text, stageAt: Date.now() })) });
-      drop();
-      setPlanning((n) => n - 1);
-      if (p.question) say(sc, { from: req.agent, kind: 'question', text: p.question.text, options: p.question.options });
-      else await crew.run(req, p.payload, p.summary);
+      return await work();
     } catch (e) {
-      if (stillPlanning(sc, pending)) { drop(); setPlanning((n) => n - 1); }
-      say(sc, { from: req.agent, kind: 'error', text: e.message || String(e) });
+      toast(e.message || String(e));
+      return null;
+    } finally {
+      setJobs((x) => x.filter((j) => j.id !== job.id));
     }
   };
-  // From the composer: "@Camera slower push-in" — the agent's job here, with your words.
-  const fromComposer = (r, raw) => {
-    if (!r.action) { say(stand, { from: 'you', kind: 'request', text: raw }); say(stand, { from: r.agent.id, kind: 'error', text: `${r.agent.name} has nothing to do here.` }); return; }
-    request({ agent: r.agent.id, action: r.action.id, scope: stand, text: r.text });
+  const tool = (name, args) => callTool(name, { project: linked, ...args });
+  const nameOf = async (v) => v.name || (await sync()).names[v.id];
+  const reportFailed = (out) => {
+    const failed = (out?.results || []).filter((r) => r.status === 'failed');
+    if (failed.length) toast(`${failed.length} did not render: ${failed[0].error}`);
   };
-  const ask = (sc, raw, avail) => {
-    say(sc, { from: 'you', kind: 'request', text: raw });
-    say(sc, { from: 'studio', kind: 'ask', text: raw, handles: [...new Set(avail.map((x) => x.agent.handle))] });
-  };
-  // STOP — nothing more starts, and what is still rendering is let go.
-  const stop = (key, m) => set((x) => {
-    let y = patchMessage(x, key, m.id, { stopped: true, finished: true });
-    (m.items || []).forEach((it) => { if (versionOf(y, it.ref, it.vid)?.status === 'running') y = patchVersion(y, it.ref, it.vid, { status: 'failed', error: 'Stopped' }); });
-    return y;
-  });
-  // UNDO what talking changed: the Shot (its text, references, sheet), the Script (the
-  // screenplay, scenes' shots) or Cast & World (names, descriptions, who is in the film) go back
-  // to what they were.
-  const undoShot = (key, m) => {
-    const was = m.change?.undo;
-    if (m.from === 'script') {
-      if (!was) return;
-      set((x) => patchMessage({ ...x, ...(was.script != null ? { script: was.script, brief: { ...x.brief, versions: was.briefVersions } } : {}), scenes: x.scenes.map((y) => was.scenes.find((z) => z.id === y.id) || y) }, key, m.id, { undone: true }));
-      return;
-    }
-    if (m.from === 'cast') {
-      if (!was) return;
-      set((x) => {
-        const kept = x.elements.filter((e) => !was.added.includes(e.id)).map((e) => { const b = was.elements.find((y) => y.id === e.id); return b ? { ...e, name: b.name, desc: b.desc } : e; });
-        const back = was.elements.filter((b) => !kept.some((e) => e.id === b.id));
-        return patchMessage({ ...x, elements: [...kept, ...back] }, key, m.id, { undone: true });
+  const actions = {
+    busy: (label) => jobs.some((j) => j.label === label),
+    write: (idea) => run('Writing', async () => { await sync(); await tool('write_screenplay', { idea }); }),
+    breakdown: (script) => {
+      const go = (replace) => run('Breaking down', async () => {
+        await sync();
+        const out = await tool('shot_list', { script, replace });
+        const failed = out.scenes.filter((sc) => sc.error);
+        if (failed.length) toast(`Scene ${failed.map((sc) => sc.n).join(', ')} has no shots yet: ${failed[0].error}`);
+        setScope({ type: 'scenes' });
       });
-      return;
-    }
-    const sc = get().scenes.find((x) => x.shots.some((sh) => sh.id === m.shotId));
-    if (!sc || !m.change?.undo) return;
-    set((x) => patchMessage({ ...x, scenes: x.scenes.map((y) => (y.id !== sc.id ? y : { ...y, shots: y.shots.map((sh) => (sh.id === m.shotId ? { ...sh, ...m.change.undo } : sh)) })) }, key, m.id, { undone: true }));
+      const n = get().scenes.length;
+      if (n) Modal.confirm({ title: `Replace the ${n} scene${n === 1 ? '' : 's'}?`, content: 'Their shots and takes go with them.', okText: 'Replace', cancelText: 'Cancel', okButtonProps: { status: 'danger' }, onOk: () => go(true) });
+      else go(false);
+    },
+    cast: (names) => run('Casting', async () => {
+      await sync();
+      reportFailed(await tool('cast', { names, ...(String(get().script || '').trim() ? {} : { brief: names.map((n) => get().elements.find((e) => e.name === n)?.desc || n).join('. ') }) }));
+    }),
+    variations: (el, direction, count) => run('Drawing', async () => {
+      await sync();
+      reportFailed(await tool('variations', { element: el.name, direction, count }));
+    }),
+    // Cast first: a scene's views are drawn from its place's plate.
+    generateMissing: (scene) => run('Casting', async () => {
+      await sync();
+      const needs = needsOfScene(get(), scene);
+      if (needs.names.length) reportFailed(await tool('cast', { names: needs.names }));
+      if (needs.views) reportFailed(await tool('scene_views', { scene_id: scene.id }));
+    }),
+    finalScene: (shots, resolution) => run('Finishing', async () => {
+      const { names } = await sync();
+      await Promise.all(shots.map((sh) => tool('finish', { name: names[pickedOf(sh.takes).id], resolution })));
+    }),
+    assemble: (leavesOut) => {
+      const go = () => run('Assembling', async () => { await sync(); await tool('assemble', { without_missing: leavesOut }); });
+      if (leavesOut) Modal.confirm({ title: 'Assemble without every shot?', content: 'Shots with no circled take are left out.', okText: 'Assemble', cancelText: 'Cancel', onOk: go });
+      else go();
+    },
   };
-  const answer = (key, m, o) => {
-    set((x) => patchMessage(x, key, m.id, { answered: o.label }));
-    request(o.req, { echo: false });
-  };
+  // GENERATE: the bar's one request, once per take. Your words stay, ready for the next try.
+  const generate = () => run('Generating', async () => {
+    await sync();
+    const b = barRef.current;
+    const { tool: name, args } = requestOf(get(), b);
+    const count = b.source ? 1 : b.count;
+    const made = await Promise.all(Array.from({ length: count }, () => tool(name, args)));
+    const refused = made.find((r) => r.status === 'failed');
+    if (refused) toast(`${refused.name} did not start: ${refused.error}`);
+    if (b.source) setBar((x) => ({ ...x, source: null }));
+  });
 
   // ---- verdicts -----------------------------------------------------------------------------
   // A pick lands in the film: a screenplay becomes the script, a shot list the scenes and their
@@ -273,7 +293,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       return;
     }
     if (ref.at === 'scene') { land((y) => applyBlocking(y, ref.sceneId, v.payload)); return; }
-    if (ref.at === 'unplaced') { toast('This has no place in the film yet: tell FilmAgent where it goes.'); return; }
+    if (ref.at === 'unplaced') { toast('This has no place in the film yet: open a shot and Rework it, or tell FilmAgent where it goes.'); return; }
     land((y) => y);
   };
   // The director's own text, kept as a version when a screenplay replaces it.
@@ -287,14 +307,14 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   };
   const pickInView = (ref, v) => pick(ref, v.id, () => nextNew(v.id));
   const rejectInView = (ref, v) => { reject(ref, v); nextNew(v.id); };
-  // A NOTE is an edit of the version you look at, by the agent whose output it is (editorFor):
-  // the edit is the next version, its parent the one you noted.
-  const note = (ref, v, text) => {
-    if (ref.at === 'unplaced') { toast('This has no place in the film yet: tell FilmAgent where it goes.'); return; }
-    request(editorFor(get(), ref, v, text));
+  // A NOTE edits the version you look at: a picture at once, a take through the bar, where you
+  // see what it will cost before pressing Edit.
+  const note = async (ref, v, text) => {
+    const name = await nameOf(v);
+    if (v.kind === 'plate') run('Drawing', () => tool('edit_image', { source: name, instruction: text }));
+    else setBar(barToEdit(get(), ref, { ...v, name }, text));
   };
-  // Casting's plate drawn again from the prompt you edited in the viewer.
-  const redraw = (ref, v, entry) => request({ agent: 'casting', action: 'redraw', scope: { type: 'element', id: ref.id }, text: '', from: { ref, vid: v.id }, entry });
+  const rework = async (ref, v) => setBar(barToRework(get(), ref, { ...v, name: await nameOf(v) }));
   // A take made with an earlier plate: keep it as it is, or shoot it again.
   const onStale = {
     keep: (sceneId, shotId) => set((x) => {
@@ -302,23 +322,10 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       const tk = pickedOf(sh.takes);
       return tk ? patchVersion(x, { at: 'take', sceneId, shotId }, tk.id, { used: usedOf(x, sh) }) : x;
     }),
-    redo: (sceneId, shotId) => request({ agent: 'camera', action: 'draft', scope: { type: 'shot', sceneId, id: shotId }, text: '', force: true }),
+    redo: (sceneId, shotId) => setScope({ type: 'shot', sceneId, id: shotId }),
   };
   const review = (ref, vid) => setView({ ref, vid });
-  // THE NEXT STEP, pressed: it takes you where it happens and does it.
-  const stand = scope.type === 'scenes' ? { type: 'brief' } : scope;
-  const step = planning ? null : nextStep(s, scope);
-  const doStep = (st) => {
-    if (st.review) { review(st.review.ref, st.review.vid); return; }
-    setMode('direct');
-    setScope(st.scope);
-    if (st.say) setDraft(st.say);
-    else if (st.final) request({ agent: 'camera', action: 'final', scope: st.scope, text: '', res: st.final.res });
-    else if (st.run) request(st.run);
-  };
-  // FINAL — a draft at full resolution: one from the viewer, or a scene's circled drafts.
-  const crewApi = { send: (agent, action, text) => request({ agent, action, scope: stand, text }), final: (sceneId, res) => request({ agent: 'camera', action: 'final', scope: { type: 'scene', id: sceneId }, text: '', res }) };
-  const final = (ref, v, res) => request({ agent: 'camera', action: 'final', scope: { type: 'shot', sceneId: ref.sceneId, id: ref.shotId }, text: '', from: { ref, vid: v.id }, res });
+  const final = (ref, v, resolution) => run('Finishing', async () => tool('finish', { name: await nameOf(v), resolution }));
   // OPEN IN CANVAS — only when asked: the element, shot or version becomes Canvas nodes and the
   // Canvas comes forward. A shot remembers its card, so takes shot there come back to it.
   const toCanvas = (make) => {
@@ -347,12 +354,12 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
 
   const changeStyle = (style) => {
     set((x) => ({ ...x, style: String(style || '').trim() }));
-    if (get().elements.some((e) => pickedOf(e))) Message.info({ content: 'The crew follows this from now on. Plates already made keep their look.', duration: 5000 });
+    if (get().elements.some((e) => pickedOf(e))) Message.info({ content: 'New plates follow this from now on. Plates already made keep their look.', duration: 5000 });
   };
   const title = String(projectTitle || '').replace(/^Project\s+/, '').replace(/^"|"$/g, '');
 
   return (
-    <div ref={rootRef} className="studio" style={{ position: 'relative', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', gridTemplateColumns: 'minmax(0, 1fr)', height: 'calc(100vh - 84px)', background: C.bg, border: '1px solid #000', borderRadius: 14, overflow: 'hidden', textAlign: 'left', color: C.ink }}>
+    <div ref={rootRef} className="studio" style={{ position: 'relative', display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto', gridTemplateColumns: 'minmax(0, 1fr)', height: 'calc(100vh - 84px)', background: C.bg, border: '1px solid #000', borderRadius: 14, overflow: 'hidden', textAlign: 'left', color: C.ink }}>
       <style dangerouslySetInnerHTML={{ __html: STUDIO_CSS }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '0 18px', height: 68, minWidth: 0, borderBottom: `1px solid ${C.line}`, background: C.panel }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '0 1 auto' }}>
@@ -361,48 +368,25 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
         </div>
         <Stages s={s} scope={scope} on={mode === 'direct'} go={(id) => { setMode('direct'); setScope(scopeOfStage(id)); }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 1 auto', minWidth: 0, justifyContent: 'flex-end' }}>
+          {jobs[0] && <Working stage={`${jobs[0].label}${jobs.length > 1 ? ` · ${jobs.length} jobs` : ''}`} since={jobs[0].since} />}
           {/* What waits for your verdict, oldest first: the pill opens the viewer on it. */}
           {work.fresh.length > 0 && <span role="button" onClick={() => nextNew()} title="Open what waits for your verdict" style={{ height: 38, padding: '0 16px', display: 'inline-flex', alignItems: 'center', borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 700, background: C.warn, color: C.accentInk, whiteSpace: 'nowrap', flex: '0 0 auto' }}>{work.fresh.length} new</span>}
           <span role="button" className="st-stage" aria-label="Generations" title="Generations" onClick={() => setMode(mode === 'generations' ? 'direct' : 'generations')} style={{ height: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', flex: '0 0 auto', color: mode === 'generations' ? C.ink : C.text, background: mode === 'generations' ? C.hover : 'transparent' }}>
             <IconApps /><span className="st-wide">Generations</span>
             {work.working > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: C.work, fontSize: 13 }}><Dot color={C.work} pulse />{work.working}</span>}
           </span>
-          {/* The film's look: pick one, type your own, or let the crew read it from the script. */}
-          <span title="The film's look. The crew follows it in everything it makes next; plates already made keep theirs." style={{ flex: '0 1 230px', minWidth: 130 }}>
-            <Select aria-label="Style" showSearch allowCreate prefix="Style" value={s.style || ''} onChange={changeStyle} options={[{ label: 'From the script', value: '' }, ...STYLES.map((x) => ({ label: x, value: x }))]} style={{ width: '100%' }} triggerProps={{ autoAlignPopupWidth: false, autoAlignPopupMinWidth: true }} getPopupContainer={() => rootRef.current} />
-          </span>
-          {/* The film's video model: what Camera drafts on, unless a shot picks its own. Premium drafts finish at 1080p or 4K. */}
-          <span title="What Camera drafts on. Seedance 2.5 finishes at 1080p; Premium at 1080p or 4K." style={{ flex: '0 1 160px', minWidth: 118 }}>
-            <Select value={s.videoModel} onChange={(videoModel) => set((x) => ({ ...x, videoModel }))} options={VIDEO_MODELS.map((m) => ({ label: m.label, value: m.key }))} style={{ width: '100%' }} getPopupContainer={() => rootRef.current} />
-          </span>
-          <span role="button" className="st-stage" aria-pressed={crewOpen} onClick={toggleCrew} title={crewOpen ? 'Hide the crew' : 'Show the crew'} aria-label="Crew" style={{ height: 38, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 10, cursor: 'pointer', fontSize: 15, fontWeight: 600, flex: '0 0 auto', color: crewOpen ? C.ink : C.text, background: crewOpen ? C.hover : 'transparent' }}><IconUserGroup /><span className="st-wide">Crew</span></span>
         </div>
       </div>
 
       {!linked ? <div /> : mode === 'direct' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: crewOpen ? `minmax(0, 1fr) ${crewWidth}px` : 'minmax(0, 1fr)', minHeight: 0 }}>
-          <div style={{ minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-            <DirectPage s={s} set={set} scope={scope} setScope={setScope} pick={pick} review={review} toast={toast} crew={crewApi} canvas={canvas} onStale={onStale} />
-          </div>
-          {crewOpen && (
-            <div style={{ borderLeft: `1px solid ${C.line}`, minHeight: 0, position: 'relative' }}>
-              <div role="separator" aria-orientation="vertical" title="Drag to resize" onMouseDown={dragCrew} style={{ position: 'absolute', left: -4, top: 0, bottom: 0, width: 8, cursor: 'col-resize', zIndex: 3 }} />
-              <Thread
-                s={s} scope={stand}
-                target={scope.type === 'shot' ? scopeTarget(s, scope) : ''}
-                onClearTarget={() => setScope({ type: 'scene', id: scope.sceneId })}
-                onRequest={fromComposer} answer={answer} review={review} ask={ask}
-                text={draft} setText={setDraft} undoShot={undoShot}
-                pick={(ref, v) => pick(ref, v.id)} reject={reject} stop={stop}
-                step={step} onStep={doStep}
-              />
-            </div>
-          )}
+        <div style={{ minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+          <DirectPage s={s} set={set} scope={scope} setScope={setScope} pick={pick} review={review} toast={toast} actions={actions} canvas={canvas} onStale={onStale} />
         </div>
       ) : (
         <GenerationsView s={s} set={set} open={review} />
       )}
-      {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onFinal={final} onReject={rejectInView} onRedraw={redraw} canvas={canvas} waiting={work.fresh} onNextNew={() => nextNew(view.vid)} />}
+      {linked && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} busy={actions.busy('Generating')} container={() => rootRef.current} setStyle={changeStyle} compact={mode === 'direct' && scope.type === 'brief'} />}
+      {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFinal={final} onReject={rejectInView} canvas={canvas} waiting={work.fresh} onNextNew={() => nextNew(view.vid)} />}
     </div>
   );
 };

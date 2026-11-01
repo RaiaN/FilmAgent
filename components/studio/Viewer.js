@@ -4,8 +4,7 @@ import { IconClose, IconStarFill, IconRight } from '@arco-design/web-react/icon'
 import { C, MONO, SCRIPT_FONT, Label, Avatar, CanvasButton, crewColor, crewWho, mediaOf, isVideo, Tile } from './ui';
 import { containerOf, findShot, pickedOf, videoModelLabel, visible } from '../../utils/film/studio/model';
 import { DRAFT_MODE, draftFinalsOf } from '../../utils/film/suiteConfig';
-import { containerLabel } from '../../utils/film/studio/runners';
-import { editorFor } from '../../utils/film/studio/crew';
+import { containerLabel } from '../../utils/film/studio/layout';
 import { InputsPanel, RefsEditor, inputsOf } from './Refs';
 import { ShotList } from './ShotList';
 import { shotsOf } from '../../utils/film/core/shotList';
@@ -88,32 +87,7 @@ const Versions = ({ c, vid, onSelect, kind }) => {
   );
 };
 
-// A Casting plate's prompts, editable: Draw again renders the plate anew from what you wrote.
-const CAST_FIELDS = (c) => {
-  const type = String(c?.type || c?.role || '').toLowerCase();
-  const has = (k) => String(c?.[k] || '').trim();
-  if (type === 'character' && has('facePrompt')) return [['facePrompt', 'Face'], ...(has('bodyPrompt') ? [['bodyPrompt', 'Body']] : [])];
-  const key = ['presencePrompt', 'prompt', 'facePrompt'].find(has) || 'prompt';
-  return [[key, type === 'creature' ? 'Presence' : 'Plate']];
-};
-const CastPrompts = ({ v, onRedraw }) => {
-  const [entry, setEntry] = useState(v.entry);
-  useEffect(() => { setEntry(v.entry); }, [v.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changed = JSON.stringify(entry) !== JSON.stringify(v.entry);
-  return (
-    <div style={{ display: 'grid', gap: 8, background: C.raised, border: `1px solid ${C.line}`, borderRadius: 12, padding: '12px 14px' }}>
-      <Label style={{ marginBottom: 0 }} right={<Button size="small" type={changed ? 'primary' : 'secondary'} disabled={!changed} onClick={() => onRedraw(entry)}>Draw again</Button>}>Prompt</Label>
-      {CAST_FIELDS(entry).map(([key, label]) => (
-        <div key={key} style={{ display: 'grid', gap: 3 }}>
-          <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
-          <Input.TextArea value={String(entry[key] || '')} onChange={(t) => setEntry((e) => ({ ...e, [key]: t }))} autoSize={{ minRows: 2, maxRows: 8 }} style={{ fontSize: 12.5, lineHeight: 1.55 }} />
-        </div>
-      ))}
-    </div>
-  );
-};
-
-export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onFinal, onReject, onRedraw, canvas, waiting, onNextNew }) => {
+export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework, onFinal, onReject, canvas, waiting, onNextNew }) => {
   const [note, setNote] = useState('');
   const [time, setTime] = useState(null);
   const [anchor, setAnchor] = useState(false);
@@ -131,9 +105,8 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onFinal, 
   const compare = current && current.id !== v.id && current.status !== 'running' && v.status !== 'running' && v.status !== 'failed' && !TEXT_KINDS.includes(v.kind) ? current : null;
   const shot = ref_.shotId ? findShot(s, ref_.sceneId, ref_.shotId) : null;
   const pickLabel = ref_.at === 'take' ? 'Circle' : 'Pick';
-  const noteTo = crewWho(editorFor(s, ref_, v, '').agent);
   const textual = TEXT_KINDS.includes(v.kind);
-  const side = !textual && ((v.flags || []).some((f) => f.warn) || (v.entry && v.status !== 'running') || v.prompt || inputsOf(s, v).length > 0 || shot);
+  const side = !textual && ((v.flags || []).some((f) => f.warn) || v.prompt || inputsOf(s, v).length > 0 || shot);
   // A draft finishes as the same picture in MOV, on the model that drafted it, at a resolution
   // that model offers (2.5: 1080p · Premium: 1080p or 4K), within the draft's 7 days.
   const finishable = ref_.at === 'take' && v.draft?.taskId && v.status !== 'running' && v.status !== 'failed';
@@ -177,7 +150,6 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onFinal, 
           {side && (
             <div style={{ borderLeft: `1px solid ${C.line}`, padding: 18, overflowY: 'auto', minHeight: 0, display: 'grid', gap: 20, alignContent: 'start' }}>
               <Flags v={v} />
-              {v.entry && v.status !== 'running' && <CastPrompts v={v} onRedraw={(entry) => { onRedraw(ref_, v, entry); setView(null); }} />}
               <InputsPanel s={s} v={v} />
               {shot && <RefsEditor s={s} set={set} sceneId={ref_.sceneId} shotId={ref_.shotId} toast={toast} />}
             </div>
@@ -187,8 +159,9 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onFinal, 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', background: C.raised, borderTop: `1px solid ${C.line}`, padding: '12px 20px', flexWrap: 'wrap', flex: '0 0 auto' }}>
             {v.status !== 'picked' ? <Button size="large" type="primary" icon={<IconStarFill />} onClick={() => onPick(ref_, v)} style={{ minWidth: 128 }}>{pickLabel}</Button> : <span style={{ color: C.gold, fontWeight: 700, fontSize: 15, padding: '0 8px' }}>★ {ref_.at === 'take' ? 'Circled' : 'Picked'}</span>}
             {isVideo(v) && time != null && <Button size="large" type={anchor ? 'primary' : 'secondary'} onClick={() => setAnchor((a) => !a)}>at {time.toFixed(1)} s</Button>}
-            <Input size="large" value={note} onChange={setNote} onPressEnter={send} placeholder={`Note to ${noteTo}`} style={{ flex: '1 1 260px', fontSize: 15 }} />
-            <Button size="large" disabled={!note.trim()} onClick={send}>Send note</Button>
+            <Input size="large" value={note} onChange={setNote} onPressEnter={send} placeholder={isVideo(v) ? 'What should change in this take' : 'What should change in this picture'} style={{ flex: '1 1 260px', fontSize: 15 }} />
+            <Button size="large" disabled={!note.trim()} onClick={send}>{isVideo(v) ? 'Edit' : 'Edit picture'}</Button>
+            {ref_.at !== 'cut' && isVideo(v) && <Button size="large" onClick={() => { onRework(ref_, v); setView(null); }}>Rework</Button>}
             {finalRes.map((res) => <Button key={res} size="large" onClick={() => onFinal(ref_, v, res)} disabled={expired} title={expired ? 'Drafts finish within 7 days — draft the shot again' : `The same picture at ${res} MOV · ${videoModelLabel(v.draft.modelKey || 'seedance25')}`}>{finalsOf.length ? 'Final again' : 'Final'} · {res}</Button>)}
             {v.status !== 'rejected' && <Button size="large" icon={<IconClose />} status="danger" onClick={() => onReject(ref_, v)} title="Reject" aria-label="Reject" />}
           </div>

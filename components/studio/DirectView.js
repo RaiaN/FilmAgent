@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Input, Select } from '@arco-design/web-react';
-import { IconClose, IconPlus, IconStarFill, IconUpload, IconSend, IconFile, IconDownload, IconLeft, IconRight, IconLoading, IconPlayArrowFill } from '@arco-design/web-react/icon';
-import { C, MONO, SCRIPT_FONT, Tile, Empty, Pill, Avatar, PageHead, DropArea, CanvasButton, crewColor, crewWho, mediaOf, storeFile, readFile, readText } from './ui';
+import { Button, Input, InputNumber, Select } from '@arco-design/web-react';
+import { IconClose, IconPlus, IconStarFill, IconUpload, IconFile, IconDownload, IconLeft, IconRight, IconLoading, IconPlayArrowFill } from '@arco-design/web-react/icon';
+import { C, MONO, SCRIPT_FONT, Tile, Empty, Pill, PageHead, DropArea, CanvasButton, crewColor, mediaOf, storeFile, readFile, readText } from './ui';
 import { stageLocalAsset } from '../../utils/film/canvasModel';
-import { ELEMENT_KINDS, KIND_LABEL, VIDEO_MODELS, videoModelLabel, containerOf, findElement, findScene, findShot, namedText, tokenized, pickedOf, pad2, shotNumber, threadKeyOf, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
-import { actionsFor, crewById, parseRequest, talkerFor } from '../../utils/film/studio/crew';
+import { ELEMENT_KINDS, KIND_LABEL, VIDEO_MODELS, videoModelLabel, findElement, findScene, namedText, tokenized, pickedOf, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
+import { needsOfScene } from '../../utils/film/studio/bar';
 import { sceneHero, viewsOfShot, finalsOfShots, toFinish } from '../../utils/film/studio/guide';
 import { parseScript } from '../../utils/film/core/scriptForm';
 import { shotsOf } from '../../utils/film/core/shotList';
@@ -57,11 +57,11 @@ export const Working = ({ stage, since }) => {
 };
 
 // ---- SCRIPT: the screenplay on one side, its shot list on the other --------------------------
-const ScriptPage = ({ s, set, toast, setScope }) => {
+const ScriptPage = ({ s, set, toast, setScope, actions }) => {
   const script = String(s.script || '');
   const [importing, setImporting] = useState('');
   const openScript = async (file) => {
-    try { const t = await readText(file); set((x) => ({ ...x, script: t })); } catch (e) { toast(e.message); }
+    try { const t = await readText(file); write(t); } catch (e) { toast(e.message); }
   };
   const fromFootage = (files) => {
     const sc = newScene('Scene 1');
@@ -69,37 +69,47 @@ const ScriptPage = ({ s, set, toast, setScope }) => {
     setScope({ type: 'scene', id: sc.id });
     importFootage({ files, sceneId: sc.id, set, toast, onProgress: setImporting });
   };
-  const write = (v) => set((x) => ({ ...x, script: v }));
+  const write = (v) => set((x) => ({ ...x, script: v, scriptAt: Date.now() }));
   const screenplay = parseScript(script).form === 'screenplay';
   const fresh = shotListFresh(s);
+  // Break down and Write take the words on screen, typed a moment ago or not.
+  const breakdown = screenplay
+    ? <Button size="large" type="primary" loading={actions.busy('Breaking down')} onClick={() => actions.breakdown(script)}>{s.scenes.length ? 'Break down again' : 'Break down into shots'}</Button>
+    : <Button size="large" type="primary" disabled={!script.trim()} loading={actions.busy('Writing')} onClick={() => actions.write(script)}>Write the screenplay</Button>;
   // The shot list as the film has it now: every scene with its picked shots.
   const live = s.scenes.some((sc) => pickedOf(sc.blocking)) ? { people: s.shotList?.people || [], scenes: s.scenes.map((sc, i) => ({ n: i + 1, place: sc.place || sc.title, time: sc.place ? sc.time : '', sheet: pickedOf(sc.blocking)?.payload || null })) } : null;
-  // An idea is written big, in the middle of the stage; a screenplay is a page.
+  // An empty film opens on the headline and the script, big; a screenplay is a page.
   if (!screenplay && !live) {
     return (
       <DropArea onFiles={(fs) => openScript(fs[0])} accept={(f) => !isMedia(f)} hint="Drop to open the script" style={{ ...PAGE, display: 'grid', placeItems: 'center' }}>
-        <div style={{ width: 'min(920px, 100%)', display: 'grid', gap: 18 }}>
-          <div style={{ background: C.page, border: `1px solid ${C.lineHi}`, borderRadius: 20, padding: '32px 36px' }}>
-            <Draft area live className="st-bare" value={script} onCommit={write} autoSize={{ minRows: 9, maxRows: 18 }} placeholder="Your film — an idea, or a screenplay" style={{ fontSize: 24, lineHeight: 1.5, color: C.ink, letterSpacing: -0.2 }} />
+        <div style={{ width: 'min(1040px, 100%)', display: 'grid', gap: 22 }}>
+          <h1 style={{ margin: 0, textAlign: 'center', fontSize: 'clamp(38px, 5.4vw, 74px)', fontWeight: 800, letterSpacing: -2, lineHeight: 1.04, color: C.ink }}>From script to screen</h1>
+          <p style={{ margin: 0, textAlign: 'center', fontSize: 19, color: C.text }}>Your shot list, your cast and your takes, in one place.</p>
+          <div style={{ background: C.page, border: `1px solid ${C.lineHi}`, borderRadius: 22, padding: '24px 30px' }}>
+            <Draft area live className="st-bare" value={script} onCommit={write} autoSize={{ minRows: 5, maxRows: 14 }} placeholder="Your film: an idea, or a screenplay" style={{ fontSize: 22, lineHeight: 1.5, color: C.ink, letterSpacing: -0.2 }} />
           </div>
-          {!script.trim() && (
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <UploadButton size="large" icon={<IconFile />} accept=".txt,.fountain,.md,text/plain" onFile={openScript}>Open a script</UploadButton>
-              <UploadButton size="large" icon={<IconUpload />} accept="video/*" loading={!!importing} onFiles={fromFootage}>{importing ? `Importing ${importing}` : 'Start from footage'}</UploadButton>
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            {breakdown}
+            <UploadButton size="large" icon={<IconFile />} accept=".txt,.fountain,.md,text/plain" onFile={openScript}>Open a script</UploadButton>
+            <UploadButton size="large" icon={<IconUpload />} accept="video/*" loading={!!importing} onFiles={fromFootage}>{importing ? `Importing ${importing}` : 'Start from footage'}</UploadButton>
+          </div>
         </div>
       </DropArea>
     );
   }
   const paper = (
     <div style={{ background: C.page, border: `1px solid ${C.line}`, borderRadius: 16, padding: '56px clamp(28px, 8%, 88px)', boxSizing: 'border-box' }}>
-      <Draft area live className="st-script" value={script} onCommit={write} autoSize={{ minRows: 12 }} placeholder="Your film — an idea, or a screenplay" />
+      <Draft area live className="st-script" value={script} onCommit={write} autoSize={{ minRows: 12 }} placeholder="Your film: an idea, or a screenplay" />
     </div>
   );
   return (
     <DropArea onFiles={(fs) => openScript(fs[0])} accept={(f) => !isMedia(f)} hint="Drop to open the script" style={{ height: '100%', display: 'grid', gridTemplateColumns: live ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', minHeight: 0 }}>
-      <div style={PAGE}><div style={{ maxWidth: live ? 'none' : 960, margin: '0 auto' }}>{paper}</div></div>
+      <div style={PAGE}>
+        <div style={{ maxWidth: live ? 'none' : 960, margin: '0 auto', display: 'grid', gap: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>{breakdown}</div>
+          {paper}
+        </div>
+      </div>
       {live && (
         <div style={{ ...PAGE, borderLeft: `1px solid ${C.line}`, background: C.panel }}>
           {!fresh && <div style={{ marginBottom: 18 }}><Pill color={C.warn} bg={C.warnSoft} style={{ fontSize: 13, padding: '3px 10px' }}>The script changed</Pill></div>}
@@ -133,7 +143,7 @@ const NameTile = ({ el, s, open }) => {
     </div>
   );
 };
-const WorldPage = ({ s, set, open, toast }) => {
+const WorldPage = ({ s, set, open, toast, actions }) => {
   const [adding, setAdding] = useState(null);
   const withPlate = async (el, file) => {
     const url = await storeFile(file);
@@ -154,9 +164,16 @@ const WorldPage = ({ s, set, open, toast }) => {
       try { const el = await withPlate(newElement({ kind: k, name: f.name.replace(/\.[^.]+$/, '') }), f); set((x) => ({ ...x, elements: [...x.elements, el] })); } catch (e) { toast(`${f.name}: ${e.message}`); } // eslint-disable-line no-await-in-loop
     }
   };
+  const missing = s.elements.filter((e) => !e.viewOf && !plateOf(e) && !(e.versions || []).some((v) => v.status === 'running')).map((e) => e.name);
   return (
     <div style={PAGE}>
       <div style={{ display: 'grid', gap: 44 }}>
+        {missing.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderRadius: 14, background: C.raised, flexWrap: 'wrap' }}>
+            <span style={{ flex: 1, minWidth: 200, fontSize: 15, color: C.ink }}>Waiting for a plate: {missing.join(', ')}</span>
+            <Button size="large" type="primary" loading={actions.busy('Casting')} onClick={() => actions.cast(missing)}>Generate {missing.length} plate{missing.length === 1 ? '' : 's'}</Button>
+          </div>
+        )}
         {ELEMENT_KINDS.map((k) => {
           const list = s.elements.filter((e) => e.kind === k && !e.viewOf);
           return (
@@ -185,8 +202,10 @@ const WorldPage = ({ s, set, open, toast }) => {
   );
 };
 
-const ElementPage = ({ s, set, el, pick, review, toast, open, canvas }) => {
+const ElementPage = ({ s, set, el, pick, review, toast, open, canvas, actions }) => {
   const [busy, setBusy] = useState(false);
+  const [direction, setDirection] = useState('');
+  const [count, setCount] = useState(2);
   const versions = (el.versions || []).filter((v) => visible(v) && v.status !== 'rejected');
   const upload = async (files) => {
     setBusy(true);
@@ -229,6 +248,16 @@ const ElementPage = ({ s, set, el, pick, review, toast, open, canvas }) => {
         </div>
         <div style={{ display: 'grid', gap: 20, minWidth: 0 }}>
           <Draft area value={el.desc} onCommit={(v) => patch({ desc: v })} autoSize={{ minRows: 5, maxRows: 14 }} placeholder="Who or what this is" style={{ fontSize: 15, lineHeight: 1.6 }} />
+          {!el.viewOf && (
+            <div style={{ display: 'grid', gap: 10, padding: 14, borderRadius: 14, background: C.raised }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{el.kind === 'location' ? 'Background plates' : el.kind === 'character' ? 'Looks' : 'Variations'}</span>
+              <Input.TextArea value={direction} onChange={setDirection} autoSize={{ minRows: 2, maxRows: 6 }} placeholder={el.kind === 'location' ? 'What differs: other camera positions, dusk, rain' : 'What differs: another costume, older'} style={{ fontSize: 14.5 }} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <InputNumber aria-label="How many" min={1} max={8} value={count} onChange={(v) => setCount(v || 1)} style={{ width: 84 }} />
+                <Button type="primary" style={{ flex: 1 }} disabled={!plateOf(el) && !el.desc && !direction.trim()} loading={actions.busy('Drawing')} onClick={() => { actions.variations(el, direction, count); setDirection(''); }}>Generate {count}</Button>
+              </div>
+            </div>
+          )}
           {views.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               {views.map((vw) => {
@@ -436,12 +465,6 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
               <summary style={{ fontSize: 14, color: C.text, cursor: 'pointer', marginBottom: 8 }}>Text</summary>
               <Draft area value={namedText(s, sh.motion)} onCommit={(v) => patchShot(sh.id, { motion: tokenized(s, v, sh.elementIds) })} autoSize={{ minRows: 6, maxRows: 18 }} placeholder="What happens in the shot" style={{ fontSize: 15, lineHeight: 1.6 }} />
             </details>
-            {n > 1 && (
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, color: sh.startFrom === 'previous' ? C.ink : C.muted, cursor: 'pointer' }}>
-                <input type="checkbox" checked={sh.startFrom === 'previous'} onChange={(e) => patchShot(sh.id, { startFrom: e.target.checked ? 'previous' : null })} style={{ accentColor: C.accent }} />
-                Starts where shot {pad2(n - 1)} ends
-              </label>
-            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Select value={sh.videoModel || ''} onChange={(k) => patchShot(sh.id, { videoModel: k || null })} options={[{ label: `Film · ${videoModelLabel(s.videoModel)}`, value: '' }, ...VIDEO_MODELS.map((m) => ({ label: m.label, value: m.key }))]} style={{ flex: '1 1 200px' }} getPopupContainer={(node) => node.parentElement} />
               <Button status="danger" type="text" onClick={() => { removeShot(sh.id); select(null); }}>Remove</Button>
@@ -453,9 +476,40 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
   );
 };
 
-const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canvas, crew, onStale }) => {
+// PLAY SCENE: the circled takes in order. A shot with no circled take holds as a card for its length.
+const PlayScene = ({ s, scene, onClose }) => {
+  const [i, setI] = useState(0);
+  const sh = scene.shots[i];
+  const take = sh ? pickedOf(sh.takes) : null;
+  const next = () => (i + 1 < scene.shots.length ? setI(i + 1) : onClose());
+  useEffect(() => {
+    if (!sh || take) return undefined;
+    const t = setTimeout(next, Math.max(1, Number(sh.seconds) || 1) * 1000);
+    return () => clearTimeout(t);
+  }, [i]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!sh) return null;
+  return (
+    <div role="dialog" aria-label="Play scene" onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 20, background: '#000', display: 'grid', gridTemplateRows: 'minmax(0, 1fr) auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ minHeight: 0, display: 'grid', placeItems: 'center' }}>
+        {take
+          ? <video key={take.id} src={mediaOf(take)} autoPlay controls onEnded={next} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
+          : <span style={{ fontSize: 28, color: C.text, textAlign: 'center', padding: 40 }}>{pad2(shotNumber(s, sh.id))} · {sh.title}<br /><span style={{ fontSize: 16, color: C.muted }}>No circled take</span></span>}
+      </div>
+      <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 18px', background: C.panel }}>
+        <span style={{ fontFamily: MONO, color: C.accent }}>{pad2(shotNumber(s, sh.id))}</span>
+        <span style={{ flex: 1, color: C.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sh.title}</span>
+        <span style={{ fontFamily: MONO, color: C.muted }}>{i + 1}/{scene.shots.length}</span>
+        <Button type="text" icon={<IconClose />} aria-label="Close" onClick={onClose} />
+      </div>
+    </div>
+  );
+};
+
+const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canvas, actions, onStale }) => {
   const [importing, setImporting] = useState('');
   const [script, setScript] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const needs = needsOfScene(s, scene);
   const blockings = scene.blocking?.versions || [];
   const blockRunning = blockings.some((v) => v.status === 'running');
   const patchShot = (id, patch) => set((x) => ({ ...x, scenes: x.scenes.map((sc) => (sc.id !== scene.id ? sc : { ...sc, shots: sc.shots.map((sh) => (sh.id === id ? { ...sh, ...patch } : sh)) })) }));
@@ -475,7 +529,9 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
       <PageHead
         right={(
           <>
-            {finishing.length > 0 && finalRes.map((res) => <Button key={res} size="large" onClick={() => crew.final(scene.id, res)}>Final · {res}</Button>)}
+            {(needs.names.length > 0 || needs.views > 0) && <Button size="large" type="primary" loading={actions.busy('Casting') || actions.busy('Drawing')} onClick={() => actions.generateMissing(scene)}>Generate missing · {needs.names.length + needs.views}</Button>}
+            {scene.shots.some((sh) => pickedOf(sh.takes)) && <Button size="large" icon={<IconPlayArrowFill />} onClick={() => setPlaying(true)}>Play scene</Button>}
+            {finishing.length > 0 && finalRes.map((res) => <Button key={res} size="large" onClick={() => actions.finalScene(finishing, res)}>Final · {res}</Button>)}
             {scene.text && <Button size="large" type={script ? 'primary' : 'secondary'} onClick={() => setScript((o) => !o)}>Script</Button>}
             <Button size="large" icon={<IconPlus />} onClick={addShot}>Shot</Button>
             <UploadButton size="large" icon={<IconUpload />} accept="video/*" loading={!!importing} onFiles={importFiles}>{importing ? `Importing ${importing}` : 'Footage'}</UploadButton>
@@ -501,6 +557,7 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
           </div>
         </div>
       )}
+      {playing && <PlayScene s={s} scene={scene} onClose={() => setPlaying(false)} />}
       <div style={{ display: 'grid', gap: 18 }}>
         {scene.shots.map((sh) => <ShotBlock key={sh.id} s={s} set={set} scene={scene} sh={sh} on={scope.type === 'shot' && scope.id === sh.id} select={selectShot} patchShot={patchShot} removeShot={removeShot} review={review} toast={toast} canvas={canvas} onStale={onStale} single={scene.shots.length === 1 && sh.title === scene.title} />)}
       </div>
@@ -509,13 +566,19 @@ const ScenePage = ({ s, set, scene, scope, selectShot, open, review, toast, canv
 };
 
 // ---- CUT: the film, big, over its timeline -----------------------------------------------------
-const CutPage = ({ s, review, selectScene }) => {
+const CutPage = ({ s, review, selectScene, actions }) => {
   const cut = pickedOf(s.cut) || [...(s.cut.versions || [])].reverse().find((v) => v.status === 'review' || v.status === 'running');
   const scenes = s.scenes.filter((sc) => sc.shots.length);
   const secondsOf = (sc) => sc.shots.reduce((n, sh) => n + Math.max(1, Number(sh.seconds) || 1), 0);
   const ready = cut && cut.status !== 'running' && mediaOf(cut);
+  const shots = s.scenes.flatMap((sc) => sc.shots);
+  const circled = shots.filter((sh) => pickedOf(sh.takes)).length;
   return (
     <div style={{ ...PAGE, display: 'grid', gap: 24, alignContent: 'start' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
+        <span style={{ fontFamily: MONO, fontSize: 14, color: C.muted }}>{circled}/{shots.length} circled</span>
+        <Button size="large" type="primary" disabled={!circled} loading={actions.busy('Assembling')} onClick={() => actions.assemble(circled < shots.length)}>Assemble</Button>
+      </div>
       <div style={{ position: 'relative' }}>
         {ready
           ? <video key={mediaOf(cut)} src={mediaOf(cut)} poster={cut.posterUrl || undefined} controls style={{ width: '100%', maxHeight: 'calc(100vh - 340px)', background: '#000', borderRadius: 18, display: 'block' }} />
@@ -553,268 +616,20 @@ const CutPage = ({ s, review, selectScene }) => {
   );
 };
 
-// ---- THREAD + COMPOSER ----------------------------------------------------------------------
-const who = crewWho;
-const From = ({ id, children }) => (
-  <div style={{ display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr)', gap: 10, alignItems: 'start' }}>
-    <Avatar id={id} size={28} />
-    <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: crewColor(id), marginBottom: 4, lineHeight: '15px', paddingTop: 1 }}>{who(id)}</div>
-      {children}
-    </div>
-  </div>
-);
-// Long words in the thread fold to a few lines; more / less opens them.
-const CLAMP_CHARS = 280;
-const Clamped = ({ text }) => {
-  const [open, setOpen] = useState(false);
-  const long = String(text || '').length > CLAMP_CHARS;
-  if (!long) return text || null;
-  return (
-    <>
-      <span style={open ? undefined : { display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{text}</span>
-      <span role="button" onClick={() => setOpen((o) => !o)} style={{ display: 'block', marginTop: 4, fontSize: 12, color: C.text, cursor: 'pointer', textDecoration: 'underline' }}>{open ? 'less' : 'more'}</span>
-    </>
-  );
-};
-const KIND_TEXT = { script: 'Screenplay', shotList: 'Shot list', blocking: 'Shots' };
-const textLabel = (v) => (v.kind === 'shotList' ? `Shot list · ${(v.payload?.scenes || []).length} scenes` : v.kind === 'blocking' ? `This scene's shots · ${v.payload?.seconds || '?'} s` : v.title || KIND_TEXT[v.kind] || 'Text');
-// Your verdict, right on the work: ★ pick (circle a take), ✕ reject; open it for notes.
-const Verdict = ({ it, pick, reject }) => (it.v.status === 'review' ? (
-  <span style={{ display: 'inline-flex', gap: 2 }}>
-    <span role="button" className="st-chip" title={it.ref.at === 'take' ? 'Circle' : 'Pick'} onClick={(e) => { e.stopPropagation(); pick(it.ref, it.v); }} style={{ cursor: 'pointer', color: C.gold, padding: '2px 6px', borderRadius: 6, fontSize: 14 }}><IconStarFill /></span>
-    <span role="button" className="st-chip" title="Reject" onClick={(e) => { e.stopPropagation(); reject(it.ref, it.v); }} style={{ cursor: 'pointer', color: C.muted, padding: '2px 6px', borderRadius: 6, fontSize: 14 }}><IconClose /></span>
-  </span>
-) : null);
-const Message = ({ s, m, answer, review, setText, undo, pick, reject, stop }) => {
-  if (m.from === 'you') {
-    const agent = crewById(m.agent);
-    const action = agent?.actions.find((a) => a.id === m.action) || null;
-    return (
-      <div style={{ justifySelf: 'end', maxWidth: '88%', background: C.accentSoft, border: '1px solid rgba(255,150,38,0.22)', borderRadius: '12px 12px 4px 12px', padding: '9px 12px', fontSize: 14, color: C.ink, lineHeight: 1.5 }}>
-        {/* A button (Final) reads as what you pressed, not as an @ request. */}
-        {action?.talk ? null : action?.button
-          ? <b style={{ fontWeight: 700 }}>{action.label} </b>
-          : <>
-            {agent && <b style={{ color: crewColor(agent.id), fontWeight: 700 }}>@{agent.handle} </b>}
-            {action && <span style={{ color: C.text }}>{action.label.toLowerCase()} </span>}
-          </>}
-        {m.target && <span style={{ color: C.muted }}>{m.target}{m.text ? ' · ' : ''}</span>}
-        <Clamped text={m.text} />
-      </div>
-    );
-  }
-  if (m.kind === 'question') {
-    return (
-      <From id={m.from}>
-        <div style={{ background: C.warnSoft, border: '1px solid rgba(255,122,89,0.25)', borderRadius: 12, padding: '10px 12px', fontSize: 14 }}>
-          <div style={{ color: C.ink, lineHeight: 1.5 }}>{m.text}</div>
-          {m.answered
-            ? <div style={{ fontSize: 12.5, color: C.muted, marginTop: 6 }}>→ {m.answered}</div>
-            : <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 9 }}>{(m.options || []).map((o, i) => <Button key={i} type={i === 0 ? 'primary' : 'secondary'} onClick={() => answer(m, o)}>{o.label}</Button>)}</div>}
-        </div>
-      </From>
-    );
-  }
-  if (m.kind === 'ask') {
-    return (
-      <div style={{ fontSize: 14 }}>
-        <div style={{ color: C.muted, marginBottom: 7 }}>Who's this for?</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {(m.handles || []).map((h) => {
-            const agent = crewById(h.toLowerCase());
-            return <span key={h} role="button" className="st-chip" onClick={() => setText(`@${h} ${m.text || ''}`)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px 3px 3px', borderRadius: 8, border: `1px solid ${C.line}`, background: C.raised, cursor: 'pointer', color: C.ink }}>{agent && <Avatar id={agent.id} size={20} />}@{h}</span>;
-          })}
-        </div>
-      </div>
-    );
-  }
-  if (m.kind === 'reply') {
-    const ch = m.change;
-    return (
-      <From id={m.from}>
-        <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.55 }}><Clamped text={m.text} /></div>
-        {(ch || (m.unknown || []).length > 0) && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 7, fontSize: 12.5, opacity: m.undone ? 0.5 : 1 }}>
-            {ch?.text && <Pill color={C.accent} bg={C.accentSoft}>prompt updated</Pill>}
-            {ch?.screenplay && <Pill color={C.accent} bg={C.accentSoft}>screenplay updated</Pill>}
-            {(ch?.scenes || []).map((n) => <Pill key={`sc${n}`} color={C.accent} bg={C.accentSoft}>scene {n} shots updated</Pill>)}
-            {(ch?.renamed || []).map((n) => <Pill key={`rn${n}`} color={C.accent} bg={C.accentSoft}>{n}</Pill>)}
-            {(ch?.described || []).map((n) => <Pill key={`ds${n}`} color={C.accent} bg={C.accentSoft}>{n} described</Pill>)}
-            {(ch?.added || []).map((n) => <Pill key={`+${n}`} color={C.good} bg={C.goodSoft}>+ {n}</Pill>)}
-            {(ch?.removed || []).map((n) => <Pill key={`-${n}`} color={C.muted} bg={C.raised} style={{ textDecoration: 'line-through' }}>{n}</Pill>)}
-            {(m.unknown || []).map((n) => <Pill key={`?${n}`} color={C.warn} bg={C.warnSoft}>{m.from === 'shot' ? `no ${n} in Cast & World` : n}</Pill>)}
-            {ch && (m.undone
-              ? <span style={{ color: C.muted }}>undone</span>
-              : <span role="button" className="st-ghost" onClick={() => undo(m)} style={{ color: C.text, cursor: 'pointer', textDecoration: 'underline' }}>Undo</span>)}
-          </div>
-        )}
-      </From>
-    );
-  }
-  if (m.kind === 'error') return <From id={m.from}><div style={{ fontSize: 14, color: C.bad, lineHeight: 1.5 }}>{m.text}</div></From>;
-  if (m.kind === 'delivery') {
-    const all = (m.items || []).map((it) => ({ ...it, v: (containerOf(s, it.ref)?.versions || []).find((x) => x.id === it.vid) })).filter((it) => it.v);
-    // Failed work is not shown — one line says how much did not render (Generations ▸ Failed has it).
-    const items = all.filter((it) => visible(it.v));
-    const failedN = all.filter((it) => it.v.status === 'failed' && !it.v.archived && it.v.error !== 'Stopped').length;
-    const head = (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        {m.summary && <span style={{ fontSize: 13, color: C.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.summary}</span>}
-        {!m.finished && !m.stopped && <span role="button" className="st-ghost" onClick={() => stop(m)} style={{ marginLeft: 'auto', fontSize: 12.5, color: C.muted, cursor: 'pointer', textDecoration: 'underline' }}>Stop</span>}
-        {m.stopped && <span style={{ marginLeft: 'auto', fontSize: 12.5, color: C.muted }}>stopped</span>}
-      </div>
-    );
-    const failedLine = failedN > 0 ? <div style={{ fontSize: 12.5, color: C.muted }}>{failedN} didn't render — Generations ▸ Failed</div> : null;
-    if (!items.length) {
-      return m.finished && !m.summary ? null : (
-        <From id={m.from}><div style={{ display: 'grid', gap: 5 }}>{head}{!m.finished && !m.stopped && <Working stage={m.stage} since={m.at} />}{failedLine}</div></From>
-      );
-    }
-    const textual = items.filter((it) => Object.keys(KIND_TEXT).includes(it.v.kind));
-    return (
-      <From id={m.from}>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {head}
-          {!m.finished && !m.stopped && m.stage && <Working stage={m.stage} since={m.at} />}
-          {failedLine}
-          {textual.map((it) => (
-            <div key={it.vid} role="button" className="st-card" onClick={() => it.v.status !== 'running' && review(it.ref, it.vid)} style={{ border: `1px solid ${it.v.status === 'review' ? 'rgba(255,122,89,0.45)' : C.line}`, background: C.raised, borderRadius: 12, padding: '10px 12px', cursor: 'pointer', fontSize: 14, fontWeight: 600, color: it.v.status === 'failed' ? C.bad : C.ink, display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {it.v.status === 'running' ? <span className="st-pulse" style={{ color: C.work }}>working…</span> : it.v.status === 'failed' ? it.v.error : textLabel(it.v)}
-              </span>
-              {it.v.status === 'review' && <span style={{ fontSize: 11.5, fontWeight: 700, color: C.warn }}>new</span>}
-              <Verdict it={it} pick={pick} reject={reject} />
-              {it.v.status === 'picked' && <IconStarFill style={{ color: C.gold }} />}
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {items.filter((it) => !textual.includes(it)).map((it) => (
-              <div key={it.vid} style={{ display: 'grid', gap: 3, justifyItems: 'center' }}>
-                <Tile v={it.v} w={it.v.kind === 'plate' ? 88 : 148} ratio={it.v.kind === 'plate' ? '1' : '16 / 9'} picked={it.v.status === 'picked'} onClick={it.v.status !== 'running' ? () => review(it.ref, it.vid) : undefined} />
-                <Verdict it={it} pick={pick} reject={reject} />
-              </div>
-            ))}
-          </div>
-        </div>
-      </From>
-    );
-  }
-  return null;
-};
-
-// What plain words talk to, where you stand.
-const TALK_TO = { brief: 'Talk to the script', scene: 'Talk to this scene', world: 'Talk to Cast & World', element: 'Talk to Cast & World', cut: 'Talk to the cut' };
-const Composer = ({ s, scope, onSend, text, setText, target }) => {
-  const element = scope.type === 'element' ? findElement(s, scope.id) : null;
-  const avail = actionsFor(scope, element);
-  const atWord = /^@(\w*)$/.exec(text.trim());
-  const suggest = atWord ? avail.filter(({ agent }) => agent.handle.toLowerCase().startsWith(atWord[1].toLowerCase())) : [];
-  const send = () => { if (text.trim()) { onSend(text); setText(''); } };
-  // An @ put here for you (the next step, the @ menu): your words go right after it.
-  const box = useRef(null);
-  useEffect(() => { if (/^@\w+ $/.test(text)) box.current?.querySelector('textarea')?.focus(); }, [text]);
-  return (
-    <div ref={box} style={{ position: 'relative' }}>
-      {suggest.length > 0 && (
-        <div style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 6, background: C.raised, border: `1px solid ${C.lineHi}`, borderRadius: 12, padding: 5, zIndex: 5, boxShadow: '0 12px 30px rgba(0,0,0,0.45)' }}>
-          {suggest.map(({ agent, action }) => (
-            <div key={`${agent.id}.${action.id}`} role="button" className="st-row" onClick={() => setText(`@${agent.handle} `)} style={{ padding: '7px 9px', cursor: 'pointer', fontSize: 14, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 9, color: C.ink }}>
-              <Avatar id={agent.id} size={24} /><b style={{ color: crewColor(agent.id), fontWeight: 600 }}>@{agent.handle}</b><span style={{ color: C.muted, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{action.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ background: C.raised, border: `1px solid ${C.lineHi}`, borderRadius: 14, padding: '8px 8px 8px 6px', display: 'flex', alignItems: 'flex-end', gap: 4 }}>
-        <Input.TextArea
-          className="st-bare" value={text} onChange={setText} autoSize={{ minRows: 1, maxRows: 6 }}
-          onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={`${target ? 'Talk to this shot' : TALK_TO[scope.type] || 'Talk'} · @ crew`}
-          style={{ fontSize: 15, lineHeight: 1.5 }}
-        />
-        <Button type="primary" shape="circle" icon={<IconSend />} disabled={!text.trim()} onClick={send} style={{ flex: '0 0 auto' }} aria-label="Send" />
-      </div>
-    </div>
-  );
-};
-
-export const scopeTitle = (s, scope) => {
-  if (scope.type === 'brief') return 'Script';
-  if (scope.type === 'world') return 'Cast & World';
-  if (scope.type === 'element') return findElement(s, scope.id)?.name || '';
-  if (scope.type === 'scene') return findScene(s, scope.id)?.title || '';
-  if (scope.type === 'shot') return findScene(s, scope.sceneId)?.title || '';
-  if (scope.type === 'cut') return 'Cut';
-  return '';
-};
-
-// THE NEXT STEP — the guide's one thing to do, always above the composer: one press does it (a
-// crew job runs, what waits opens, the words go in the composer).
-const NextStep = ({ step, onStep, here }) => {
-  if (!step) return null;
-  if (step.write && here) return <div style={{ fontSize: 14.5, color: C.text, padding: '0 2px 10px' }}>{step.label}</div>;
-  const agent = step.agent ? crewById(step.agent) : null;
-  return (
-    <div style={{ paddingBottom: 12 }}>
-      <Button long size="large" type="primary" onClick={() => onStep(step)} style={{ height: 52, fontSize: 16, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-        {step.review ? <IconStarFill /> : step.say || step.write ? <IconRight /> : <IconPlayArrowFill />}
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{step.label}</span>
-        {agent && <span style={{ fontSize: 12.5, fontWeight: 500, opacity: 0.65 }}>{agent.name}</span>}
-      </Button>
-    </div>
-  );
-};
-
-export const Thread = ({ s, scope, target, onClearTarget, onRequest, answer, review, ask, text, setText, undoShot, pick, reject, stop, step, onStep }) => {
-  const key = threadKeyOf(scope);
-  const msgs = s.threads[key] || [];
-  const end = useRef(null);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [msgs.length]);
-  const element = scope.type === 'element' ? findElement(s, scope.id) : null;
-  const send = (raw) => {
-    const r = parseRequest(raw, scope, element);
-    // Words without an @ edit what you stand on: the script (the screenplay and its shot list at
-    // the Script, a scene's shots at a scene), a shot, Cast & World (or one of it), the cut.
-    const talker = talkerFor(scope);
-    if (!r.agent && talker) { onRequest({ agent: talker.agent, action: talker.action, text: String(raw).trim() }, raw); return; }
-    if (!r.agent) { ask(scope, raw, actionsFor(scope, element)); return; }
-    onRequest(r, raw);
-  };
-  return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr) auto', gridTemplateColumns: 'minmax(0, 1fr)', height: '100%', minHeight: 0, background: C.panel }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px', borderBottom: `1px solid ${C.line}`, minHeight: 52, boxSizing: 'border-box' }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>Crew</span>
-        <span style={{ fontSize: 13.5, color: C.muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scopeTitle(s, scope)}</span>
-        {target && <Pill color={C.accent} bg={C.accentSoft} style={{ maxWidth: 160, overflow: 'hidden', fontSize: 12.5 }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{target}</span><IconClose style={{ cursor: 'pointer', flex: '0 0 auto' }} onClick={onClearTarget} /></Pill>}
-      </div>
-      <div style={{ overflowY: 'auto', padding: 16, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16, alignContent: 'start' }}>
-        {msgs.map((m) => <Message key={m.id} s={s} m={m} answer={(msg, o) => answer(key, msg, o)} review={review} setText={setText} undo={(msg) => undoShot(key, msg)} pick={pick} reject={reject} stop={(msg) => stop(key, msg)} />)}
-        <div ref={end} />
-      </div>
-      <div style={{ padding: 14, borderTop: `1px solid ${C.line}` }}>
-        <NextStep step={step} onStep={onStep} here={scope.type === 'brief'} />
-        <Composer s={s} scope={scope} text={text} setText={setText} onSend={send} target={target} />
-      </div>
-    </div>
-  );
-};
-
-// ---- the stage page for the current scope --------------------------------------------------------
-export const DirectPage = ({ s, set, scope, setScope, pick, review, toast, crew, canvas, onStale }) => {
-  if (scope.type === 'brief') return <ScriptPage s={s} set={set} toast={toast} setScope={setScope} />;
-  if (scope.type === 'world') return <WorldPage s={s} set={set} open={setScope} toast={toast} />;
+export const DirectPage = ({ s, set, scope, setScope, pick, review, toast, actions, canvas, onStale }) => {
+  if (scope.type === 'brief') return <ScriptPage s={s} set={set} toast={toast} setScope={setScope} actions={actions} />;
+  if (scope.type === 'world') return <WorldPage s={s} set={set} open={setScope} toast={toast} actions={actions} />;
   if (scope.type === 'element') {
     const el = findElement(s, scope.id);
-    return el ? <ElementPage s={s} set={set} el={el} pick={pick} review={review} toast={toast} open={setScope} canvas={canvas} /> : <Empty>Gone.</Empty>;
+    return el ? <ElementPage s={s} set={set} el={el} pick={pick} review={review} toast={toast} open={setScope} canvas={canvas} actions={actions} /> : <Empty>Gone.</Empty>;
   }
   if (scope.type === 'scenes') return <ScenesPage s={s} set={set} open={setScope} toast={toast} />;
   if (scope.type === 'scene' || scope.type === 'shot') {
     const sceneId = scope.type === 'scene' ? scope.id : scope.sceneId;
     const scene = findScene(s, sceneId);
     if (!scene) return <Empty>Gone.</Empty>;
-    return <ScenePage s={s} set={set} scene={scene} scope={scope} open={setScope} review={review} toast={toast} canvas={canvas} crew={crew} onStale={onStale} selectShot={(id) => setScope(id ? { type: 'shot', sceneId, id } : { type: 'scene', id: sceneId })} />;
+    return <ScenePage s={s} set={set} scene={scene} scope={scope} open={setScope} selectShot={(id) => setScope(id ? { type: 'shot', sceneId, id } : { type: 'scene', id: sceneId })} review={review} toast={toast} canvas={canvas} actions={actions} onStale={onStale} />;
   }
-  if (scope.type === 'cut') return <CutPage s={s} review={review} selectScene={(sceneId, id) => setScope({ type: 'shot', sceneId, id })} />;
+  if (scope.type === 'cut') return <CutPage s={s} review={review} selectScene={(sceneId, id) => setScope({ type: 'shot', sceneId, id })} actions={actions} />;
   return null;
 };
-export const scopeTarget = (s, scope) => (scope.type === 'shot' ? (() => { const sh = findShot(s, scope.sceneId, scope.id); return sh ? `${pad2(shotNumber(s, sh.id))} ${sh.title}` : ''; })() : '');

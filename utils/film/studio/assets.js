@@ -1,6 +1,6 @@
 // WHAT A RESULT IS, in one place: its type, the name to read, its state, and how to refer to it. The
 // @ menu, the drawer, the preview and the agent all read this, so T10 reads the same everywhere.
-import { findElement } from './model';
+import { containersOf, findElement } from './model';
 
 export const ASSET_GROUPS = [
   { key: 'cast', label: 'Cast' },
@@ -67,3 +67,8 @@ export const resolveMention = (s, word) => {
   if (!plate) return { error: `${el.name} has no plate yet.` };
   return { name: plate.name };
 };
+
+// Everything in the film that can be cited: for the @ menu and the drawer.
+export const filmAssets = (s) => containersOf(s).flatMap(({ ref, c, label }) => (c?.versions || []).map((v) => ({ ref, v, c, label })))
+  .filter((x) => x.v.name && ['plate', 'take', 'cut'].includes(x.v.kind) && !x.v.archived)
+  .map((x) => ({ ...describeAsset(s, x), id: x.v.id, name: x.v.name, status: x.v.status, at: x.v.at, type: x.v.kind === 'plate' ? 'image' : 'video', url: x.v.cacheUrl || x.v.url || '', poster: x.v.posterUrl || '' }));

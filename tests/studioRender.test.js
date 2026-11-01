@@ -1,16 +1,15 @@
-// EVERY STUDIO PAGE RENDERS — each page, the crew panel, the viewer and Generations, mounted on a
-// film at each stage: just laid out (nothing circled yet), and in full work (plates, new, picked
-// and failed versions, a cut, every kind of crew message).
+// EVERY STUDIO PAGE RENDERS — each page, the viewer and Generations, mounted on a film at each
+// stage: just laid out (nothing circled yet), and in full work (plates, new, picked and failed
+// versions, a cut).
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import fs from 'fs';
-import { DirectPage, Thread } from '../components/studio/DirectView';
+import { DirectPage } from '../components/studio/DirectView';
 import { Viewer } from '../components/studio/Viewer';
 import GenerationsView from '../components/studio/GenerationsView';
 import StudioPlayground from '../components/studio/StudioPlayground';
 import { emptyStudio, allVersions, newWork, pickVersion, addVersion, threadKeyOf } from '../utils/film/studio/model';
-import { applyShotList } from '../utils/film/studio/runners';
-import { nextStep } from '../utils/film/studio/guide';
+import { applyShotList } from '../utils/film/studio/layout';
 
 global.IS_REACT_ACT_ENVIRONMENT = true;
 Element.prototype.scrollIntoView = () => {};
@@ -59,6 +58,7 @@ const mount = async (el) => {
   return html;
 };
 const noop = () => {};
+const ACTIONS = { busy: () => false, write: noop, breakdown: noop, cast: noop, variations: noop, generateMissing: noop, finalScene: noop, assemble: noop };
 const films = { 'just laid out': laidOut, 'in full work': inWork };
 if (process.env.STUDIO_STATE) films['from a file'] = () => JSON.parse(fs.readFileSync(process.env.STUDIO_STATE, 'utf8'));
 const scopesOf = (s) => [
@@ -69,18 +69,16 @@ const scopesOf = (s) => [
 
 describe.each(Object.keys(films))('a film %s', (name) => {
   const s = films[name]();
-  test('every page and the crew panel render at every place you can stand', async () => {
+  test('every page renders at every place you can stand', async () => {
     for (const scope of scopesOf(s)) {
       // eslint-disable-next-line no-await-in-loop
-      await mount(<DirectPage s={s} set={noop} scope={scope} setScope={noop} pick={noop} review={noop} toast={noop} crew={{ final: noop, send: noop }} canvas={null} onStale={{ keep: noop, redo: noop }} />);
-      // eslint-disable-next-line no-await-in-loop
-await mount(<Thread s={s} scope={scope.type === 'scenes' ? { type: 'brief' } : scope} step={nextStep(s, scope)} onStep={noop} target="" onClearTarget={noop} onRequest={noop} answer={noop} review={noop} ask={noop} text="" setText={noop} undoShot={noop} pick={noop} reject={noop} stop={noop} />);
+      await mount(<DirectPage s={s} set={noop} scope={scope} setScope={noop} pick={noop} review={noop} toast={noop} actions={ACTIONS} canvas={null} onStale={{ keep: noop, redo: noop }} />);
     }
   });
   test('the viewer renders every version', async () => {
     for (const { ref, v } of allVersions(s)) {
       // eslint-disable-next-line no-await-in-loop
-      await mount(<Viewer s={s} set={noop} toast={noop} view={{ ref, vid: v.id }} setView={noop} onPick={noop} onNote={noop} onFinal={noop} onReject={noop} onRedraw={noop} canvas={null} waiting={newWork(s).fresh} onNextNew={noop} />);
+      await mount(<Viewer s={s} set={noop} toast={noop} view={{ ref, vid: v.id }} setView={noop} onPick={noop} onNote={noop} onFinal={noop} onReject={noop} onRework={noop} canvas={null} waiting={newWork(s).fresh} onNextNew={noop} />);
     }
   });
   test('Generations renders', async () => { await mount(<GenerationsView s={s} set={noop} open={noop} />); });
@@ -121,12 +119,10 @@ describe('switching projects', () => {
 });
 
 describe('failed work stays out of sight', () => {
-  test('the feed says how much did not render; the shot card and the version strip do not show it', async () => {
+  test('the version strip does not show it, and a draft offers its finals', async () => {
     const s = inWork();
     const sc = s.scenes[0];
-    const feed = await mount(<Thread s={s} scope={{ type: 'scene', id: sc.id }} target="" onClearTarget={noop} onRequest={noop} answer={noop} review={noop} ask={noop} text="" setText={noop} undoShot={noop} pick={noop} reject={noop} stop={noop} />);
-    expect(feed).toMatch(/1 didn.t render/);
-    const view = await mount(<Viewer s={s} set={noop} toast={noop} view={{ ref: { at: 'take', sceneId: sc.id, shotId: sc.shots[0].id }, vid: 't1' }} setView={noop} onPick={noop} onNote={noop} onFinal={noop} onReject={noop} onRedraw={noop} canvas={null} waiting={[]} onNextNew={noop} />);
+    const view = await mount(<Viewer s={s} set={noop} toast={noop} view={{ ref: { at: 'take', sceneId: sc.id, shotId: sc.shots[0].id }, vid: 't1' }} setView={noop} onPick={noop} onNote={noop} onFinal={noop} onReject={noop} onRework={noop} canvas={null} waiting={[]} onNextNew={noop} />);
     expect(view).not.toMatch(/>failed</);
     expect(view).toMatch(/Final again · 1080p|Final · 1080p/);
     expect(view).toMatch(/· 4K/);

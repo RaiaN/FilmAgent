@@ -71,6 +71,7 @@ export const FILM_TOOLS = [
   tool('archive', 'Take results out of sight, or bring them back. Renders nothing.', { ...PROJECT, ids: names('Version ids.'), archived: { type: 'boolean' } }, ['project', 'ids', 'archived']),
   tool('forget_media', 'A file was deleted: take it out of the unplaced pool, and say what else still uses it.', { ...PROJECT, url: str('The file.') }, ['project', 'url']),
   tool('merge_film', 'Bring a Studio tab\'s copy of the film into the saved film, creating it if it is new.', { ...PROJECT, name: str('Its name, if it is new.'), studio: { type: 'object', description: 'The film as the tab holds it.' } }, ['project', 'studio']),
+  tool('assemble', 'Join the circled takes, in film order, into one cut. Renders nothing.', { ...PROJECT, without_missing: { type: 'boolean', description: 'Only when the director agreed to leave out shots with no circled take.' } }, ['project']),
   tool('settle_renders', 'Record every render of this film that has ended.', PROJECT, ['project']),
   tool('results', 'The film for the preview and Generations.', PROJECT, ['project']),
   tool('read_transcript', 'The session as saved.', PROJECT, ['project']),
@@ -432,6 +433,21 @@ export const createFilmTools = ({ api, client, probe, skills, sleep = (ms) => ne
         return [{ ...kept, script: text, scriptAt: now() }, null];
       });
       return { script: text };
+    },
+
+    // The circled takes in film order, as one file. Shots with no circled take are named before
+    // anything is made, and left out only when asked.
+    assemble: async ({ project, without_missing = false }) => {
+      const { studio: s } = await load(project);
+      const shots = s.scenes.flatMap((sc) => sc.shots);
+      const circled = shots.map((sh) => sh.takes?.versions?.find((v) => v.id === sh.takes.picked)).filter(Boolean);
+      if (!circled.length) fail('No shot has a circled take yet.');
+      if (circled.length < shots.length && !without_missing) fail(`${shots.length - circled.length} of ${shots.length} shots have no circled take.`);
+      const out = await api.post('/api/film/stitch', { shots: circled.map(mediaOf), name: 'Cut' });
+      if (!out.cacheUrl) fail('The assembled cut was not stored.');
+      const added = await addNew(project, { kind: 'cut', status: 'review', url: out.cacheUrl, cacheUrl: out.cacheUrl, posterUrl: await poster(out.cacheUrl), label: 'Cut', refs: circled.map((v) => v.name), parent: null }, { at: 'cut' });
+      await inLibrary({ url: out.cacheUrl, kind: 'cut', label: 'Cut' }, added.name, project);
+      return added;
     },
 
     // The film laid out from its script. Replacing scenes takes their takes with them, so it is

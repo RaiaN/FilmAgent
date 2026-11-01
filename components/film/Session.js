@@ -16,6 +16,7 @@ const STEP = {
   edit_image: (a) => `Edits ${a.source}${a.marked ? ' using your marks' : ''}`,
   add_scene: (a) => `Adds the scene ${a.title}`,
   add_shot: (a) => `Adds the shot ${a.title}`,
+  assemble: () => 'Assembles the cut',
   write_screenplay: () => 'Writes the screenplay',
   shot_list: () => 'Breaks the script down into shots',
   scene_views: () => "Draws the scene's camera views",

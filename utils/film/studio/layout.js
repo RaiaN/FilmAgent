@@ -65,6 +65,7 @@ export const applyBlocking = (s, sceneId, payload) => {
 export const containerLabel = (s, ref) => {
   if (ref.at === 'brief') return 'Script';
   if (ref.at === 'cut') return 'Cut';
+  if (ref.at === 'unplaced') return 'Not on a shot';
   if (ref.at === 'element') return findElement(s, ref.id)?.name || 'Element';
   if (ref.at === 'scene') { const i = s.scenes.findIndex((x) => x.id === ref.sceneId); return i >= 0 ? `${pad2(i + 1)} ${s.scenes[i].title} · blocking` : 'Scene'; }
   const sh = findShot(s, ref.sceneId, ref.shotId);

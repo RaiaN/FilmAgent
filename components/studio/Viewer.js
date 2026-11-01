@@ -119,6 +119,8 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
   }, [setView]);
   if (!v) return null;
   const onShot = ref_.at === 'take';
+  const loose = ref_.at === 'unplaced';
+  const title = loose ? v.label || v.name || 'Not on a shot' : containerLabel(s, ref_);
   const latest = onShot ? latestOf(c) : null;
   const shownIds = onShot ? [...new Set([v.id, ...extra])] : [v.id];
   const shown = (c?.versions || []).filter((x) => shownIds.includes(x.id)).sort((a, b) => (b.at || 0) - (a.at || 0));
@@ -153,7 +155,7 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
     <div role="dialog" aria-label={containerLabel(s, ref_)} onClick={() => setView(null)} style={{ position: 'absolute', inset: 0, zIndex: 20, background: 'rgba(5,6,8,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'stretch', overflow: 'hidden', padding: 10 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 1760, display: 'flex', flexDirection: 'column', background: C.panel, border: `1px solid ${C.lineHi}`, borderRadius: 16, overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px 8px 18px', flex: '0 0 auto' }}>
-          <span style={{ fontSize: 17, fontWeight: 700, color: C.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name ? <span style={{ fontFamily: MONO, color: C.accent, marginRight: 8 }}>{v.name}</span> : null}{containerLabel(s, ref_)}</span>
+          <span style={{ fontSize: 17, fontWeight: 700, color: C.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name ? <span style={{ fontFamily: MONO, color: C.accent, marginRight: 8 }}>{v.name}</span> : null}{title}</span>
           <span style={{ fontSize: 13, color: C.muted, flex: '0 0 auto' }}>{[v.res, v.model === 'seedance25Premium' ? 'Premium' : '', v.format === 'mov' ? 'MOV' : ''].filter(Boolean).join(' · ')}</span>
           <span style={{ flex: 1 }} />
           {hasDetails && <Button type={details ? 'primary' : 'secondary'} onClick={() => setDetails((o) => !o)}>Prompt</Button>}
@@ -180,10 +182,11 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
           )}
         </div>
         {warned && <div style={{ padding: '0 18px 8px', flex: '0 0 auto' }}><Flags v={v} /></div>}
-        <Versions c={c} vid={v.id} kind={v.kind} shownIds={onShot ? shownIds : null} onSelect={onShot ? toggleTake : (vid) => setView({ ref: ref_, vid })} />
+        {/* Loose results have no versions of each other: the pool is not one thing. */}
+        {!loose && <Versions c={c} vid={v.id} kind={v.kind} shownIds={onShot ? shownIds : null} onSelect={onShot ? toggleTake : (vid) => setView({ ref: ref_, vid })} />}
         {v.status !== 'running' && v.status !== 'failed' && (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', background: C.raised, borderTop: `1px solid ${C.line}`, padding: '10px 14px', flexWrap: 'wrap', flex: '0 0 auto' }}>
-            {!isTake && (v.status !== 'picked' ? <Button size="large" type="primary" icon={<IconStarFill />} onClick={() => onPick(ref_, v)} style={{ minWidth: 128 }}>Pick</Button> : <span style={{ color: C.gold, fontWeight: 700, fontSize: 15, padding: '0 8px' }}>★ Picked</span>)}
+            {!isTake && !loose && (v.status !== 'picked' ? <Button size="large" type="primary" icon={<IconStarFill />} onClick={() => onPick(ref_, v)} style={{ minWidth: 128 }}>Pick</Button> : <span style={{ color: C.gold, fontWeight: 700, fontSize: 15, padding: '0 8px' }}>★ Picked</span>)}
             {isVideo(v) && time != null && <Button size="large" type={anchor ? 'primary' : 'secondary'} onClick={() => setAnchor((a) => !a)}>at {time.toFixed(1)} s</Button>}
             <Input size="large" value={note} onChange={setNote} onPressEnter={send} placeholder={isVideo(v) ? 'What should change in this take' : 'What should change in this picture'} style={{ flex: '1 1 260px', fontSize: 15 }} />
             <Button size="large" disabled={!note.trim()} onClick={send}>{isVideo(v) ? 'Edit' : 'Edit picture'}</Button>

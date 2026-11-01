@@ -131,13 +131,14 @@ export const mentionAt = (text, caret) => {
 // finds any version.
 const ORDER = Object.fromEntries(ASSET_GROUPS.map((g, i) => [g.key, i]));
 const GROUP_LABEL = Object.fromEntries(ASSET_GROUPS.map((g) => [g.key, g.label]));
+const MENTION_LIMIT = 60;
 export const matchMentions = (results, query) => {
   const q = String(query || '').toLowerCase();
   const typeHit = (r) => q && String(GROUP_LABEL[r.group] || '').toLowerCase().startsWith(q);
   const words = (r) => [r.title, r.label, r.place, r.mention].map((x) => String(x || '').toLowerCase());
   const named = (r) => r.name.toLowerCase().startsWith(q);
   const hits = results.filter((r) => (!q && r.lead) || (q && (named(r) || ((typeHit(r) || words(r).some((w) => w.includes(q))) && r.lead))));
-  return hits.sort((a, b) => (ORDER[a.group] - ORDER[b.group]) || ((b.at || 0) - (a.at || 0))).slice(0, 12);
+  return hits.sort((a, b) => (ORDER[a.group] - ORDER[b.group]) || ((b.at || 0) - (a.at || 0))).slice(0, MENTION_LIMIT);
 };
 export const putMention = (text, { start }, caret, name) => {
   const added = `@${name} `;

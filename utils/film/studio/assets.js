@@ -4,6 +4,7 @@ import { containersOf, findElement } from './model';
 
 export const ASSET_GROUPS = [
   { key: 'cast', label: 'Cast' },
+  { key: 'frame', label: 'Frames' },
   { key: 'place', label: 'Places' },
   { key: 'prop', label: 'Props' },
   { key: 'take', label: 'Takes' },
@@ -11,7 +12,7 @@ export const ASSET_GROUPS = [
   { key: 'upload', label: 'Uploads' },
   { key: 'picture', label: 'Pictures' },
 ];
-const ONE = { cast: 'Cast', place: 'Place', prop: 'Prop', take: 'Take', cut: 'Cut', upload: 'Upload', picture: 'Picture' };
+const ONE = { frame: 'Frame', cast: 'Cast', place: 'Place', prop: 'Prop', take: 'Take', cut: 'Cut', upload: 'Upload', picture: 'Picture' };
 const ELEMENT_GROUP = { character: 'cast', location: 'place', prop: 'prop' };
 
 // A name as one word for an @: Morwen's Cottage → Morwens-Cottage.
@@ -19,6 +20,7 @@ export const mentionSlug = (name) => String(name || '').replace(/['’]/g, '').t
 
 const groupOf = (s, { ref, v }) => {
   if (ref.at === 'element') return ELEMENT_GROUP[findElement(s, ref.id)?.kind] || 'prop';
+  if ((v.tags || []).includes('frame')) return 'frame';
   if (ref.at === 'cut') return 'cut';
   if (ref.at === 'take') return 'take';
   if (v.by === 'you') return 'upload';

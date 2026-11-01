@@ -30,13 +30,13 @@ const DARK = { panel: '#14161a', line: '#262a31', soft: '#08090b', ink: '#eceae6
 // selection: Map(id → badge string: '3' | 'A1' | 'V2' | '✓') — LIVE, rebuilt by the parent.
 // `tabs` and an item's `bucket` replace the default tabs; an item with `tile` shows as a picture
 // whatever its kind (`url` is then its picture).
-const RefDrawer = ({ title, hint, items = [], selection, onToggle, onClose, single = false, dark = false, tabs: tabDefs = TAB_DEFS, width = 340 }) => {
+const RefDrawer = ({ title, hint, items = [], selection, onToggle, onClose, single = false, dark = false, tabs: tabDefs = TAB_DEFS, width = 340, filter = '' }) => {
   const T = dark ? DARK : LIGHT;
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('all');
   const buckets = useMemo(() => new Set(items.map(bucketOf)), [items]);
   const tabs = tabDefs.filter((t) => t.key === 'all' || buckets.has(t.key));
-  const ql = q.trim().toLowerCase();
+  const ql = (q || filter).trim().toLowerCase();
   const shown = items.filter((it) => (tab === 'all' || bucketOf(it) === tab)
     && (!ql || String(it.label || '').toLowerCase().includes(ql)));
   const images = shown.filter((it) => it.tile || (it.kind !== 'audio' && it.kind !== 'video'));

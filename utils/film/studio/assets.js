@@ -28,7 +28,7 @@ const groupOf = (s, { ref, v }) => {
 };
 
 const stateOf = (v, group) => {
-  if (v.status === 'picked') return group === 'take' ? '★ circled' : group === 'cut' ? '★ chosen' : '★ plate';
+  if (v.status === 'picked') return group === 'take' || group === 'cut' ? '' : '★ plate';
   if (v.status === 'review') return 'new';
   if (v.status === 'running') return 'rendering';
   if (v.status === 'failed') return 'failed';

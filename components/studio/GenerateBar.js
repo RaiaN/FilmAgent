@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Button, Dropdown, Input, InputNumber, Menu } from '@arco-design/web-react';
 import { IconClose, IconDown, IconPlus, IconSound, IconMute, IconUp, IconPlayArrowFill } from '@arco-design/web-react/icon';
 import RefDrawer from '../film/canvas/RefDrawer';
-import { matchMentions, mentionAt, putMention } from '../film/Session';
+import { mentionAt, putMention } from '../film/Session';
 import { C, MONO, mediaOf } from './ui';
 import { pad2, shotNumber, findShot, VIDEO_MODELS, STYLES, allVersions } from '../../utils/film/studio/model';
 import { ASSET_GROUPS, filmAssets, resolveMention } from '../../utils/film/studio/assets';
@@ -27,7 +27,6 @@ const Pill = ({ children, ...rest }) => <span {...rest} style={{ height: 40, dis
 export const GenerateBar = ({ s, bar, setBar, onGenerate, onBackToShot, container, setStyle, open, setOpen }) => {
   const [caret, setCaret] = useState(0);
   const [closed, setClosed] = useState(false);
-  const [active, setActive] = useState(0);
   const [browsing, setBrowsing] = useState(false);
   const area = useRef(null);
   const patch = (fields) => setBar((b) => ({ ...b, ...fields }));
@@ -35,28 +34,25 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, onBackToShot, containe
   const traits = videoTraits(bar.model);
   const shot = bar.shotId ? findShot(s, bar.sceneId, bar.shotId) : null;
   const mention = closed ? null : mentionAt(bar.text, caret);
-  const options = mention ? matchMentions(assets, mention.query) : [];
   const thumbOf = (word) => {
     const name = resolveMention(s, word).name || String(word).toUpperCase();
     const hit = allVersions(s).find((x) => x.v.name === name);
     return hit ? hit.v.posterUrl || mediaOf(hit.v) : '';
   };
-  const choose = (o) => {
-    const out = putMention(bar.text, mention, caret, o.mention || o.name);
-    patch({ text: out.text });
-    setCaret(out.caret);
-    setActive(0);
-  };
   const onKeys = (e) => {
-    if (options.length && e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => (a + 1) % options.length); return; }
-    if (options.length && e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => (a - 1 + options.length) % options.length); return; }
-    if (options.length && (e.key === 'Enter' || e.key === 'Tab')) { e.preventDefault(); choose(options[Math.min(active, options.length - 1)]); return; }
-    if (options.length && e.key === 'Escape') { e.preventDefault(); setClosed(true); return; }
+    if (mention && e.key === 'Escape') { e.preventDefault(); setClosed(true); return; }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onGenerate(); }
   };
   const drawerItems = assets.map((a) => ({ id: a.id, url: a.poster || (a.type === 'image' ? a.url : ''), label: `${a.name} · ${a.title}`, bucket: a.group, kind: a.type, tile: true, mention: a.mention || a.name }));
   const on = new Set(bar.refs.map((r) => String(r).toLowerCase()));
   const selection = new Map(drawerItems.filter((it) => on.has(it.mention.toLowerCase())).map((it) => [it.id, '✓']));
+  // After an @ a click cites it there and adds it; from References it only adds or takes out.
+  const cite = (it) => {
+    const out = putMention(bar.text, mention, caret, it.mention);
+    patch({ text: out.text, refs: on.has(it.mention.toLowerCase()) ? bar.refs : [...bar.refs, it.mention] });
+    setCaret(out.caret);
+    area.current?.focus?.();
+  };
   const toggleRef = (it) => patch({ refs: on.has(it.mention.toLowerCase()) ? bar.refs.filter((r) => String(r).toLowerCase() !== it.mention.toLowerCase()) : [...bar.refs, it.mention] });
   const popup = () => container() || document.body;
   const editing = !!bar.source;
@@ -87,19 +83,8 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, onBackToShot, containe
           </div>
         )}
         <div style={{ position: 'relative', display: 'flex', gap: 12, alignItems: 'stretch', background: C.raised, borderRadius: 20, padding: 12 }}>
-          {options.length > 0 && (
-            <div style={{ position: 'absolute', left: 12, bottom: '100%', marginBottom: 6, width: 380, maxHeight: 320, overflowY: 'auto', zIndex: 6, background: C.panel, border: `1px solid ${C.lineHi}`, borderRadius: 12, padding: 4 }}>
-              {options.map((o, i) => (
-                <div key={o.id} role="button" onMouseDown={(e) => { e.preventDefault(); choose(o); }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 8, cursor: 'pointer', background: i === active ? C.hover : 'transparent' }}>
-                  <span style={{ width: 40, height: 30, borderRadius: 5, overflow: 'hidden', background: '#08090b', flex: '0 0 auto' }}>{(o.poster || o.type === 'image') && <img src={o.poster || o.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}</span>
-                  <span style={{ fontFamily: MONO, fontSize: 13, color: C.accent, flex: '0 0 auto' }}>{o.name}</span>
-                  <span style={{ fontSize: 13.5, color: C.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.title}</span>
-                </div>
-              ))}
-            </div>
-          )}
           <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10, alignContent: 'space-between' }}>
-            <Input.TextArea ref={area} className="st-bare" aria-label="Describe the shot" value={bar.text} onFocus={() => setOpen(true)} onChange={(v, e) => { patch({ text: v }); setCaret(e?.target?.selectionStart ?? v.length); setClosed(false); setActive(0); }} onKeyDown={onKeys} onKeyUp={(e) => setCaret(e.target.selectionStart)} onClick={(e) => setCaret(e.target.selectionStart)} autoSize={{ minRows: open ? 2 : 1, maxRows: open ? 5 : 1 }} placeholder="Describe the shot, @ to add cast, places and takes" style={{ fontSize: 17, lineHeight: 1.5, color: C.ink }} />
+            <Input.TextArea ref={area} className="st-bare" aria-label="Describe the shot" value={bar.text} onFocus={() => setOpen(true)} onChange={(v, e) => { patch({ text: v }); setCaret(e?.target?.selectionStart ?? v.length); setClosed(false); }} onKeyDown={onKeys} onKeyUp={(e) => setCaret(e.target.selectionStart)} onClick={(e) => setCaret(e.target.selectionStart)} autoSize={{ minRows: open ? 2 : 1, maxRows: open ? 5 : 1 }} placeholder="Describe the shot, @ to add cast, places and takes" style={{ fontSize: 17, lineHeight: 1.5, color: C.ink }} />
             {open && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Dropdown trigger="click" getPopupContainer={popup} droplist={<Menu onClickMenuItem={(k) => setBar((b) => barOnModel(b, k))}>{VIDEO_MODELS.map((m) => <Menu.Item key={m.key}>{m.label}</Menu.Item>)}</Menu>}><Pill onClick={() => {}} style={{ background: C.bg }}>{VIDEO_MODELS.find((m) => m.key === bar.model)?.label || bar.model}<IconDown style={{ fontSize: 12, color: C.muted }} /></Pill></Dropdown>
@@ -118,7 +103,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, onBackToShot, containe
           </button>
         </div>
       </div>
-      {browsing && <RefDrawer dark width={520} title="References" hint="Click to use it in this shot. Click again to take it out." items={drawerItems} tabs={DRAWER_TABS} selection={selection} onToggle={toggleRef} onClose={() => setBrowsing(false)} />}
+      {(browsing || mention) && <RefDrawer dark width={520} title="References" hint={mention ? 'Click to cite it in your prompt.' : 'Click to use it in this shot. Click again to take it out.'} filter={mention?.query || ''} items={drawerItems} tabs={DRAWER_TABS} selection={selection} onToggle={mention ? cite : toggleRef} onClose={() => { setBrowsing(false); setClosed(true); }} />}
     </div>
   );
 };

@@ -383,7 +383,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
         </div>
       </div>
 
-      {!linked ? <div /> : mode === 'direct' ? (
+      {!linked ? <div style={{ display: 'grid', placeItems: 'center', fontSize: 16, color: C.text }}><Working stage="Opening the film" /></div> : mode === 'direct' ? (
         <div style={{ minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
           <DirectPage s={s} set={set} scope={scope} setScope={setScope} pick={pick} review={review} toast={toast} actions={actions} canvas={canvas} onStale={onStale} />
         </div>

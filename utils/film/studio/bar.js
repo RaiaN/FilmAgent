@@ -10,7 +10,7 @@ export const MAX_TAKES = 4;
 const TOKEN = /\{\{el:([a-z0-9-]+)\}\}/g;
 const CITATION = /@([\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*)/gu;
 
-export const emptyBar = (s) => ({ shotId: null, sceneId: null, text: '', refs: [], seconds: 8, ratio: '16:9', model: s?.videoModel || 'seedance25', quality: 'draft', audio: true, count: 1, parent: null, source: null });
+export const emptyBar = (s) => ({ shotId: null, sceneId: null, text: '', refs: [], seconds: 8, ratio: '16:9', model: s?.videoModel || 'seedance25', quality: 'draft', resolution: '1080p', audio: true, count: 1, parent: null, source: null });
 
 const clampSeconds = (model, n) => Math.max(MIN_SECONDS, Math.min(videoTraits(model).maxSeconds, Math.round(Number(n) || MIN_SECONDS)));
 
@@ -53,14 +53,20 @@ export const requestOf = (s, bar) => {
   pictures.forEach((w) => { if (!refs.some((r) => same(r, w))) refs.push(w); });
   // Pressing Generate is the director asking, so inputs that failed before may go again.
   if (bar.source) return { tool: 'edit_video', args: { source: bar.source, prompt: bar.text, refs, model: bar.model, director_asked_retry: true } };
-  return { tool: 'generate_video', args: { prompt: bar.text, refs, video_refs: [...new Set(clips)], seconds: bar.seconds, ratio: bar.ratio, model: bar.model, quality: bar.quality, audio: bar.audio, director_asked_retry: true, ...(bar.shotId ? { shot_id: bar.shotId } : {}), ...(bar.parent ? { parent: bar.parent } : {}) } };
+  return { tool: 'generate_video', args: { prompt: bar.text, refs, video_refs: [...new Set(clips)], seconds: bar.seconds, ratio: bar.ratio, model: bar.model, quality: bar.quality, ...(bar.quality === 'final' ? { resolution: bar.resolution } : {}), audio: bar.audio, director_asked_retry: true, ...(bar.shotId ? { shot_id: bar.shotId } : {}), ...(bar.parent ? { parent: bar.parent } : {}) } };
+};
+
+// A model change keeps what the new model can do.
+export const barOnModel = (bar, model) => {
+  const traits = videoTraits(model);
+  return { ...bar, model, seconds: Math.min(bar.seconds, traits.maxSeconds), resolution: (traits.movAt || []).includes(bar.resolution) ? bar.resolution : '1080p' };
 };
 
 // What Generate will make, said on the button.
 export const barSummary = (bar) => {
   if (bar.source) return `An edit of ${bar.source} · 1080p MOV`;
   const each = bar.quality === 'draft' ? 'draft' : 'final';
-  return `${bar.count} ${each}${bar.count === 1 ? '' : 's'} · ${bar.seconds} s · ${bar.quality === 'draft' ? '480p' : '1080p MOV'}`;
+  return `${bar.count} ${each}${bar.count === 1 ? '' : 's'} · ${bar.seconds} s · ${bar.quality === 'draft' ? '480p' : `${bar.resolution} MOV`}`;
 };
 
 // Who and what a shot still needs: elements with no plate, and views with no plate.

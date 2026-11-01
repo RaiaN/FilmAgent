@@ -104,6 +104,27 @@ describe('storyboard', () => {
   });
 });
 
+describe('resolution', () => {
+  const ask = { project: 'film', prompt: 'Walks', seconds: 6, quality: 'final' };
+  test('Premium renders a 4K final, as a MOV', async () => {
+    const s = setup();
+    const out = await s.tools.call('generate_video', { ...ask, model: 'seedance25Premium', resolution: '4K' });
+    expect(out.res).toBe('4K');
+    expect(s.seen.startVideo[0]).toMatchObject({ resolution: '4K', outputFormat: 'mov' });
+  });
+  test('2.5 refuses 4K before anything renders', async () => {
+    const s = setup();
+    await expect(s.tools.call('generate_video', { ...ask, model: 'seedance25', resolution: '4K' })).rejects.toThrow(/at 1080p, not 4K/);
+    expect(s.client.startVideo).not.toHaveBeenCalled();
+  });
+  test('moving the bar off Premium brings 4K back to 1080p', () => {
+    const { barOnModel, emptyBar, requestOf } = require('../utils/film/studio/bar');
+    const bar = { ...emptyBar(emptyStudio()), model: 'seedance25Premium', quality: 'final', resolution: '4K', text: 'x' };
+    expect(requestOf(emptyStudio(), bar).args.resolution).toBe('4K');
+    expect(barOnModel(bar, 'seedance25').resolution).toBe('1080p');
+  });
+});
+
 describe('scenes and shots', () => {
   const shot = async (s) => {
     const scene = await s.tools.call('add_scene', { project: 'film', title: 'The dock' });

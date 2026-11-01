@@ -63,7 +63,7 @@ export const FILM_TOOLS = [
   tool('previz_animatic', 'Start the moving blockout of a schematic: a draft with no sound, cut by the planned cameras, each person a coloured block. Returns at once; use wait.', { ...PROJECT, schematic: str('The schematic, from previz or an edit of it.'), label: str('What it is.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'schematic']),
   tool('previz_shot_prompt', 'Watch an animatic and write the prompt for the real scene: the named people, the place, the moves and the cuts, citing the animatic by name. Renders nothing.', { ...PROJECT, animatic: str('The animatic.') }, ['project', 'animatic']),
   tool('edit_image', "Edit a picture from the director's words, optionally with their drawn marks. The new version sits beside the picture it edits. Returns when it is done.", { ...PROJECT, source: str('The picture to edit, e.g. R1.'), marked: str('The copy with their red marks on it, if they drew any.'), instruction: str("The director's words, unchanged."), label: str('What it is.') }, ['project', 'source', 'instruction']),
-  tool('generate_video', 'Start a new take from a prompt and references. In the prompt, cite each reference by its name, @R1, @Morwen or @T3: every name cited must be in refs or video_refs, and code numbers them for the model. Returns at once; use wait.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures, in citation order.'), video_refs: names('Reference videos, in citation order.'), seconds: { type: 'number', description: 'Length in seconds.' }, ratio: str('e.g. 16:9, 9:16, adaptive.'), model: { type: 'string', enum: VIDEO_KEYS }, quality: { type: 'string', enum: ['draft', 'final'], description: 'draft is 480p and can be finished later. final is 1080p MOV now.' }, audio: { type: 'boolean', description: 'Generate sound. Defaults to on.' }, label: str('What it is.'), shot_id: str('The shot this take is for, from list_project or add_shot. Left out, it waits unplaced.'), parent: str('The result this one reworks, if any.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'prompt', 'seconds', 'quality']),
+  tool('generate_video', 'Start a new take from a prompt and references. In the prompt, cite each reference by its name, @R1, @Morwen or @T3: every name cited must be in refs or video_refs, and code numbers them for the model. Returns at once; use wait.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures, in citation order.'), video_refs: names('Reference videos, in citation order.'), seconds: { type: 'number', description: 'Length in seconds.' }, ratio: str('e.g. 16:9, 9:16, adaptive.'), model: { type: 'string', enum: VIDEO_KEYS }, quality: { type: 'string', enum: ['draft', 'final'], description: 'draft is 480p and can be finished later. final is MOV now.' }, resolution: str('For a final: 1080p, or 4K on seedance25Premium.'), audio: { type: 'boolean', description: 'Generate sound. Defaults to on.' }, label: str('What it is.'), shot_id: str('The shot this take is for, from list_project or add_shot. Left out, it waits unplaced.'), parent: str('The result this one reworks, if any.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'prompt', 'seconds', 'quality']),
   tool('edit_video', 'Start an edit of a video: only what the prompt names changes. It must read as an instruction and cite the source by its name, e.g. @T3; cite pictures by name too, each in refs. Length and shape follow the source. Always 1080p MOV: there is no draft edit. Returns at once; use wait.', { ...PROJECT, source: str('The video to edit, e.g. T3.'), prompt: str('The instruction.'), refs: names('Pictures the edit uses, in citation order.'), model: { type: 'string', enum: VIDEO_KEYS }, label: str('What it is.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'source', 'prompt']),
   tool('finish', 'Start the full-resolution final of a draft: the same picture, MOV. Returns at once; use wait.', { ...PROJECT, name: str('The draft.'), resolution: str('1080p, or 4K on seedance25Premium.') }, ['project', 'name']),
   tool('wait', `Wait for renders to end, up to ${WAIT_LIMIT_S} seconds at a time. Name only renders a tool has returned. Call again for what is still running.`, { ...PROJECT, names: names('The renders.') }, ['project', 'names']),
@@ -694,11 +694,12 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       return added;
     },
 
-    generate_video: async ({ project, prompt, refs = [], video_refs = [], seconds, ratio = '16:9', model = 'seedance25', quality, audio = true, label = '', shot_id, parent, director_asked_retry = false }) => {
+    generate_video: async ({ project, prompt, refs = [], video_refs = [], seconds, ratio = '16:9', model = 'seedance25', quality, resolution = FINAL_RES, audio = true, label = '', shot_id, parent, director_asked_retry = false }) => {
       if (!String(prompt || '').trim()) fail('The prompt is empty.');
       if (!VIDEO_KEYS.includes(model)) fail(`No video model ${model}. Models: ${VIDEO_KEYS.join(', ')}.`);
       if (!['draft', 'final'].includes(quality)) fail('Say the quality: draft or final.');
       const traits = videoTraits(model);
+      if (quality === 'final' && !(traits.movAt || []).includes(resolution)) fail(`${model} renders finals at ${(traits.movAt || []).join(' or ')}, not ${resolution}.`);
       if (!(seconds >= 5 && seconds <= traits.maxSeconds)) fail(`${model} renders 5 to ${traits.maxSeconds} seconds, not ${seconds}.`);
       if (refs.length > traits.refCap) fail(`${model} takes ${traits.refCap} pictures at most, not ${refs.length}.`);
       const { studio: s } = await load(project);
@@ -708,15 +709,15 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       const parentId = parent ? find(s, parent).v.id : null;
       const parentAt = parent ? find(s, parent).ref : null;
       const where = shot_id ? shotRef(s, shot_id) : parentAt?.at === 'take' ? parentAt : UNPLACED;
-      const fingerprint = fingerprintOf({ prompt, refs: list.map((v) => v.name), clips: clips.map((v) => v.name), seconds, ratio, model, quality });
+      const fingerprint = fingerprintOf({ prompt, refs: list.map((v) => v.name), clips: clips.map((v) => v.name), seconds, ratio, model, quality, resolution });
       refuseFailed(s, fingerprint, director_asked_retry);
       const draft = quality === 'draft';
-      const base = { kind: 'take', label, prompt, refs: list.map((v) => v.name), video_refs: clips.map((v) => v.name), model, seconds, ratio, res: draft ? DRAFT_RES : FINAL_RES, isDraft: draft, fingerprint, ...(parentId ? { parent: parentId } : {}), ...(where.at === 'take' ? { used: usedOf(s, findShot(s, where.sceneId, where.shotId)) } : {}) };
+      const base = { kind: 'take', label, prompt, refs: list.map((v) => v.name), video_refs: clips.map((v) => v.name), model, seconds, ratio, res: draft ? DRAFT_RES : resolution, isDraft: draft, fingerprint, ...(parentId ? { parent: parentId } : {}), ...(where.at === 'take' ? { used: usedOf(s, findShot(s, where.sceneId, where.shotId)) } : {}) };
       return start(project, base, async () => {
         const assetIds = await assetsOf(project, list);
         const clipIds = await assetsOf(project, clips);
         return startTake({
-        motion: sent, refUrls: list.map(mediaOf), refRoles: [], durationSec: seconds, resolution: draft ? DRAFT_RES : FINAL_RES, ratio, generateAudio: audio, modelKey: model, draft, outputFormat: draft ? null : 'mov', videoRefUrls: clipIds.map((a) => `asset://${a}`),
+        motion: sent, refUrls: list.map(mediaOf), refRoles: [], durationSec: seconds, resolution: draft ? DRAFT_RES : resolution, ratio, generateAudio: audio, modelKey: model, draft, outputFormat: draft ? null : 'mov', videoRefUrls: clipIds.map((a) => `asset://${a}`),
       }, assetIds, ctx, { nameOf: (u) => list.find((v) => mediaOf(v) === u)?.name || 'a reference picture' });
       }, where);
     },

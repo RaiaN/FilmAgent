@@ -390,7 +390,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       ) : (
         <GenerationsView s={s} set={set} open={review} />
       )}
-      {linked && (mode !== 'direct' || scope.type === 'scene' || scope.type === 'shot') && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} busy={actions.busy('Generating')} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
+      {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} busy={actions.busy('Generating')} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
       {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFinal={final} onReject={rejectInView} canvas={canvas} waiting={work.fresh} onNextNew={() => nextNew(view.vid)} />}
     </div>
   );

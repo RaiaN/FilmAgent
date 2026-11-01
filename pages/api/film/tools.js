@@ -26,12 +26,13 @@ const toolsFor = (req) => {
   const call = async (method, route, body, { allow = [] } = {}) => {
     const res = await fetch(base + route, { method, ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok && !allow.includes(res.status)) throw new Error(data?.error?.message || (typeof data?.error === 'string' ? data.error : '') || `${route} answered ${res.status}`);
+    if (!res.ok && !allow.includes(res.status)) throw new Error(data?.error?.message || [typeof data?.error === 'string' ? data.error : '', data?.details].filter(Boolean).join(': ') || `${route} answered ${res.status}`);
     return data;
   };
   return createFilmTools({
     api: { get: (route, opts) => call('GET', route, null, opts), post: (route, body, opts) => call('POST', route, body, opts) },
     client: createBrowserClient({ base }),
+    origin: base,
     probe: probeMedia,
     skills: readSkills,
   });

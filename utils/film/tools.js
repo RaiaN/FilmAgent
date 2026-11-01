@@ -19,6 +19,7 @@ import { writeScreenplay } from './core/story';
 import { crewStep } from './skills';
 import { describeAsset, mentionSlug, resolveMention } from './studio/assets';
 import { isNetworkError } from './agentRules.mjs';
+import { isLocalMediaUrl } from './mediaUrl';
 
 const VIDEO_KEYS = ['seedance25', 'seedance25Premium'];
 const IMAGE_KEYS = ['seedream', 'seedreamPro'];
@@ -139,7 +140,7 @@ export const checkEditPrompt = (prompt) => {
   if (!EDIT_WORDS.test(prompt)) fail('An edit must read as an instruction: add, remove, replace, modify or change. Without one Seedance renders something new.');
 };
 
-export const createFilmTools = ({ api, client, probe, skills, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() }) => {
+export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() }) => {
   const ctx = { client };
 
   const peek = async (id) => {
@@ -443,7 +444,7 @@ export const createFilmTools = ({ api, client, probe, skills, sleep = (ms) => ne
       const circled = shots.map((sh) => sh.takes?.versions?.find((v) => v.id === sh.takes.picked)).filter(Boolean);
       if (!circled.length) fail('No shot has a circled take yet.');
       if (circled.length < shots.length && !without_missing) fail(`${shots.length - circled.length} of ${shots.length} shots have no circled take.`);
-      const out = await api.post('/api/film/stitch', { shots: circled.map(mediaOf), name: 'Cut' });
+      const out = await api.post('/api/film/stitch', { shots: circled.map((v) => (isLocalMediaUrl(mediaOf(v)) ? `${origin}${mediaOf(v)}` : mediaOf(v))), name: 'Cut' });
       if (!out.cacheUrl) fail('The assembled cut was not stored.');
       const added = await addNew(project, { kind: 'cut', status: 'review', url: out.cacheUrl, cacheUrl: out.cacheUrl, posterUrl: await poster(out.cacheUrl), label: 'Cut', refs: circled.map((v) => v.name), parent: null }, { at: 'cut' });
       await inLibrary({ url: out.cacheUrl, kind: 'cut', label: 'Cut' }, added.name, project);

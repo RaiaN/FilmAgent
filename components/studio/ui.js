@@ -76,6 +76,8 @@ export const STUDIO_CSS = `${STUDIO_ARCO_DARK}
 `;
 
 export const mediaOf = (v) => v?.cacheUrl || v?.url || '';
+// A picture sized for a tile, so a wall of tiles never waits on the originals.
+export const thumbOf = (url, width = 640) => (/^\/api\/film\/media\?key=[^&]+\.(jpe?g|png|webp)$/i.test(url || '') ? `${url}&w=${width}` : url);
 export const isVideo = (v) => v?.kind === 'take' || v?.kind === 'cut';
 
 // A crew member's mark: their initials on their colour.
@@ -97,14 +99,14 @@ export const Tile = ({ v, w = 96, ratio = '16 / 9', picked, onClick, title, badg
     inner = (
       <>
         {v.posterUrl
-          ? <img src={v.posterUrl} alt="" style={{ width: '100%', height: '100%', objectFit: fit, display: 'block' }} />
-          : <video src={mediaOf(v)} preload="metadata" muted style={{ width: '100%', height: '100%', objectFit: fit, display: 'block' }} />}
+          ? <img src={v.posterUrl} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: fit, display: 'block' }} />
+          : <video src={mediaOf(v)} preload="none" muted style={{ width: '100%', height: '100%', objectFit: fit, display: 'block' }} />}
         {big
           ? <span className="st-play" style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: 68, height: 68, borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'rgba(8,9,11,0.55)', backdropFilter: 'blur(6px)', color: '#fff', fontSize: 28, pointerEvents: 'none' }}><IconPlayArrowFill /></span>
           : <IconPlayArrowFill style={{ position: 'absolute', right: 5, bottom: 5, color: '#fff', fontSize: 13, filter: 'drop-shadow(0 1px 2px #000)' }} />}
       </>
     );
-  } else if (mediaOf(v)) inner = <img src={mediaOf(v)} alt="" style={{ width: '100%', height: '100%', objectFit: fit, objectPosition: position, display: 'block' }} />;
+  } else if (mediaOf(v)) inner = <img src={thumbOf(mediaOf(v), big ? 1280 : 640)} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: fit, objectPosition: position, display: 'block' }} />;
   return (
     <div role={onClick ? 'button' : undefined} onClick={onClick} title={title || v?.error || ''} style={box}>
       {inner}

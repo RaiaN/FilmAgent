@@ -299,14 +299,14 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
   // The director's own text, kept as a version when a screenplay replaces it.
   const keepBrief = (text) => set((y) => ({ ...y, brief: { ...y.brief, versions: [{ id: uid('v-'), at: Date.now(), by: 'you', kind: 'script', status: 'kept', text, title: 'Your brief' }, ...y.brief.versions] } }));
   const reject = (ref, v) => set((y) => rejectVersion(y, ref, v.id));
-  // THE VIEWER walks what waits for you: after a verdict it moves on to the next new version.
+  // The pill in the header opens what has waited longest.
   const work = newWork(s);
   const nextNew = (skip = null) => {
     const rest = newWork(get()).fresh.filter((x) => x.v.id !== skip);
     setView(rest[0] ? { ref: rest[0].ref, vid: rest[0].v.id } : null);
   };
-  const pickInView = (ref, v) => pick(ref, v.id, () => nextNew(v.id));
-  const rejectInView = (ref, v) => { reject(ref, v); nextNew(v.id); };
+  const pickInView = (ref, v) => pick(ref, v.id);
+  const rejectInView = (ref, v) => { reject(ref, v); setView(null); };
   // A NOTE edits the version you look at: a picture at once, a take through the bar, where you
   // see what it will cost before pressing Edit.
   const note = async (ref, v, text) => {
@@ -391,7 +391,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
         <GenerationsView s={s} set={set} open={review} />
       )}
       {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} busy={actions.busy('Generating')} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
-      {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFinal={final} onReject={rejectInView} canvas={canvas} waiting={work.fresh} onNextNew={() => nextNew(view.vid)} />}
+      {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFinal={final} onReject={rejectInView} canvas={canvas} />}
     </div>
   );
 };

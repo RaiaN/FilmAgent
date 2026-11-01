@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Dropdown, Input, InputNumber, Menu } from '@arco-design/web-react';
 import { IconClose, IconPlus, IconStarFill, IconUpload, IconFile, IconDownload, IconLeft, IconRight, IconLoading, IconMore, IconPlayArrowFill } from '@arco-design/web-react/icon';
-import { C, MONO, SCRIPT_FONT, Tile, Empty, Pill, PageHead, DropArea, CanvasButton, crewColor, mediaOf, storeFile, readFile, readText } from './ui';
+import { C, MONO, SCRIPT_FONT, Tile, Empty, Pill, PageHead, DropArea, CanvasButton, crewColor, mediaOf, thumbOf, storeFile, readFile, readText } from './ui';
 import { stageLocalAsset } from '../../utils/film/canvasModel';
 import { ELEMENT_KINDS, KIND_LABEL, findElement, findScene, pickedOf, plateOf, pad2, shotNumber, newElement, newScene, newShot, uid, staleOf, shotListFresh, visible, addVersion, pickVersion } from '../../utils/film/studio/model';
 import { elementsOfShot, needsOfScene } from '../../utils/film/studio/bar';
@@ -127,7 +127,7 @@ const NameTile = ({ el, s, open }) => {
   return (
     <div role="button" className="st-tile" onClick={() => open({ type: 'element', id: el.id })} style={{ position: 'relative', cursor: 'pointer', borderRadius: 16, overflow: 'hidden', background: '#0b0c0e', aspectRatio: look.ratio, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
       {shown && mediaOf(shown)
-        ? <img src={mediaOf(shown)} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: look.position, display: 'block' }} />
+        ? <img src={thumbOf(mediaOf(shown), 800)} loading="lazy" decoding="async" alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: look.position, display: 'block' }} />
         : running && <div className="st-pulse" style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: C.work, fontSize: 26, background: C.workSoft }}><IconLoading /></div>}
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '46px 16px 14px', background: 'linear-gradient(transparent, rgba(5,6,8,0.88))', display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <span style={{ fontSize: 18, fontWeight: 700, color: '#fff', letterSpacing: -0.2, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{el.name}</span>
@@ -281,7 +281,7 @@ const Face = ({ el, size = 34 }) => {
   const p = pickedOf(el);
   return (
     <span title={el.name} style={{ width: size, height: size, flex: '0 0 auto', borderRadius: '50%', overflow: 'hidden', background: C.raised, display: 'inline-grid', placeItems: 'center', boxShadow: `0 0 0 2px ${p ? C.bg : C.warn}`, fontSize: size * 0.4, fontWeight: 700, color: C.muted }}>
-      {p ? <img src={mediaOf(p)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }} /> : el.name.slice(0, 1)}
+      {p ? <img src={thumbOf(mediaOf(p), 160)} loading="lazy" decoding="async" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }} /> : el.name.slice(0, 1)}
     </span>
   );
 };
@@ -294,7 +294,7 @@ const SceneCard = ({ s, sc, i, open }) => {
   const faces = facesOf(s, sc.shots);
   return (
     <div role="button" className="st-tile" onClick={() => open({ type: 'scene', id: sc.id })} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 16, overflow: 'hidden', background: '#0b0c0e', cursor: 'pointer', boxShadow: circled ? `0 0 0 2px ${C.gold}` : `inset 0 0 0 1px ${C.line}` }}>
-      {hero && (hero.kind === 'take' ? <Tile v={hero} w="100%" /> : <img src={mediaOf(hero)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.72 }} />)}
+      {hero && (hero.kind === 'take' ? <Tile v={hero} w="100%" /> : <img src={thumbOf(mediaOf(hero), 800)} loading="lazy" decoding="async" alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.72 }} />)}
       <span style={{ position: 'absolute', left: 14, top: 10, fontFamily: MONO, fontSize: 26, fontWeight: 700, color: '#fff', textShadow: '0 2px 8px rgba(0,0,0,0.75)' }}>{pad2(i + 1)}</span>
       <span style={{ position: 'absolute', right: 12, top: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
         {working && <span className="st-pulse" style={{ width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', background: C.workSoft, color: C.work }}><IconLoading /></span>}
@@ -433,7 +433,7 @@ const ShotBlock = ({ s, set, scene, sh, on, select, patchShot, removeShot, revie
               const p = plateOf(el);
               return (
                 <div key={el.id} title={el.name} style={{ flex: '0 0 auto', width: '100%', aspectRatio: el.kind === 'location' ? '16 / 9' : '1', borderRadius: 8, overflow: 'hidden', background: '#0b0c0e', boxShadow: p ? `inset 0 0 0 1px ${C.line}` : `inset 0 0 0 1px ${C.warn}`, display: 'grid', placeItems: 'center', padding: p ? 0 : 6, fontSize: 11, lineHeight: 1.25, color: C.muted, textAlign: 'center' }}>
-                  {p ? <img src={mediaOf(p)} alt={el.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: el.kind === 'character' ? 'top' : 'center', display: 'block' }} /> : el.name.split(' · ').pop()}
+                  {p ? <img src={thumbOf(mediaOf(p), 320)} loading="lazy" decoding="async" alt={el.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: el.kind === 'character' ? 'top' : 'center', display: 'block' }} /> : el.name.split(' · ').pop()}
                 </div>
               );
             })}
@@ -575,7 +575,7 @@ const CutPage = ({ s, review, selectScene, actions }) => {
                 const box = { flex: `${Math.max(1, Number(sh.seconds) || 1)} 1 0`, minWidth: 56, height: 104, borderRadius: 10, overflow: 'hidden', cursor: 'pointer', position: 'relative' };
                 return t ? (
                   <div key={sh.id} role="button" title={label} onClick={() => review({ at: 'take', sceneId: sc.id, shotId: sh.id }, t.id)} style={{ ...box, background: '#08090b', boxShadow: `inset 0 0 0 1px ${C.line}` }}>
-                    {t.posterUrl ? <img src={t.posterUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /> : <video src={mediaOf(t)} preload="metadata" muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                    {t.posterUrl ? <img src={t.posterUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /> : <video src={mediaOf(t)} preload="none" muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                     <span style={{ position: 'absolute', left: 8, bottom: 6, fontFamily: MONO, fontSize: 13, fontWeight: 700, color: '#fff', textShadow: '0 1px 3px #000' }}>{pad2(shotNumber(s, sh.id))}</span>
                   </div>
                 ) : (

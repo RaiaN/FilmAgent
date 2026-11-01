@@ -16,6 +16,15 @@ export const config = {
   },
 };
 
+const MAX_THUMB = 1600;
+const THUMBABLE = /^(jpe?g|png|webp)$/;
+const thumbnail = async (file, width) => {
+  try {
+    const { default: sharp } = await import('sharp');
+    return await sharp(file).rotate().resize({ width, withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+  } catch { return null; }
+};
+
 export default async function mediaHandler(req, res) {
   try {
     if (req.method === 'GET') {
@@ -30,8 +39,18 @@ export default async function mediaHandler(req, res) {
       const ext = key.split('.').pop().toLowerCase();
       const file = path.resolve(mediaFilePath(key));
       const { size } = fs.statSync(file);
-      res.setHeader('Content-Type', TYPE_BY_EXT[ext] || 'application/octet-stream');
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // content-hashed → never changes
+      // ?w=<px>: a picture for a tile, not the original. Only pages ask for it, only to show it.
+      const width = Number(req.query.w);
+      if (width > 0 && width <= MAX_THUMB && THUMBABLE.test(ext)) {
+        const small = await thumbnail(file, width);
+        if (small) {
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.setHeader('Content-Length', small.length);
+          return res.status(200).end(small);
+        }
+      }
+      res.setHeader('Content-Type', TYPE_BY_EXT[ext] || 'application/octet-stream');
       // RANGE support is what makes <video> SEEKABLE — without it the player can't
       // jump the playhead until the whole file has downloaded (the Take Viewer bug).
       res.setHeader('Accept-Ranges', 'bytes');

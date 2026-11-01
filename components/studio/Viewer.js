@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Input } from '@arco-design/web-react';
-import { IconClose, IconStarFill, IconRight } from '@arco-design/web-react/icon';
+import { IconClose, IconStarFill } from '@arco-design/web-react/icon';
 import { C, MONO, SCRIPT_FONT, Label, CanvasButton, mediaOf, isVideo, Tile } from './ui';
 import { containerOf, pickedOf, videoModelLabel, visible } from '../../utils/film/studio/model';
 import { DRAFT_MODE, draftFinalsOf } from '../../utils/film/suiteConfig';
@@ -9,10 +9,8 @@ import { InputsPanel, inputsOf } from './Refs';
 import { ShotList } from './ShotList';
 import { shotsOf } from '../../utils/film/core/shotList';
 
-// THE VIEWER — one version, big, with your verdict: Pick (Circle a take) · Note (the agent that
-// made it makes the next version) · Reject, and Final on a draft. It opens over whatever you
-// are on — from the crew feed, a shot card, Cast & World or Generations — and closing it puts
-// you back. "Next new" walks everything still waiting for you, oldest first.
+// THE VIEWER — one version, big, with your verdict: Pick (Circle a take), Edit from a note, Rework,
+// Reject, and Final on a draft. It opens over whatever you are on, and closing it puts you back.
 export const TEXT_KINDS = ['script', 'shotList', 'blocking'];
 
 // A scene's shots as the 1st AD planned them: one line each; how the AD got there (where the
@@ -82,7 +80,7 @@ const Versions = ({ c, vid, onSelect, kind }) => {
   );
 };
 
-export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework, onFinal, onReject, canvas, waiting, onNextNew }) => {
+export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework, onFinal, onReject, canvas }) => {
   const [note, setNote] = useState('');
   const [time, setTime] = useState(null);
   const [anchor, setAnchor] = useState(false);
@@ -110,7 +108,6 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
   const finalsOf = finishable ? c.versions.filter((x) => x.final && x.parent === v.id && x.status !== 'failed') : [];
   const expired = finishable && Date.now() - v.draft.at >= DRAFT_MODE.ttlMs;
   const finalRes = finishable ? draftFinalsOf(v.draft.modelKey || 'seedance25') : [];
-  const others = waiting.filter((x) => x.v.id !== v.id).length;
   const send = () => {
     const t = note.trim();
     if (!t) return;
@@ -128,7 +125,6 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
           {compare && <Button type={comparing ? 'primary' : 'secondary'} onClick={() => setComparing((o) => !o)}>Compare</Button>}
           {hasDetails && <Button type={details ? 'primary' : 'secondary'} onClick={() => setDetails((o) => !o)}>Prompt</Button>}
           {canvas && !textual && mediaOf(v) && <CanvasButton size={32} onClick={() => canvas.version(ref_, v, containerLabel(s, ref_))} />}
-          {others > 0 && <Button onClick={onNextNew} icon={<IconRight />}>Next new · {others}</Button>}
           <Button type="text" icon={<IconClose />} onClick={() => setView(null)} aria-label="Close" />
         </div>
         <div key={v.id} style={{ display: 'grid', gridTemplateColumns: details ? 'minmax(0, 1fr) minmax(260px, 340px)' : 'minmax(0, 1fr)', minHeight: 0, flex: '1 1 auto', overflow: 'hidden' }}>

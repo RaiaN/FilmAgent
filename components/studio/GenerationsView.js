@@ -89,6 +89,7 @@ const GenerationsView = ({ s, set, open, archive: archiveTo }) => {
     return () => clearInterval(t);
   }, [running.length]);
   const archived = all.filter((x) => x.v.archived && (place === 'any' || placeOf(x.ref) === place) && shown(x));
+  const typeCounts = { any: every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && TYPE_OF[x.v.kind] !== 'text' && x.v.status !== 'failed').length, image: every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && TYPE_OF[x.v.kind] === 'image' && x.v.status !== 'failed').length, video: every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && TYPE_OF[x.v.kind] === 'video' && x.v.status !== 'failed').length };
   const newestFirst = (a, b) => (b.v.status === 'running') - (a.v.status === 'running') || (b.v.at || 0) - (a.v.at || 0);
   const list = [...(state === 'failed' ? failed : state === 'archived' ? archived : scoped.filter((x) => x.v.status !== 'failed'))].sort(newestFirst);
   const now = Date.now();
@@ -104,7 +105,7 @@ const GenerationsView = ({ s, set, open, archive: archiveTo }) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 24, fontWeight: 700, color: C.ink, letterSpacing: -0.4, flex: '1 1 140px' }}>Generations</div>
         <Select value={place} onChange={setPlace} options={places} style={{ width: 170 }} getPopupContainer={(node) => node.parentElement} />
-        <Segmented items={TYPES} value={type} onChange={setType} />
+        <Segmented items={TYPES} value={type} onChange={setType} counts={typeCounts} />
         <Segmented items={STATES} value={state} onChange={setState} counts={{ all: scoped.length - failed.length, failed: failed.length, archived: archived.length }} />
         {state === 'failed' && failed.length > 0 && <Button icon={<IconArchive />} onClick={() => archive(failed.map((x) => ({ ref: x.ref, vid: x.v.id })), true)}>Archive all failed · {failed.length}</Button>}
       </div>

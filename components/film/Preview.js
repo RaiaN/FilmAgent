@@ -81,7 +81,7 @@ const Thumb = ({ r, on, select, parent }) => {
 const THUMB_FILL = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
 const ThumbVideo = ({ r }) => {
   const { url } = usePlayable(r);
-  return url ? <video src={`${url}#t=0.5`} preload="metadata" muted style={THUMB_FILL} /> : null;
+  return url ? <video src={`${url}#t=0.5`} preload="none" muted style={THUMB_FILL} /> : null;
 };
 
 // Its name and tags, for your own convenience, and the agent can read them. Click the name to change it.

@@ -104,6 +104,31 @@ describe('storyboard', () => {
   });
 });
 
+describe('enhance', () => {
+  const withPicture = async (s) => { await s.tools.call('generate_image', { project: 'film', prompt: 'a' }); };
+  test('the rewrite comes back in names, and nothing renders', async () => {
+    const s = setup();
+    await withPicture(s);
+    s.client.reason.mockImplementation(async () => ({ content: JSON.stringify({ action: 'Rewritten: [Image 1] walks at dusk', audio: '' }) }));
+    const out = await s.tools.call('enhance_prompt', { project: 'film', prompt: '@R1 walks', refs: ['R1'] });
+    expect(out.prompt).toBe('Rewritten: @R1 walks at dusk');
+    expect(s.client.startVideo).not.toHaveBeenCalled();
+  });
+  test('a rewrite that drops a citation gets one more ask, then the prompt stays', async () => {
+    const s = setup();
+    await withPicture(s);
+    s.client.reason.mockImplementation(async () => ({ content: JSON.stringify({ action: 'Someone walks', audio: '' }) }));
+    await expect(s.tools.call('enhance_prompt', { project: 'film', prompt: '@R1 walks', refs: ['R1'] })).rejects.toThrow(/dropped a reference/);
+    expect(s.client.reason).toHaveBeenCalledTimes(2);
+  });
+  test('it refuses a citation that is not a reference', async () => {
+    const s = setup();
+    await withPicture(s);
+    await expect(s.tools.call('enhance_prompt', { project: 'film', prompt: '@R1 walks' })).rejects.toThrow(/not a reference/);
+    expect(s.client.reason).not.toHaveBeenCalled();
+  });
+});
+
 describe('resolution', () => {
   const ask = { project: 'film', prompt: 'Walks', seconds: 6, quality: 'final' };
   test('Premium renders a 4K final, as a MOV', async () => {

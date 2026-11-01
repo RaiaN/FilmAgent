@@ -17,7 +17,7 @@ import { RENDERS, createRunRules } from '../utils/film/agentRules.mjs';
 const BASE = process.env.FILM_TOOLS_URL || 'http://localhost:3000';
 const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4', '.mov': 'video/quicktime' };
 // Tools the harness uses for the agent: it never picks a project, and files arrive as attachments.
-const HARNESS_ONLY = ['ensure_project', 'add_media', 'archive', 'forget_media', 'merge_film', 'settle_renders', 'results', 'read_transcript', 'save_transcript'];
+const HARNESS_ONLY = ['ensure_project', 'add_media', 'archive', 'forget_media', 'enhance_prompt', 'merge_film', 'settle_renders', 'results', 'read_transcript', 'save_transcript'];
 
 const argv = process.argv.slice(2);
 const option = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv.splice(i, 2)[1] : null; };

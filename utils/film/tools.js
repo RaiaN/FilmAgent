@@ -6,6 +6,7 @@
 // here: nothing is dropped or swapped, a prompt cites only what it was given, an edit reads as an
 // edit, and inputs that already failed are not rendered again unless the director asked.
 import { startTake } from './core/shoot';
+import { composeShotAction } from './core/shot';
 import { CAST_ROLE, castDraftFromParsed, castPlanFromIdea, plateEdit, storyboardKeyframe, storyboardPanels, storyboardSheet } from './core/storyboard';
 import { ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK, previzAnimaticPrompt, previzCutPrompt, previzPlan, previzSchematic, totalSecondsOf } from './core/previz';
 import { characterVariations, finishDraft, locationVariations } from './core/operations';
@@ -74,6 +75,7 @@ export const FILM_TOOLS = [
   tool('archive', 'Take results out of sight, or bring them back. Renders nothing.', { ...PROJECT, ids: names('Version ids.'), archived: { type: 'boolean' } }, ['project', 'ids', 'archived']),
   tool('forget_media', 'A file was deleted: take it out of the unplaced pool, and say what else still uses it.', { ...PROJECT, url: str('The file.') }, ['project', 'url']),
   tool('merge_film', 'Bring a Studio tab\'s copy of the film into the saved film, creating it if it is new.', { ...PROJECT, name: str('Its name, if it is new.'), studio: { type: 'object', description: 'The film as the tab holds it.' } }, ['project', 'studio']),
+  tool('enhance_prompt', "Rewrite a video prompt under the model's prompt skill, for the director to read before anything renders. Citations, dialogue and events stay. Renders nothing.", { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures.'), video_refs: names('Reference videos.'), model: { type: 'string', enum: VIDEO_KEYS } }, ['project', 'prompt']),
   tool('assemble', "Join each shot's newest take, in film order, into one cut. Renders nothing.", { ...PROJECT, without_missing: { type: 'boolean', description: 'Only when the director agreed to leave out shots with no take yet.' } }, ['project']),
   tool('settle_renders', 'Record every render of this film that has ended.', PROJECT, ['project']),
   tool('results', 'The film for the preview and Generations.', PROJECT, ['project']),
@@ -668,6 +670,29 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       if (!src.plan) fail(`${src.name} is not an animatic.`);
       const prompt = await previzCutPrompt({ videoUrl: mediaOf(src), plan: src.plan }, ctx);
       return { prompt: prompt.replace(/@video\s?1\b/gi, `@${src.name}`), video_refs: [src.name] };
+    },
+
+    // The rewrite works in the numbers the skill knows; the director reads names. Whatever the
+    // rewrite drops of what was cited gets one corrective ask, then their prompt stands.
+    enhance_prompt: async ({ project, prompt, refs = [], video_refs = [], model = 'seedance25' }) => {
+      if (!String(prompt || '').trim()) fail('The prompt is empty.');
+      const { studio: s } = await load(project);
+      const list = pictures(s, refs);
+      const clips = videos(s, video_refs);
+      const numbered = citeNumbers(prompt, resolver(s), { images: list, videos: clips });
+      const cited = [...new Set([...numbered.matchAll(/@(Image|Video)(\d+)/g)].map((m) => m[0]))];
+      const roster = list.map((v, i) => `image ${i + 1}: ${describeAsset(s, find(s, v.name)).title}`);
+      const compose = (text) => composeShotAction({ text, references: list.map(mediaOf), roster, modelKey: model, derive: false }, ctx);
+      const lost = (t) => cited.filter((c) => !new RegExp(`${c}\\b`, 'i').test(t));
+      const toNumber = (t) => String(t).replace(/\[\s*Image\s+(\d+)\s*\]/gi, '@Image$1');
+      let out = await compose(numbered);
+      if (lost(toNumber(out.action)).length) out = await compose(`${numbered}\n\nKeep every one of these citations: ${cited.join(', ')}.`);
+      const action = toNumber(out.action);
+      if (lost(action).length) fail(`The rewrite dropped a reference (${lost(action).join(', ')}). Your prompt stays as it was.`);
+      const named = action
+        .replace(/@Image\s*(\d+)/gi, (whole, n) => (list[n - 1] ? `@${list[n - 1].name}` : whole))
+        .replace(/@Video\s*(\d+)/gi, (whole, n) => (clips[n - 1] ? `@${clips[n - 1].name}` : whole));
+      return { prompt: [named, out.audio].filter(Boolean).join('\n') };
     },
 
     grab_frame: async ({ project, name, at, last = false }) => {

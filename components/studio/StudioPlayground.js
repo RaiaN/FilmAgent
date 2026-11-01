@@ -275,6 +275,16 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       else go();
     },
   };
+  // ENHANCE: the prompt rewritten under the model's skill, there to read and change. Nothing renders,
+  // and Undo puts your words back.
+  const enhance = () => run('Enhancing', async () => {
+    const b = barRef.current;
+    const { args } = requestOf(get(), b);
+    await sync();
+    const out = await tool('enhance_prompt', { prompt: b.text, refs: args.refs, video_refs: args.video_refs, model: b.model });
+    if (barRef.current.text !== b.text) { toast('The prompt changed while it was being enhanced, so your words stay.'); return; }
+    setBar((x) => ({ ...x, text: out.prompt, before: b.text }));
+  });
   // The bar as its shot starts it, or empty off a shot.
   const barHome = (b = barRef.current) => {
     const shot = b.shotId ? findShot(get(), b.sceneId, b.shotId) : null;
@@ -424,7 +434,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
       ) : (
         <GenerationsView s={s} set={set} open={review} jobs={jobs} />
       )}
-      {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source || bar.refs.length) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} onBackToShot={() => barHome()} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
+      {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source || bar.refs.length) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} onEnhance={enhance} enhancing={actions.busy('Enhancing')} onBackToShot={() => barHome()} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
       {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFrame={frame} onFinal={final} onReject={rejectInView} canvas={canvas} />}
     </div>
   );

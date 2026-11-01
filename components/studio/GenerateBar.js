@@ -24,7 +24,7 @@ const Card = ({ label, value, onClick, active, children }) => (
 );
 const Pill = ({ children, ...rest }) => <span {...rest} style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '0 13px', borderRadius: 12, background: C.raised, color: C.ink, fontSize: 14.5, whiteSpace: 'nowrap', cursor: rest.onClick ? 'pointer' : 'default', flex: '0 0 auto', ...rest.style }}>{children}</span>;
 
-export const GenerateBar = ({ s, bar, setBar, onGenerate, onBackToShot, container, setStyle, open, setOpen }) => {
+export const GenerateBar = ({ s, bar, setBar, onGenerate, onEnhance, enhancing, onBackToShot, container, setStyle, open, setOpen }) => {
   const [caret, setCaret] = useState(0);
   const [closed, setClosed] = useState(false);
   const [browsing, setBrowsing] = useState(false);
@@ -84,7 +84,7 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, onBackToShot, containe
         )}
         <div style={{ position: 'relative', display: 'flex', gap: 12, alignItems: 'stretch', background: C.raised, borderRadius: 20, padding: 12 }}>
           <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10, alignContent: 'space-between' }}>
-            <Input.TextArea ref={area} className="st-bare" aria-label="Describe the shot" value={bar.text} onFocus={() => setOpen(true)} onChange={(v, e) => { patch({ text: v }); setCaret(e?.target?.selectionStart ?? v.length); setClosed(false); }} onKeyDown={onKeys} onKeyUp={(e) => setCaret(e.target.selectionStart)} onClick={(e) => setCaret(e.target.selectionStart)} autoSize={{ minRows: open ? 2 : 1, maxRows: open ? 5 : 1 }} placeholder="Describe the shot, @ to add cast, places and takes" style={{ fontSize: 17, lineHeight: 1.5, color: C.ink }} />
+            <Input.TextArea ref={area} className="st-bare" aria-label="Describe the shot" value={bar.text} onFocus={() => setOpen(true)} onChange={(v, e) => { patch({ text: v, before: null }); setCaret(e?.target?.selectionStart ?? v.length); setClosed(false); }} onKeyDown={onKeys} onKeyUp={(e) => setCaret(e.target.selectionStart)} onClick={(e) => setCaret(e.target.selectionStart)} autoSize={{ minRows: open ? 2 : 1, maxRows: open ? 5 : 1 }} placeholder="Describe the shot, @ to add cast, places and takes" style={{ fontSize: 17, lineHeight: 1.5, color: C.ink }} />
             {open && (
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <Dropdown trigger="click" getPopupContainer={popup} droplist={<Menu onClickMenuItem={(k) => setBar((b) => barOnModel(b, k))}>{VIDEO_MODELS.map((m) => <Menu.Item key={m.key}>{m.label}</Menu.Item>)}</Menu>}><Pill onClick={() => {}} style={{ background: C.bg }}>{VIDEO_MODELS.find((m) => m.key === bar.model)?.label || bar.model}<IconDown style={{ fontSize: 12, color: C.muted }} /></Pill></Dropdown>
@@ -96,6 +96,9 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, onBackToShot, containe
               </div>
             )}
           </div>
+          {!editing && (bar.before
+            ? <Button size="large" style={{ alignSelf: 'center', flex: '0 0 auto' }} onClick={() => setBar((b) => ({ ...b, text: b.before, before: null }))}>Undo</Button>
+            : <Button size="large" title="Rewrite this prompt under the model's prompt skill. You read it before anything renders." loading={enhancing} disabled={!String(bar.text).trim()} style={{ alignSelf: 'center', flex: '0 0 auto' }} onClick={onEnhance}>Enhance</Button>)}
           <span role="button" className="st-chip" aria-label={open ? 'Fewer controls' : 'More controls'} title={open ? 'Fewer controls' : 'More controls'} onClick={() => setOpen((o) => !o)} style={{ alignSelf: 'center', width: 40, height: 40, borderRadius: 12, border: `1px solid ${C.lineHi}`, background: C.hover, color: C.ink, fontSize: 18, cursor: 'pointer', display: 'grid', placeItems: 'center', flex: '0 0 auto' }}>{open ? <IconDown /> : <IconUp />}</span>
           <button type="button" className="st-generate" aria-label="Generate" disabled={!ready} onClick={onGenerate} style={{ flex: '0 0 auto', width: open ? 200 : 150, border: 'none', borderRadius: 16, background: ready ? C.gold : C.hover, color: ready ? C.accentInk : C.muted, cursor: ready ? 'pointer' : 'default', display: 'grid', placeItems: 'center', alignContent: 'center', gap: 4, padding: '10px 12px', textAlign: 'center' }}>
             <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: 0.2, display: 'inline-flex', alignItems: 'center', gap: 7 }}><IconPlayArrowFill />{editing ? 'Edit' : 'Generate'}</span>

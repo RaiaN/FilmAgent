@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Button, Dropdown, Input, InputNumber, Menu } from '@arco-design/web-react';
-import { IconClose, IconDown, IconPlus, IconSound, IconMute, IconUp, IconPlayArrowFill } from '@arco-design/web-react/icon';
+import { IconClose, IconDown, IconPlus, IconLoading, IconSound, IconMute, IconUndo, IconUp, IconPlayArrowFill } from '@arco-design/web-react/icon';
 import RefDrawer from '../film/canvas/RefDrawer';
 import { mentionAt, putMention } from '../film/Session';
 import { C, MONO, mediaOf } from './ui';
@@ -11,6 +11,8 @@ import { videoTraits } from '../../utils/film/suiteConfig';
 
 // THE GENERATE BAR — the big control: references, the film's look and the prompt, then the render's
 // settings and Generate. Docked under every page; it fills in from the shot you are on.
+const TOOL = { width: 40, height: 40, borderRadius: 12, border: `1px solid ${C.lineHi}`, background: C.hover, color: C.ink, fontSize: 18, cursor: 'pointer', display: 'grid', placeItems: 'center' };
+const WAND = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20 15 9" /><path d="m13 7 4 4" /><path d="M18 3v4M16 5h4M7 4v2M6 5h2M19 15v2M18 16h2" /></svg>;
 const DRAWER_TABS = [{ key: 'all', label: 'All' }, ...ASSET_GROUPS.map((g) => ({ key: g.key, label: g.label }))];
 
 const Card = ({ label, value, onClick, active, children }) => (
@@ -96,10 +98,12 @@ export const GenerateBar = ({ s, bar, setBar, onGenerate, onEnhance, enhancing, 
               </div>
             )}
           </div>
-          {!editing && (bar.before
-            ? <Button size="large" style={{ alignSelf: 'center', flex: '0 0 auto' }} onClick={() => setBar((b) => ({ ...b, text: b.before, before: null }))}>Undo</Button>
-            : <Button size="large" title="Rewrite this prompt under the model's prompt skill. You read it before anything renders." loading={enhancing} disabled={!String(bar.text).trim()} style={{ alignSelf: 'center', flex: '0 0 auto' }} onClick={onEnhance}>Enhance</Button>)}
-          <span role="button" className="st-chip" aria-label={open ? 'Fewer controls' : 'More controls'} title={open ? 'Fewer controls' : 'More controls'} onClick={() => setOpen((o) => !o)} style={{ alignSelf: 'center', width: 40, height: 40, borderRadius: 12, border: `1px solid ${C.lineHi}`, background: C.hover, color: C.ink, fontSize: 18, cursor: 'pointer', display: 'grid', placeItems: 'center', flex: '0 0 auto' }}>{open ? <IconDown /> : <IconUp />}</span>
+          <div style={{ alignSelf: 'center', display: 'grid', gap: 8, flex: '0 0 auto' }}>
+            <span role="button" className="st-chip" aria-label={open ? 'Fewer controls' : 'More controls'} title={open ? 'Fewer controls' : 'More controls'} onClick={() => setOpen((o) => !o)} style={TOOL}>{open ? <IconDown /> : <IconUp />}</span>
+            {open && !editing && (bar.before
+              ? <span role="button" className="st-chip" aria-label="Undo the enhance" title="Back to your words" onClick={() => setBar((b) => ({ ...b, text: b.before, before: null }))} style={TOOL}><IconUndo /></span>
+              : <span role="button" className="st-chip" aria-label="Enhance the prompt" title="Rewrite this prompt under the model's prompt skill. You read it before anything renders." onClick={() => { if (!enhancing && String(bar.text).trim()) onEnhance(); }} style={{ ...TOOL, opacity: String(bar.text).trim() ? 1 : 0.4 }}>{enhancing ? <IconLoading /> : WAND}</span>)}
+          </div>
           <button type="button" className="st-generate" aria-label="Generate" disabled={!ready} onClick={onGenerate} style={{ flex: '0 0 auto', width: open ? 200 : 150, border: 'none', borderRadius: 16, background: ready ? C.gold : C.hover, color: ready ? C.accentInk : C.muted, cursor: ready ? 'pointer' : 'default', display: 'grid', placeItems: 'center', alignContent: 'center', gap: 4, padding: '10px 12px', textAlign: 'center' }}>
             <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: 0.2, display: 'inline-flex', alignItems: 'center', gap: 7 }}><IconPlayArrowFill />{editing ? 'Edit' : 'Generate'}</span>
             <span style={{ fontSize: 12.5, opacity: 0.8 }}>{barSummary(bar)}</span>

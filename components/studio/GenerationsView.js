@@ -81,7 +81,9 @@ const GenerationsView = ({ s, set, open, archive: archiveTo, jobs = [] }) => {
   const shown = type === 'any' ? (x) => TYPE_OF[x.v.kind] !== 'text' : (x) => TYPE_OF[x.v.kind] === type;
   const scoped = every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && shown(x));
   const running = scoped.filter((x) => x.v.status === 'running');
-  const ticking = running.length + jobs.length;
+  // A job's own card stands in for it only until its results start to land.
+  const pending = jobs.filter((j) => !all.some((x) => (x.v.at || 0) >= j.since));
+  const ticking = running.length + pending.length;
   const failed = scoped.filter((x) => x.v.status === 'failed');
   const [, tick] = useState(0);
   useEffect(() => {
@@ -113,7 +115,7 @@ const GenerationsView = ({ s, set, open, archive: archiveTo, jobs = [] }) => {
       {!list.length && <Empty>{state === 'failed' ? 'Nothing failed' : state === 'archived' ? 'Nothing archived' : 'Nothing here yet'}</Empty>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
         {/* Work asked for and not yet in the film: its card lands once the film has saved. */}
-        {state === 'all' && jobs.map((j) => (
+        {state === 'all' && pending.map((j) => (
           <div key={j.id} style={{ borderRadius: 16, border: `1px solid ${C.line}`, background: C.raised, overflow: 'hidden' }}>
             <div className="st-pulse" style={{ aspectRatio: '16 / 9', display: 'grid', placeItems: 'center', color: C.work, background: C.workSoft, fontSize: 14 }}>{j.label}</div>
             <div style={{ padding: '10px 12px', fontSize: 13, color: C.muted, fontFamily: MONO }}>{clock(now - j.since)}</div>

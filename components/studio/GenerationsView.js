@@ -71,7 +71,7 @@ const Card = ({ s, ref_, v, label, now, open, archive }) => {
 };
 
 // `archive` replaces how archiving reaches the film, for a view that doesn't hold it itself.
-const GenerationsView = ({ s, set, open, archive: archiveTo }) => {
+const GenerationsView = ({ s, set, open, archive: archiveTo, jobs = [] }) => {
   const [place, setPlace] = useState('any');
   const [type, setType] = useState('any');
   const all = allVersions(s);
@@ -81,13 +81,14 @@ const GenerationsView = ({ s, set, open, archive: archiveTo }) => {
   const shown = type === 'any' ? (x) => TYPE_OF[x.v.kind] !== 'text' : (x) => TYPE_OF[x.v.kind] === type;
   const scoped = every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && shown(x));
   const running = scoped.filter((x) => x.v.status === 'running');
+  const ticking = running.length + jobs.length;
   const failed = scoped.filter((x) => x.v.status === 'failed');
   const [, tick] = useState(0);
   useEffect(() => {
-    if (!running.length) return undefined;
+    if (!ticking) return undefined;
     const t = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(t);
-  }, [running.length]);
+  }, [ticking]);
   const archived = all.filter((x) => x.v.archived && (place === 'any' || placeOf(x.ref) === place) && shown(x));
   const typeCounts = { any: every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && TYPE_OF[x.v.kind] !== 'text' && x.v.status !== 'failed').length, image: every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && TYPE_OF[x.v.kind] === 'image' && x.v.status !== 'failed').length, video: every.filter((x) => (place === 'any' || placeOf(x.ref) === place) && TYPE_OF[x.v.kind] === 'video' && x.v.status !== 'failed').length };
   const newestFirst = (a, b) => (b.v.status === 'running') - (a.v.status === 'running') || (b.v.at || 0) - (a.v.at || 0);
@@ -111,6 +112,13 @@ const GenerationsView = ({ s, set, open, archive: archiveTo }) => {
       </div>
       {!list.length && <Empty>{state === 'failed' ? 'Nothing failed' : state === 'archived' ? 'Nothing archived' : 'Nothing here yet'}</Empty>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+        {/* Work asked for and not yet in the film: its card lands once the film has saved. */}
+        {state === 'all' && jobs.map((j) => (
+          <div key={j.id} style={{ borderRadius: 16, border: `1px solid ${C.line}`, background: C.raised, overflow: 'hidden' }}>
+            <div className="st-pulse" style={{ aspectRatio: '16 / 9', display: 'grid', placeItems: 'center', color: C.work, background: C.workSoft, fontSize: 14 }}>{j.label}</div>
+            <div style={{ padding: '10px 12px', fontSize: 13, color: C.muted, fontFamily: MONO }}>{clock(now - j.since)}</div>
+          </div>
+        ))}
         {list.map(({ ref, v, label }) => <Card key={`${label}-${v.id}`} s={s} ref_={ref} v={v} label={label} now={now} open={open} archive={archive} />)}
       </div>
     </div>

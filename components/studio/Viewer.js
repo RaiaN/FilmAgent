@@ -120,12 +120,16 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
   if (!v) return null;
   const onShot = ref_.at === 'take';
   const latest = onShot ? latestOf(c) : null;
-  const shownIds = onShot ? [...new Set([latest?.id, v.id, ...extra].filter(Boolean))] : [v.id];
+  const shownIds = onShot ? [...new Set([v.id, ...extra])] : [v.id];
   const shown = (c?.versions || []).filter((x) => shownIds.includes(x.id)).sort((a, b) => (b.at || 0) - (a.at || 0));
   // A copy once made is the film's, so it never has to be made again.
   const keepCopy = (x) => (playUrl) => set((film) => patchVersion(film, ref_, x.id, { playUrl }));
   const toggleTake = (id) => {
-    if (id === v.id && shownIds.length > 1) { setExtra((x) => x.filter((y) => y !== id)); setView({ ref: ref_, vid: shownIds.find((y) => y !== id) }); return; }
+    if (id === v.id) {
+      const next = shownIds.find((y) => y !== id);
+      if (next) { setExtra((x) => x.filter((y) => y !== id)); setView({ ref: ref_, vid: next }); }
+      return;
+    }
     setExtra((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
   };
   const isTake = ref_.at === 'take' || ref_.at === 'cut';
@@ -161,7 +165,7 @@ export const Viewer = ({ s, set, toast, view, setView, onPick, onNote, onRework,
             {shown.length > 1 ? (
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(shown.length, 3)}, minmax(0, 1fr))`, gap: 10 }}>
                 {shown.map((x) => (
-                  <div key={x.id} role="button" onClick={() => setView({ ref: ref_, vid: x.id })} style={{ display: 'grid', gap: 6, padding: 6, borderRadius: 16, cursor: 'pointer', boxShadow: x.id === v.id ? `inset 0 0 0 2px ${C.accent}` : 'none' }}>
+                  <div key={x.id} role="button" onClick={() => { setExtra((e) => [...new Set([...e, v.id])]); setView({ ref: ref_, vid: x.id }); }} style={{ display: 'grid', gap: 6, padding: 6, borderRadius: 16, cursor: 'pointer', boxShadow: x.id === v.id ? `inset 0 0 0 2px ${C.accent}` : 'none' }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: x.id === v.id ? C.accent : C.text }}>{x.name}{x.id === latest?.id ? ' · Latest' : ''}{x.res ? ` · ${x.res}` : ''}</span>
                     <Big v={x} onTime={x.id === v.id ? setTime : undefined} onCopy={keepCopy(x)} />
                   </div>

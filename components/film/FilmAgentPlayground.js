@@ -56,6 +56,7 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
   const [view, setView] = useState('preview');
   const [focus, setFocus] = useState(null);
   const [commands, setCommands] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const nudge = useRef(() => {});
 
   const refresh = useCallback(async () => {
@@ -64,28 +65,34 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
     setStudio(out.studio);
   }, [id]);
 
+  // What the tab has read of this film. Another film starts over; leaving the tab only pauses it,
+  // so coming back shows the film at once and picks up what changed.
+  const seen = useRef({ after: 0, revision: null });
   useEffect(() => {
+    seen.current = { after: 0, revision: null };
     setEvents([]);
     setResults([]);
     setStudio(emptyStudio());
     setBusy(false);
+    setLoaded(false);
+  }, [id]);
+
+  useEffect(() => {
     if (!id || !active) return undefined;
     let live = true;
-    let after = 0;
     let sessionTimer = null;
     let filmTimer = null;
-    let revision = null;
     const followSession = async () => {
       clearTimeout(sessionTimer);
       try {
-        const res = await fetch(`/api/film/session?project=${encodeURIComponent(id)}&after=${after}`);
+        const res = await fetch(`/api/film/session?project=${encodeURIComponent(id)}&after=${seen.current.after}`);
         const out = await res.json();
         if (!res.ok) throw new Error(out.error);
         if (!live) return;
         setBusy(out.busy);
         setCommands(out.commands || []);
         if (out.events.length) {
-          after = out.events[out.events.length - 1].n + 1;
+          seen.current.after = out.events[out.events.length - 1].n + 1;
           setEvents((x) => [...x, ...out.events]);
         }
       } catch (e) { if (live) Message.error({ content: e.message, id: 'film-session' }); }
@@ -94,11 +101,12 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
     // Whoever changed the film, the agent or Studio, shows here.
     const followFilm = async () => {
       try {
-        const moved = await (await fetch(`/api/film/cloud?action=studio&id=${encodeURIComponent(id)}${revision ? `&since=${encodeURIComponent(revision)}` : ''}`)).json();
+        const moved = await (await fetch(`/api/film/cloud?action=studio&id=${encodeURIComponent(id)}${seen.current.revision ? `&since=${encodeURIComponent(seen.current.revision)}` : ''}`)).json();
         if (live && !moved.same && moved.revision) {
-          revision = moved.revision;
+          seen.current.revision = moved.revision;
           await refresh();
         }
+        if (live) setLoaded(true);
       } catch (e) { if (live) Message.error({ content: e.message, id: 'film-session' }); }
       if (live) filmTimer = setTimeout(followFilm, FILM_POLL_MS);
     };
@@ -170,7 +178,7 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
           </div>
           <div style={{ minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'grid' }}>
             {workbench && <EditImage key={open.id} result={workbench} words={open.words} onCancel={cancelEdit} onUse={useEdit} />}
-            {!workbench && view === 'preview' && <Preview results={results} onLabel={onLabel} focus={focus} />}
+            {!workbench && view === 'preview' && <Preview results={results} onLabel={onLabel} focus={focus} loading={!!id && !loaded} />}
             {!workbench && view === 'generations' && <GenerationsView s={studio} archive={archive} open={(ref, vid) => { const r = results.find((x) => x.id === vid); if (r) show(r.name); }} />}
             {!workbench && view === 'library' && <Library project={id} version={results.length} onDelete={deleteAsset} />}
           </div>

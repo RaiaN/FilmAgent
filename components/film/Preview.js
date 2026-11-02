@@ -98,7 +98,7 @@ const Organise = ({ r, onLabel, allTags }) => {
   );
 };
 
-export const Preview = ({ results, onLabel, focus = null }) => {
+export const Preview = ({ results, onLabel, focus = null, loading = false }) => {
   const [chosen, setChosen] = useState(null);
   useEffect(() => { if (focus) setChosen(focus.name); }, [focus]);
   const [compare, setCompare] = useState(false);
@@ -135,7 +135,7 @@ export const Preview = ({ results, onLabel, focus = null }) => {
         <div style={{ padding: '10px 12px', borderRadius: 11, background: C.warnSoft, color: C.warn, fontSize: 14, lineHeight: 1.5, flex: '0 0 auto' }}><b style={{ fontFamily: MONO }}>{selected.name}</b> failed: {selected.error || 'no reason was given.'}</div>
       )}
       {!results.length && (
-        <div style={{ flex: '0 0 auto', padding: '40px 24px', textAlign: 'center', color: C.text, fontSize: 15, lineHeight: 1.6 }}>Nothing in this film yet. What you attach or make shows here.</div>
+        <div style={{ flex: '0 0 auto', padding: '40px 24px', textAlign: 'center', color: C.text, fontSize: 15, lineHeight: 1.6 }}>{loading ? 'Opening the film…' : 'Nothing in this film yet. What you attach or make shows here.'}</div>
       )}
       {shown && (compare && parent
         ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, flex: '0 0 auto' }}><Screen r={parent} /><Screen r={shown} /></div>

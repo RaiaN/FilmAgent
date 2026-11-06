@@ -25,12 +25,15 @@ import { isLocalMediaUrl } from './mediaUrl';
 const VIDEO_KEYS = ['seedance25', 'seedance25Premium'];
 const IMAGE_KEYS = ['seedream', 'seedreamPro', 'seedream55'];
 const IMAGE_EDIT_MODEL = 'seedreamPro';
+// The image model a drawing tool runs on: the one asked for, else the film's default.
+const IMAGE_MODEL = { type: 'string', enum: IMAGE_KEYS, description: 'Image model, only when the director named one: seedream55 = Seedream 5.5, seedreamPro = 5.0 Pro, seedream = 5.0 Lite.' };
 const DRAFT_RES = DRAFT_MODE.resolution;
 const FINAL_RES = '1080p';
 const LOOK_POINTS = [0.05, 0.25, 0.45, 0.65, 0.85, 0.98];
 const WAIT_LIMIT_S = 240;
 const FRAME_S = 0.05;
 const POLL_MS = 4000;
+const ROUND_GRACE_MS = 20000; // WAIT_LIMIT_S plus this stays well under the 300 s HTTP timeouts
 const SAVE_ATTEMPTS = 6;
 const EDIT_WORDS = /\b(edit|add|insert|remove|delete|modify|replace|change)/i;
 const UNPLACED = { at: 'unplaced' };
@@ -57,15 +60,15 @@ export const FILM_TOOLS = [
   tool('generate_image', 'Make a picture from a prompt, optionally from pictures in the film. Cite a picture in the prompt by its name, @R1 or @Morwen; it must be in refs. Returns when it is done.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Pictures it is made from, in order.'), model: { type: 'string', enum: IMAGE_KEYS }, size: str('e.g. 2K, or WxH. seedream55 renders up to 3840x2160 (4K as WxH) and up to 10 refs; seedreamPro caps at 2048x2048.'), label: str('What it is.') }, ['project', 'prompt']),
   tool('write_screenplay', "Write a screenplay from the director's idea and make it the film's script. Their earlier text stays as a version. Returns when it is done.", { ...PROJECT, idea: str("The idea, the director's words unchanged."), note: str("The director's note, if any.") }, ['project', 'idea']),
   tool('shot_list', "Break a screenplay down into scenes and their shots, and lay the film out from it: scenes, shots, and everyone and everywhere it names, waiting for plates. Uses the film's script unless given one. Returns when it is done.", { ...PROJECT, script: str("The screenplay, the director's words unchanged."), note: str("The director's note, if any."), replace: { type: 'boolean', description: 'Only when the director agreed to replace the scenes the film has, and their takes.' } }, ['project']),
-  tool('scene_views', "Draw the camera views a scene's shots need, each an edit of the place's plate so every view is the same room in the same light. Returns when it is done.", { ...PROJECT, scene_id: str('The scene, from list_project.') }, ['project', 'scene_id']),
-  tool('cast', "Cast the film: plan the characters, places and props from the script or the director's words, and draw a plate for each in Cast & World under their names. A character gets a frontal face plate and a full-body sheet. Anyone already plated is left alone. Returns when it is done.", { ...PROJECT, brief: str("Who or what to cast, the director's words unchanged. Leave out to cast from the film's script."), note: str("The director's note, if any."), names: names('Exactly who and what to draw, under exactly these names. Nothing else is drawn.') }, ['project']),
-  tool('variations', "More pictures of one element, each an edit of its plate so identity and place hold: background plates of a location (other angles, times, weather), looks of a character (costume, age). With no plate yet, one is drawn from the description first and becomes the plate. New ones sit beside the plate. Returns when it is done.", { ...PROJECT, element: str('Who or where, e.g. Morwen or The Harbour.'), kind: { type: 'string', enum: ELEMENT_KINDS, description: 'Only if the element is new.' }, description: str('What it looks like, for an element with no plate.'), direction: str("What should differ, the director's words unchanged."), count: { type: 'integer', minimum: 1, maximum: 8, description: 'How many. Defaults to 4.' } }, ['project', 'element']),
-  tool('storyboard', "Draw a storyboard: the script's key moments as numbered panels on ONE sheet. Uses the film's script unless given one, and each location's plate by its place. Comes back with every panel's motion prompt and length, ready for generate_video. Returns when it is done.", { ...PROJECT, script: str("The script, the director's words unchanged. Leave out to use the film's script."), panels: { type: 'integer', minimum: 1, description: 'How many panels, only if the director named a number. Left out, the story decides.' }, refs: names('Pictures of the cast and world, in order.'), style: str('The look, if they named one.'), note: str("The director's note on what to select."), label: str('What it is.') }, ['project']),
-  tool('previz', "Block a scene: plan who stands where, who moves, the cameras and timing, and draw it as a top-down schematic. Change the drawing with edit_image; the animatic follows the drawing. Returns when it is done.", { ...PROJECT, brief: str("The scene, the director's words unchanged."), camera: str('Their camera wishes, if any.'), label: str('What it is.') }, ['project', 'brief']),
+  tool('scene_views', "Draw the camera views a scene's shots need, each an edit of the place's plate so every view is the same room in the same light. Returns when it is done.", { ...PROJECT, scene_id: str('The scene, from list_project.') , image_model: IMAGE_MODEL }, ['project', 'scene_id']),
+  tool('cast', "Cast the film: plan the characters, places and props from the script or the director's words, and draw a plate for each in Cast & World under their names. A character gets a frontal face plate and a full-body sheet. Anyone already plated is left alone. Returns when it is done.", { ...PROJECT, brief: str("Who or what to cast, the director's words unchanged. Leave out to cast from the film's script."), note: str("The director's note, if any."), names: names('Exactly who and what to draw, under exactly these names. Nothing else is drawn.') , image_model: IMAGE_MODEL }, ['project']),
+  tool('variations', "More pictures of one element, each an edit of its plate so identity and place hold: background plates of a location (other angles, times, weather), looks of a character (costume, age). With no plate yet, one is drawn from the description first and becomes the plate. New ones sit beside the plate. Returns when it is done.", { ...PROJECT, element: str('Who or where, e.g. Morwen or The Harbour.'), kind: { type: 'string', enum: ELEMENT_KINDS, description: 'Only if the element is new.' }, description: str('What it looks like, for an element with no plate.'), direction: str("What should differ, the director's words unchanged."), count: { type: 'integer', minimum: 1, maximum: 8, description: 'How many. Defaults to 4.' } , image_model: IMAGE_MODEL }, ['project', 'element']),
+  tool('storyboard', "Draw a storyboard: the script's key moments as numbered panels on ONE sheet. Uses the film's script unless given one, and each location's plate by its place. Comes back with every panel's motion prompt and length, ready for generate_video. Returns when it is done.", { ...PROJECT, script: str("The script, the director's words unchanged. Leave out to use the film's script."), panels: { type: 'integer', minimum: 1, description: 'How many panels, only if the director named a number. Left out, the story decides.' }, refs: names('Pictures of the cast and world, in order.'), style: str('The look, if they named one.'), note: str("The director's note on what to select."), label: str('What it is.') , image_model: IMAGE_MODEL }, ['project']),
+  tool('previz', "Block a scene: plan who stands where, who moves, the cameras and timing, and draw it as a top-down schematic. Change the drawing with edit_image; the animatic follows the drawing. Returns when it is done.", { ...PROJECT, brief: str("The scene, the director's words unchanged."), camera: str('Their camera wishes, if any.'), label: str('What it is.') , image_model: IMAGE_MODEL }, ['project', 'brief']),
   tool('previz_animatic', 'Start the moving blockout of a schematic: a draft with no sound, cut by the planned cameras, each person a coloured block. Returns at once; use wait.', { ...PROJECT, schematic: str('The schematic, from previz or an edit of it.'), label: str('What it is.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'schematic']),
   tool('previz_shot_prompt', 'Watch an animatic and write the prompt for the real scene: the named people, the place, the moves and the cuts, citing the animatic by name. Renders nothing.', { ...PROJECT, animatic: str('The animatic.') }, ['project', 'animatic']),
   tool('grab_frame', 'Take one frame of a video as a picture in the film, from the master, to use as a reference. Renders nothing.', { ...PROJECT, name: str('The video, e.g. T3.'), at: { type: 'number', description: 'Seconds into it.' }, last: { type: 'boolean', description: 'Its last frame instead.' } }, ['project', 'name']),
-  tool('edit_image', "Edit a picture from the director's words, optionally with their drawn marks. The new version sits beside the picture it edits. Returns when it is done.", { ...PROJECT, source: str('The picture to edit, e.g. R1.'), marked: str('The copy with their red marks on it, if they drew any.'), instruction: str("The director's words, unchanged."), label: str('What it is.') }, ['project', 'source', 'instruction']),
+  tool('edit_image', "Edit a picture from the director's words, optionally with their drawn marks. The new version sits beside the picture it edits. Returns when it is done.", { ...PROJECT, source: str('The picture to edit, e.g. R1.'), marked: str('The copy with their red marks on it, if they drew any.'), instruction: str("The director's words, unchanged."), label: str('What it is.') , image_model: IMAGE_MODEL }, ['project', 'source', 'instruction']),
   tool('generate_video', 'Start a new take from a prompt and references. In the prompt, cite each reference by its name, @R1, @Morwen or @T3: every name cited must be in refs or video_refs, and code numbers them for the model. Returns at once; use wait.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures, in citation order.'), video_refs: names('Reference videos, in citation order.'), seconds: { type: 'number', description: 'Length in seconds.' }, ratio: str('e.g. 16:9, 9:16, adaptive.'), model: { type: 'string', enum: VIDEO_KEYS }, quality: { type: 'string', enum: ['draft', 'final'], description: 'draft is 480p and can be finished later. final is MOV now.' }, resolution: str('For a final: 1080p, or 4K on seedance25Premium.'), audio: { type: 'boolean', description: 'Generate sound. Defaults to on.' }, label: str('What it is.'), shot_id: str('The shot this take is for, from list_project or add_shot. Left out, it waits unplaced.'), parent: str('The result this one reworks, if any.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'prompt', 'seconds', 'quality']),
   tool('edit_video', 'Start an edit of a video: only what the prompt names changes. It must read as an instruction and cite the source by its name, e.g. @T3; cite pictures by name too, each in refs. Length and shape follow the source. Always 1080p MOV: there is no draft edit. Returns at once; use wait.', { ...PROJECT, source: str('The video to edit, e.g. T3.'), prompt: str('The instruction.'), refs: names('Pictures the edit uses, in citation order.'), model: { type: 'string', enum: VIDEO_KEYS }, label: str('What it is.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'source', 'prompt']),
   tool('finish', 'Start the full-resolution final of a draft: the same picture, MOV. Returns at once; use wait.', { ...PROJECT, name: str('The draft.'), resolution: str('1080p, or 4K on seedance25Premium.') }, ['project', 'name']),
@@ -116,6 +119,7 @@ const plateNamed = (s, word) => {
 };
 const fingerprintOf = (x) => JSON.stringify(x);
 const fail = (message) => { throw new Error(message); };
+const imageModelFor = (picked) => (!picked ? defaultImageModelKey() : IMAGE_KEYS.includes(picked) ? picked : fail(`No image model ${picked}. Models: ${IMAGE_KEYS.join(', ')}.`));
 const queues = new Map();
 const oneAtATime = (id, work) => {
   const run = (queues.get(id) || Promise.resolve()).then(work, work);
@@ -499,7 +503,8 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
     },
 
     // The views a scene's shots need that have no plate yet.
-    scene_views: async ({ project, scene_id }) => {
+    scene_views: async ({ project, scene_id, image_model }) => {
+      const imageModel = imageModelFor(image_model);
       const { studio: s } = await load(project);
       const scene = s.scenes.find((sc) => sc.id === scene_id) || fail(`No scene ${scene_id}.`);
       const jobs = scene.shots.flatMap((shot) => (shot.sheet?.viewIds || []).map((id) => s.elements.find((e) => e.id === id)).filter((el) => el && !plateOf(el)).map((el) => ({ shot, el })));
@@ -512,7 +517,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
         const row = { kind: 'plate', label: el.name, parent: plate.id, refs: [plate.name], tags: ['view'] };
         return drawn(project, row, async () => {
           const instruction = await crewStep('crew-designer', 'view', { place: base.name, landmarks: shot.sheet.landmarks, from: el.desc });
-          const out = await plateEdit({ instruction, refs: [mediaOf(plate)], imageModel: defaultImageModelKey() }, ctx);
+          const out = await plateEdit({ instruction, refs: [mediaOf(plate)], imageModel }, ctx);
           return { url: out.cacheUrl || out.url, prompt: out.prompt };
         }, () => ({}), { at: 'element', id: el.id });
       }));
@@ -527,7 +532,8 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
     // Casting as Studio runs it: the plan first, every element waiting for a plate included, then
     // one render per plate. The first plate an element gets becomes its plate; a body sheet rides
     // along on the face's version.
-    cast: async ({ project, brief: words = '', note = '', names: wanted = [] }) => {
+    cast: async ({ project, brief: words = '', note = '', names: wanted = [], image_model }) => {
+      const imageModel = imageModelFor(image_model);
       const { studio: s } = await load(project);
       const idea = String(words || s.script || '').trim();
       if (!idea) fail('There is nothing to cast from: the film has no script and no words were given.');
@@ -562,7 +568,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
         return [patch.url && !x.c.picked ? pickVersion(done, x.ref, slot.vid, now()) : done, null];
       });
       const pending = [];
-      await castDraftFromParsed({ arr, style, imageModel: defaultImageModelKey(), max: arr.length }, ctx, {
+      await castDraftFromParsed({ arr, style, imageModel, max: arr.length }, ctx, {
         onEntry: (entry) => {
           const slot = slots[Number(entry.assetId)];
           const url = entry.cacheUrl || entry.url;
@@ -581,7 +587,8 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
     },
 
     // Studio's variations: the source goes in as [Image 1] and each picture is an edit of it.
-    variations: async ({ project, element, kind, description = '', direction = '', count = 4 }) => {
+    variations: async ({ project, element, kind, description = '', direction = '', count = 4, image_model }) => {
+      const imageModel = imageModelFor(image_model);
       if (!String(element || '').trim()) fail('Say who or where.');
       if (!(Number.isInteger(count) && count >= 1 && count <= 8)) fail(`Variations come 1 to 8 at a time, not ${count}.`);
       const key = String(element).replace(/^@/, '').trim().toLowerCase();
@@ -602,7 +609,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       const settleOne = (id, patch) => change(project, (film) => [patchVersion(film, ref, id, patch), (n) => media(n).find((x) => x.v.id === id).v.name]);
       const pending = [];
       const draw = el.kind === 'character' ? characterVariations : locationVariations;
-      const out = await draw({ imageUrl: base ? mediaOf(base) : '', direction: base ? (direction || words) : withFilmStyle(s, words), count, imageModel: defaultImageModelKey() }, ctx, {
+      const out = await draw({ imageUrl: base ? mediaOf(base) : '', direction: base ? (direction || words) : withFilmStyle(s, words), count, imageModel }, ctx, {
         onItem: (item, i) => {
           const url = item.cacheUrl || item.url;
           pending.push(settleOne(made[i], { status: 'review', url, prompt: item.prompt }).then((name) => inLibrary({ url, kind: 'plate', label: `${el.name} variation` }, name, project)));
@@ -622,7 +629,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
 
     // Canvas's storyboard: key moments, each authored, drawn as one sheet. The panels stay on the
     // picture, so their motion prompts can be shot later.
-    storyboard: async ({ project, script, panels, refs = [], style = '', note = '', label = '' }) => {
+    storyboard: async ({ project, script, panels, refs = [], style = '', note = '', label = '', image_model }) => {
       if (panels !== undefined && !(Number.isInteger(panels) && panels >= 1)) fail(`A storyboard has a whole number of panels, not ${panels}.`);
       const { project: p, studio: s } = await load(project);
       const text = String(script || s.script || '').trim();
@@ -634,7 +641,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
         const plate = el?.versions?.find((v) => v.id === el.picked);
         return plate ? mediaOf(plate) : null;
       };
-      const imageModel = defaultImageModelKey();
+      const imageModel = imageModelFor(image_model);
       const base = { kind: 'plate', label: label || 'Storyboard', prompt: text, refs: list.map((v) => v.name), model: imageModel, tags: ['storyboard'] };
       return drawn(project, base, async () => {
         const { panels: shots, references } = await storyboardPanels({ script: text, style, references: list.map(mediaOf), labels: list.map((v) => describeAsset(s, find(s, v.name)).title), places: locations.map((e) => e.name), plateOf, note, count: panels || 0 }, ctx);
@@ -647,10 +654,10 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       }));
     },
 
-    previz: async ({ project, brief: text, camera = '', label = '' }) => {
+    previz: async ({ project, brief: text, camera = '', label = '', image_model }) => {
       if (!String(text || '').trim()) fail('Say what happens in the scene.');
       await load(project);
-      const imageModel = defaultImageModelKey();
+      const imageModel = imageModelFor(image_model);
       const base = { kind: 'plate', label: label || 'Schematic', prompt: text, model: imageModel, tags: ['previz'] };
       return drawn(project, base, async () => {
         const plan = await previzPlan({ brief: text, camera }, ctx);
@@ -718,14 +725,15 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       return added;
     },
 
-    edit_image: async ({ project, source, marked, instruction, label }) => {
+    edit_image: async ({ project, source, marked, instruction, label, image_model }) => {
       if (!String(instruction || '').trim()) fail('Say what changes.');
+      const imageModel = image_model ? imageModelFor(image_model) : IMAGE_EDIT_MODEL;
       const { studio: s } = await load(project);
       const [src] = pictures(s, [source]);
       const [marks] = marked ? pictures(s, [marked]) : [];
       const { ref } = find(s, source);
       const vid = uid('v-');
-      const base = { id: vid, at: now(), by: BY, tags: src.plan ? ['previz'] : [], kind: 'plate', label: label ?? src.label ?? '', prompt: instruction, refs: [src.name, ...(marks ? [marks.name] : [])], parent: src.id, edit: true, model: IMAGE_EDIT_MODEL, ...(src.plan ? { plan: src.plan } : {}) };
+      const base = { id: vid, at: now(), by: BY, tags: src.plan ? ['previz'] : [], kind: 'plate', label: label ?? src.label ?? '', prompt: instruction, refs: [src.name, ...(marks ? [marks.name] : [])], parent: src.id, edit: true, model: imageModel, ...(src.plan ? { plan: src.plan } : {}) };
       await change(project, (film) => [addVersion(film, ref, { ...base, status: 'running' }), null]);
       const settle = (patch) => change(project, (film) => {
         const x = media(film).find((y) => y.v.id === vid);
@@ -734,7 +742,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       let out;
       try {
         // A schematic stays a diagram: without its style the frame editor makes it a photograph.
-        out = await storyboardKeyframe({ body: src.plan ? `${instruction}\nIt stays a ${SCHEMATIC_STYLE_LOCK}.` : instruction, refs: [mediaOf(marks || src)], imageModel: IMAGE_EDIT_MODEL, frameEdit: true, frameEditAnnotated: !!marks }, ctx);
+        out = await storyboardKeyframe({ body: src.plan ? `${instruction}\nIt stays a ${SCHEMATIC_STYLE_LOCK}.` : instruction, refs: [mediaOf(marks || src)], imageModel, frameEdit: true, frameEditAnnotated: !!marks }, ctx);
       } catch (e) {
         return settle({ status: 'failed', error: e.message || String(e) });
       }
@@ -816,13 +824,20 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       for (;;) {
         let film = null;
         let trouble = '';
+        // One round reads the film and lands what ended, which can mean storing a video. A round never
+        // runs past the limit: the caller's connection would be cut. What it was landing still lands.
+        const round = (async () => {
+          const { studio: s } = await load(project);
+          await settle(project, list.map((n) => find(s, n).v.name));
+          return (await load(project)).studio;
+        })();
+        round.catch(() => {});
         try {
           // eslint-disable-next-line no-await-in-loop
-          const { studio: s } = await load(project);
-          // eslint-disable-next-line no-await-in-loop
-          await settle(project, list.map((n) => find(s, n).v.name));
-          // eslint-disable-next-line no-await-in-loop
-          film = (await load(project)).studio;
+          let timer;
+          const late = new Promise((r) => { timer = setTimeout(() => r(null), Math.max(0, until + ROUND_GRACE_MS - now())); });
+          film = await Promise.race([round, late]).finally(() => clearTimeout(timer));
+          if (!film) return { still_running: list.length, wait_again: true };
         } catch (e) {
           if (!isNetworkError(e.message)) throw e;
           trouble = e.message;

@@ -225,6 +225,15 @@ describe('previz', () => {
     expect((await s.tools.call('read_result', { project: 'film', name: 'R2' })).plan).toBeTruthy();
   });
 
+  test('a drawing runs on the image model the director named', async () => {
+    const s = setup();
+    await s.tools.call('previz', { project: 'film', brief: 'Morwen crosses the dock', image_model: 'seedream55' });
+    await s.tools.call('edit_image', { project: 'film', source: 'R1', instruction: 'move the dock left', image_model: 'seedream55' });
+    expect(s.seen.images.map((r) => r.model)).toEqual(['test-seedream55', 'test-seedream55']);
+    expect((await s.tools.call('read_result', { project: 'film', name: 'R2' })).model).toBe('seedream55');
+    await expect(s.tools.call('previz', { project: 'film', brief: 'x', image_model: 'seedream9' })).rejects.toThrow(/No image model seedream9/);
+  });
+
   test('the animatic is a silent draft from the schematic', async () => {
     const { s } = await blocked();
     const out = await s.tools.call('previz_animatic', { project: 'film', schematic: 'R1' });

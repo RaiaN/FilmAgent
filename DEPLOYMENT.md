@@ -18,23 +18,32 @@ npm start          # or: npm run dev
   canvas detects the server key and generation just works. Without it, the UI asks
   each user for their own key (the open starter-kit experience).
 - **Model slots.** Every model the suite calls resolves through one table with
-  precedence: request override ▸ env var. **There are no built-in defaults** — an
-  unconfigured slot errors with the exact `MODELARK_MODEL_*` variable to set, so
-  nothing can silently run against someone else's account endpoints.
+  precedence: request override ▸ env var. The code has **no built-in defaults** — an
+  unconfigured slot errors with the exact `MODELARK_MODEL_*` variable to set.
+  `.env.example` fills every slot with the model's public name, so a copy works as is.
+- **Create endpoints for the proper experience.** Public names share your account's
+  default limits; an endpoint per model (Ark console → Model Hub → the model → Create
+  endpoint) gives each model its own rate limits, quota and usage tracking. Paste the
+  `ep-…` id in place of the public name.
 
-| Slot | Env var | What it is | Where to find yours |
+| Slot | Env var | What it is | Public name (default in `.env.example`) |
 | --- | --- | --- | --- |
-| Reasoner | `MODELARK_MODEL_REASONER` | Seed 2.0 Pro (agents, division, director) | public model name |
-| Image Lite | `MODELARK_MODEL_SEEDREAM` | Seedream 5.0 Lite endpoint | Ark console → your endpoint id (`ep-…`) |
-| Image Pro | `MODELARK_MODEL_SEEDREAM_PRO` | Seedream 5.0 Pro | public model name |
-| Image 5.5 | `MODELARK_MODEL_SEEDREAM_55` | Seedream 5.5 endpoint | Ark console → your endpoint id (`ep-…`) |
-| Video | `MODELARK_MODEL_SEEDANCE` | Seedance 2.0 endpoint | Ark console (`ep-…`) |
-| Video Fast | `MODELARK_MODEL_SEEDANCE_FAST` | Seedance 2.0 Fast endpoint | Ark console (`ep-…`) |
-| Video Mini | `MODELARK_MODEL_SEEDANCE_MINI` | Seedance 2.0 Mini endpoint | Ark console (`ep-…`) |
-| Audio | `MODELARK_MODEL_SEED_AUDIO` | Seed Audio 1.0 | public model name |
+| Reasoner | `MODELARK_MODEL_REASONER` | Seed 2.0 Pro (agents, division, director) | `seed-2-0-pro-260328` |
+| Reasoner Turbo | `MODELARK_MODEL_REASONER_21_TURBO` | Seed 2.1 Turbo, the default planner | `dola-seed-2-1-turbo-260628` |
+| Reasoner SC | `MODELARK_MODEL_REASONER_SC` | Seed-SC planner (optional) | none — endpoint only (`ep-…`) |
+| Agent | `MODELARK_MODEL_AGENT` | FilmAgent's model | `dola-seed-evolving` |
+| Image Lite | `MODELARK_MODEL_SEEDREAM` | Seedream 5.0 Lite | `seedream-5-0-260128` |
+| Image Pro | `MODELARK_MODEL_SEEDREAM_PRO` | Seedream 5.0 Pro | `dola-seedream-5-0-pro-260628` |
+| Image 5.5 | `MODELARK_MODEL_SEEDREAM_55` | Seedream 5.5 | `dola-seedream-5-5-261028` |
+| Video | `MODELARK_MODEL_SEEDANCE` | Seedance 2.0 | `dreamina-seedance-2-0-260128` |
+| Video Fast | `MODELARK_MODEL_SEEDANCE_FAST` | Seedance 2.0 Fast | `dreamina-seedance-2-0-fast-260128` |
+| Video Mini | `MODELARK_MODEL_SEEDANCE_MINI` | Seedance 2.0 Mini | `dreamina-seedance-2-0-mini-260615` |
+| Video 2.5 | `MODELARK_MODEL_SEEDANCE_25` | Seedance 2.5 (needs a 2.5 resource pack) | `dreamina-seedance-2-5-260628` |
+| Video 2.5 Premium | `MODELARK_MODEL_SEEDANCE_25_PREMIUM` | Seedance 2.5 Premium | `dreamina-seedance-2-5-premium-260915` |
+| Audio | `MODELARK_MODEL_SEED_AUDIO` | Seed Audio 1.0 | `seed-audio-1.0` |
 
-`ep-…` ids are **account-scoped**: create the endpoint for the model in *your* Ark
-console and paste its id. Base URLs: `MODELARK_API_BASE_URL` (Ark region) and
+`ep-…` ids are **account-scoped**: an endpoint id works only on the account that
+created it. Base URLs: `MODELARK_API_BASE_URL` (Ark region) and
 `BYTEPLUSVOICE_BASE_URL` (voice region). Audio/TTS additionally need
 `BYTEPLUSVOICE_API_KEY` (the voice console key — separate from the Ark key).
 

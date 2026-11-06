@@ -27,6 +27,7 @@ npm start          # or: npm run dev
 | Reasoner | `MODELARK_MODEL_REASONER` | Seed 2.0 Pro (agents, division, director) | public model name |
 | Image Lite | `MODELARK_MODEL_SEEDREAM` | Seedream 5.0 Lite endpoint | Ark console → your endpoint id (`ep-…`) |
 | Image Pro | `MODELARK_MODEL_SEEDREAM_PRO` | Seedream 5.0 Pro | public model name |
+| Image 5.5 | `MODELARK_MODEL_SEEDREAM_55` | Seedream 5.5 endpoint | Ark console → your endpoint id (`ep-…`) |
 | Video | `MODELARK_MODEL_SEEDANCE` | Seedance 2.0 endpoint | Ark console (`ep-…`) |
 | Video Fast | `MODELARK_MODEL_SEEDANCE_FAST` | Seedance 2.0 Fast endpoint | Ark console (`ep-…`) |
 | Video Mini | `MODELARK_MODEL_SEEDANCE_MINI` | Seedance 2.0 Mini endpoint | Ark console (`ep-…`) |

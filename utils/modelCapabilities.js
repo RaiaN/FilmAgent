@@ -30,6 +30,18 @@ const SLOT_CAPABILITIES = {
         max_ref_images: 10,
     },
 
+    // Seedream 5.5 — the 2K preset, or any WxH up to 3840x2160 (8.3MP: 4K goes as
+    // explicit sizes); up to 10 refs; takes no thinking field at all.
+    seedream55: {
+        sizes: ['2K', '3840x2160', '2160x3840', '2880x2880'],
+        optimize_prompt_modes: [],
+        sequential_generation: true,
+        guidance_scale: false,
+        supports_watermark: true,
+        output_format: true,
+        max_ref_images: 10,
+    },
+
     // --- SEEDANCE (VIDEO) ---
     // Seedance 2.0 (default)
     seedance: {

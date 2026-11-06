@@ -82,6 +82,15 @@ describe('the tools', () => {
     expect((await s.tools.call('read_result', { project, name: '@R2' })).refs).toEqual(['R1']);
     await expect(s.tools.call('read_result', { project, name: 'T9' })).rejects.toThrow('The film has:');
   });
+  test('Seedream 5.5 draws 4K as a size it takes', async () => {
+    const s = studio();
+    const project = await withPicture(s);
+    await s.tools.call('generate_image', { project, prompt: 'a face sheet', model: 'seedream55', size: '4K' });
+    await s.tools.call('generate_image', { project, prompt: 'a face sheet', model: 'seedream55', size: '7680x4320' });
+    await s.tools.call('generate_image', { project, prompt: 'a face sheet', model: 'seedream55', size: '2K' });
+    const sent = s.calls.filter((c) => c[1] === '/api/film/imagine').map((c) => [c[2].model, c[2].size]);
+    expect(sent).toEqual([['test-seedream55', '2880x2880'], ['test-seedream55', '3840x2160'], ['test-seedream55', '2K']]);
+  });
   test('an existing film is left as it was', async () => {
     const s = studio();
     await s.tools.call('ensure_project', { project: PROJECT, name: 'First' });

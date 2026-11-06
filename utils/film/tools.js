@@ -10,7 +10,7 @@ import { composeShotAction } from './core/shot';
 import { CAST_ROLE, castDraftFromParsed, castPlanFromIdea, plateEdit, storyboardKeyframe, storyboardPanels, storyboardSheet } from './core/storyboard';
 import { ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK, previzAnimaticPrompt, previzCutPrompt, previzPlan, previzSchematic, totalSecondsOf } from './core/previz';
 import { characterVariations, finishDraft, locationVariations } from './core/operations';
-import { DRAFT_MODE, clampShotSeconds, defaultImageModelKey, draftFinalsOf, getModel, videoTraits } from './suiteConfig';
+import { DRAFT_MODE, clampShotSeconds, clampSizeForModel, defaultImageModelKey, draftFinalsOf, getModel, videoTraits } from './suiteConfig';
 import { ELEMENT_KINDS, addVersion, allVersions, containersOf, emptyStudio, findShot, loadStudio, namedText, newElement, newScene, newShot, patchVersion, pickVersion, plateOf, rejectVersion, scriptHash, shotNumber, takeOf, uid, updateContainer, usedOf, withFilmStyle } from './studio/model';
 import { mergeStudio, nameVersions, withRemovals } from './studio/sync';
 import { applyShotList } from './studio/layout';
@@ -23,7 +23,7 @@ import { isNetworkError } from './agentRules.mjs';
 import { isLocalMediaUrl } from './mediaUrl';
 
 const VIDEO_KEYS = ['seedance25', 'seedance25Premium'];
-const IMAGE_KEYS = ['seedream', 'seedreamPro'];
+const IMAGE_KEYS = ['seedream', 'seedreamPro', 'seedream55'];
 const IMAGE_EDIT_MODEL = 'seedreamPro';
 const DRAFT_RES = DRAFT_MODE.resolution;
 const FINAL_RES = '1080p';
@@ -54,7 +54,7 @@ export const FILM_TOOLS = [
   tool('place', 'Give a result its place in the film: a picture to someone or something in Cast & World (it becomes their plate), a video to a shot. A new name in element adds them to Cast & World.', { ...PROJECT, name: str('The result, e.g. R1.'), element: str('Who or what the picture is, e.g. Morwen.'), kind: { type: 'string', enum: ELEMENT_KINDS }, description: str('A short description, for a new element.'), shot_id: str('For a video: the shot, from list_project.') }, ['project', 'name']),
   tool('pick', 'Make a picture the plate of its element. Only when the director asked. A take needs no pick: the newest on a shot stands until rejected.', { ...PROJECT, name: str('The result.') }, ['project', 'name']),
   tool('reject', 'Reject a result. Only when the director asked.', { ...PROJECT, name: str('The result.') }, ['project', 'name']),
-  tool('generate_image', 'Make a picture from a prompt, optionally from pictures in the film. Cite a picture in the prompt by its name, @R1 or @Morwen; it must be in refs. Returns when it is done.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Pictures it is made from, in order.'), model: { type: 'string', enum: IMAGE_KEYS }, size: str('e.g. 2K, or WxH for seedreamPro.'), label: str('What it is.') }, ['project', 'prompt']),
+  tool('generate_image', 'Make a picture from a prompt, optionally from pictures in the film. Cite a picture in the prompt by its name, @R1 or @Morwen; it must be in refs. Returns when it is done.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Pictures it is made from, in order.'), model: { type: 'string', enum: IMAGE_KEYS }, size: str('e.g. 2K, or WxH. seedream55 renders up to 3840x2160 (4K as WxH) and up to 10 refs; seedreamPro caps at 2048x2048.'), label: str('What it is.') }, ['project', 'prompt']),
   tool('write_screenplay', "Write a screenplay from the director's idea and make it the film's script. Their earlier text stays as a version. Returns when it is done.", { ...PROJECT, idea: str("The idea, the director's words unchanged."), note: str("The director's note, if any.") }, ['project', 'idea']),
   tool('shot_list', "Break a screenplay down into scenes and their shots, and lay the film out from it: scenes, shots, and everyone and everywhere it names, waiting for plates. Uses the film's script unless given one. Returns when it is done.", { ...PROJECT, script: str("The screenplay, the director's words unchanged."), note: str("The director's note, if any."), replace: { type: 'boolean', description: 'Only when the director agreed to replace the scenes the film has, and their takes.' } }, ['project']),
   tool('scene_views', "Draw the camera views a scene's shots need, each an edit of the place's plate so every view is the same room in the same light. Returns when it is done.", { ...PROJECT, scene_id: str('The scene, from list_project.') }, ['project', 'scene_id']),
@@ -127,10 +127,19 @@ const oneAtATime = (id, work) => {
 // a different picture. The numbers the models read are made here, from this render's own lists.
 const NUMBERED = /(?:@|\[|\()\s*(?:image|video)\s?\d+/i;
 const CITATION = /@([\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*)/gu;
-const citeNumbers = (prompt, resolve, { images = [], videos = [], imageTag = (n) => `@Image${n}` }) => {
+// The prompt skill lists the assets a render leaves unused. A render's assets are its references, so a
+// line there naming someone outside them points at nothing the model is given: it goes.
+const UNUSED = /(【Unused Assets】[^\n]*)\n?([\s\S]*?)(?=\n\s*【|$)/;
+const dropUnusedOutside = (prompt, inRender) => String(prompt).replace(UNUSED, (whole, head, body) => {
+  const kept = body.split('\n').filter((line) => [...line.matchAll(CITATION)].every(([, word]) => inRender(word)));
+  return kept.some((l) => l.trim()) ? `${head}\n${kept.join('\n')}` : '';
+}).replace(/\n{3,}/g, '\n\n').trim();
+export const citeNumbers = (prompt, resolve, { images = [], videos = [], imageTag = (n) => `@Image${n}` }) => {
   const numbered = NUMBERED.exec(prompt);
   if (numbered) fail(`Cite references by name, like @R1 or @Morwen, not "${numbered[0]}".`);
-  return String(prompt).replace(CITATION, (whole, word) => {
+  const ids = new Set([...images, ...videos].map((v) => v.id));
+  const inRender = (word) => { try { return ids.has(resolve(word).id); } catch { return false; } };
+  return dropUnusedOutside(prompt, inRender).replace(CITATION, (whole, word) => {
     const { id, name } = resolve(word);
     const image = images.findIndex((v) => v.id === id);
     if (image >= 0) return imageTag(image + 1);
@@ -439,7 +448,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       const sent = citeNumbers(prompt, resolver(s), { images: list, imageTag: (n) => `[Image ${n}]` });
       const base = { kind: 'plate', label, prompt, refs: list.map((v) => v.name), model };
       return drawn(project, base, async () => {
-        const out = await api.post('/api/film/imagine', { prompt: sent, referenceImages: list.map(mediaOf), size, model: getModel(model), optimizePrompt: false });
+        const out = await api.post('/api/film/imagine', { prompt: sent, referenceImages: list.map(mediaOf), size: clampSizeForModel(model, size), model: getModel(model), optimizePrompt: false });
         return { url: out.cacheUrl || out.url };
       });
     },

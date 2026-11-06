@@ -21,6 +21,7 @@ export const ROOT_CONFIG = {
   models: {
     seedream: null,      // Seedream 5.0 Lite image endpoint  (MODELARK_MODEL_SEEDREAM)
     seedreamPro: null,   // Seedream 5.0 Pro                  (MODELARK_MODEL_SEEDREAM_PRO)
+    seedream55: null,    // Seedream 5.5                      (MODELARK_MODEL_SEEDREAM_55)
     seedance: null,      // Seedance 2.0 video endpoint       (MODELARK_MODEL_SEEDANCE)
     seedanceFast: null,  // Seedance 2.0 Fast                 (MODELARK_MODEL_SEEDANCE_FAST)
     seedanceMini: null,  // Seedance 2.0 Mini                 (MODELARK_MODEL_SEEDANCE_MINI)
@@ -99,6 +100,7 @@ export const resetClientConfig = () => {
 export const MODEL_ENV_VARS = {
   seedream: 'MODELARK_MODEL_SEEDREAM',
   seedreamPro: 'MODELARK_MODEL_SEEDREAM_PRO',
+  seedream55: 'MODELARK_MODEL_SEEDREAM_55',
   seedance: 'MODELARK_MODEL_SEEDANCE',
   seedanceFast: 'MODELARK_MODEL_SEEDANCE_FAST',
   seedanceMini: 'MODELARK_MODEL_SEEDANCE_MINI',
@@ -214,6 +216,7 @@ export const VIDEO_MODEL_OPTIONS = [
 // Pro accepts up to 10 reference images; Lite is capped lower.
 export const IMAGE_MODEL_OPTIONS = [
   { key: 'seedreamPro', label: 'Seedream 5.0 Pro' },
+  { key: 'seedream55', label: 'Seedream 5.5' },
   { key: 'seedream', label: 'Seedream 5.0 Lite' },
 ];
 // Per-slot IMAGE capability table — same contract as VIDEO_MODEL_TRAITS: behavior
@@ -221,10 +224,18 @@ export const IMAGE_MODEL_OPTIONS = [
 // keyframeSize: the storyboard-still render size — Pro caps the image AREA at
 // 4,194,304 px (2048²), so its largest 16:9 is 2560×1440; Lite allows the full 2K 16:9.
 // editArea: the pixel budget of an EDIT, which keeps the source's own aspect ratio.
+// maxArea: the largest image the endpoint renders (null = its presets are the limit);
+// an explicit 'WxH' over it scales down, a bare tier name becomes the largest square
+// unless it is one of the endpoint's own presets.
+// thinkingParam: whether the endpoint takes optimize_prompt_options.thinking at all —
+// 5.5 refuses the field even set to 'disabled'.
 const IMAGE_MODEL_TRAITS = {
-  seedream: { refCap: 6, shortLabel: 'Lite', thinkingToggle: false, keyframeSize: '2848x1600', editArea: 2848 * 1600 },
-  seedreamPro: { refCap: 10, shortLabel: 'Pro', thinkingToggle: true, keyframeSize: '2560x1440', editArea: 2048 * 2048 },
+  seedream: { refCap: 6, shortLabel: 'Lite', thinkingToggle: false, thinkingParam: true, keyframeSize: '2848x1600', editArea: 2848 * 1600, maxArea: null },
+  seedreamPro: { refCap: 10, shortLabel: 'Pro', thinkingToggle: true, thinkingParam: true, keyframeSize: '2560x1440', editArea: 2048 * 2048, maxArea: 2048 * 2048 },
+  seedream55: { refCap: 10, shortLabel: '5.5', thinkingToggle: false, thinkingParam: false, keyframeSize: '2736x1536', editArea: 2848 * 1600, maxArea: 3840 * 2160, presets: ['2K'] },
 };
+// The image slot that owns an endpoint id, or null.
+export const imageSlotOfId = (id) => IMAGE_MODEL_OPTIONS.find((o) => id && resolveModelId(o.key) === id)?.key || null;
 export const imageTraits = (key) => IMAGE_MODEL_TRAITS[key] || IMAGE_MODEL_TRAITS[imageModelKeyOf(key)] || IMAGE_MODEL_TRAITS.seedream;
 export const IMAGE_REF_CAP = Object.fromEntries(Object.entries(IMAGE_MODEL_TRAITS).map(([k, t]) => [k, t.refCap]));
 export const imageRefCap = (key) => imageTraits(key).refCap;
@@ -249,19 +260,23 @@ export const sizeForAspect = (width, height, area) => {
   if (!best) throw new Error(`No ${w}×${h}-shaped size fits a ${a}-pixel budget.`);
   return `${best.W}x${best.H}`;
 };
-// Clamp ANY size for the chosen image model: Lite passes through; for Pro an explicit
-// 'WxH' over the area cap scales down to fit (aspect kept, snapped to multiples of 16),
-// and a bare tier name ('2K'/'4K' — the model would pick its own, possibly over-cap,
-// dimensions) becomes a safe explicit square. Used by cast plates + variations when
-// the user routes them to Pro.
+// Clamp ANY size for the chosen image model: a model without maxArea passes through;
+// otherwise an explicit 'WxH' over the area cap scales down to fit (aspect kept,
+// snapped to multiples of 16), and a bare tier name ('2K'/'4K' — the model would pick
+// its own, possibly over-cap, dimensions) becomes the largest square under the cap.
+// A tier the endpoint accepts as a preset (traits.presets) passes.
 export const clampSizeForModel = (modelKey, size) => {
-  if (modelKey !== 'seedreamPro') return size;
+  const MAX = IMAGE_MODEL_TRAITS[modelKey]?.maxArea;
+  if (!MAX) return size;
   const s = String(size || '').trim();
   const m = /^(\d+)[xX](\d+)$/.exec(s);
-  if (!m) return '2048x2048';
+  if (!m) {
+    if ((IMAGE_MODEL_TRAITS[modelKey].presets || []).includes(s.toUpperCase())) return s.toUpperCase();
+    const side = Math.floor(Math.sqrt(MAX) / 16) * 16;
+    return `${side}x${side}`;
+  }
   const w = Number(m[1]);
   const h = Number(m[2]);
-  const MAX = 4194304; // 2048²
   if (!w || !h || w * h <= MAX) return s;
   const k = Math.sqrt(MAX / (w * h));
   const snap = (v) => Math.max(64, Math.floor((v * k) / 16) * 16);

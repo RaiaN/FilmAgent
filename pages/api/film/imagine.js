@@ -1,5 +1,5 @@
 import { CONFIG, arkKey, ARK_KEY_MISSING } from '../../../utils/config';
-import { getModel, sizeForAspect } from '../../../utils/film/suiteConfig';
+import { getModel, sizeForAspect, imageSlotOfId, imageTraits } from '../../../utils/film/suiteConfig';
 import { imageDims } from '../../../utils/server/imageDims';
 import { checkInBytes, storeKeyFromUrl, readStoreBytes } from '../../../utils/server/mediaStore';
 
@@ -42,7 +42,7 @@ export default async function imagineHandler(req, res) {
     size = '2K',
     keepAspectArea,        // an EDIT: render at [Image 1]'s own aspect ratio within this pixel budget (replaces size)
     model,                 // optional override; defaults to the suite's Seedream model
-    optimizePrompt,        // Seedream 5.0 Pro thinking: true = enabled, false = explicitly DISABLED (fast path), undefined = model default. Works for t2i AND i2i per the Pro docs.
+    optimizePrompt,        // Seedream thinking: true = enabled, false = explicitly DISABLED (fast path), undefined = model default. Works for t2i AND i2i per the Pro docs; never sent to a model that takes no thinking field.
   } = req.body || {};
   let seedreamModel = model;
   if (!seedreamModel) {
@@ -120,10 +120,13 @@ export default async function imagineHandler(req, res) {
     // 'enabled' | 'disabled' flips the chain-of-thought step. true → enabled (quality),
     // false → explicitly disabled (the FAST path — edits/variations), undefined → the
     // model's default (we send nothing).
-    if (optimizePrompt === true) {
+    // Seedream 5.5 takes no thinking field at all, so neither value is sent to it.
+    const slot = imageSlotOfId(seedreamModel);
+    const takesThinking = !slot || imageTraits(slot).thinkingParam;
+    if (takesThinking && optimizePrompt === true) {
       body.optimize_prompt = true;
       body.optimize_prompt_options = { thinking: 'enabled' };
-    } else if (optimizePrompt === false) {
+    } else if (takesThinking && optimizePrompt === false) {
       body.optimize_prompt = true;
       body.optimize_prompt_options = { thinking: 'disabled' };
     }

@@ -10,6 +10,7 @@ import { resolveModelId, REASONER_OPTIONS, reasonerSlotOf } from './film/suiteCo
 const seedreamEndpointsLive = () => [
     { value: resolveModelId('seedream'), label: 'Seedream 5.0 Lite' },
     { value: resolveModelId('seedreamPro'), label: 'Seedream 5.0 Pro' },
+    { value: resolveModelId('seedream55'), label: 'Seedream 5.5' },
 ].filter((o) => o.value);
 const defaultSeedreamModel = () => seedreamEndpointsLive()[0]?.value || null; // first CONFIGURED endpoint — never a hardcoded id
 
@@ -44,7 +45,7 @@ export const baseSchemas = {
         type: 'enum',
         get options() { return seedreamEndpointsLive(); },
         get defaultValue() { return defaultSeedreamModel(); },
-        description: 'Seedream endpoint. Pro is the latest (up to 10 reference images) but caps output area at 2048² (no 4K); Lite allows 2K/4K and up to 6 refs.',
+        description: 'Seedream endpoint. 5.5 renders up to 3840×2160 with up to 10 reference images; Pro takes 10 refs but caps output area at 2048² (no 4K); Lite allows 2K/4K and up to 6 refs.',
       },
       {
         key: 'prompt',
@@ -57,7 +58,7 @@ export const baseSchemas = {
         key: 'image',
         label: 'Reference Images',
         type: 'image-list',
-        description: 'Optional reference images (URL or Base64) for multi-image blending. Max depends on the model — 6 for Lite, 10 for Pro.',
+        description: 'Optional reference images (URL or Base64) for multi-image blending. Max depends on the model — 6 for Lite, 10 for Pro and 5.5.',
       },
       {
         key: 'size',

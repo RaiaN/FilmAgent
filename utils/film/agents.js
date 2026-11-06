@@ -117,7 +117,7 @@ export const inspirationAgent = {
   consumes: [],
   needsSelection: false,
   grouped: true,
-  defaultSettings: { count: 6, size: '2K', useSelectionAsRefs: false, refs: [] },
+  defaultSettings: { count: 6, size: '2K', useSelectionAsRefs: false, refs: [], imageModel: '' },
   describe: 'Generates a grid of distinct style/mood references from a prompt and any board images you pick.',
   // Every agent run accepts an optional injected `ctx` (the canvas passes a
   // trace-wrapped client so rail runs land in the decision history); without one
@@ -128,7 +128,7 @@ export const inspirationAgent = {
     const refs = selectedImageUrls(selection);
     const effectivePrompt = (prompt || '').trim();
     const result = await ops.inspiration(
-      { prompt: effectivePrompt, refs, useRefsInGen: !!settings.useSelectionAsRefs, count: settings.count, size: settings.size },
+      { prompt: effectivePrompt, refs, useRefsInGen: !!settings.useSelectionAsRefs, count: settings.count, size: settings.size, imageModel: imageModelKeyOf(settings.imageModel) },
       ctx || browserCtx(),
       (item) => onAsset({ kind: 'image', url: item.url, label: item.label, layerId: 'inspiration', sourceRefs: item.referenceImages, meta: { prompt: item.prompt, ...item.meta } }),
     );
@@ -321,7 +321,7 @@ export const previzAgent = {
   color: AGENT_COLORS.previz,
   consumes: [],
   needsSelection: false,
-  defaultSettings: { brief: '', camera: '' },
+  defaultSettings: { brief: '', camera: '', imageModel: '' },
   describe: 'Scene description → blocking (set, actors, who moves where, cameras, timing) → a top-down schematic you edit like any image → an animatic: Seedance moves the blockout through the cameras. SHOT cards then follow the animatic.',
   async run() {
     throw new Error('The Previz agent lays a card on the canvas — run it from the board.');

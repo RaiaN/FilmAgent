@@ -208,6 +208,10 @@ const PrevizFields = ({ s, up }) => (
       <Text style={FIELD_LABEL}>Camera</Text>
       <ShotTemplateSelect value={s.camera} onChange={(v) => up({ camera: v })} placeholder="planner chooses" />
     </div>
+    <div>
+      <Text style={FIELD_LABEL}>Image model</Text>
+      <ModelSelect value={s.imageModel} onChange={(v) => up({ imageModel: v })} />
+    </div>
     <Text type="secondary" style={{ fontSize: 12 }}>
       Adds a Previz card: block the scene &rarr; a top-down schematic (edit it like any image) &rarr; an animatic, Seedance moving the blockout through your cameras &rarr; SHOT cards that follow it.
     </Text>
@@ -278,6 +282,10 @@ const InspirationFields = ({ s, up, imageAssets, onOpenRefDrawer }) => (
           <Text type="secondary" style={{ fontSize: 12 }}>Also feed them to the image model as visual refs (not just the planner)</Text>
         </Checkbox>
       )}
+    </div>
+    <div>
+      <Text style={FIELD_LABEL}>Image model</Text>
+      <ModelSelect value={s.imageModel} onChange={(v) => up({ imageModel: v })} />
     </div>
   </>
 );

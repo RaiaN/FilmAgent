@@ -96,13 +96,13 @@ export const planPrompts = async ({ task, count = 4, idea = '', direction = '', 
 // Inspiration: plan N distinct directions (reading selected refs = describe+mix),
 // then render. `refs` are always read for ideas; `useRefsInGen` also feeds them to
 // the image model as visual references.
-export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, count = 6, size = '2K', config } = {}, ctx, onItem) => {
+export const inspiration = async ({ prompt, refs = [], useRefsInGen = false, count = 6, size = '2K', imageModel = defaultImageModelKey(), config } = {}, ctx, onItem) => {
   const n = clamp(count, 1, 12, 6);
   const items = await planPrompts({ task: 'inspiration', count: n, idea: prompt, references: refs, config }, ctx);
   const genRefs = useRefsInGen ? refs : [];
   const specs = items.map((it, i) => ({ prompt: it.prompt, referenceImages: genRefs, label: it.label || `Mood ${i + 1}`, meta: { planLabel: it.label } }));
-  // Pro is the suite-wide default image model; its 2048² area cap clamps the size tier.
-  return runImagineBatch({ specs, size: clampSizeForModel(defaultImageModelKey(), size), model: getModel(defaultImageModelKey(), config) }, ctx, onItem);
+  // The size tier is clamped to the chosen model's area cap.
+  return runImagineBatch({ specs, size: clampSizeForModel(imageModel, size), model: getModel(imageModel, config) }, ctx, onItem);
 };
 
 export const characterVariations = async ({ imageUrl, direction = '', count = 4, size = '2K', imageModel = defaultImageModelKey(), config } = {}, ctx, hooks) => {

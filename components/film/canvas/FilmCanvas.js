@@ -1883,7 +1883,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, inject }) => {
     patchPreviz(cardId, (d) => ({ schematic: { ...(d.schematic || {}), loading: true, error: '' } }));
     traceRef.current.startRun({ note: 'Agent · Previz · schematic' });
     try {
-      const { url, cacheUrl, prompt } = await previzSchematic({ plan }, previzCtxOf());
+      const { url, cacheUrl, prompt } = await previzSchematic({ plan, imageModel: imageModelKeyOf(card.data.imageModel) }, previzCtxOf());
       patchPreviz(cardId, { schematic: { url, cacheUrl: cacheUrl || null, prompt, loading: false, error: '' }, schematicStale: false });
     } catch (e) {
       patchPreviz(cardId, (d) => ({ schematic: { ...(d.schematic || {}), loading: false, error: e.message } }));
@@ -3360,7 +3360,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, inject }) => {
     try {
       const out = await storyboardKeyframe({
         body: text, shotTemplate: '', style: SCHEMATIC_STYLE_LOCK, expression: '', refs: ordered,
-        imageModel: defaultImageModelKey(), frameEdit, composeEdit: true, camera: null,
+        imageModel: imageModelKeyOf(card.data.imageModel), frameEdit, composeEdit: true, camera: null,
         frameEditAnnotated: !!edits.annotatedFrame,
       }, previzCtxOf());
       if (!out.url) throw new Error('the model returned no image');
@@ -4657,7 +4657,7 @@ const FilmCanvasInner = ({ project, onUpdateProject, demoNonce, inject }) => {
         id: `previz-${Date.now().toString(36)}`,
         type: 'previz',
         position: pos,
-        data: { layerId: 'previz', brief: (d.brief || '').trim(), camera: d.camera || '', busy: false },
+        data: { layerId: 'previz', brief: (d.brief || '').trim(), camera: d.camera || '', imageModel: d.imageModel || '', busy: false },
       }));
       if ((d.brief || '').trim()) setLayerSettings((prev) => ({ ...prev, previz: { ...(prev.previz || {}), brief: '' } }));
       closePanel();

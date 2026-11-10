@@ -135,14 +135,7 @@ export const tosObjectKeyFromUrl = (url, { tosPublicBaseUrl, tosEndpoint, tosReg
 // Permanently delete one object from the bucket.
 export async function deleteTosObject({ accessKey, secretKey, tosBucket, tosRegion, tosEndpoint, objectKey }) {
   if (!objectKey) return;
-  const resolvedRegion = requireTosRegion(tosRegion);
-  const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
-  const client = new TosClient({
-    accessKeyId: accessKey,
-    accessKeySecret: secretKey,
-    region: resolvedRegion,
-    endpoint: resolvedEndpoint,
-  });
+  const client = makeClient({ accessKey, secretKey, tosRegion, tosEndpoint });
   await client.deleteObject({ bucket: tosBucket, key: objectKey });
 }
 
@@ -150,10 +143,15 @@ export async function deleteTosObject({ accessKey, secretKey, tosBucket, tosRegi
 // The cloud-first media flow puts BYTES at CHOSEN keys (projects/media/<sha256>.<ext>)
 // and reads them back — plain object storage, direct SDK calls (no presign dance).
 
+// One client per set of credentials and endpoint, kept for the life of the server: the SDK holds its
+// connections open, so a call reuses one instead of paying a new TLS handshake (about 0.5 s) each time.
+const clients = new Map();
 const makeClient = ({ accessKey, secretKey, tosRegion, tosEndpoint }) => {
   const resolvedRegion = requireTosRegion(tosRegion);
   const resolvedEndpoint = String(tosEndpoint || '').trim() || getDefaultTosEndpoint(resolvedRegion);
-  return new TosClient({ accessKeyId: accessKey, accessKeySecret: secretKey, region: resolvedRegion, endpoint: resolvedEndpoint });
+  const key = [accessKey, secretKey, resolvedRegion, resolvedEndpoint].join('\n');
+  if (!clients.has(key)) clients.set(key, new TosClient({ accessKeyId: accessKey, accessKeySecret: secretKey, region: resolvedRegion, endpoint: resolvedEndpoint }));
+  return clients.get(key);
 };
 
 // The one env reader every route shares (hoisted from /api/seedance).

@@ -1,6 +1,6 @@
 // THE GENERATE BAR, as data: what it holds, what it starts from on a shot, and the one request it
 // makes. What the prompt says is what is sent.
-import { videoTraits } from '../suiteConfig';
+import { filmModelOf, videoTraits } from '../suiteConfig';
 import { allVersions, findElement, modelOfShot, plateOf } from './model';
 import { mentionSlug, resolveMention } from './assets';
 
@@ -10,7 +10,7 @@ export const MAX_TAKES = 4;
 const TOKEN = /\{\{el:([a-z0-9-]+)\}\}/g;
 const CITATION = /@([\p{L}\p{N}_]+(?:-[\p{L}\p{N}_]+)*)/gu;
 
-export const emptyBar = (s) => ({ shotId: null, sceneId: null, text: '', refs: [], seconds: 8, ratio: '16:9', model: s?.videoModel || 'seedance25', quality: 'draft', resolution: '1080p', audio: true, count: 1, parent: null, source: null });
+export const emptyBar = (s) => ({ shotId: null, sceneId: null, text: '', refs: [], seconds: 8, ratio: '16:9', model: filmModelOf('video') || s?.videoModel || 'seedance25', quality: 'draft', resolution: '1080p', audio: true, count: 1, parent: null, source: null });
 
 const clampSeconds = (model, n) => Math.max(MIN_SECONDS, Math.min(videoTraits(model).maxSeconds, Math.round(Number(n) || MIN_SECONDS)));
 

@@ -91,6 +91,15 @@ describe('the tools', () => {
     const sent = s.calls.filter((c) => c[1] === '/api/film/imagine').map((c) => [c[2].model, c[2].size]);
     expect(sent).toEqual([['test-seedream55', '2880x2880'], ['test-seedream55', '3840x2160'], ['test-seedream55', '2K']]);
   });
+  test("a tool with no model named draws on the film's pick", async () => {
+    const s = studio();
+    const project = await withPicture(s);
+    s.cloud.get(project).project.imageModel = 'seedream55';
+    await s.tools.call('generate_image', { project, prompt: 'a face sheet' });
+    await s.tools.call('generate_image', { project, prompt: 'a face sheet', model: 'seedream' });
+    const sent = s.calls.filter((c) => c[1] === '/api/film/imagine').map((c) => c[2].model);
+    expect(sent).toEqual(['test-seedream55', 'test-seedream']);
+  });
   test('an existing film is left as it was', async () => {
     const s = studio();
     await s.tools.call('ensure_project', { project: PROJECT, name: 'First' });

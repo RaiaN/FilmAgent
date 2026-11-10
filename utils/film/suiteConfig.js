@@ -365,11 +365,17 @@ export const clampShotSeconds = (model, v) => (String(v) === AUTO_SECONDS
 // With nothing configured the seedance slot key is returned so the shoot fails
 // loudly with getModel's exact MODELARK_MODEL_SEEDANCE message.
 const VIDEO_SLOT_PREFERENCE = ['seedance25', 'seedance25Premium', 'seedance', 'seedanceFast', 'seedanceMini'];
-export const defaultVideoModelKey = () => VIDEO_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedance';
+// THE FILM'S MODELS: the image and video model picked in Project settings, kept on the project.
+// The browser applies the open project's picks here, so every agent's default follows them.
+// Server code never does: a server serves many projects, so it reads the project it was handed.
+let filmModels = {};
+export const applyFilmModels = ({ image, video } = {}) => { filmModels = { image: image || null, video: video || null }; };
+export const filmModelOf = (kind) => filmModels[kind] || null;
+export const defaultVideoModelKey = () => filmModels.video || VIDEO_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedance';
 export const videoModelKeyOf = (picked) => (picked && VIDEO_MODEL_TRAITS[picked] ? picked : defaultVideoModelKey());
 // The image twin — one source for the default Seedream slot (no scattered literals).
 const IMAGE_SLOT_PREFERENCE = ['seedreamPro', 'seedream'];
-export const defaultImageModelKey = () => IMAGE_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedreamPro';
+export const defaultImageModelKey = () => filmModels.image || IMAGE_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedreamPro';
 export const imageModelKeyOf = (picked) => picked || defaultImageModelKey();
 export const clampResolution = (model, res) => {
   const opts = RES_BY_MODEL[model] || RES_BY_MODEL.seedance;

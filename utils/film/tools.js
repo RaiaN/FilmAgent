@@ -26,7 +26,15 @@ const VIDEO_KEYS = ['seedance25', 'seedance25Premium'];
 const IMAGE_KEYS = ['seedream', 'seedreamPro', 'seedream55'];
 const IMAGE_EDIT_MODEL = 'seedreamPro';
 // The image model a drawing tool runs on: the one asked for, else the film's default.
-const IMAGE_MODEL = { type: 'string', enum: IMAGE_KEYS, description: 'Image model, only when the director named one: seedream55 = Seedream 5.5, seedreamPro = 5.0 Pro, seedream = 5.0 Lite.' };
+const IMAGE_MODEL = { type: 'string', enum: IMAGE_KEYS, description: "Image model, only when the director named one for this: seedream55 = Seedream 5.5, seedreamPro = 5.0 Pro, seedream = 5.0 Lite. Left out, the film's image model." };
+const VIDEO_MODEL = { type: 'string', enum: VIDEO_KEYS, description: "Video model, only when the director named one for this. Left out, the film's video model." };
+// Which argument of a tool names its model, and of which kind. Left out, the film's pick in
+// Project settings fills it.
+const FILM_MODEL_ARG = {
+  generate_image: ['model', 'image'], scene_views: ['image_model', 'image'], cast: ['image_model', 'image'], variations: ['image_model', 'image'],
+  storyboard: ['image_model', 'image'], previz: ['image_model', 'image'], edit_image: ['image_model', 'image'],
+  generate_video: ['model', 'video'], edit_video: ['model', 'video'], enhance_prompt: ['model', 'video'],
+};
 const DRAFT_RES = DRAFT_MODE.resolution;
 const FINAL_RES = '1080p';
 const LOOK_POINTS = [0.05, 0.25, 0.45, 0.65, 0.85, 0.98];
@@ -57,7 +65,7 @@ export const FILM_TOOLS = [
   tool('place', 'Give a result its place in the film: a picture to someone or something in Cast & World (it becomes their plate), a video to a shot. A new name in element adds them to Cast & World.', { ...PROJECT, name: str('The result, e.g. R1.'), element: str('Who or what the picture is, e.g. Morwen.'), kind: { type: 'string', enum: ELEMENT_KINDS }, description: str('A short description, for a new element.'), shot_id: str('For a video: the shot, from list_project.') }, ['project', 'name']),
   tool('pick', 'Make a picture the plate of its element. Only when the director asked. A take needs no pick: the newest on a shot stands until rejected.', { ...PROJECT, name: str('The result.') }, ['project', 'name']),
   tool('reject', 'Reject a result. Only when the director asked.', { ...PROJECT, name: str('The result.') }, ['project', 'name']),
-  tool('generate_image', 'Make a picture from a prompt, optionally from pictures in the film. Cite a picture in the prompt by its name, @R1 or @Morwen; it must be in refs. Returns when it is done.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Pictures it is made from, in order.'), model: { type: 'string', enum: IMAGE_KEYS }, size: str('e.g. 2K, or WxH. seedream55 renders up to 3840x2160 (4K as WxH) and up to 10 refs; seedreamPro caps at 2048x2048.'), label: str('What it is.') }, ['project', 'prompt']),
+  tool('generate_image', 'Make a picture from a prompt, optionally from pictures in the film. Cite a picture in the prompt by its name, @R1 or @Morwen; it must be in refs. Returns when it is done.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Pictures it is made from, in order.'), model: IMAGE_MODEL, size: str('e.g. 2K, or WxH. seedream55 renders up to 3840x2160 (4K as WxH) and up to 10 refs; seedreamPro caps at 2048x2048.'), label: str('What it is.') }, ['project', 'prompt']),
   tool('write_screenplay', "Write a screenplay from the director's idea and make it the film's script. Their earlier text stays as a version. Returns when it is done.", { ...PROJECT, idea: str("The idea, the director's words unchanged."), note: str("The director's note, if any.") }, ['project', 'idea']),
   tool('shot_list', "Break a screenplay down into scenes and their shots, and lay the film out from it: scenes, shots, and everyone and everywhere it names, waiting for plates. Uses the film's script unless given one. Returns when it is done.", { ...PROJECT, script: str("The screenplay, the director's words unchanged."), note: str("The director's note, if any."), replace: { type: 'boolean', description: 'Only when the director agreed to replace the scenes the film has, and their takes.' } }, ['project']),
   tool('scene_views', "Draw the camera views a scene's shots need, each an edit of the place's plate so every view is the same room in the same light. Returns when it is done.", { ...PROJECT, scene_id: str('The scene, from list_project.') , image_model: IMAGE_MODEL }, ['project', 'scene_id']),
@@ -69,8 +77,8 @@ export const FILM_TOOLS = [
   tool('previz_shot_prompt', 'Watch an animatic and write the prompt for the real scene: the named people, the place, the moves and the cuts, citing the animatic by name. Renders nothing.', { ...PROJECT, animatic: str('The animatic.') }, ['project', 'animatic']),
   tool('grab_frame', 'Take one frame of a video as a picture in the film, from the master, to use as a reference. Renders nothing.', { ...PROJECT, name: str('The video, e.g. T3.'), at: { type: 'number', description: 'Seconds into it.' }, last: { type: 'boolean', description: 'Its last frame instead.' } }, ['project', 'name']),
   tool('edit_image', "Edit a picture from the director's words, optionally with their drawn marks. The new version sits beside the picture it edits. Returns when it is done.", { ...PROJECT, source: str('The picture to edit, e.g. R1.'), marked: str('The copy with their red marks on it, if they drew any.'), instruction: str("The director's words, unchanged."), label: str('What it is.') , image_model: IMAGE_MODEL }, ['project', 'source', 'instruction']),
-  tool('generate_video', 'Start a new take from a prompt and references. In the prompt, cite each reference by its name, @R1, @Morwen or @T3: every name cited must be in refs or video_refs, and code numbers them for the model. Returns at once; use wait.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures, in citation order.'), video_refs: names('Reference videos, in citation order.'), seconds: { type: 'number', description: 'Length in seconds.' }, ratio: str('e.g. 16:9, 9:16, adaptive.'), model: { type: 'string', enum: VIDEO_KEYS }, quality: { type: 'string', enum: ['draft', 'final'], description: 'draft is 480p and can be finished later. final is MOV now.' }, resolution: str('For a final: 1080p, or 4K on seedance25Premium.'), audio: { type: 'boolean', description: 'Generate sound. Defaults to on.' }, label: str('What it is.'), shot_id: str('The shot this take is for, from list_project or add_shot. Left out, it waits unplaced.'), parent: str('The result this one reworks, if any.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'prompt', 'seconds', 'quality']),
-  tool('edit_video', 'Start an edit of a video: only what the prompt names changes. It must read as an instruction and cite the source by its name, e.g. @T3; cite pictures by name too, each in refs. Length and shape follow the source. Always 1080p MOV: there is no draft edit. Returns at once; use wait.', { ...PROJECT, source: str('The video to edit, e.g. T3.'), prompt: str('The instruction.'), refs: names('Pictures the edit uses, in citation order.'), model: { type: 'string', enum: VIDEO_KEYS }, label: str('What it is.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'source', 'prompt']),
+  tool('generate_video', 'Start a new take from a prompt and references. In the prompt, cite each reference by its name, @R1, @Morwen or @T3: every name cited must be in refs or video_refs, and code numbers them for the model. Returns at once; use wait.', { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures, in citation order.'), video_refs: names('Reference videos, in citation order.'), seconds: { type: 'number', description: 'Length in seconds.' }, ratio: str('e.g. 16:9, 9:16, adaptive.'), model: VIDEO_MODEL, quality: { type: 'string', enum: ['draft', 'final'], description: 'draft is 480p and can be finished later. final is MOV now.' }, resolution: str('For a final: 1080p, or 4K on seedance25Premium.'), audio: { type: 'boolean', description: 'Generate sound. Defaults to on.' }, label: str('What it is.'), shot_id: str('The shot this take is for, from list_project or add_shot. Left out, it waits unplaced.'), parent: str('The result this one reworks, if any.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'prompt', 'seconds', 'quality']),
+  tool('edit_video', 'Start an edit of a video: only what the prompt names changes. It must read as an instruction and cite the source by its name, e.g. @T3; cite pictures by name too, each in refs. Length and shape follow the source. Always 1080p MOV: there is no draft edit. Returns at once; use wait.', { ...PROJECT, source: str('The video to edit, e.g. T3.'), prompt: str('The instruction.'), refs: names('Pictures the edit uses, in citation order.'), model: VIDEO_MODEL, label: str('What it is.'), director_asked_retry: { type: 'boolean', description: 'Only when the director asked to render inputs that already failed.' } }, ['project', 'source', 'prompt']),
   tool('finish', 'Start the full-resolution final of a draft: the same picture, MOV. Returns at once; use wait.', { ...PROJECT, name: str('The draft.'), resolution: str('1080p, or 4K on seedance25Premium.') }, ['project', 'name']),
   tool('wait', `Wait for renders to end, up to ${WAIT_LIMIT_S} seconds at a time. Name only renders a tool has returned. Call again for what is still running.`, { ...PROJECT, names: names('The renders.') }, ['project', 'names']),
   tool('look', 'See a finished result. A video comes back with its frames, its technical facts, its volume and its own URL.', { ...PROJECT, name: str('Its name.'), at: { type: 'array', items: { type: 'number' }, description: 'Seconds to see frames at, instead of across its length.' } }, ['project', 'name']),
@@ -78,7 +86,7 @@ export const FILM_TOOLS = [
   tool('archive', 'Take results out of sight, or bring them back. Renders nothing.', { ...PROJECT, ids: names('Version ids.'), archived: { type: 'boolean' } }, ['project', 'ids', 'archived']),
   tool('forget_media', 'A file was deleted: take it out of the unplaced pool, and say what else still uses it.', { ...PROJECT, url: str('The file.') }, ['project', 'url']),
   tool('merge_film', 'Bring a Studio tab\'s copy of the film into the saved film, creating it if it is new.', { ...PROJECT, name: str('Its name, if it is new.'), studio: { type: 'object', description: 'The film as the tab holds it.' } }, ['project', 'studio']),
-  tool('enhance_prompt', "Rewrite a video prompt under the model's prompt skill, for the director to read before anything renders. Citations, dialogue and events stay. Renders nothing.", { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures.'), video_refs: names('Reference videos.'), model: { type: 'string', enum: VIDEO_KEYS } }, ['project', 'prompt']),
+  tool('enhance_prompt', "Rewrite a video prompt under the model's prompt skill, for the director to read before anything renders. Citations, dialogue and events stay. Renders nothing.", { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures.'), video_refs: names('Reference videos.'), model: VIDEO_MODEL }, ['project', 'prompt']),
   tool('assemble', "Join each shot's newest take, in film order, into one cut. Renders nothing.", { ...PROJECT, without_missing: { type: 'boolean', description: 'Only when the director agreed to leave out shots with no take yet.' } }, ['project']),
   tool('settle_renders', 'Record every render of this film that has ended.', PROJECT, ['project']),
   tool('results', 'The film for the preview and Generations.', PROJECT, ['project']),
@@ -444,9 +452,9 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       return [rejectVersion(s, x.ref, x.v.id, now()), answerFor(x.v.id)];
     }),
 
-    generate_image: async ({ project, prompt, refs = [], model = 'seedream', size = '2K', label = '' }) => {
+    generate_image: async ({ project, prompt, refs = [], model: picked, size = '2K', label = '' }) => {
       if (!String(prompt || '').trim()) fail('The prompt is empty.');
-      if (!IMAGE_KEYS.includes(model)) fail(`No image model ${model}. Models: ${IMAGE_KEYS.join(', ')}.`);
+      const model = imageModelFor(picked);
       const { studio: s } = await load(project);
       const list = pictures(s, refs);
       const sent = citeNumbers(prompt, resolver(s), { images: list, imageTag: (n) => `[Image ${n}]` });
@@ -925,6 +933,12 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
     call: async (name, args = {}) => {
       const fn = TOOLS[name];
       if (!fn) fail(`No tool ${name}. Tools: ${Object.keys(TOOLS).join(', ')}.`);
+      const [arg, kind] = FILM_MODEL_ARG[name] || [];
+      if (arg && !args[arg] && args.project) {
+        const film = (await peek(args.project))?.project;
+        const pick = kind === 'image' ? film?.imageModel : film?.videoModel;
+        if (pick) return fn({ ...args, [arg]: pick });
+      }
       return fn(args);
     },
   };

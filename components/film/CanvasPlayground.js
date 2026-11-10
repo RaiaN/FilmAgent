@@ -18,10 +18,10 @@ import PromptSettings from './PromptSettings';
 import SkillSettings from './SkillSettings';
 import { hydrateSkills } from '../../utils/film/skills';
 import { emptyProject } from '../../utils/film/projectShape';
-import { hasStudioWork } from '../../utils/film/studio/model';
+import { hasStudioWork, VIDEO_MODELS } from '../../utils/film/studio/model';
 import { sameFilm } from '../../utils/film/studio/sync';
 import { saveProjectToCloud, listCloudProjects, loadCloudProject, deleteCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
-import { applyDeployModels, REASONER_OPTIONS, REASONING_EFFORTS, reasonerSlotOf, resolveModelId, setClientConfig, getRuntime } from '../../utils/film/suiteConfig';
+import { applyDeployModels, applyFilmModels, defaultImageModelKey, defaultVideoModelKey, IMAGE_MODEL_OPTIONS, REASONER_OPTIONS, REASONING_EFFORTS, reasonerSlotOf, resolveModelId, setClientConfig, getRuntime } from '../../utils/film/suiteConfig';
 
 const { Title, Text } = Typography;
 
@@ -264,6 +264,8 @@ const CanvasPlayground = ({ formValues, setFormValues, onProjectTitle, onStudioL
   };
 
   const patchProject = (patch) => setProject((prev) => ({ ...prev, ...patch }));
+  // The open project's image and video model become every agent's default.
+  useEffect(() => { applyFilmModels({ image: project?.imageModel, video: project?.videoModel }); }, [project?.imageModel, project?.videoModel]);
 
   // THE PROJECT'S CONTROLS live in the Studio header: they are handed over here. Handlers read
   // the latest state through a ref; the snapshot re-publishes when what it shows changes.
@@ -432,6 +434,39 @@ const CanvasPlayground = ({ formValues, setFormValues, onProjectTitle, onStudioL
                 {REASONER_OPTIONS.find((o) => o.key === plannerSlot)?.effort
                   ? 'How deeply the planner thinks before answering — higher is slower and costs more'
                   : 'This planner runs without deep reasoning — effort does not apply'}
+              </Text>
+            </div>
+            <div>
+              <Text type="secondary" style={{ marginRight: 8 }}>Image model</Text>
+              <Select
+                value={project.imageModel || defaultImageModelKey()}
+                onChange={(v) => patchProject({ imageModel: v })}
+                style={{ width: 220 }}
+                options={IMAGE_MODEL_OPTIONS.map((o) => ({
+                  label: resolveModelId(o.key) ? o.label : `${o.label} — not configured`,
+                  value: o.key,
+                  disabled: !resolveModelId(o.key),
+                }))}
+              />
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                Every picture this film makes, in Canvas, Studio and FilmAgent, unless a panel or a message names another
+              </Text>
+            </div>
+            <div>
+              <Text type="secondary" style={{ marginRight: 8 }}>Video model</Text>
+              <Select
+                value={project.videoModel || (VIDEO_MODELS.some((m) => m.key === defaultVideoModelKey()) ? defaultVideoModelKey() : undefined)}
+                placeholder="Pick a video model"
+                onChange={(v) => patchProject({ videoModel: v })}
+                style={{ width: 220 }}
+                options={VIDEO_MODELS.map((o) => ({
+                  label: resolveModelId(o.key) ? o.label : `${o.label} — not configured`,
+                  value: o.key,
+                  disabled: !resolveModelId(o.key),
+                }))}
+              />
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                Every take this film shoots, unless a SHOT card, the Generate bar or a message names another
               </Text>
             </div>
             <Space wrap>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Input, Message } from '@arco-design/web-react';
+import { Dropdown, Input, Menu, Message } from '@arco-design/web-react';
+import { IconSettings } from '@arco-design/web-react/icon';
 import { C, MONO, STUDIO_CSS } from '../studio/ui';
 import GenerationsView from '../studio/GenerationsView';
 import { emptyStudio } from '../../utils/film/studio/model';
@@ -43,6 +44,15 @@ const Head = ({ project }) => {
         : <span role="button" title="Rename" onClick={() => { setDraft(title); setEditing(true); }} style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, color: C.ink, cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'Untitled'}</span>}
       <span role="button" className="st-ghost" onClick={() => project?.openCloud()} style={{ fontSize: 13, color: C.text, cursor: 'pointer', flex: '0 0 auto', textDecoration: 'underline' }}>Open</span>
       <span role="button" className="st-ghost" onClick={() => project?.newProject()} style={{ fontSize: 13, color: C.text, cursor: 'pointer', flex: '0 0 auto', textDecoration: 'underline' }}>New</span>
+      <Dropdown trigger="click" position="br" getPopupContainer={(node) => node.closest(".studio") || document.body} droplist={(
+        <Menu onClickMenuItem={(key) => project?.[key]()} style={{ minWidth: 200 }}>
+          <Menu.Item key="openSettings">Project settings…</Menu.Item>
+          <Menu.Item key="openSkills">Model skills…</Menu.Item>
+          <Menu.Item key="openPrompts">Prompt templates…</Menu.Item>
+        </Menu>
+      )}>
+        <span role="button" aria-label="Settings" title="Settings" className="st-ghost" style={{ display: 'inline-flex', fontSize: 16, color: C.text, cursor: 'pointer', flex: '0 0 auto' }}><IconSettings /></span>
+      </Dropdown>
     </div>
   );
 };
@@ -57,6 +67,7 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
   const [focus, setFocus] = useState(null);
   const [commands, setCommands] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [answered, setAnswered] = useState(null);
   const nudge = useRef(() => {});
 
   const refresh = useCallback(async () => {
@@ -75,6 +86,7 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
     setStudio(emptyStudio());
     setBusy(false);
     setLoaded(false);
+    setAnswered(null); // workbench ids start over in each film's session
   }, [id]);
 
   useEffect(() => {
@@ -140,7 +152,6 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
   // session does the work.
   const done = new Set(events.filter((e) => e.type === 'workbench_done').map((e) => e.id));
   const asked = [...events].reverse().find((e) => e.type === 'workbench' && !done.has(e.id));
-  const [answered, setAnswered] = useState(null);
   const open = asked && asked.id !== answered ? asked : null;
   const workbench = open ? results.find((r) => r.name === open.name) || null : null;
   const answer = async (fields) => {

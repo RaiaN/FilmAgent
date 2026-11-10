@@ -10,7 +10,7 @@ import { composeShotAction } from './core/shot';
 import { CAST_ROLE, castDraftFromParsed, castPlanFromIdea, plateEdit, storyboardKeyframe, storyboardPanels, storyboardSheet } from './core/storyboard';
 import { ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK, previzAnimaticPrompt, previzCutPrompt, previzPlan, previzSchematic, totalSecondsOf } from './core/previz';
 import { characterVariations, finishDraft, locationVariations } from './core/operations';
-import { DRAFT_MODE, clampShotSeconds, clampSizeForModel, defaultImageModelKey, draftFinalsOf, getModel, videoTraits } from './suiteConfig';
+import { DRAFT_MODE, clampShotSeconds, clampSizeForModel, defaultImageModelKey, defaultVideoModelKey, draftFinalsOf, getModel, videoTraits } from './suiteConfig';
 import { ELEMENT_KINDS, addVersion, allVersions, containersOf, emptyStudio, findShot, loadStudio, namedText, newElement, newScene, newShot, patchVersion, pickVersion, plateOf, rejectVersion, scriptHash, shotNumber, takeOf, uid, updateContainer, usedOf, withFilmStyle } from './studio/model';
 import { mergeStudio, nameVersions, withRemovals } from './studio/sync';
 import { applyShotList } from './studio/layout';
@@ -24,17 +24,9 @@ import { isLocalMediaUrl } from './mediaUrl';
 
 const VIDEO_KEYS = ['seedance25', 'seedance25Premium'];
 const IMAGE_KEYS = ['seedream', 'seedreamPro', 'seedream55'];
-const IMAGE_EDIT_MODEL = 'seedreamPro';
 // The image model a drawing tool runs on: the one asked for, else the film's default.
 const IMAGE_MODEL = { type: 'string', enum: IMAGE_KEYS, description: "Image model, only when the director named one for this: seedream55 = Seedream 5.5, seedreamPro = 5.0 Pro, seedream = 5.0 Lite. Left out, the film's image model." };
 const VIDEO_MODEL = { type: 'string', enum: VIDEO_KEYS, description: "Video model, only when the director named one for this. Left out, the film's video model." };
-// Which argument of a tool names its model, and of which kind. Left out, the film's pick in
-// Project settings fills it.
-const FILM_MODEL_ARG = {
-  generate_image: ['model', 'image'], scene_views: ['image_model', 'image'], cast: ['image_model', 'image'], variations: ['image_model', 'image'],
-  storyboard: ['image_model', 'image'], previz: ['image_model', 'image'], edit_image: ['image_model', 'image'],
-  generate_video: ['model', 'video'], edit_video: ['model', 'video'], enhance_prompt: ['model', 'video'],
-};
 const DRAFT_RES = DRAFT_MODE.resolution;
 const FINAL_RES = '1080p';
 const LOOK_POINTS = [0.05, 0.25, 0.45, 0.65, 0.85, 0.98];
@@ -165,7 +157,7 @@ export const checkEditPrompt = (prompt) => {
   if (!EDIT_WORDS.test(prompt)) fail('An edit must read as an instruction: add, remove, replace, modify or change. Without one Seedance renders something new.');
 };
 
-export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() }) => {
+export const createFilmTools = ({ api, client, probe, skills, origin = '', withFilm = (picks, fn) => fn(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now() }) => {
   const ctx = { client };
 
   const peek = async (id) => {
@@ -698,7 +690,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
 
     // The rewrite works in the numbers the skill knows; the director reads names. Whatever the
     // rewrite drops of what was cited gets one corrective ask, then their prompt stands.
-    enhance_prompt: async ({ project, prompt, refs = [], video_refs = [], model = 'seedance25' }) => {
+    enhance_prompt: async ({ project, prompt, refs = [], video_refs = [], model = defaultVideoModelKey() }) => {
       if (!String(prompt || '').trim()) fail('The prompt is empty.');
       const { studio: s } = await load(project);
       const list = pictures(s, refs);
@@ -735,7 +727,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
 
     edit_image: async ({ project, source, marked, instruction, label, image_model }) => {
       if (!String(instruction || '').trim()) fail('Say what changes.');
-      const imageModel = image_model ? imageModelFor(image_model) : IMAGE_EDIT_MODEL;
+      const imageModel = imageModelFor(image_model);
       const { studio: s } = await load(project);
       const [src] = pictures(s, [source]);
       const [marks] = marked ? pictures(s, [marked]) : [];
@@ -760,7 +752,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       return added;
     },
 
-    generate_video: async ({ project, prompt, refs = [], video_refs = [], seconds, ratio = '16:9', model = 'seedance25', quality, resolution = FINAL_RES, audio = true, label = '', shot_id, parent, director_asked_retry = false }) => {
+    generate_video: async ({ project, prompt, refs = [], video_refs = [], seconds, ratio = '16:9', model = defaultVideoModelKey(), quality, resolution = FINAL_RES, audio = true, label = '', shot_id, parent, director_asked_retry = false }) => {
       if (!String(prompt || '').trim()) fail('The prompt is empty.');
       if (!VIDEO_KEYS.includes(model)) fail(`No video model ${model}. Models: ${VIDEO_KEYS.join(', ')}.`);
       if (!['draft', 'final'].includes(quality)) fail('Say the quality: draft or final.');
@@ -788,7 +780,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
       }, where);
     },
 
-    edit_video: async ({ project, source, prompt, refs = [], model = 'seedance25', label = '', director_asked_retry = false }) => {
+    edit_video: async ({ project, source, prompt, refs = [], model = defaultVideoModelKey(), label = '', director_asked_retry = false }) => {
       if (!String(prompt || '').trim()) fail('The prompt is empty.');
       if (!VIDEO_KEYS.includes(model)) fail(`No video model ${model}. Models: ${VIDEO_KEYS.join(', ')}.`);
       const { studio: s } = await load(project);
@@ -933,13 +925,10 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', sleep
     call: async (name, args = {}) => {
       const fn = TOOLS[name];
       if (!fn) fail(`No tool ${name}. Tools: ${Object.keys(TOOLS).join(', ')}.`);
-      const [arg, kind] = FILM_MODEL_ARG[name] || [];
-      if (arg && !args[arg] && args.project) {
-        const film = (await peek(args.project))?.project;
-        const pick = kind === 'image' ? film?.imageModel : film?.videoModel;
-        if (pick) return fn({ ...args, [arg]: pick });
-      }
-      return fn(args);
+      // A call works inside its film's picks in Project settings: the planner and its effort, and
+      // the image and video model wherever the call names none.
+      const p = args.project ? (await peek(args.project))?.project : null;
+      return withFilm({ planner: p?.planner, effort: p?.reasoningEffort, image: p?.imageModel, video: p?.videoModel }, () => fn(args));
     },
   };
 };

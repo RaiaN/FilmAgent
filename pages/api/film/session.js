@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import { REASONER_OPTIONS, getModel, getRuntime, reasonerSlotOf } from '../../../utils/film/suiteConfig';
 
 // THE SESSION, over HTTP: one agent process per project, kept on the server, so the work goes on
 // when the tab closes. POST says something or stops it; GET reads the session from an event onward.
@@ -51,9 +52,28 @@ const open = async (project, tools) => {
   return s;
 };
 
+// The session runs on the film's planner and its effort from Project settings, as they are when
+// the agent starts. A film not saved yet has picked nothing, so it runs on the suite's planner.
+const plannerOf = async (host, project) => {
+  const res = await fetch(`http://${host}/api/film/cloud?action=load&id=${encodeURIComponent(project)}`);
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok && !/No cloud save/.test(out.error || '')) throw new Error(out.error || `Could not read the film's settings (HTTP ${res.status}).`);
+  const p = out.project || {};
+  const perCall = { runtime: { ...(p.planner ? { reasonerSlot: p.planner } : {}), ...(p.reasoningEffort ? { reasoningEffort: p.reasoningEffort } : {}) } };
+  const slot = reasonerSlotOf(perCall);
+  return { model: getModel(slot, perCall), thinking: REASONER_OPTIONS.find((o) => o.key === slot).effort ? getRuntime(perCall).reasoningEffort : 'off' };
+};
+
 // What the agent process prints is the session: one JSON event a line.
-const start = (s, tools) => {
-  const child = spawn(process.execPath, [path.join(process.cwd(), 'scripts', 'film-agent.mjs'), '--serve', '--project', s.project], { cwd: process.cwd(), env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+const start = (s, tools, host) => {
+  s.starting = s.starting || plannerOf(host, s.project).then((planner) => launch(s, tools, planner)).catch((e) => {
+    s.stopped = true;
+    add(s, { type: 'error', text: `The agent did not start: ${e.message}` });
+  }).finally(() => { s.starting = null; });
+  return s.starting;
+};
+const launch = (s, tools, planner) => {
+  const child = spawn(process.execPath, [path.join(process.cwd(), 'scripts', 'film-agent.mjs'), '--serve', '--project', s.project], { cwd: process.cwd(), env: { ...process.env, FILM_AGENT_MODEL: planner.model, FILM_AGENT_THINKING: planner.thinking }, stdio: ['pipe', 'pipe', 'pipe'] });
   s.child = child;
   // What came before a reset is gone: only the session since then is kept.
   const save = () => tools('save_transcript', { project: s.project, transcript: s.events.slice(s.events.map((e) => e.type).lastIndexOf('reset') + 1) }).catch((e) => add(s, { type: 'error', text: `The session was not saved: ${e.message}` }));
@@ -93,7 +113,7 @@ export default async function handler(req, res) {
       const s = await open(String(project), tools);
       // The agent starts with the film, so what can be typed is known before the first message.
       // One that stopped by itself waits for your next message, so it can't restart in a loop.
-      if (!s.child && !s.stopped) start(s, tools);
+      if (!s.child && !s.stopped && !s.starting) start(s, tools, req.headers.host);
       return res.status(200).json({ busy: s.busy, commands: s.commands, events: s.events.slice(Number(after) || 0) });
     }
     if (req.method !== 'POST') {
@@ -134,7 +154,8 @@ export default async function handler(req, res) {
     const said = [String(text || '').trim(), added.length ? `Attached: ${added.map((a) => `${a.name} (${a.file})`).join(', ')}.` : ''].filter(Boolean).join('\n\n');
     add(s, { type: 'you', text: String(text || '').trim(), attached: added });
     s.stopped = false;
-    if (!s.child) start(s, tools);
+    if (!s.child) await start(s, tools, req.headers.host);
+    if (!s.child) { s.busy = false; throw new Error('The agent did not start.'); }
     s.busy = true;
     s.child.stdin.write(`${JSON.stringify({ type: 'say', text: said })}\n`);
     return res.status(200).json({ busy: true, attached: added });

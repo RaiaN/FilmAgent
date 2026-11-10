@@ -21,7 +21,7 @@ import { emptyProject } from '../../utils/film/projectShape';
 import { hasStudioWork, VIDEO_MODELS } from '../../utils/film/studio/model';
 import { sameFilm } from '../../utils/film/studio/sync';
 import { saveProjectToCloud, listCloudProjects, loadCloudProject, deleteCloudProject, prefetchCloudMedia, setLastProjectPointer, getLastProjectPointer, clearLastProjectPointer } from '../../utils/film/cloudStore';
-import { applyDeployModels, applyFilmModels, defaultImageModelKey, defaultVideoModelKey, IMAGE_MODEL_OPTIONS, REASONER_OPTIONS, REASONING_EFFORTS, reasonerSlotOf, resolveModelId, setClientConfig, getRuntime } from '../../utils/film/suiteConfig';
+import { applyDeployModels, applyFilmModels, defaultImageModelKey, defaultVideoModelKey, IMAGE_MODEL_OPTIONS, REASONER_OPTIONS, REASONING_EFFORTS, reasonerSlotOf, resolveModelId, getRuntime } from '../../utils/film/suiteConfig';
 
 const { Title, Text } = Typography;
 
@@ -65,9 +65,6 @@ const CanvasPlayground = ({ formValues, setFormValues, onProjectTitle, onStudioL
   const [skillsOpen, setSkillsOpen] = useState(false);
   // WHICH LLM PLANS. App-level, not per-project (it lives in the client config beside
   // the model table); the state here exists only so the Select re-renders on change.
-  const [plannerSlot, setPlannerSlot] = useState(() => reasonerSlotOf());
-  const [effort, setEffort] = useState('high');
-  useEffect(() => { setPlannerSlot(reasonerSlotOf()); setEffort(getRuntime().reasoningEffort); }, [settingsOpen]);
 
   // Opening the canvas mints a WORKING TITLE (a film-flavoured word pair from
   // randomFilmTitle) instead of another "Untitled" — rename any time in the header.
@@ -264,8 +261,12 @@ const CanvasPlayground = ({ formValues, setFormValues, onProjectTitle, onStudioL
   };
 
   const patchProject = (patch) => setProject((prev) => ({ ...prev, ...patch }));
-  // The open project's image and video model become every agent's default.
-  useEffect(() => { applyFilmModels({ image: project?.imageModel, video: project?.videoModel }); }, [project?.imageModel, project?.videoModel]);
+  // The open project's picks become every agent's: planner and effort, image and video model.
+  useEffect(() => {
+    applyFilmModels({ image: project?.imageModel, video: project?.videoModel, planner: project?.planner, effort: project?.reasoningEffort });
+  }, [project?.imageModel, project?.videoModel, project?.planner, project?.reasoningEffort]);
+  const plannerSlot = project?.planner || reasonerSlotOf();
+  const effort = project?.reasoningEffort || getRuntime().reasoningEffort;
 
   // THE PROJECT'S CONTROLS live in the Studio header: they are handed over here. Handlers read
   // the latest state through a ref; the snapshot re-publishes when what it shows changes.
@@ -409,7 +410,7 @@ const CanvasPlayground = ({ formValues, setFormValues, onProjectTitle, onStudioL
               <Text type="secondary" style={{ marginRight: 8 }}>Planner model</Text>
               <Select
                 value={plannerSlot}
-                onChange={(v) => { setClientConfig({ runtime: { reasonerSlot: v } }); setPlannerSlot(v); }}
+                onChange={(v) => patchProject({ planner: v })}
                 style={{ width: 220 }}
                 options={REASONER_OPTIONS.map((o) => ({
                   label: resolveModelId(o.key) ? o.label : `${o.label} — not configured`,
@@ -418,14 +419,14 @@ const CanvasPlayground = ({ formValues, setFormValues, onProjectTitle, onStudioL
                 }))}
               />
               <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                The LLM behind EVERY reasoning call in the suite
+                The LLM behind every reasoning call, FilmAgent's session included
               </Text>
             </div>
             <div>
               <Text type="secondary" style={{ marginRight: 8 }}>Reasoning effort</Text>
               <Select
                 value={effort}
-                onChange={(v) => { setClientConfig({ runtime: { reasoningEffort: v } }); setEffort(v); }}
+                onChange={(v) => patchProject({ reasoningEffort: v })}
                 disabled={!REASONER_OPTIONS.find((o) => o.key === plannerSlot)?.effort}
                 style={{ width: 220 }}
                 options={REASONING_EFFORTS.map((v) => ({ label: v, value: v }))}

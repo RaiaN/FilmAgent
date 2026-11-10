@@ -31,7 +31,7 @@ npm start          # or: npm run dev
 | Reasoner | `MODELARK_MODEL_REASONER` | Seed 2.0 Pro (agents, division, director) | `seed-2-0-pro-260328` |
 | Reasoner Turbo | `MODELARK_MODEL_REASONER_21_TURBO` | Seed 2.1 Turbo, the default planner | `dola-seed-2-1-turbo-260628` |
 | Reasoner SC | `MODELARK_MODEL_REASONER_SC` | Seed-SC planner (optional) | none — endpoint only (`ep-…`) |
-| Agent | `MODELARK_MODEL_AGENT` | FilmAgent's model | `dola-seed-evolving` |
+| Reasoner Evolving | `MODELARK_MODEL_REASONER_EVOLVING` | Seed-Evolving planner | `dola-seed-evolving` |
 | Image Lite | `MODELARK_MODEL_SEEDREAM` | Seedream 5.0 Lite | `seedream-5-0-260128` |
 | Image Pro | `MODELARK_MODEL_SEEDREAM_PRO` | Seedream 5.0 Pro | `dola-seedream-5-0-pro-260628` |
 | Image 5.5 | `MODELARK_MODEL_SEEDREAM_55` | Seedream 5.5 | `dola-seedream-5-5-261028` |

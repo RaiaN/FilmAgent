@@ -1,9 +1,11 @@
+import { AsyncLocalStorage } from 'async_hooks';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { createBrowserClient } from '../../../utils/film/core/client';
 import { setSkillsBase } from '../../../utils/film/skills';
 import { FILM_TOOLS, createFilmTools } from '../../../utils/film/tools';
+import { setFilmScope } from '../../../utils/film/suiteConfig';
 import { probeMedia } from '../../../utils/server/videoInfo';
 
 // THE FILM TOOLS over HTTP: GET lists them, POST { tool, args } calls one. Every harness reaches the
@@ -12,6 +14,12 @@ import { probeMedia } from '../../../utils/server/videoInfo';
 export const config = {
   api: { bodyParser: { sizeLimit: '280mb' }, responseLimit: false },
 };
+
+// Each call runs inside its own film's picks (planner, effort, image and video model): one server
+// serves many films at once, so the picks travel with the call, not in a module-wide setting.
+const filmPicks = globalThis.filmPicks || new AsyncLocalStorage();
+globalThis.filmPicks = filmPicks;
+setFilmScope(() => filmPicks.getStore() || null);
 
 const SKILLS_DIR = path.join(process.cwd(), 'skills');
 const readSkills = async () => fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
@@ -36,6 +44,7 @@ const toolsFor = (req) => {
     origin: base,
     probe: probeMedia,
     skills: readSkills,
+    withFilm: (picks, fn) => filmPicks.run(picks, fn),
   });
 };
 

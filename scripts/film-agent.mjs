@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// THE FILM AGENT, no UI: one sentence from the director, Pi as the loop, the model set in
-// MODELARK_MODEL_AGENT, and the film tools as its only tools. Against the running dev server.
-//   node scripts/film-agent.mjs --new "My film" --attach face.jpg "Make a 10 second video of her"
+// THE FILM AGENT, no UI: one sentence from the director, Pi as the loop, the film's planner model
+// (FILM_AGENT_MODEL, with FILM_AGENT_THINKING as its effort or 'off'), and the film tools as its only
+// tools. The session route sets both from Project settings. Against the running dev server.
+//   FILM_AGENT_MODEL=<model id> FILM_AGENT_THINKING=high node scripts/film-agent.mjs --new "My film" --attach face.jpg "Make a 10 second video of her"
 //   node scripts/film-agent.mjs --project film-x "T4: remove the apples"
 //   node scripts/film-agent.mjs --serve --project film-x
 // Prints each step as it happens and the agent's report; --log writes the run as JSON. With --serve
@@ -34,8 +35,9 @@ if ((!serve && !sentence) || !project === !newName) die('Usage: film-agent (--ne
 
 const env = Object.fromEntries(fs.readFileSync('.env.local', 'utf8').split('\n').map((l) => /^([A-Z0-9_]+)=(.*)$/.exec(l)).filter(Boolean).map((m) => [m[1], m[2].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '')]));
 const need = (k) => env[k] || die(`${k} is not set in .env.local.`);
-const modelId = need('MODELARK_MODEL_AGENT');
 process.env.FILM_AGENT_KEY = need('MODELARK_API_KEY');
+const modelId = process.env.FILM_AGENT_MODEL || die('FILM_AGENT_MODEL is not set: the session route sets it from the film\'s planner.');
+const thinking = process.env.FILM_AGENT_THINKING || die('FILM_AGENT_THINKING is not set: the planner\'s effort, or off.');
 
 const call = async (tool, args) => {
   const res = await fetch(`${BASE}/api/film/tools`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, args }) });
@@ -103,9 +105,10 @@ const openEdit = async (word, words) => {
 };
 
 const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'film-agent-'));
-fs.writeFileSync(path.join(agentDir, 'models.json'), JSON.stringify({ providers: { ark: { baseUrl: need('MODELARK_API_BASE_URL'), api: 'openai-responses', apiKey: '$FILM_AGENT_KEY', models: [{ id: modelId, reasoning: true, input: ['text', 'image'], contextWindow: 256000, maxTokens: 32000 }] } } }));
+fs.writeFileSync(path.join(agentDir, 'models.json'), JSON.stringify({ providers: { ark: { baseUrl: need('MODELARK_API_BASE_URL'), api: 'openai-responses', apiKey: '$FILM_AGENT_KEY', models: [{ id: modelId, reasoning: thinking !== 'off', input: ['text', 'image'], contextWindow: 256000, maxTokens: 32000 }] } } }));
 const modelRuntime = await ModelRuntime.create({ authPath: path.join(agentDir, 'auth.json'), modelsPath: path.join(agentDir, 'models.json') });
 const model = modelRuntime.getModel('ark', modelId) || die(`Pi did not take the model ${modelId}.`);
+
 const method = fs.readFileSync(path.join('skills', 'film-agent', 'SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\s*/, '');
 // What the agent can offer: the director's commands and the craft skills, by name and description.
 // Pi lists skills itself only with its file-reading tools, which this agent doesn't have, so the
@@ -129,7 +132,7 @@ const createRuntime = async ({ cwd, sessionManager, sessionStartEvent }) => {
       extensionFactories: [filmAgentExtension({ tools: agentTools, execute: runTool, openEdit, onError: (text) => emit({ type: 'error', text }), cancelWork: () => workbenches.cancelAll(), onReset: () => emit({ type: 'reset' }) })],
     },
   });
-  return { ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent, model, thinkingLevel: 'medium', noTools: 'builtin' })), services, diagnostics: services.diagnostics };
+  return { ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent, model, thinkingLevel: thinking, noTools: 'builtin' })), services, diagnostics: services.diagnostics };
 };
 const runtime = await createAgentSessionRuntime(createRuntime, { cwd: agentDir, agentDir, sessionManager: SessionManager.inMemory(agentDir) });
 const forbidden = ['read', 'bash', 'powershell', 'edit', 'write', 'grep', 'find', 'ls'];

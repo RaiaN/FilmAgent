@@ -30,6 +30,7 @@ export const ROOT_CONFIG = {
     reasoner: null,      // Seed 2.0 Pro reasoner             (MODELARK_MODEL_REASONER)
     reasonerSC: null,    // Seed-SC reasoner                  (MODELARK_MODEL_REASONER_SC)
     reasoner21Turbo: null, // Seed 2.1 Turbo reasoner          (MODELARK_MODEL_REASONER_21_TURBO)
+    reasonerEvolving: null, // Seed-Evolving reasoner           (MODELARK_MODEL_REASONER_EVOLVING)
   },
   runtime: {
     defaultImageSize: '2K',
@@ -109,6 +110,7 @@ export const MODEL_ENV_VARS = {
   reasoner: 'MODELARK_MODEL_REASONER',
   reasonerSC: 'MODELARK_MODEL_REASONER_SC',
   reasoner21Turbo: 'MODELARK_MODEL_REASONER_21_TURBO',
+  reasonerEvolving: 'MODELARK_MODEL_REASONER_EVOLVING',
 };
 
 let hydratedDeployModels = null; // client-side: set once from /api/film/config
@@ -131,8 +133,22 @@ const deployModelLayer = () => {
 
 // ---- resolver + accessors ----
 
-// Resolve the effective config: ROOT ← deployment (env / hydrated) ← client ← per-call.
-export const resolveConfig = (perCall = {}) => deepMerge(deepMerge(deepMerge(ROOT_CONFIG, { models: deployModelLayer() }), getClientConfig()), perCall || {});
+// THE FILM'S PICKS from Project settings (planner, effort, image, video), kept on the project.
+// The browser applies the open project's picks; the tools route runs each call inside the
+// picks of the project it was handed (setFilmScope), since a server serves many projects.
+let filmModels = {};
+let filmScope = () => null;
+export const applyFilmModels = ({ image, video, planner, effort } = {}) => { filmModels = { image: image || null, video: video || null, planner: planner || null, effort: effort || null }; };
+export const setFilmScope = (fn) => { filmScope = fn; };
+const film = () => filmScope() || filmModels;
+export const filmModelOf = (kind) => film()[kind] || null;
+const filmRuntime = () => {
+  const { planner, effort } = film();
+  return { runtime: { ...(planner ? { reasonerSlot: planner } : {}), ...(effort ? { reasoningEffort: effort } : {}) } };
+};
+
+// Resolve the effective config: ROOT ← deployment (env / hydrated) ← client ← the film ← per-call.
+export const resolveConfig = (perCall = {}) => deepMerge(deepMerge(deepMerge(deepMerge(ROOT_CONFIG, { models: deployModelLayer() }), getClientConfig()), filmRuntime()), perCall || {});
 
 // Non-throwing resolver (enumeration/config-route use): id or null.
 export const resolveModelId = (key, perCall) => resolveConfig(perCall).models[key] || null;
@@ -145,6 +161,7 @@ export const REASONER_OPTIONS = [
   { key: 'reasoner21Turbo', label: 'Seed 2.1 Turbo', effort: true },
   { key: 'reasoner', label: 'Seed 2.0 Pro', effort: true },
   { key: 'reasonerSC', label: 'Seed-SC', effort: false },
+  { key: 'reasonerEvolving', label: 'Seed-Evolving', effort: true },
 ];
 // The deep-reasoning effort levels offered for planner calls (the API also takes
 // none/minimal/xhigh). 'minimal' turns reasoning OFF; only the AI Analysis tab offers it.
@@ -365,17 +382,11 @@ export const clampShotSeconds = (model, v) => (String(v) === AUTO_SECONDS
 // With nothing configured the seedance slot key is returned so the shoot fails
 // loudly with getModel's exact MODELARK_MODEL_SEEDANCE message.
 const VIDEO_SLOT_PREFERENCE = ['seedance25', 'seedance25Premium', 'seedance', 'seedanceFast', 'seedanceMini'];
-// THE FILM'S MODELS: the image and video model picked in Project settings, kept on the project.
-// The browser applies the open project's picks here, so every agent's default follows them.
-// Server code never does: a server serves many projects, so it reads the project it was handed.
-let filmModels = {};
-export const applyFilmModels = ({ image, video } = {}) => { filmModels = { image: image || null, video: video || null }; };
-export const filmModelOf = (kind) => filmModels[kind] || null;
-export const defaultVideoModelKey = () => filmModels.video || VIDEO_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedance';
+export const defaultVideoModelKey = () => filmModelOf('video') || VIDEO_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedance';
 export const videoModelKeyOf = (picked) => (picked && VIDEO_MODEL_TRAITS[picked] ? picked : defaultVideoModelKey());
 // The image twin — one source for the default Seedream slot (no scattered literals).
 const IMAGE_SLOT_PREFERENCE = ['seedreamPro', 'seedream'];
-export const defaultImageModelKey = () => filmModels.image || IMAGE_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedreamPro';
+export const defaultImageModelKey = () => filmModelOf('image') || IMAGE_SLOT_PREFERENCE.find((k) => resolveModelId(k)) || 'seedreamPro';
 export const imageModelKeyOf = (picked) => picked || defaultImageModelKey();
 export const clampResolution = (model, res) => {
   const opts = RES_BY_MODEL[model] || RES_BY_MODEL.seedance;

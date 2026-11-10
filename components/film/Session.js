@@ -97,7 +97,7 @@ const Line = ({ m, live, onShow, results }) => {
   }
   if (m.kind === 'error') return <div style={{ fontSize: 14, color: C.bad, lineHeight: 1.5 }}>{m.text}</div>;
   if (m.kind === 'halted') return <div style={{ fontSize: 13, color: C.muted }}>{m.text}</div>;
-  return <div style={{ fontSize: 15, color: C.ink, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}><Names text={m.text} onShow={onShow} results={results} /></div>;
+  return <div style={{ fontSize: 15, color: C.ink, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}><Said text={m.text} onShow={onShow} results={results} /></div>;
 };
 
 // / COMMANDS: what the agent's Pi session has registered, typed at the start of a message.
@@ -152,6 +152,15 @@ const Names = ({ text, onShow, results = [] }) => String(text || '').split(/(@[\
   if (r || /^@?[RT]\d+$/.test(part)) return <span key={i} role="button" onClick={() => onShow(r?.name || word)} style={{ fontFamily: MONO, color: C.accent, fontWeight: 600, cursor: 'pointer' }}>{part}</span>;
   return part;
 });
+
+// The agent writes a little Markdown: bold, headings and list marks read as such, never as symbols.
+const Said = ({ text, onShow, results }) => String(text || '')
+  .replace(/^#{1,6}\s+/gm, '')
+  .replace(/^(\s*)[-*]\s+/gm, '$1• ')
+  .split(/(\*\*[^*\n]+\*\*)/g)
+  .map((part, i) => (/^\*\*[^*\n]+\*\*$/.test(part)
+    ? <strong key={i} style={{ fontWeight: 650 }}><Names text={part.slice(2, -2)} onShow={onShow} results={results} /></strong>
+    : <Names key={i} text={part} onShow={onShow} results={results} />));
 
 const clock = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 

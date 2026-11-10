@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dropdown, Input, Menu, Message } from '@arco-design/web-react';
-import { IconSettings } from '@arco-design/web-react/icon';
+import { IconEdit, IconSettings } from '@arco-design/web-react/icon';
 import { C, MONO, STUDIO_CSS } from '../studio/ui';
 import GenerationsView from '../studio/GenerationsView';
 import { emptyStudio } from '../../utils/film/studio/model';
@@ -41,7 +41,12 @@ const Head = ({ project }) => {
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
       {editing
         ? <span style={{ flex: 1, minWidth: 0 }}><Input aria-label="Film name" autoFocus value={draft} onChange={setDraft} onBlur={commit} onPressEnter={commit} /></span>
-        : <span role="button" title="Rename" onClick={() => { setDraft(title); setEditing(true); }} style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, color: C.ink, cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'Untitled'}</span>}
+        : (
+          <span style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span role="button" title="Rename" onClick={() => { setDraft(title); setEditing(true); }} style={{ minWidth: 0, fontSize: 15, fontWeight: 700, color: C.ink, cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'Untitled'}</span>
+            <span role="button" aria-label="Rename the film" title="Rename" className="st-ghost" onClick={() => { setDraft(title); setEditing(true); }} style={{ display: 'inline-flex', flex: '0 0 auto', fontSize: 14, color: C.muted, cursor: 'pointer' }}><IconEdit /></span>
+          </span>
+        )}
       <span role="button" className="st-ghost" onClick={() => project?.openCloud()} style={{ fontSize: 13, color: C.text, cursor: 'pointer', flex: '0 0 auto', textDecoration: 'underline' }}>Open</span>
       <span role="button" className="st-ghost" onClick={() => project?.newProject()} style={{ fontSize: 13, color: C.text, cursor: 'pointer', flex: '0 0 auto', textDecoration: 'underline' }}>New</span>
       <Dropdown trigger="click" position="br" getPopupContainer={(node) => node.closest(".studio") || document.body} droplist={(

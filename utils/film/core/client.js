@@ -10,8 +10,7 @@
 //   pollVideo({ taskId, intervalMs }) -> { videoUrl }
 //   generateSpeech({ text, imageData, audioRefs, format, sampleRate }) -> { url, bytes, duration }
 
-import { plannerSkillLine } from '../skills';
-import { reasonerSlotOf, DRAFT_MODE } from '../suiteConfig';
+import { DRAFT_MODE } from '../suiteConfig';
 
 // Pull a human-readable string out of an API error body (may nest under
 // .error.message or .details). Never returns "[object Object]".
@@ -48,19 +47,14 @@ export const createBrowserClient = ({ base = '' } = {}) => ({
     return data;
   },
 
-  // A skill bound to the SELECTED LLM slot rides ahead of every system prompt. Done here
-  // rather than in each template because all 18 planner calls funnel through this one
-  // method — a {plannerSkill} variable in eighteen templates would be the same thing,
-  // eighteen times, and would miss the nineteenth.
   async reason({ prompt, systemPrompt, images, video, modelId, reasoningEffort }) {
-    const planner = await plannerSkillLine(reasonerSlotOf());
     const res = await fetch(`${base}/api/seed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         modelId,
         prompt,
-        systemPrompt: planner ? `${planner}\n\n${String(systemPrompt || '')}`.trim() : systemPrompt,
+        systemPrompt,
         images: images || [],
         video: video || undefined,
         reasoningEffort,

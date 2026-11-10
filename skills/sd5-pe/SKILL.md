@@ -4,6 +4,7 @@ description: Seedream 5.0 Pro image prompt spec — prompt structure (subject / 
 models:
   - seedreamPro
   - seedream
+  - seedream55
 tasks:
   - generate
 ---

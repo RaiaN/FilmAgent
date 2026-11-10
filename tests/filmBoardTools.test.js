@@ -118,8 +118,24 @@ describe('enhance', () => {
     const s = setup();
     await withPicture(s);
     s.client.reason.mockImplementation(async () => ({ content: JSON.stringify({ action: 'Someone walks', audio: '' }) }));
-    await expect(s.tools.call('enhance_prompt', { project: 'film', prompt: '@R1 walks', refs: ['R1'] })).rejects.toThrow(/dropped a reference/);
+    await expect(s.tools.call('enhance_prompt', { project: 'film', prompt: '@R1 walks', refs: ['R1'] })).rejects.toThrow(/dropped @R1/);
     expect(s.client.reason).toHaveBeenCalledTimes(2);
+  });
+  test('a written prompt keeps the words the brief quotes', async () => {
+    const s = setup();
+    await withPicture(s);
+    s.client.reason.mockImplementation(async () => ({ content: JSON.stringify({ action: '[Image 1] says hello', audio: '' }) }));
+    await expect(s.tools.call('write_prompt', { project: 'film', for: 'video', brief: '@R1 says "the sea is gone"', refs: ['R1'] })).rejects.toThrow(/dropped "the sea is gone"/);
+    s.client.reason.mockImplementation(async () => ({ content: JSON.stringify({ action: '[Image 1] says {The sea is gone.}', audio: '' }) }));
+    expect((await s.tools.call('write_prompt', { project: 'film', for: 'video', brief: '@R1 says "the sea is gone"', refs: ['R1'] })).prompt).toBe('@R1 says {The sea is gone.}');
+  });
+  test('a picture prompt is written under the image model and comes back in names', async () => {
+    const s = setup();
+    await withPicture(s);
+    s.client.reason.mockImplementation(async () => ({ content: 'A portrait of [Image 1] at dawn' }));
+    const out = await s.tools.call('write_prompt', { project: 'film', for: 'image', brief: '@R1 at dawn', refs: ['R1'] });
+    expect(out).toEqual({ prompt: 'A portrait of @R1 at dawn', model: 'seedreamPro' });
+    expect(s.client.startVideo).not.toHaveBeenCalled();
   });
   test('it refuses a citation that is not a reference', async () => {
     const s = setup();

@@ -5,6 +5,7 @@
 export const RUN_LIMITS = { calls: 60, failedRenders: 2, errors: 6, hardStopAfter: 5 };
 
 export const RENDERS = ['generate_image', 'edit_image', 'cast', 'variations', 'scene_views', 'storyboard', 'previz', 'generate_video', 'edit_video', 'previz_animatic', 'finish'];
+const BATCH_MS = 5000;
 const REPORT = 'Start no more work. Tell the director plainly what is done, what is not and why.';
 
 // A connection that dropped says nothing about the call: the same call can work a moment later.
@@ -14,7 +15,7 @@ export const createRunRules = (limits = RUN_LIMITS) => {
   let calls = 0;
   let errors = 0;
   const failed = new Set();
-  const seen = new Set();
+  const seen = new Map();
   const blocked = new Map();
   const closedSources = new Map();
   const videosIn = (params = {}) => [params.source, ...(params.video_refs || [])].filter(Boolean).map((n) => String(n).toUpperCase());
@@ -40,9 +41,12 @@ export const createRunRules = (limits = RUN_LIMITS) => {
       if (isNetworkError(message)) return;
       errors += 1;
       if (RENDERS.includes(tool)) videosIn(params).forEach((n) => { if (message.startsWith(n)) closedSources.set(n, message); });
+      // Calls made together fail together: the same refusal within one batch is one mistake, and
+      // the model gets to read it before a repeat counts.
       const key = `${tool}:${message}`;
-      if (seen.has(key)) blocked.set(tool, message);
-      seen.add(key);
+      const first = seen.get(key);
+      if (first !== undefined && Date.now() - first > BATCH_MS) blocked.set(tool, message);
+      if (first === undefined) seen.set(key, Date.now());
     },
     // Past this the model is ignoring refusals, and the run is ended from outside.
     mustAbort: () => calls > limits.calls + limits.hardStopAfter,

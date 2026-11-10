@@ -2,22 +2,22 @@
 // Each tool is a plain async function over the project's one state, the same film Studio shows:
 // pictures and videos are versions with short names (R1, T1), kept in Cast & World, on shots, or
 // unplaced until they are given a place, and everything added or made also goes in the Library.
-// The agent writes the prompts from the skills. What must hold whatever the agent decides is checked
-// here: nothing is dropped or swapped, a prompt cites only what it was given, an edit reads as an
+// Every prompt that renders is written by write_prompt under the model's own prompt spec, so the
+// agent never carries a spec itself. What must hold whatever the agent decides is checked here: nothing is dropped or swapped, a prompt cites only what it was given, an edit reads as an
 // edit, and inputs that already failed are not rendered again unless the director asked.
 import { startTake } from './core/shoot';
-import { composeShotAction } from './core/shot';
+import { composeShotAction, editShotAction } from './core/shot';
 import { CAST_ROLE, castDraftFromParsed, castPlanFromIdea, plateEdit, storyboardKeyframe, storyboardPanels, storyboardSheet } from './core/storyboard';
 import { ANIMATIC_MODEL, ANIMATIC_RATIO, SCHEMATIC_STYLE_LOCK, previzAnimaticPrompt, previzCutPrompt, previzPlan, previzSchematic, totalSecondsOf } from './core/previz';
 import { characterVariations, finishDraft, locationVariations } from './core/operations';
-import { DRAFT_MODE, clampShotSeconds, clampSizeForModel, defaultImageModelKey, defaultVideoModelKey, draftFinalsOf, getModel, videoTraits } from './suiteConfig';
+import { DRAFT_MODE, clampShotSeconds, clampSizeForModel, defaultImageModelKey, defaultVideoModelKey, draftFinalsOf, getModel, getRuntime, renderTemplate, videoTraits } from './suiteConfig';
 import { ELEMENT_KINDS, addVersion, allVersions, containersOf, emptyStudio, findShot, loadStudio, namedText, newElement, newScene, newShot, patchVersion, pickVersion, plateOf, rejectVersion, scriptHash, shotNumber, takeOf, uid, updateContainer, usedOf, withFilmStyle } from './studio/model';
 import { mergeStudio, nameVersions, withRemovals } from './studio/sync';
 import { applyShotList } from './studio/layout';
 import { shotList } from './core/shotList';
 import { parseScript } from './core/scriptForm';
 import { writeScreenplay } from './core/story';
-import { crewStep } from './skills';
+import { crewStep, requireSkillLine } from './skills';
 import { describeAsset, mentionSlug, resolveMention } from './studio/assets';
 import { isNetworkError } from './agentRules.mjs';
 import { isLocalMediaUrl } from './mediaUrl';
@@ -78,6 +78,7 @@ export const FILM_TOOLS = [
   tool('archive', 'Take results out of sight, or bring them back. Renders nothing.', { ...PROJECT, ids: names('Version ids.'), archived: { type: 'boolean' } }, ['project', 'ids', 'archived']),
   tool('forget_media', 'A file was deleted: take it out of the unplaced pool, and say what else still uses it.', { ...PROJECT, url: str('The file.') }, ['project', 'url']),
   tool('merge_film', 'Bring a Studio tab\'s copy of the film into the saved film, creating it if it is new.', { ...PROJECT, name: str('Its name, if it is new.'), studio: { type: 'object', description: 'The film as the tab holds it.' } }, ['project', 'studio']),
+  tool('write_prompt', "Write the prompt for a render under its model's prompt spec: a new video, an edit of a video, or a picture. Give a brief: the director's words unchanged where they describe what happens, and what you add, citing references by name. Pass the prompt it returns unchanged to generate_video, edit_video or generate_image; to change it, write it again. Renders nothing.", { ...PROJECT, for: { type: 'string', enum: ['video', 'video_edit', 'image'] }, brief: str("What the render shows: the director's words unchanged, and what you add."), refs: names('Reference pictures, in citation order.'), video_refs: names('Reference videos, for a new video.'), source: str('The video an edit changes.'), model: str('The model it renders on, only when the director named one.') }, ['project', 'for', 'brief']),
   tool('enhance_prompt', "Rewrite a video prompt under the model's prompt skill, for the director to read before anything renders. Citations, dialogue and events stay. Renders nothing.", { ...PROJECT, prompt: str('The prompt.'), refs: names('Reference pictures.'), video_refs: names('Reference videos.'), model: VIDEO_MODEL }, ['project', 'prompt']),
   tool('assemble', "Join each shot's newest take, in film order, into one cut. Renders nothing.", { ...PROJECT, without_missing: { type: 'boolean', description: 'Only when the director agreed to leave out shots with no take yet.' } }, ['project']),
   tool('settle_renders', 'Record every render of this film that has ended.', PROJECT, ['project']),
@@ -119,6 +120,10 @@ const plateNamed = (s, word) => {
 };
 const fingerprintOf = (x) => JSON.stringify(x);
 const fail = (message) => { throw new Error(message); };
+// Words the brief quotes (a line someone says, a sign's text) survive a written prompt as written.
+const quotedIn = (text) => [...String(text).matchAll(/["“]([^"”]{3,})["”]|\{([^}]{3,})\}/g)].map((m) => (m[1] || m[2]).trim()).filter((q) => q.split(/\s+/).length >= 2);
+const flat = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const toNumber = (t) => String(t).replace(/\[\s*Image\s+(\d+)\s*\]/gi, '@Image$1').replace(/@\s*video\s*(\d+)/gi, '@Video$1');
 const imageModelFor = (picked) => (!picked ? defaultImageModelKey() : IMAGE_KEYS.includes(picked) ? picked : fail(`No image model ${picked}. Models: ${IMAGE_KEYS.join(', ')}.`));
 const queues = new Map();
 const oneAtATime = (id, work) => {
@@ -206,6 +211,31 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
     if (typeOf(x.v) !== 'video') fail(`${x.v.name} is a picture, not a video.`);
     return ready(x);
   });
+  // A written prompt keeps every reference the brief cites and every word it quotes: one corrective
+  // ask, then nothing is written. `run` takes what to add to the brief and returns the prompt in
+  // numbers (@Image1, @Video1).
+  const writtenPrompt = async (numbered, brief, run, named = (t) => t) => {
+    const cites = [...new Set([...numbered.matchAll(/@(Image|Video)(\d+)/g)].map((m) => m[0]))];
+    const quotes = quotedIn(brief);
+    const lostIn = (t) => [...cites.filter((c) => !new RegExp(`${c}\\b`, 'i').test(t)), ...quotes.filter((q) => !flat(t).includes(flat(q))).map((q) => `"${q}"`)];
+    let out = await run('');
+    let lost = lostIn(out);
+    if (lost.length) { out = await run(`\n\nKeep every one of these exactly as written: ${lost.join(', ')}.`); lost = lostIn(out); }
+    if (!String(out).trim()) fail('The written prompt came back empty.');
+    if (lost.length) fail(`The written prompt dropped ${named(lost.join(', '))}. Nothing was written: write it again.`);
+    return out;
+  };
+  const withNames = (text, list, clips) => String(text)
+    .replace(/@Image\s*(\d+)/gi, (whole, n) => (list[n - 1] ? `@${list[n - 1].name}` : whole))
+    .replace(/@Video\s*(\d+)/gi, (whole, n) => (clips[n - 1] ? `@${clips[n - 1].name}` : whole));
+  const writeVideo = async (s, brief, list, clips, roster, model) => {
+    const numbered = citeNumbers(brief, resolver(s), { images: list, videos: clips });
+    const prompt = await writtenPrompt(numbered, brief, async (extra) => {
+      const out = await composeShotAction({ text: numbered + extra, references: list.map(mediaOf), roster, modelKey: model, derive: false }, ctx);
+      return toNumber([out.action, out.audio].filter(Boolean).join('\n'));
+    }, (t) => withNames(t, list, clips));
+    return withNames(prompt, list, clips);
+  };
   const inLibrary = (v, name, projectId) => api.post('/api/film/library?action=add', { url: mediaOf(v), assetId: v.assetId || null, name: v.label || name, kind: typeOf(v), project: projectId });
   const poster = async (url) => {
     try {
@@ -690,25 +720,43 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
 
     // The rewrite works in the numbers the skill knows; the director reads names. Whatever the
     // rewrite drops of what was cited gets one corrective ask, then their prompt stands.
+    write_prompt: async ({ project, for: kind, brief, refs = [], video_refs = [], source, model }) => {
+      if (!String(brief || '').trim()) fail('The brief is empty.');
+      if (!['video', 'video_edit', 'image'].includes(kind)) fail('Say what the prompt is for: video, video_edit or image.');
+      const { studio: s } = await load(project);
+      const list = pictures(s, refs);
+      const roster = list.map((v, i) => `image ${i + 1}: ${describeAsset(s, find(s, v.name)).title}`);
+      if (kind === 'image') {
+        const key = imageModelFor(model);
+        const numbered = citeNumbers(brief, resolver(s), { images: list });
+        const SLOT = '@@BRIEF@@';
+        const systemPrompt = renderTemplate('write.image.system', { refCount: String(list.length), skill: await requireSkillLine(key) });
+        const prompt = await writtenPrompt(numbered, brief, async (extra) => {
+          const { content } = await ctx.client.reason({ prompt: renderTemplate('write.image.user', { refRoster: roster.join('\n') || '(no pictures attached)', text: SLOT }).split(SLOT).join(numbered + extra), systemPrompt, images: list.map(mediaOf), modelId: getModel('reasoner'), reasoningEffort: getRuntime().reasoningEffort });
+          return toNumber(String(content || '').replace(/^```\w*\s*|\s*```$/g, '').trim());
+        }, (t) => withNames(t, list, []));
+        return { prompt: withNames(prompt, list, []), model: key };
+      }
+      const key = model || defaultVideoModelKey();
+      if (!VIDEO_KEYS.includes(key)) fail(`No video model ${key}. Models: ${VIDEO_KEYS.join(', ')}.`);
+      if (kind === 'video_edit') {
+        if (!source) fail('Say which video the edit changes: source.');
+        const [src] = videos(s, [source]);
+        const numbered = citeNumbers(brief, resolver(s), { images: list, videos: [src] });
+        const prompt = await writtenPrompt(numbered, brief, async (extra) => toNumber(await editShotAction({ text: numbered + extra, master: { url: mediaOf(src), duration: src.seconds, label: src.name }, references: list.map(mediaOf), roster, modelKey: key }, ctx)), (t) => withNames(t, list, [src]));
+        return { prompt: withNames(prompt, list, [src]), model: key };
+      }
+      const clips = videos(s, video_refs);
+      return { prompt: await writeVideo(s, brief, list, clips, roster, key), model: key };
+    },
+
+    // The director's own prompt, rewritten under the model's skill for them to read first.
     enhance_prompt: async ({ project, prompt, refs = [], video_refs = [], model = defaultVideoModelKey() }) => {
       if (!String(prompt || '').trim()) fail('The prompt is empty.');
       const { studio: s } = await load(project);
       const list = pictures(s, refs);
-      const clips = videos(s, video_refs);
-      const numbered = citeNumbers(prompt, resolver(s), { images: list, videos: clips });
-      const cited = [...new Set([...numbered.matchAll(/@(Image|Video)(\d+)/g)].map((m) => m[0]))];
       const roster = list.map((v, i) => `image ${i + 1}: ${describeAsset(s, find(s, v.name)).title}`);
-      const compose = (text) => composeShotAction({ text, references: list.map(mediaOf), roster, modelKey: model, derive: false }, ctx);
-      const lost = (t) => cited.filter((c) => !new RegExp(`${c}\\b`, 'i').test(t));
-      const toNumber = (t) => String(t).replace(/\[\s*Image\s+(\d+)\s*\]/gi, '@Image$1');
-      let out = await compose(numbered);
-      if (lost(toNumber(out.action)).length) out = await compose(`${numbered}\n\nKeep every one of these citations: ${cited.join(', ')}.`);
-      const action = toNumber(out.action);
-      if (lost(action).length) fail(`The rewrite dropped a reference (${lost(action).join(', ')}). Your prompt stays as it was.`);
-      const named = action
-        .replace(/@Image\s*(\d+)/gi, (whole, n) => (list[n - 1] ? `@${list[n - 1].name}` : whole))
-        .replace(/@Video\s*(\d+)/gi, (whole, n) => (clips[n - 1] ? `@${clips[n - 1].name}` : whole));
-      return { prompt: [named, out.audio].filter(Boolean).join('\n') };
+      return { prompt: await writeVideo(s, prompt, list, videos(s, video_refs), roster, model) };
     },
 
     grab_frame: async ({ project, name, at, last = false }) => {

@@ -11,14 +11,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import readline from 'readline';
-import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, formatSkillsForPrompt, loadSkillsFromDir, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
+import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
 import { FILM_COMMANDS, createWorkbenches, filmAgentExtension, pictureNamed } from './film-agent-extension.mjs';
 import { RENDERS, createRunRules } from '../utils/film/agentRules.mjs';
 
 const BASE = process.env.FILM_TOOLS_URL || 'http://localhost:3000';
 const TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4', '.mov': 'video/quicktime' };
 // Tools the harness uses for the agent: it never picks a project, and files arrive as attachments.
-const HARNESS_ONLY = ['ensure_project', 'add_media', 'archive', 'forget_media', 'enhance_prompt', 'merge_film', 'settle_renders', 'results', 'read_transcript', 'save_transcript'];
+const HARNESS_ONLY = ['ensure_project', 'read_skill', 'add_media', 'archive', 'forget_media', 'enhance_prompt', 'merge_film', 'settle_renders', 'results', 'read_transcript', 'save_transcript'];
 
 const argv = process.argv.slice(2);
 const option = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv.splice(i, 2)[1] : null; };
@@ -80,13 +80,18 @@ const agentTools = tools.filter((t) => !HARNESS_ONLY.includes(t.name)).map((t) =
   const { project: projectField, ...properties } = t.parameters.properties;
   return { name: t.name, description: t.description, usesProject: !!projectField, parameters: { ...t.parameters, properties, required: (t.parameters.required || []).filter((k) => k !== 'project') } };
 });
+// A render's prompt is one write_prompt returned this session, unchanged: the model's spec wrote it.
+const WRITTEN = ['generate_video', 'edit_video', 'generate_image'];
+const written = new Set();
 const runTool = async (t, params) => {
-  const refused = rules.before(t.name, params);
+  const refused = rules.before(t.name, params) || (WRITTEN.includes(t.name) && !written.has(String(params.prompt || '').trim())
+    ? `${t.name} takes a prompt from write_prompt, unchanged. Write this one with write_prompt first.` : '');
   if (refused) { trace.push({ tool: t.name, refused }); throw new Error(refused); }
   try {
     const out = await call(t.name, t.usesProject ? { ...params, project } : params);
     rules.after(out);
-    trace.push({ tool: t.name, params, out: t.name === 'read_skill' ? { id: params.id } : out });
+    if (t.name === 'write_prompt') written.add(String(out.prompt || '').trim());
+    trace.push({ tool: t.name, params, out });
     return await toToolResult(t.name, out);
   } catch (e) {
     rules.error(t.name, e.message, params);
@@ -110,15 +115,11 @@ const modelRuntime = await ModelRuntime.create({ authPath: path.join(agentDir, '
 const model = modelRuntime.getModel('ark', modelId) || die(`Pi did not take the model ${modelId}.`);
 
 const method = fs.readFileSync(path.join('skills', 'film-agent', 'SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\s*/, '');
-// What the agent can offer: the director's commands and the craft skills, by name and description.
-// Pi lists skills itself only with its file-reading tools, which this agent doesn't have, so the
-// list uses Pi's own format and the agent loads a skill with read_skill. Crew skills are Studio's.
-const craftSkills = loadSkillsFromDir({ dir: path.resolve('skills'), source: 'film-agent' }).skills.filter((sk) => !sk.name.startsWith('crew-') && sk.name !== 'film-agent');
+// What the agent can offer: the director's commands. The models' prompt specs are write_prompt's.
 const offer = [
   '## What the director can type',
   ...FILM_COMMANDS.map((c) => `- /${c.name}: ${c.description}`),
   'When they ask what you can do, or whether you can do something one of these does, tell them the command.',
-  `## Skills\nLoad one with read_skill, using its name.${formatSkillsForPrompt(craftSkills, 'read_skill')}`,
 ].join('\n');
 // A model call that goes silent ends after a minute; a working model streams long before that. It
 // gets one retry, said out loud in the session: nothing has been rendered or spent at that point.

@@ -209,6 +209,18 @@ Return ONLY the prompt text — no quotes, no JSON, no commentary.`,
     vars: ['{refRoster}', '{text}'],
     text: 'THE ATTACHED IMAGES, in send order:\n{refRoster}\n\nTHE DIRECTOR\'S TEXT:\n"""\n{text}\n"""\n\nReturn the JSON.',
   },
+  'write.image.system': {
+    agent: 'FilmAgent',
+    label: 'Write a picture prompt from a brief (instruction)',
+    vars: ['{refCount}', '{skill}'],
+    text: 'You write one prompt for an image model from a film director\'s brief.\n\nThe brief is the material and the authority on what the picture shows: carry its wording, its people, places and details. You structure it and ground it in the attached pictures; you never invent story, people or places it does not name. Words in quotes stay exactly as written.\n\n{refCount} pictures are attached, in order. Cite each where the brief cites it, exactly as the brief does (@Image1, @Image2 …), and cite no other number.\n\n{skill}\n\nReturn only the prompt, as plain text.',
+  },
+  'write.image.user': {
+    agent: 'FilmAgent',
+    label: 'Write a picture prompt from a brief (message)',
+    vars: ['{refRoster}', '{text}'],
+    text: 'THE ATTACHED PICTURES, in order:\n{refRoster}\n\nTHE BRIEF:\n"""\n{text}\n"""',
+  },
   'techTest.shots.system': {
     agent: 'Tech Test',
     label: 'Write the test shots (instruction)',

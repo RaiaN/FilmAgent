@@ -41,3 +41,4 @@ asset-ids.txt
 .gitignore
 tools
 tools
+tests

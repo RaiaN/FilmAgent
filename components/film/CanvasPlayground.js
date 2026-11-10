@@ -419,7 +419,7 @@ const CanvasPlayground = ({ formValues, setFormValues, onProjectTitle, onStudioL
                 }))}
               />
               <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                The LLM behind every reasoning call, FilmAgent's session included
+                Reasoning model
               </Text>
             </div>
             <div>

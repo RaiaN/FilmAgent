@@ -24,10 +24,14 @@ describe('a run', () => {
   });
   test('the same refusal twice closes that tool, and only that tool', () => {
     const r = createRunRules({ ...limits, errors: 9 });
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1000);
+    r.error('edit_video', 'T1 is too short');
     r.error('edit_video', 'T1 is too short');
     expect(r.before('edit_video')).toBe('');
+    now.mockReturnValue(7000);
     r.error('edit_video', 'T1 is too short');
     expect(r.before('edit_video')).toContain('edit_video is closed for this run: T1 is too short');
+    now.mockRestore();
     expect(r.before('look')).toBe('');
   });
   test('a dropped connection is not a refusal: nothing closes and nothing counts', () => {

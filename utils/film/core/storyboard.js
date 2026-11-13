@@ -389,30 +389,86 @@ export const localToPoolTags = (text, figures) => {
   return t.replace(/@@P(\d+)@@/g, '[Image $1]');
 };
 
-// THE PANELS, all at once: key moments, each moment's setting plate joins the pool, each moment
-// authored. `count` asks for exactly that many; the planner gets one corrective ask, then it is an
-// error. `plateOf(place)` gives the film's plate for a place, or nothing.
+// THE PANELS, in one call: the key moments picked and every panel written together, so the model's
+// spec rides once and each panel is written knowing the whole board. The film's place plates join
+// the pool from the start, so a moment set in a place is written with its setting. Every promise
+// is checked in code — the count asked for, each quote verbatim, 4–15 s, a place, references in
+// range, every spoken line of the quote in the motion — with ONE corrective ask naming what failed;
+// whatever still fails is an error. `plateOf(place)` gives the film's plate for a place, or nothing.
 export const storyboardPanels = async ({ script = '', style = '', references = [], labels = [], places = [], plateOf = () => null, note = '', count = 0, config } = {}, ctx) => {
-  const ask = (extra = '') => storyboardMoments({ script, style, references, labels, places, config, note: [note, count ? `Select exactly ${count} moments.` : '', extra].filter(Boolean).join('\n') }, ctx);
-  let moments = await ask();
-  if (count && moments.length !== count) moments = await ask(`Your last answer had ${moments.length}.`);
-  if (count && moments.length !== count) throw new Error(`The script gave ${moments.length} key moments, not the ${count} asked for.`);
+  const text = String(script || '').trim();
+  if (!text) throw new Error('Write the script first.');
+  if (labels.length && labels.length !== references.length) throw new Error(`${references.length} plates but ${labels.length} names for them.`);
   const pool = [...references];
+  const names = [...labels];
   const settingOf = new Map();
-  [...new Set(moments.map((m) => m.place))].forEach((place) => {
+  places.forEach((place) => {
     const plate = plateOf(place);
     if (!plate) return;
-    if (!pool.includes(plate)) pool.push(plate);
-    settingOf.set(place, pool.indexOf(plate) + 1);
+    if (!pool.includes(plate)) { pool.push(plate); names.push(`the place ${place}`); }
+    settingOf.set(place.toLowerCase(), pool.indexOf(plate) + 1);
   });
-  const panels = [];
-  await runWithConcurrency(moments.map((m, i) => async () => {
-    const setting = settingOf.get(m.place);
-    const figures = setting && !m.figures.includes(setting) ? [...m.figures, setting] : m.figures;
-    const a = await storyboardAuthor({ script, span: m.span, beat: m.beat, job: m.job, shotTemplate: m.shotTemplate, seconds: m.seconds, prevBeat: moments[i - 1]?.beat || '', nextBeat: moments[i + 1]?.beat || '', references: figures.map((g) => pool[g - 1]), settingIndex: figures.indexOf(setting) + 1, config }, ctx);
-    panels[i] = { ...m, figures, body: localToPoolTags(a.body, figures), motion: localToPoolTags(a.motion, figures), audio: a.audio, expression: a.expression, missingDialogue: a.missingDialogue || [] };
-  }));
-  return { panels, references: pool };
+  const refs = fitList(pool, 10, 'plates for the storyboard');
+  fitText(text, 12000, 'The script');
+  fitText(String(note || ''), 1500, "The director's note");
+  const settings = [...settingOf].map(([place, n]) => `[Image ${n}] is the place ${places.find((x) => x.toLowerCase() === place)}`).join('; ');
+  const system = await crewStep('crew-ad', 'board', { templates: shotTemplateCatalog(), refCount: String(refs.length), settings: settings ? `THE SETTINGS: ${settings}. A moment set in one of these places lists its plate in figures and is written IN that exact place.` : '', skill: await requireSkillLine('seedance25') });
+  const wantCount = count ? `Select exactly ${count} moments.` : '';
+  const ask = async (retry) => {
+    const userNote = [note, wantCount].filter(Boolean).join('\n');
+    const { content } = await ctx.client.reason({
+      prompt: renderTemplate('storyboard.moments.user', { script: SPAN_SLOT, style: style || 'auto', world: worldNote(names, places), note: userNote.trim() ? "\nDIRECTOR'S NOTE — apply it to the selection:\n@@NOTE@@\n" : '', retry }).split(SPAN_SLOT).join(text).split('@@NOTE@@').join(userNote),
+      systemPrompt: system,
+      images: refs,
+      modelId: getModel('reasoner', config),
+      reasoningEffort: getRuntime(config).reasoningEffort,
+    });
+    const raw = parseJson(content) || {};
+    return (Array.isArray(raw.moments) ? raw.moments : []).map((m, i) => {
+      const figs = Array.isArray(m?.figures) ? [...new Set(m.figures.map((x) => Number(x)))] : [];
+      const place = String(m?.place || '').replace(/\s+/g, ' ').trim();
+      const setting = settingOf.get(place.toLowerCase());
+      const figures = figs.filter((x) => x >= 1 && x <= refs.length);
+      return {
+        beat: String(m?.title || `Moment ${i + 1}`).replace(/\s+/g, ' ').trim(),
+        job: String(m?.turn || '').replace(/\s+/g, ' ').trim(),
+        // An id outside the library stays EMPTY — no camera is ever substituted.
+        shotTemplate: SHOT_TEMPLATE_BY_ID[m?.shotTemplate] ? m.shotTemplate : '',
+        figures: setting && !figures.includes(setting) ? [...figures, setting] : figures,
+        badFigures: figs.filter((x) => !(x >= 1 && x <= refs.length)),
+        intExt: /^int/i.test(String(m?.intExt || '')) ? 'INT' : /^ext/i.test(String(m?.intExt || '')) ? 'EXT' : '',
+        place,
+        seconds: Math.round(Number(m?.seconds)),
+        // The quote keeps its line breaks — it IS the script's own text.
+        span: String(m?.quote || '').trim(),
+        body: String(m?.body || '').replace(/\s+/g, ' ').trim(),
+        motion: String(m?.motion || '').replace(/\s+/g, ' ').trim(),
+        audio: String(m?.audio || '').replace(/\s+/g, ' ').trim(),
+        expression: String(m?.expression || '').replace(/\s+/g, ' ').trim(),
+      };
+    });
+  };
+  const problemsOf = (moments) => {
+    if (!moments.length) return ['no moments came back'];
+    const out = momentProblems(moments, text, refs.length);
+    if (count && moments.length !== count) out.push(`Your last answer had ${moments.length} moments; select exactly ${count}`);
+    moments.forEach((m, i) => {
+      const tag = `moment ${i + 1} ("${m.beat}")`;
+      if (!m.body || !m.motion) out.push(`${tag}: body and motion are both needed`);
+      const lost = spanDialogueLines(m.span).filter((l) => !normText(m.motion).includes(normText(l)));
+      if (lost.length) out.push(`${tag}: motion dropped these spoken lines, each word-for-word in curly braces: ${lost.map((l) => `"${l}"`).join(' · ')}`);
+    });
+    return out;
+  };
+  let moments = await ask('');
+  let problems = problemsOf(moments);
+  if (problems.length) {
+    moments = await ask(`\nRETRY — your previous answer broke these rules; fix every one:\n${problems.map((x) => `• ${x}`).join('\n')}\n`);
+    problems = problemsOf(moments);
+  }
+  if (count && moments.length && moments.length !== count) throw new Error(`The script gave ${moments.length} key moments, not the ${count} asked for.`);
+  if (problems.length) throw new Error(`The storyboard failed the checks: ${problems.join(' · ')}`);
+  return { panels: moments.map(({ badFigures, ...m }) => ({ ...m, missingDialogue: [] })), references: refs };
 };
 
 // SINGLE-IMAGE mode: render the WHOLE storyboard as ONE sheet (a grid of numbered panels). Composed

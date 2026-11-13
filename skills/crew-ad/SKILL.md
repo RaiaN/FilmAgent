@@ -78,6 +78,40 @@ For EACH moment, in story order, return:
 Return ONLY a JSON object — no prose, no code fences:
 {"moments":[{"title":"…","turn":"…","quote":"…","place":"…","intExt":"EXT","seconds":8,"shotTemplate":"…","figures":[…]}]}
 
+## step: board
+
+{skill}
+
+You are the film's DIRECTOR and CINEMATOGRAPHER making its storyboard in one pass: read the script, pick its KEY MOMENTS — the moments the story cannot do without: the turn, the reveal, the decision, the consequence — and write every one as a panel. A SELECTION, not coverage: connective action between moments is left out. As many moments as the story needs and no more; at least one. You see the whole board, so the panels follow on from each other: the same people, places and light carry through.
+
+EVERY MOMENT IS ONE SEEDANCE 2.5 GENERATION, so it must be filmable as one:
+• 4–15 seconds of screen time;
+• ONE place;
+• what the camera SEES and HEARS — never a thought, a feeling or a backstory;
+• at most 4 named subjects.
+
+THE QUOTE IS THE SOURCE OF TRUTH for its moment: carry its wording; EVERY line of dialogue in the quote rides word-for-word in the motion. Each moment has ONE JOB (its turn): every sentence advances that job or earns its place some other way.
+
+{refCount} REFERENCE IMAGES are attached as [Image 1] … [Image {refCount}] ({refCount} may be 0). Address each subject you use explicitly as [Image N], with the same number everywhere. {settings}
+
+For EACH moment, in story order, return:
+• title — 2–4 words.
+• turn — ONE short line: what changes in this moment.
+• quote — the script's own words this moment comes from, COPIED VERBATIM: exact characters, dialogue word-for-word, nothing paraphrased.
+• place — the moment's location, named the same way every time it recurs.
+• intExt — "INT" or "EXT".
+• seconds — an integer 4–15: the screen time the moment needs.
+• shotTemplate — the EXACT id of the best-fit camera setup from the LIBRARY:
+{templates}
+• figures — the reference numbers that APPEAR in this moment ([] when none attached).
+• body — the shot's OPENING frame as a Seedream keyframe, 2–5 sentences. THE FRAME CATCHES THE SITUATION ALREADY UNDER WAY — not the instant before it starts: weight already shifted, eyeline already committed, hands already where the action has put them, and whatever the subject is up against already present in frame. Never a lineup, never a neutral standing pose. In this order: (1) SUBJECT — 'The <subject> in [Image N] is the main subject — keep their exact identity, facial features, body proportions and temperament unchanged' (place/object: 'the exact <place/object> in [Image N]'); the reference gives IDENTITY ONLY — the POSE comes from this shot's situation and never from the reference's own pose. (2) SECONDARY subjects via their own [Image K], each doing what the situation has them doing. (3) ENVIRONMENT — location, set details, time of day. (4) LIGHTING, colour grade, mood. A single sharp FRAME — no camera verbs, nothing mid-blur, no one looks at camera, no on-image text.
+• motion — the shot's SITUATION for the video model, in event order, as plain prose — NEVER numeric time markers: who is there, in what condition, what each is trying to do, and what happens as a result. The model simulates the world and derives the physical detail, so state the situation and the observable outcome; do NOT write a body-part script and do NOT instruct individual features. Every action at real-world speed; as many sentences as the quote needs and NO more. EVERY dialogue line from the quote, word-for-word in curly braces with its speaker named — the man in [Image 3] says in Japanese {…} — original language, never dropped; sound effects in angle brackets <…>; music in parentheses (…). What you leave out does not happen.
+• audio — the shot's sound line in the same symbol grammar, or empty.
+• expression — 1–3 words for the main subject's expression, or empty.
+
+Return ONLY a JSON object — no prose, no code fences:
+{"moments":[{"title":"…","turn":"…","quote":"…","place":"…","intExt":"EXT","seconds":8,"shotTemplate":"…","figures":[…],"body":"…","motion":"…","audio":"…","expression":"…"}]}
+
 ## step: author
 
 {skill}

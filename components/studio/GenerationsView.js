@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Select, Message } from '@arco-design/web-react';
-import { IconArchive, IconCopy, IconUndo } from '@arco-design/web-react/icon';
+import { IconArchive, IconClose, IconCopy, IconUndo } from '@arco-design/web-react/icon';
 import { C, MONO, Tile, Empty, Dot } from './ui';
 import { allVersions, archiveVersions, containerOf, pad2, withParentPoster } from '../../utils/film/studio/model';
 
@@ -36,7 +36,7 @@ const Segmented = ({ items, value, onChange, counts = {}, live }) => (
 const iconBtn = { cursor: 'pointer', color: C.muted, width: 26, height: 26, borderRadius: 7, display: 'inline-grid', placeItems: 'center', border: `1px solid ${C.line}`, flex: '0 0 auto' };
 const copy = (text) => navigator.clipboard.writeText(text).then(() => Message.success({ content: 'Prompt copied', duration: 1500 }), () => Message.error('Could not copy'));
 
-const Card = ({ s, ref_, v, label, now, open, archive }) => {
+const Card = ({ s, ref_, v, label, now, open, archive, cancel }) => {
   const [word, color] = TYPE_OF[v.kind] === 'video' && v.status !== 'running' && v.status !== 'failed' ? ['', C.muted] : STATUS[v.status] || ['', C.muted];
   const textual = TYPE_OF[v.kind] === 'text';
   const [prompt, setPrompt] = useState(false);
@@ -60,6 +60,7 @@ const Card = ({ s, ref_, v, label, now, open, archive }) => {
             : null}
           <span style={{ flex: 1 }} />
           {prompt && <span role="button" className="st-chip" title="Copy the prompt" aria-label="Copy the prompt" onClick={stop(() => copy(v.prompt))} style={iconBtn}><IconCopy /></span>}
+          {v.status === 'running' && cancel && v.name && <span role="button" className="st-chip" title="Cancel" aria-label="Cancel" onClick={stop(() => cancel(v.name))} style={iconBtn}><IconClose /></span>}
           {v.status !== 'running' && (v.archived
             ? <span role="button" className="st-chip" title="Bring back" aria-label="Bring back" onClick={stop(() => archive([{ ref: ref_, vid: v.id }], false))} style={iconBtn}><IconUndo /></span>
             : <span role="button" className="st-chip" title="Archive" aria-label="Archive" onClick={stop(() => archive([{ ref: ref_, vid: v.id }], true))} style={iconBtn}><IconArchive /></span>)}
@@ -70,8 +71,9 @@ const Card = ({ s, ref_, v, label, now, open, archive }) => {
   );
 };
 
-// `archive` replaces how archiving reaches the film, for a view that doesn't hold it itself.
-const GenerationsView = ({ s, set, open, archive: archiveTo, jobs = [] }) => {
+// `archive` replaces how archiving reaches the film, for a view that doesn't hold it itself; `cancel`
+// stops a render still running, by its name.
+const GenerationsView = ({ s, set, open, archive: archiveTo, cancel, jobs = [] }) => {
   const [place, setPlace] = useState('any');
   const [type, setType] = useState('any');
   const all = allVersions(s);
@@ -121,7 +123,7 @@ const GenerationsView = ({ s, set, open, archive: archiveTo, jobs = [] }) => {
             <div style={{ padding: '10px 12px', fontSize: 13, color: C.muted, fontFamily: MONO }}>{clock(now - j.since)}</div>
           </div>
         ))}
-        {list.map(({ ref, v, label }) => <Card key={`${label}-${v.id}`} s={s} ref_={ref} v={v} label={label} now={now} open={open} archive={archive} />)}
+        {list.map(({ ref, v, label }) => <Card key={`${label}-${v.id}`} s={s} ref_={ref} v={v} label={label} now={now} open={open} archive={archive} cancel={cancel} />)}
       </div>
     </div>
   );

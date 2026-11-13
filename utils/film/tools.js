@@ -38,6 +38,10 @@ const SAVE_ATTEMPTS = 6;
 const EDIT_WORDS = /\b(edit|add|insert|remove|delete|modify|replace|change)/i;
 const UNPLACED = { at: 'unplaced' };
 const BY = 'filmcode';
+// Work done in this server (pictures, cast, storyboards) runs in its memory: a restart ends it. Each
+// running version names the server it runs in, so one left over from before a restart is known dead.
+const SERVER = globalThis.filmToolsServer || (globalThis.filmToolsServer = `s-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
+const RUNNING = () => ({ status: 'running', server: SERVER });
 
 const str = (description) => ({ type: 'string', description });
 const names = (description) => ({ type: 'array', items: { type: 'string' }, description });
@@ -75,6 +79,7 @@ export const FILM_TOOLS = [
   tool('wait', `Wait for renders to end, up to ${WAIT_LIMIT_S} seconds at a time. Name only renders a tool has returned. Call again for what is still running.`, { ...PROJECT, names: names('The renders.') }, ['project', 'names']),
   tool('look', 'See a finished result. A video comes back with its frames, its technical facts, its volume and its own URL.', { ...PROJECT, name: str('Its name.'), at: { type: 'array', items: { type: 'number' }, description: 'Seconds to see frames at, instead of across its length.' } }, ['project', 'name']),
   tool('label', 'Organise results: set a label and add or remove tags, e.g. scene 2. Renders nothing.', { ...PROJECT, names: names('The results.'), label: str('Its label.'), add_tags: names('Tags to add.'), remove_tags: names('Tags to remove.') }, ['project', 'names']),
+  tool('cancel', 'Stop renders still running: those this server makes stop now; a video Ark has not begun stops at Ark, one it has begun finishes there and is not recorded. Only when the director asked.', { ...PROJECT, names: names('The running results, e.g. T4.') }, ['project', 'names']),
   tool('archive', 'Take results out of sight, or bring them back. Renders nothing.', { ...PROJECT, ids: names('Version ids.'), archived: { type: 'boolean' } }, ['project', 'ids', 'archived']),
   tool('forget_media', 'A file was deleted: take it out of the unplaced pool, and say what else still uses it.', { ...PROJECT, url: str('The file.') }, ['project', 'url']),
   tool('merge_film', 'Bring a Studio tab\'s copy of the film into the saved film, creating it if it is new.', { ...PROJECT, name: str('Its name, if it is new.'), studio: { type: 'object', description: 'The film as the tab holds it.' } }, ['project', 'studio']),
@@ -264,16 +269,18 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
     if (before) fail(`${before.v.name} failed on exactly these inputs: ${before.v.error}. Tell the director; only they can ask for it again.`);
   };
   const answerFor = (vid) => (n) => brief(n, media(n).find((x) => x.v.id === vid));
+  // A finished render lands only on a version still running: one cancelled meanwhile stays cancelled.
+  const land = (film, ref, vid, patch) => (allVersions(film).find((y) => y.v.id === vid)?.v.status === 'running' ? patchVersion(film, ref, vid, patch) : film);
   const addNew = (id, base, where = UNPLACED) => {
     const vid = uid('v-');
     return change(id, (s) => [addVersion(s, where, { id: vid, at: now(), by: BY, tags: [], ...base }), answerFor(vid)]);
   };
   // A render shows from the moment it is asked for: getting its references ready can take minutes.
   const start = async (id, base, starter, where) => {
-    const made = await addNew(id, { ...base, status: 'running' }, where);
+    const made = await addNew(id, { ...base, ...RUNNING() }, where);
     const settle = (patch) => change(id, (film) => {
       const x = find(film, made.name);
-      return [patchVersion(film, x.ref, x.v.id, patch), answerFor(x.v.id)];
+      return [land(film, x.ref, x.v.id, patch), answerFor(x.v.id)];
     });
     try {
       const { taskId } = await starter();
@@ -292,10 +299,10 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
   // A picture that takes a while: it shows as rendering from the start. `work` answers with the
   // version's finished fields, and `extra` says what else the agent hears about it.
   const drawn = async (id, base, work, extra = () => ({}), where = UNPLACED) => {
-    const started = await addNew(id, { ...base, status: 'running' }, where);
+    const started = await addNew(id, { ...base, ...RUNNING() }, where);
     const settle = (patch) => change(id, (film) => {
       const x = find(film, started.name);
-      const done = patchVersion(film, x.ref, x.v.id, patch);
+      const done = land(film, x.ref, x.v.id, patch);
       // The first picture an element gets is its plate.
       return [where.at === 'element' && patch.url && !x.c.picked ? pickVersion(done, x.ref, x.v.id, now()) : done, answerFor(x.v.id)];
     });
@@ -306,6 +313,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
       return settle({ status: 'failed', error: e.message || String(e) });
     }
     const added = await settle({ status: 'review', ...done });
+    if (added.status !== 'review') return added;
     await inLibrary({ url: done.url, kind: 'plate', label: base.label }, added.name, id);
     return { ...added, ...extra(done) };
   };
@@ -315,8 +323,12 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
   // a render recorded in the film is always in the Library too. Answers with how many still run.
   const settle = async (id, only) => {
     const { studio: s } = await load(id);
-    const open = media(s).filter((x) => x.v.status === 'running' && x.v.taskId && (only ? only.includes(x.v.name) : x.v.by !== 'board'));
-    const ended = [];
+    const mine = (x) => x.v.status === 'running' && (only ? only.includes(x.v.name) : x.v.by !== 'board');
+    const open = media(s).filter((x) => mine(x) && x.v.taskId);
+    // Work this server never ran, with no render at Ark to ask after, ended with the server that ran it.
+    const ended = media(s).filter((x) => mine(x) && !x.v.taskId && x.v.by !== 'board' && x.v.server !== SERVER)
+      .map((x) => ({ id: x.v.id, patch: { status: 'failed', error: 'It stopped when the server restarted. Make it again.' } }));
+    const dead = ended.length;
     for (const x of open) {
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -356,7 +368,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
         }))
         .catch(() => {});
     });
-    return open.length - ended.length;
+    return open.length - (ended.length - dead);
   };
 
   const TOOLS = {
@@ -588,13 +600,13 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
           const known = acc.elements.find((e) => e.kind === slot.kind && same(e.name, slot.name));
           const el = known || newElement({ kind: slot.kind, name: slot.name });
           const withEl = known ? acc : { ...acc, elements: [...acc.elements, el] };
-          return addVersion(withEl, { at: 'element', id: el.id }, { id: slot.vid, at: now(), by: BY, tags: ['cast'], kind: 'plate', label: slot.name, status: 'running', style });
+          return addVersion(withEl, { at: 'element', id: el.id }, { id: slot.vid, at: now(), by: BY, tags: ['cast'], kind: 'plate', label: slot.name, ...RUNNING(), style });
         }, film);
         return [next, (n) => Object.fromEntries(slots.map((slot) => [slot.vid, media(n).find((x) => x.v.id === slot.vid).v.name]))];
       });
       const settleSlot = (slot, patch) => change(project, (film) => {
         const x = media(film).find((y) => y.v.id === slot.vid);
-        const done = patchVersion(film, x.ref, slot.vid, patch);
+        const done = land(film, x.ref, slot.vid, patch);
         return [patch.url && !x.c.picked ? pickVersion(done, x.ref, slot.vid, now()) : done, null];
       });
       const pending = [];
@@ -634,15 +646,15 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
       const row = (status, extra = {}) => ({ at: now(), by: BY, tags: ['variation'], kind: 'plate', label: `${el.name} variation`, status, ...(base ? { parent: base.id, refs: [base.name] } : {}), ...extra });
       await change(project, (film) => {
         const withEl = film.elements.some((e) => e.id === el.id) ? film : { ...film, elements: [...film.elements, el] };
-        return [made.reduce((acc, id) => addVersion(acc, ref, row('running', { id, prompt: direction })), withEl), null];
+        return [made.reduce((acc, id) => addVersion(acc, ref, row('running', { id, prompt: direction, server: SERVER })), withEl), null];
       });
-      const settleOne = (id, patch) => change(project, (film) => [patchVersion(film, ref, id, patch), (n) => media(n).find((x) => x.v.id === id).v.name]);
+      const settleOne = (id, patch) => change(project, (film) => [land(film, ref, id, patch), (n) => { const x = media(n).find((y) => y.v.id === id); return x.v.status === patch.status ? x.v.name : null; }]);
       const pending = [];
       const draw = el.kind === 'character' ? characterVariations : locationVariations;
       const out = await draw({ imageUrl: base ? mediaOf(base) : '', direction: base ? (direction || words) : withFilmStyle(s, words), count, imageModel }, ctx, {
         onItem: (item, i) => {
           const url = item.cacheUrl || item.url;
-          pending.push(settleOne(made[i], { status: 'review', url, prompt: item.prompt }).then((name) => inLibrary({ url, kind: 'plate', label: `${el.name} variation` }, name, project)));
+          pending.push(settleOne(made[i], { status: 'review', url, prompt: item.prompt }).then((name) => name && inLibrary({ url, kind: 'plate', label: `${el.name} variation` }, name, project)));
         },
         onFail: (i, message) => pending.push(settleOne(made[i], { status: 'failed', error: message })),
         onAnchor: (a) => {
@@ -657,8 +669,8 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
       return { element: el.name, plate: byName(done, done.elements.find((e) => e.id === el.id).picked), results: made.map((id) => brief(done, media(done).find((x) => x.v.id === id))) };
     },
 
-    // Canvas's storyboard: key moments, each authored, drawn as one sheet. The panels stay on the
-    // picture, so their motion prompts can be shot later.
+    // The storyboard: key moments and their panels written in one call, drawn as one sheet. The panels
+    // stay on the picture, so their motion prompts can be shot later.
     storyboard: async ({ project, script, panels, refs = [], style = '', note = '', label = '', image_model }) => {
       if (panels !== undefined && !(Number.isInteger(panels) && panels >= 1)) fail(`A storyboard has a whole number of panels, not ${panels}.`);
       const { project: p, studio: s } = await load(project);
@@ -782,10 +794,10 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
       const { ref } = find(s, source);
       const vid = uid('v-');
       const base = { id: vid, at: now(), by: BY, tags: src.plan ? ['previz'] : [], kind: 'plate', label: label ?? src.label ?? '', prompt: instruction, refs: [src.name, ...(marks ? [marks.name] : [])], parent: src.id, edit: true, model: imageModel, ...(src.plan ? { plan: src.plan } : {}) };
-      await change(project, (film) => [addVersion(film, ref, { ...base, status: 'running' }), null]);
+      await change(project, (film) => [addVersion(film, ref, { ...base, ...RUNNING() }), null]);
       const settle = (patch) => change(project, (film) => {
         const x = media(film).find((y) => y.v.id === vid);
-        return [patchVersion(film, x.ref, vid, patch), answerFor(vid)];
+        return [land(film, x.ref, vid, patch), answerFor(vid)];
       });
       let out;
       try {
@@ -796,7 +808,7 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
       }
       const url = out.cacheUrl || out.url;
       const added = await settle({ status: 'review', url, prompt: out.prompt });
-      await inLibrary({ url, kind: 'plate', label: base.label }, added.name, project);
+      if (added.status === 'review') await inLibrary({ url, kind: 'plate', label: base.label }, added.name, project);
       return added;
     },
 
@@ -927,6 +939,23 @@ export const createFilmTools = ({ api, client, probe, skills, origin = '', withF
         }, s);
         return [next, (n) => ({ results: list.map((name) => brief(n, find(n, name))) })];
       });
+    },
+
+    cancel: async ({ project, names: wanted = [] }) => {
+      if (!wanted.length) fail('Name what to stop.');
+      const { studio: s } = await load(project);
+      const list = wanted.map((n) => find(s, n));
+      const busy = list.filter((x) => x.v.status !== 'running');
+      if (busy.length) fail(`${busy.map((x) => `${x.v.name} is ${x.v.status}`).join(', ')}: only running renders stop.`);
+      const notes = {};
+      for (const x of list) {
+        if (!x.v.taskId) { notes[x.v.name] = 'stopped'; continue; } // eslint-disable-line no-continue
+        // eslint-disable-next-line no-await-in-loop
+        const r = await api.post('/api/film/cancel', { taskId: x.v.taskId });
+        notes[x.v.name] = r.cancelled ? 'stopped at Ark' : `Ark was already making it (${r.error}): it finishes there and is not recorded`;
+      }
+      await change(project, (film) => [list.reduce((acc, x) => land(acc, find(acc, x.v.name).ref, x.v.id, { status: 'failed', error: 'Cancelled.' }), film), null]);
+      return { cancelled: notes };
     },
 
     archive: ({ project, ids = [], archived }) => change(project, (s) => [ids.reduce((acc, id) => {

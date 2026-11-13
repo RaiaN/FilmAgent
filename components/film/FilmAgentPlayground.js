@@ -141,6 +141,7 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
   const stop = () => postJson('/api/film/session', { action: 'stop', project: id }).catch((e) => Message.error(e.message));
   const onLabel = (name, change) => tool('label', { project: id, names: [name], ...change }).then(refresh).catch((e) => Message.error(e.message));
   const archive = (items, archived) => tool('archive', { project: id, ids: items.map((x) => x.vid), archived }).then(refresh).catch((e) => Message.error(e.message));
+  const cancel = (name) => tool('cancel', { project: id, names: [name] }).then(refresh).catch((e) => Message.error(e.message));
   // Deleted for good from the Library and the Asset Library. In the film, it leaves the unplaced pool;
   // a plate or take that was given a place stays, and you're told.
   const deleteAsset = async (it) => {
@@ -195,7 +196,7 @@ export default function FilmAgentPlayground({ active = true, project = null }) {
           <div style={{ minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'grid' }}>
             {workbench && <EditImage key={open.id} result={workbench} words={open.words} onCancel={cancelEdit} onUse={useEdit} />}
             {!workbench && view === 'preview' && <Preview results={results} onLabel={onLabel} focus={focus} loading={!!id && !loaded} />}
-            {!workbench && view === 'generations' && <GenerationsView s={studio} archive={archive} open={(ref, vid) => { const r = results.find((x) => x.id === vid); if (r) show(r.name); }} />}
+            {!workbench && view === 'generations' && <GenerationsView s={studio} archive={archive} cancel={cancel} open={(ref, vid) => { const r = results.find((x) => x.id === vid); if (r) show(r.name); }} />}
             {!workbench && view === 'library' && <Library project={id} version={results.length} onDelete={deleteAsset} />}
           </div>
         </div>

@@ -432,7 +432,7 @@ const StudioPlayground = ({ projectStudio = null, onStudioChange, projectTitle =
           <DirectPage s={s} set={set} scope={scope} setScope={setScope} pick={pick} review={review} toast={toast} actions={actions} canvas={canvas} onStale={onStale} />
         </div>
       ) : (
-        <GenerationsView s={s} set={set} open={review} jobs={jobs} />
+        <GenerationsView s={s} set={set} open={review} jobs={jobs} cancel={(name) => tool('cancel', { names: [name] }).catch((e) => Message.error(e.message))} />
       )}
       {linked && (mode === 'direct' ? scope.type === 'scene' || scope.type === 'shot' : bar.parent || bar.source || bar.refs.length) && <GenerateBar s={s} bar={bar} setBar={setBar} onGenerate={generate} onEnhance={enhance} enhancing={actions.busy('Enhancing')} onBackToShot={() => barHome()} container={() => rootRef.current} setStyle={changeStyle} open={barOpen} setOpen={setBarOpen} />}
       {view && <Viewer s={s} set={set} toast={toast} view={view} setView={setView} onPick={pickInView} onNote={note} onRework={rework} onFrame={frame} onFinal={final} onReject={rejectInView} canvas={canvas} />}

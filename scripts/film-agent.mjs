@@ -39,11 +39,36 @@ process.env.FILM_AGENT_KEY = need('MODELARK_API_KEY');
 const modelId = process.env.FILM_AGENT_MODEL || die('FILM_AGENT_MODEL is not set: the session route sets it from the film\'s planner.');
 const thinking = process.env.FILM_AGENT_THINKING || die('FILM_AGENT_THINKING is not set: the planner\'s effort, or off.');
 
+// A tool runs as a job on the server and is asked after until it ends: a storyboard or a cast takes
+// minutes, longer than one HTTP answer may take before the connection is dropped. A dropped check
+// is only a check: the job goes on, so the next check asks again, up to JOB_CHECK_MISSES in a row.
+const JOB_POLL_MS = 2000;
+const JOB_CHECK_MISSES = 5;
 const call = async (tool, args) => {
-  const res = await fetch(`${BASE}/api/film/tools`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, args }) });
-  const out = await res.json();
-  if (!res.ok) throw new Error(out.error || `${tool} answered ${res.status}`);
-  return out;
+  const res = await fetch(`${BASE}/api/film/tools`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, args, background: true }) });
+  const started = await res.json();
+  if (!res.ok) throw new Error(started.error || `${tool} answered ${res.status}`);
+  for (let misses = 0; ;) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => { setTimeout(r, JOB_POLL_MS); });
+    let job;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const check = await fetch(`${BASE}/api/film/tools?job=${encodeURIComponent(started.job)}`);
+      // eslint-disable-next-line no-await-in-loop
+      job = await check.json();
+      if (!check.ok) throw new Error(job.error || `Checking ${tool} answered ${check.status}`);
+      misses = 0;
+    } catch (e) {
+      misses += 1;
+      if (misses >= JOB_CHECK_MISSES || /not known here/.test(e.message)) throw e;
+      continue; // eslint-disable-line no-continue
+    }
+    if (job.done) {
+      if (job.error) throw new Error(job.error);
+      return job.out;
+    }
+  }
 };
 const pictureOf = async (url) => {
   const res = await fetch(url.startsWith('/') ? BASE + url : url);
